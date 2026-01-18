@@ -22,15 +22,40 @@ public sealed class XmppConnection : IAsyncDisposable
     private StreamWriter?   _writer;
     private CancellationTokenSource? _cts;
     
+    private int _messageIdCounter;
+    
+    // Core
     public Roster Roster { get; } = new();
     
-    public event Action<string, string, string>? OnMessage;
-    public event Action<string, string>?         OnPresence;
+    // XEP Managers
+    public ReceiptTracker Receipts { get; } = new();
+    public CarbonManager? Carbons { get; private set; }
+    public PubSubManager? PubSub { get; private set; }
+    
+    // Core Events
+    public event Action<string, string, string, string?>? OnMessage;  // from, to, body, messageId
+    public event Action<string, string>?         OnPresence;          // from, type
     public event Action<string>?                 OnRawXml;
     public event Action<string>?                 OnError;
     
+    // XEP-0085: Chat State
+    public event Action<string, ChatState>?      OnChatState;         // from, state
+    
+    // XEP-0184: Receipts
+    public event Action<string, string>?         OnReceiptReceived;   // from, messageId
+    
+    // XEP-0280: Carbons
+    public event Action<CarbonMessage>?          OnCarbonMessage;     // carbonMessage
+    
+    // XEP-0060: PubSub
+    public event Action<PubSubEvent>?            OnPubSubEvent;       // event
+    
+    // Security
+    public event Action<string>?                 OnSpoofingAttempt;   // description
+    
     public bool IsConnected => _tcpClient?.Connected == true;
     public string FullJid { get; private set; } = string.Empty;
+    public string BareJid => GetBareJid(FullJid);
 
     public XmppConnection(string jid, string password, string? server = null, int port = 5222)
     {
@@ -45,6 +70,9 @@ public sealed class XmppConnection : IAsyncDisposable
         _domain   = parts[1];
         _server   = server ?? _domain;
         _port     = port;
+        
+        // Wire up receipt events
+        Receipts.OnReceiptReceived += (msgId, from) => OnReceiptReceived?.Invoke(from, msgId);
     }
 
     public async Task ConnectAsync(CancellationToken ct = default)
@@ -102,11 +130,22 @@ public sealed class XmppConnection : IAsyncDisposable
             await PerformSessionAsync(ct);
         }
         
-        // 7. Roster laden
+        // 7. Initialize XEP Managers
+        Carbons = new CarbonManager(BareJid);
+        Carbons.OnCarbonReceived += carbon => OnCarbonMessage?.Invoke(carbon);
+        
+        PubSub = new PubSubManager($"pubsub.{_domain}");
+        PubSub.OnEvent += evt => OnPubSubEvent?.Invoke(evt);
+        
+        // 8. Enable Carbons (XEP-0280)
+        Console.WriteLine("[*] Aktiviere Message Carbons...");
+        await EnableCarbonsAsync(ct);
+        
+        // 9. Roster laden
         Console.WriteLine("[*] Lade Roster...");
         await RequestRosterAsync(ct);
         
-        // 8. Presence
+        // 10. Presence
         await SendPresenceAsync();
         Console.WriteLine("[+] Online!");
     }
@@ -144,12 +183,10 @@ public sealed class XmppConnection : IAsyncDisposable
             RosterVersioning = xml.Contains("<ver")
         };
         
-        // SASL Mechanisms extrahieren
         var mechMatch = Regex.Match(xml, @"<mechanisms[^>]*>(.*?)</mechanisms>", RegexOptions.Singleline);
         if (mechMatch.Success)
         {
-            var mechXml = mechMatch.Groups[1].Value;
-            var mechs = Regex.Matches(mechXml, @"<mechanism>([^<]+)</mechanism>");
+            var mechs = Regex.Matches(mechMatch.Groups[1].Value, @"<mechanism>([^<]+)</mechanism>");
             foreach (Match m in mechs)
             {
                 features.SaslMechanisms.Add(m.Groups[1].Value);
@@ -205,7 +242,6 @@ public sealed class XmppConnection : IAsyncDisposable
         await _writer!.WriteAsync(
             $"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{authBase64}</auth>");
         
-        // SASL Response kann <success/>, <success>...</success> oder <failure>...</failure> sein
         var response = await ReadSaslResponseAsync(TimeSpan.FromSeconds(10), ct);
         
         if (response.Contains("<success"))
@@ -222,71 +258,6 @@ public sealed class XmppConnection : IAsyncDisposable
         {
             throw new AuthenticationException($"Unerwartete Auth-Antwort: {response}");
         }
-    }
-    
-    /// <summary>
-    /// Liest eine SASL-Antwort (success oder failure)
-    /// </summary>
-    private async Task<string> ReadSaslResponseAsync(TimeSpan timeout, CancellationToken ct)
-    {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        
-        var buffer = new StringBuilder();
-        var charBuf = new char[4096];
-        
-        while (true)
-        {
-            cts.Token.ThrowIfCancellationRequested();
-            
-            var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
-            if (read == 0)
-            {
-                throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
-            }
-            
-            buffer.Append(charBuf, 0, read);
-            var xml = buffer.ToString();
-            
-            // Prüfe auf success - kann sein:
-            // <success xmlns='...'/> (self-closing mit Attributen)
-            // <success/> (self-closing ohne Attribute)
-            // <success>...</success> (mit Content)
-            if (xml.Contains("<success"))
-            {
-                // Warte bis das Tag komplett ist (endet mit /> oder </success>)
-                if (IsCompleteElement(xml, "success"))
-                {
-                    return xml;
-                }
-            }
-            
-            // Prüfe auf failure
-            if (xml.Contains("<failure"))
-            {
-                if (IsCompleteElement(xml, "failure"))
-                {
-                    return xml;
-                }
-            }
-        }
-    }
-    
-    /// <summary>
-    /// Prüft ob ein XML-Element komplett ist (self-closing oder mit End-Tag)
-    /// </summary>
-    private static bool IsCompleteElement(string xml, string tagName)
-    {
-        var startIdx = xml.IndexOf($"<{tagName}", StringComparison.Ordinal);
-        if (startIdx < 0) return false;
-        
-        // Prüfe auf self-closing
-        var selfCloseIdx = FindSelfClosingEnd(xml, startIdx);
-        if (selfCloseIdx >= 0) return true;
-        
-        // Prüfe auf End-Tag
-        var endTag = $"</{tagName}>";
-        return xml.IndexOf(endTag, startIdx, StringComparison.Ordinal) >= 0;
     }
 
     private async Task<string> PerformBindAsync(CancellationToken ct)
@@ -312,8 +283,30 @@ public sealed class XmppConnection : IAsyncDisposable
             "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>" +
             "</iq>");
         
-        // Session-Response kann <iq .../> oder <iq ...>...</iq> sein
         await ReadStanzaAsync("iq", TimeSpan.FromSeconds(10), ct);
+    }
+
+    private async Task EnableCarbonsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _writer!.WriteAsync(CarbonManager.EnableIq());
+            var response = await ReadStanzaAsync("iq", TimeSpan.FromSeconds(5), ct);
+            
+            if (response.Contains("type='result'") || response.Contains("type=\"result\""))
+            {
+                Carbons!.SetEnabled(true);
+                Console.WriteLine("[+] Message Carbons aktiviert");
+            }
+            else
+            {
+                Console.WriteLine("[!] Message Carbons nicht verfügbar");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[!] Carbons-Fehler: {ex.Message}");
+        }
     }
 
     private async Task RequestRosterAsync(CancellationToken ct)
@@ -325,30 +318,18 @@ public sealed class XmppConnection : IAsyncDisposable
         
         var response = await ReadStanzaAsync("iq", TimeSpan.FromSeconds(10), ct);
         
-        Console.WriteLine($"[DEBUG Roster] Response: {response}");
-        
-        // Finde alle <item .../> oder <item ...>...</item> Elemente
         var itemMatches = Regex.Matches(response, @"<item\s+([^>]+?)(?:/>|>(.*?)</item>)", RegexOptions.Singleline);
-        
-        Console.WriteLine($"[DEBUG Roster] Gefundene Items: {itemMatches.Count}");
         
         foreach (Match m in itemMatches)
         {
             var attributes = m.Groups[1].Value;
             var content = m.Groups[2].Success ? m.Groups[2].Value : "";
             
-            Console.WriteLine($"[DEBUG Roster] Item attributes: {attributes}");
-            
-            // Extrahiere Attribute einzeln (unabhängig von Reihenfolge)
             var jid = ExtractAttributeValue(attributes, "jid");
             var name = ExtractAttributeValue(attributes, "name");
             var subscription = ExtractAttributeValue(attributes, "subscription");
             
-            if (string.IsNullOrEmpty(jid))
-            {
-                Console.WriteLine("[DEBUG Roster] Item ohne JID übersprungen");
-                continue;
-            }
+            if (string.IsNullOrEmpty(jid)) continue;
             
             var item = new RosterItem(jid)
             {
@@ -356,7 +337,6 @@ public sealed class XmppConnection : IAsyncDisposable
                 Subscription = ParseSubscription(subscription)
             };
             
-            // Gruppen aus Content extrahieren
             if (!string.IsNullOrEmpty(content))
             {
                 var groups = Regex.Matches(content, @"<group>([^<]+)</group>");
@@ -366,19 +346,14 @@ public sealed class XmppConnection : IAsyncDisposable
                 }
             }
             
-            Console.WriteLine($"[DEBUG Roster] Verarbeite: {jid}, name={name}, sub={subscription}");
             Roster.ProcessRosterItem(item);
         }
         
         Console.WriteLine($"[+] Roster geladen: {Roster.Items.Count} Kontakte");
     }
-    
-    /// <summary>
-    /// Extrahiert einen Attributwert aus einem Attribut-String (z.B. "jid='user@server' name='Name'")
-    /// </summary>
+
     private static string? ExtractAttributeValue(string attributes, string attrName)
     {
-        // Suche nach attrName='...' oder attrName="..."
         var match = Regex.Match(attributes, $@"{attrName}\s*=\s*['""]([^'""]*)['""]", RegexOptions.IgnoreCase);
         return match.Success ? match.Groups[1].Value : null;
     }
@@ -392,10 +367,8 @@ public sealed class XmppConnection : IAsyncDisposable
         _ => SubscriptionState.None
     };
 
-    /// <summary>
-    /// Liest solange vom Stream bis ein komplettes XML-Element des angegebenen Tags empfangen wurde.
-    /// Unterstützt sowohl self-closing Tags als auch Tags mit Content.
-    /// </summary>
+    // ===== XML READING METHODS =====
+
     private async Task<string> ReadStanzaAsync(string tagName, TimeSpan timeout, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -410,42 +383,26 @@ public sealed class XmppConnection : IAsyncDisposable
             
             var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
             if (read == 0)
-            {
                 throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
-            }
             
             buffer.Append(charBuf, 0, read);
-            
             var xml = buffer.ToString();
             
-            // Suche nach dem Start-Tag
             var startTag = $"<{tagName}";
             var startIdx = xml.IndexOf(startTag, StringComparison.Ordinal);
             if (startIdx < 0) continue;
             
-            // Prüfe ob self-closing: <tag ... />
             var selfCloseIdx = FindSelfClosingEnd(xml, startIdx);
             if (selfCloseIdx >= 0)
-            {
-                return xml[..(selfCloseIdx + 2)]; // inkl. "/>"
-            }
+                return xml[..(selfCloseIdx + 2)];
             
-            // Prüfe ob vollständiges Element mit End-Tag
             var endTag = $"</{tagName}>";
             var endIdx = xml.IndexOf(endTag, startIdx, StringComparison.Ordinal);
             if (endIdx >= 0)
-            {
                 return xml[..(endIdx + endTag.Length)];
-            }
-            
-            // Noch nicht komplett - weiter lesen
         }
     }
-    
-    /// <summary>
-    /// Findet das Ende eines self-closing Tags, z.B. <tag attr="val" />
-    /// Gibt -1 zurück wenn kein self-closing Tag gefunden wurde.
-    /// </summary>
+
     private static int FindSelfClosingEnd(string xml, int startIdx)
     {
         var inQuote = false;
@@ -455,7 +412,6 @@ public sealed class XmppConnection : IAsyncDisposable
         {
             var c = xml[i];
             
-            // Quote-Tracking für Attributwerte
             if ((c == '"' || c == '\'') && !inQuote)
             {
                 inQuote = true;
@@ -466,27 +422,18 @@ public sealed class XmppConnection : IAsyncDisposable
                 inQuote = false;
             }
             
-            // Außerhalb von Quotes: suche nach /> oder >
             if (!inQuote)
             {
                 if (c == '/' && xml[i + 1] == '>')
-                {
-                    return i; // Position des '/'
-                }
+                    return i;
                 if (c == '>')
-                {
-                    // Normales Tag-Ende, kein self-closing
                     return -1;
-                }
             }
         }
         
-        return -1; // Noch nicht komplett
+        return -1;
     }
-    
-    /// <summary>
-    /// Liest bis stream:features komplett empfangen wurde
-    /// </summary>
+
     private async Task<string> ReadStreamFeaturesAsync(TimeSpan timeout, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -501,26 +448,52 @@ public sealed class XmppConnection : IAsyncDisposable
             
             var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
             if (read == 0)
-            {
                 throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
-            }
             
             buffer.Append(charBuf, 0, read);
             var xml = buffer.ToString();
             
-            // stream:features kann leer sein: <stream:features/>
-            // oder mit Inhalt: <stream:features>...</stream:features>
-            
-            if (xml.Contains("<stream:features/>"))
-            {
+            if (xml.Contains("<stream:features/>") || xml.Contains("</stream:features>"))
                 return xml;
-            }
-            
-            if (xml.Contains("</stream:features>"))
-            {
-                return xml;
-            }
         }
+    }
+
+    private async Task<string> ReadSaslResponseAsync(TimeSpan timeout, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeout);
+        
+        var buffer = new StringBuilder();
+        var charBuf = new char[4096];
+        
+        while (true)
+        {
+            cts.Token.ThrowIfCancellationRequested();
+            
+            var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
+            if (read == 0)
+                throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
+            
+            buffer.Append(charBuf, 0, read);
+            var xml = buffer.ToString();
+            
+            if (xml.Contains("<success") && IsCompleteElement(xml, "success"))
+                return xml;
+            
+            if (xml.Contains("<failure") && IsCompleteElement(xml, "failure"))
+                return xml;
+        }
+    }
+
+    private static bool IsCompleteElement(string xml, string tagName)
+    {
+        var startIdx = xml.IndexOf($"<{tagName}", StringComparison.Ordinal);
+        if (startIdx < 0) return false;
+        
+        var selfCloseIdx = FindSelfClosingEnd(xml, startIdx);
+        if (selfCloseIdx >= 0) return true;
+        
+        return xml.IndexOf($"</{tagName}>", startIdx, StringComparison.Ordinal) >= 0;
     }
 
     // ===== PUBLIC API =====
@@ -540,19 +513,58 @@ public sealed class XmppConnection : IAsyncDisposable
         await _writer!.WriteAsync(presence.ToString());
     }
 
-    public async Task SendMessageAsync(string to, string body)
+    /// <summary>
+    /// Sendet eine Nachricht mit optionalen XEP-Features
+    /// </summary>
+    public async Task<string> SendMessageAsync(string to, string body, bool requestReceipt = true)
     {
-        var message = $"<message to='{XmlEscape(to)}' type='chat'>" +
-                      $"<body>{XmlEscape(body)}</body>" +
-                      $"</message>";
+        var messageId = GenerateMessageId();
         
+        var sb = new StringBuilder();
+        sb.Append($"<message to='{XmlEscape(to)}' type='chat' id='{messageId}'>");
+        sb.Append($"<body>{XmlEscape(body)}</body>");
+        
+        // XEP-0184: Receipt Request
+        if (requestReceipt)
+        {
+            sb.Append(ReceiptBuilder.RequestXml);
+            Receipts.TrackMessage(messageId, to);
+        }
+        
+        // XEP-0085: Chat State "active"
+        sb.Append(ChatState.Active.ToXml());
+        
+        sb.Append("</message>");
+        
+        await _writer!.WriteAsync(sb.ToString());
+        return messageId;
+    }
+
+    /// <summary>
+    /// Sendet nur einen Chat-State (XEP-0085)
+    /// </summary>
+    public async Task SendChatStateAsync(string to, ChatState state)
+    {
+        var message = $"<message to='{XmlEscape(to)}' type='chat'>{state.ToXml()}</message>";
         await _writer!.WriteAsync(message);
+    }
+
+    /// <summary>
+    /// Sendet eine Lesebestätigung (XEP-0184)
+    /// </summary>
+    public async Task SendReceiptAsync(string to, string messageId)
+    {
+        await _writer!.WriteAsync(ReceiptBuilder.CreateReceipt(to, messageId));
     }
 
     public async Task SendRawAsync(string xml)
     {
         await _writer!.WriteAsync(xml);
     }
+
+    private string GenerateMessageId() => $"msg-{Interlocked.Increment(ref _messageIdCounter)}-{Guid.NewGuid():N}";
+
+    // ===== ROSTER OPERATIONS =====
 
     public async Task AddContactAsync(string jid, string? name = null, IEnumerable<string>? groups = null)
     {
@@ -573,6 +585,46 @@ public sealed class XmppConnection : IAsyncDisposable
     public async Task DenySubscriptionAsync(string jid)
     {
         await SendRawAsync(RosterStanzaBuilder.Unsubscribed(jid));
+    }
+
+    // ===== PUBSUB OPERATIONS (XEP-0060) =====
+
+    public async Task PubSubSubscribeAsync(string nodeId, string? pubsubService = null)
+    {
+        var service = pubsubService ?? PubSub!.PubSubService;
+        await SendRawAsync(PubSubBuilder.Subscribe(service, nodeId, BareJid));
+        PubSub!.AddSubscription(nodeId);
+    }
+
+    public async Task PubSubUnsubscribeAsync(string nodeId, string? pubsubService = null)
+    {
+        var service = pubsubService ?? PubSub!.PubSubService;
+        await SendRawAsync(PubSubBuilder.Unsubscribe(service, nodeId, BareJid));
+        PubSub!.RemoveSubscription(nodeId);
+    }
+
+    public async Task PubSubPublishAsync(string nodeId, string itemId, string payload, string? pubsubService = null)
+    {
+        var service = pubsubService ?? PubSub!.PubSubService;
+        await SendRawAsync(PubSubBuilder.Publish(service, nodeId, itemId, payload));
+    }
+
+    public async Task PubSubCreateNodeAsync(string nodeId, string? pubsubService = null)
+    {
+        var service = pubsubService ?? PubSub!.PubSubService;
+        await SendRawAsync(PubSubBuilder.CreateNode(service, nodeId));
+    }
+
+    public async Task PubSubDeleteNodeAsync(string nodeId, string? pubsubService = null)
+    {
+        var service = pubsubService ?? PubSub!.PubSubService;
+        await SendRawAsync(PubSubBuilder.DeleteNode(service, nodeId));
+    }
+
+    public async Task PubSubGetItemsAsync(string nodeId, int? maxItems = null, string? pubsubService = null)
+    {
+        var service = pubsubService ?? PubSub!.PubSubService;
+        await SendRawAsync(PubSubBuilder.GetItems(service, nodeId, maxItems));
     }
 
     // ===== RECEIVE LOOP =====
@@ -609,54 +661,108 @@ public sealed class XmppConnection : IAsyncDisposable
     {
         var xml = buffer.ToString();
         
-        // Messages
-        ProcessStanzaType(ref xml, "message", stanza =>
-        {
-            var from = ExtractAttribute(stanza, "from") ?? "unknown";
-            var to = ExtractAttribute(stanza, "to") ?? FullJid;
-            var body = ExtractElement(stanza, "body");
-            
-            if (!string.IsNullOrEmpty(body))
-            {
-                OnMessage?.Invoke(from, to, body);
-            }
-        });
+        // Messages verarbeiten
+        ProcessStanzaType(ref xml, "message", ProcessMessage);
         
-        // Presence
-        ProcessStanzaType(ref xml, "presence", stanza =>
-        {
-            var from = ExtractAttribute(stanza, "from") ?? "unknown";
-            var type = ExtractAttribute(stanza, "type") ?? "available";
-            
-            if (type == "subscribe")
-            {
-                Roster.RaiseSubscriptionRequest(from, ExtractElement(stanza, "status") ?? "");
-            }
-            else
-            {
-                var show = ExtractElement(stanza, "show");
-                var status = ExtractElement(stanza, "status");
-                Roster.UpdatePresence(from, type, show, status);
-            }
-            
-            OnPresence?.Invoke(from, type);
-        });
+        // Presence verarbeiten
+        ProcessStanzaType(ref xml, "presence", ProcessPresence);
         
-        // IQ
-        ProcessStanzaType(ref xml, "iq", stanza =>
-        {
-            var type = ExtractAttribute(stanza, "type");
-            var id = ExtractAttribute(stanza, "id");
-            
-            if (type == "set" && stanza.Contains("jabber:iq:roster"))
-            {
-                ProcessRosterPush(stanza);
-                _ = SendRawAsync($"<iq type='result' id='{id}'/>");
-            }
-        });
+        // IQ verarbeiten
+        ProcessStanzaType(ref xml, "iq", ProcessIq);
         
         buffer.Clear();
         buffer.Append(xml);
+    }
+
+    private void ProcessMessage(string stanza)
+    {
+        var from = ExtractAttribute(stanza, "from") ?? "unknown";
+        var to = ExtractAttribute(stanza, "to") ?? FullJid;
+        var msgId = ExtractAttribute(stanza, "id");
+        
+        // === XEP-0280: CARBON SPOOFING PROTECTION ===
+        if (stanza.Contains("xmlns='urn:xmpp:carbons:2'"))
+        {
+            if (Carbons != null && Carbons.ProcessCarbon(stanza, from))
+            {
+                return; // Carbon erfolgreich verarbeitet
+            }
+            else
+            {
+                OnSpoofingAttempt?.Invoke($"Carbon-Spoofing von {from}");
+                return;
+            }
+        }
+        
+        // === XEP-0184: RECEIPT ===
+        var receiptId = ReceiptBuilder.ExtractReceiptId(stanza);
+        if (receiptId != null)
+        {
+            if (!Receipts.ProcessReceipt(receiptId, from))
+            {
+                OnSpoofingAttempt?.Invoke($"Receipt-Spoofing: ID={receiptId} von {from}");
+            }
+            return;
+        }
+        
+        // === XEP-0085: CHAT STATE ===
+        var chatState = ChatStateExtensions.ParseChatState(stanza);
+        if (chatState.HasValue)
+        {
+            OnChatState?.Invoke(from, chatState.Value);
+        }
+        
+        // === Normal Message ===
+        var body = ExtractElement(stanza, "body");
+        if (!string.IsNullOrEmpty(body))
+        {
+            OnMessage?.Invoke(from, to, body, msgId);
+            
+            // Auto-Receipt senden wenn angefragt
+            if (ReceiptBuilder.HasReceiptRequest(stanza) && msgId != null)
+            {
+                _ = SendReceiptAsync(from, msgId);
+            }
+        }
+    }
+
+    private void ProcessPresence(string stanza)
+    {
+        var from = ExtractAttribute(stanza, "from") ?? "unknown";
+        var type = ExtractAttribute(stanza, "type") ?? "available";
+        
+        if (type == "subscribe")
+        {
+            Roster.RaiseSubscriptionRequest(from, ExtractElement(stanza, "status") ?? "");
+        }
+        else
+        {
+            var show = ExtractElement(stanza, "show");
+            var status = ExtractElement(stanza, "status");
+            Roster.UpdatePresence(from, type, show, status);
+        }
+        
+        OnPresence?.Invoke(from, type);
+    }
+
+    private void ProcessIq(string stanza)
+    {
+        var type = ExtractAttribute(stanza, "type");
+        var id = ExtractAttribute(stanza, "id");
+        var from = ExtractAttribute(stanza, "from");
+        
+        // Roster-Push
+        if (type == "set" && stanza.Contains("jabber:iq:roster"))
+        {
+            ProcessRosterPush(stanza);
+            _ = SendRawAsync($"<iq type='result' id='{id}'/>");
+        }
+        
+        // === XEP-0060: PUBSUB EVENT (kann auch als Message kommen) ===
+        if (stanza.Contains("http://jabber.org/protocol/pubsub#event") && from != null)
+        {
+            PubSub?.ProcessEvent(stanza, from, PubSub.PubSubService);
+        }
     }
 
     private void ProcessStanzaType(ref string xml, string tagName, Action<string> handler)
@@ -732,13 +838,19 @@ public sealed class XmppConnection : IAsyncDisposable
     private static string? ExtractAttribute(string xml, string name)
     {
         var match = Regex.Match(xml, $@"{name}=['""]([^'""]*)['""]");
-        return match.Success ? XmlUnescape(match.Groups[1].Value) : null;
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static string? ExtractElement(string xml, string name)
     {
         var match = Regex.Match(xml, $@"<{name}>([^<]*)</{name}>");
-        return match.Success ? XmlUnescape(match.Groups[1].Value) : null;
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static string GetBareJid(string jid)
+    {
+        var slash = jid.IndexOf('/');
+        return (slash > 0 ? jid[..slash] : jid).ToLowerInvariant();
     }
 
     private static string XmlEscape(string text) =>
@@ -747,13 +859,6 @@ public sealed class XmppConnection : IAsyncDisposable
             .Replace(">", "&gt;")
             .Replace("'", "&apos;")
             .Replace("\"", "&quot;");
-
-    private static string XmlUnescape(string text) =>
-        text.Replace("&lt;", "<")
-            .Replace("&gt;", ">")
-            .Replace("&apos;", "'")
-            .Replace("&quot;", "\"")
-            .Replace("&amp;", "&");
 
     public async ValueTask DisposeAsync()
     {
@@ -782,9 +887,8 @@ public sealed class XmppConnection : IAsyncDisposable
     }
 }
 
-/// <summary>
-/// Stream Features nach Verbindung/TLS/Auth
-/// </summary>
+// ===== SUPPORTING TYPES =====
+
 public sealed class StreamFeatures
 {
     public bool StartTls { get; set; }

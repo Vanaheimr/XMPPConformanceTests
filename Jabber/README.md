@@ -1,168 +1,219 @@
 # XMPP Console Client (.NET 10)
 
-Ein minimalistischer Jabber/XMPP-Client für die Kommandozeile mit TLS, SASL PLAIN Authentifizierung, vollständigem XML-Streaming und Roster-Management.
+Ein vollständiger XMPP-Client für die Kommandozeile mit TLS, SASL-Authentifizierung und umfangreicher XEP-Unterstützung.
 
 ## Features
 
-- **TLS 1.2/1.3** via STARTTLS
-- **SASL PLAIN** Authentifizierung  
-- **Vollständiges XML-Streaming** mit `XmlReader` (ConformanceLevel.Fragment)
-- **Roster-Management** mit Gruppen und Subscription-Handling
-- **Presence-Tracking** für Online-Status der Kontakte
-- **Async I/O** für gleichzeitiges Senden/Empfangen
-- **Farbige Konsolen-Ausgabe**
+### Core
+- ✅ TLS 1.2/1.3 (STARTTLS)
+- ✅ SASL PLAIN Authentifizierung
+- ✅ Resource Binding
+- ✅ Roster-Management mit Gruppen
+- ✅ Presence (Online-Status)
+- ✅ 1:1 Chat
+
+### XEP-Erweiterungen
+| XEP | Name | Status |
+|-----|------|--------|
+| XEP-0085 | Chat State Notifications | ✅ Vollständig |
+| XEP-0184 | Message Delivery Receipts | ✅ Mit Spoofing-Schutz |
+| XEP-0280 | Message Carbons | ✅ Mit Spoofing-Schutz |
+| XEP-0060 | Publish-Subscribe | ✅ Mit Spoofing-Schutz |
+
+## Installation
+
+```bash
+# .NET 10 SDK erforderlich
+dotnet build
+dotnet run
+```
+
+## Verwendung
+
+### Starten
+```bash
+# Interaktiv (fragt nach Credentials)
+dotnet run
+
+# Mit Parametern
+dotnet run -- -j user@jabber.org -p geheim
+
+# Mit eigenem Server
+dotnet run -- -j user@domain.com -p geheim -s jabber.domain.com --port 5222
+```
+
+### Kommandos
+
+#### Nachrichten
+```
+/to <jid>              Chat-Partner setzen (dann direkt tippen)
+/msg <jid> <text>      Einzelne Nachricht senden
+/status [show] [text]  Status ändern (away/chat/dnd/xa)
+```
+
+#### Kontakte (Roster)
+```
+/roster [filter]       Alle Kontakte anzeigen
+/online                Nur Online-Kontakte
+/add <jid> [name] [gruppen]  Kontakt hinzufügen
+/remove <jid>          Kontakt entfernen
+/info <jid>            Kontakt-Details anzeigen
+/groups                Alle Gruppen anzeigen
+```
+
+#### Kontaktanfragen
+```
+/pending               Ausstehende Anfragen anzeigen
+/accept [jid]          Anfrage akzeptieren
+/deny [jid]            Anfrage ablehnen
+```
+
+#### Chat-Status (XEP-0085)
+```
+/typing                'Tippt gerade...' senden
+/paused                'Hat aufgehört zu tippen' senden
+/gone                  Chat verlassen
+```
+
+#### PubSub (XEP-0060)
+```
+/pubsub                Hilfe anzeigen
+/pubsub sub <node>     Node abonnieren
+/pubsub unsub <node>   Abo beenden
+/pubsub pub <node> <id> <data>  Item veröffentlichen
+/pubsub get <node> [max]  Items abrufen
+/pubsub create <node>  Node erstellen
+/pubsub delete <node>  Node löschen
+```
+
+#### Sonstiges
+```
+/who                   Eigene JID und Status anzeigen
+/carbons               Message Carbons Status
+/raw                   XML-Debug-Anzeige
+/quit                  Beenden
+```
+
+## Spoofing-Schutz
+
+Der Client implementiert Schutzmaßnahmen gegen Message-Spoofing:
+
+### Receipt-Spoofing (XEP-0184)
+```
+Sende Nachricht an bob@server.com (ID: msg-123)
+  ↓
+Receipt von alice@evil.com mit ID msg-123
+  → ⚠️ ABGELEHNT: Erwarteter Absender war bob@server.com
+
+Receipt von bob@server.com mit ID msg-123
+  → ✓ Akzeptiert
+```
+
+### Carbon-Spoofing (XEP-0280)
+```
+Meine JID: ahzf@graphdefined.com
+
+Carbon-Nachricht von eve@attacker.com
+  → ⚠️ ABGELEHNT: Carbons dürfen nur vom eigenen Account kommen
+
+Carbon-Nachricht von ahzf@graphdefined.com
+  → ✓ Akzeptiert (eigener Bare-JID)
+```
+
+### PubSub-Spoofing (XEP-0060)
+```
+Erwarteter PubSub-Service: pubsub.graphdefined.com
+
+Event von fake-pubsub@evil.com
+  → ⚠️ ABGELEHNT: Falscher Service
+
+Event von pubsub.graphdefined.com
+  → ✓ Akzeptiert
+```
 
 ## Architektur
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Program.cs                         │
-│              (Konsolen-UI, Commands)                    │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────┐
-│                 XmppConnection.cs                       │
-│         (Verbindung, TLS, SASL, Routing)               │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-        ┌─────────────┴─────────────┐
-        │                           │
-┌───────▼───────┐          ┌────────▼────────┐
-│ XmppStream-   │          │    Roster.cs    │
-│ Parser.cs     │          │  (Kontakte,     │
-│ (XML-Parsing) │          │   Gruppen,      │
-└───────────────┘          │   Presence)     │
-                           └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Program.cs (UI)                        │
+│  - Konsolen-Interface                                       │
+│  - Event-Handler für alle XEPs                              │
+│  - Command-Processing                                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│                  XmppConnection.cs                          │
+│  - TCP/TLS Connection                                       │
+│  - SASL Authentication                                      │
+│  - XML Stream Processing                                    │
+│  - Stanza Routing mit Spoofing-Checks                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+         ┌───────────────┼───────────────┐
+         │               │               │
+         ▼               ▼               ▼
+┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐
+│  Roster.cs  │  │ XepExtens.  │  │    XepExtensions.cs     │
+│             │  │             │  │  - ChatState            │
+│  - Items    │  │  - Receipt  │  │  - ReceiptTracker       │
+│  - Groups   │  │    Tracker  │  │  - CarbonManager        │
+│  - Presence │  │  - Carbon   │  │  - PubSubManager        │
+│  - Subscr.  │  │    Manager  │  │  - PubSubBuilder        │
+└─────────────┘  └─────────────┘  └─────────────────────────┘
 ```
 
-## Build & Run
+## Dateien
 
-```bash
-dotnet build
-dotnet run
-
-# Mit Argumenten:
-dotnet run -- -j user@jabber.org -p geheimespasswort
-dotnet run -- -j user@jabber.org -p passwort -s talk.jabber.org
-```
-
-## Befehle
-
-### Nachrichten
-
-| Befehl | Beschreibung |
-|--------|--------------|
-| `/to <jid>` | Chat-Partner setzen, dann direkt tippen |
-| `/to` | Chat-Partner zurücksetzen |
-| `/msg <jid> <text>` | Einzelne Nachricht senden |
-| `/status [show] [text]` | Status ändern (away/chat/dnd/xa) |
-
-### Kontakte (Roster)
-
-| Befehl | Beschreibung |
-|--------|--------------|
-| `/roster [filter]` | Alle Kontakte anzeigen (optional filtern) |
-| `/online` | Nur Online-Kontakte anzeigen |
-| `/add <jid> [name] [gruppen]` | Kontakt hinzufügen |
-| `/remove <jid>` | Kontakt entfernen |
-| `/info <jid>` | Kontakt-Details anzeigen |
-| `/groups` | Alle Gruppen anzeigen |
-
-### Kontaktanfragen (Subscription)
-
-| Befehl | Beschreibung |
-|--------|--------------|
-| `/pending` | Ausstehende Anfragen anzeigen |
-| `/accept [jid]` | Kontaktanfrage akzeptieren |
-| `/deny [jid]` | Kontaktanfrage ablehnen |
-
-### Sonstiges
-
-| Befehl | Beschreibung |
-|--------|--------------|
-| `/who` | Eigene JID anzeigen |
-| `/raw` | XML-Debug-Anzeige umschalten |
-| `/quit` | Beenden |
+| Datei | Zeilen | Beschreibung |
+|-------|--------|--------------|
+| `XmppConnection.cs` | ~750 | Hauptverbindung, TLS, SASL, Stanza-Routing |
+| `XepExtensions.cs` | ~500 | XEP-0085, 0184, 0280, 0060 Implementierungen |
+| `Roster.cs` | ~270 | Kontaktverwaltung, Presence-Tracking |
+| `Program.cs` | ~940 | UI, Commands, Event-Handler |
 
 ## Beispiel-Session
 
 ```
-> /roster
-╔═══ Kontakte (3) ═══
-║ [Arbeit]
-║   ● ↔ alice@company.de
-║   ◐ ↔ bob@company.de
-║ [(Keine Gruppe)]
-║   ○ → support@jabber.org
-╚══════════════════════════════
+╔═══════════════════════════════════════╗
+║     XMPP Console Client (.NET 10)     ║
+║        TLS + SASL + Roster            ║
+╚═══════════════════════════════════════╝
+[*] Verbinde zu jabber.graphdefined.com:5222...
+[*] STARTTLS wird initiiert...
+[+] TLS Tls13 etabliert
+[*] SASL PLAIN Authentifizierung...
+[+] Authentifizierung erfolgreich
+[*] Resource Binding...
+[+] Verbunden als: ahzf@graphdefined.com/console-12345
+[*] Aktiviere Message Carbons...
+[+] Message Carbons aktiviert
+[*] Lade Roster...
+[+] Roster geladen: 3 Kontakte
+[+] Online!
 
-> /add charlie@jabber.de Charlie Freunde
-Kontaktanfrage gesendet an: charlie@jabber.de
+> /to bob@jabber.org
+Chat mit: bob@jabber.org
 
-[*] 📩 Kontaktanfrage von charlie@jabber.de: Hi, ich bin's!
-[*]    Nutze /accept charlie@jabber.de oder /deny charlie@jabber.de
+[bob@jabber.org] > Hallo Bob!
+  → Gesendet an bob@jabber.org
+✓ Zugestellt an bob@jabber.org
 
-> /accept charlie@jabber.de
-Kontaktanfrage akzeptiert: charlie@jabber.de
+[10:30:15] bob@jabber.org: Hey! Wie geht's?
+✏️ bob@jabber.org tippt...
 
-> /to alice@company.de
-Chat mit: alice@company.de
+[bob@jabber.org] > /typing
+⌨️ Typing-Indicator gesendet an bob@jabber.org
 
-[alice@company.de] > Hey, hast du das Meeting heute gesehen?
-  → Gesendet an alice@company.de
+[bob@jabber.org] > Gut, danke!
+  → Gesendet an bob@jabber.org
 
-[14:32:15] alice@company.de: Ja, war interessant!
+📤 Ich → alice@jabber.org: Test von anderem Gerät
 ```
 
-## XML-Streaming Details
+## Bekannte Einschränkungen
 
-Der Parser (`XmppStreamParser.cs`) verwendet `XmlReader` mit `ConformanceLevel.Fragment`, was für XMPP essentiell ist, da:
-
-1. XMPP-Streams sind **keine vollständigen XML-Dokumente** - sie haben einen öffnenden `<stream:stream>` Tag der erst am Ende der Session geschlossen wird
-2. Die einzelnen Stanzas (`<message>`, `<presence>`, `<iq>`) sind **Fragmente** innerhalb dieses Streams
-3. Daten kommen **inkrementell** über TCP an und müssen gepuffert werden
-
-```csharp
-var settings = new XmlReaderSettings
-{
-    ConformanceLevel = ConformanceLevel.Fragment,  // Keine Root-Element-Anforderung
-    Async = true,
-    IgnoreWhitespace = true
-};
-```
-
-## Roster & Subscription-Flow
-
-```
-Du                          Server                    Kontakt
- │                             │                          │
- │─── /add alice ─────────────▶│                          │
- │    (roster set + subscribe) │                          │
- │                             │──── subscribe ──────────▶│
- │                             │                          │
- │                             │◀─── subscribed ──────────│
- │◀─── roster push ────────────│     (Kontakt akzeptiert) │
- │    (subscription: to)       │                          │
- │                             │                          │
- │                             │◀─── subscribe ───────────│
- │◀─── subscribe request ──────│     (Kontakt will auch)  │
- │                             │                          │
- │─── /accept ────────────────▶│                          │
- │    (subscribed)             │──── subscribed ─────────▶│
- │                             │                          │
- │◀─── roster push ────────────│                          │
- │    (subscription: both)     │     ✓ Gegenseitig!       │
-```
-
-## Hinweise für Produktion
-
-1. **Zertifikat-Validierung**: In `XmppConnection.cs` Zeile ~260 akzeptiert der Client derzeit alle Zertifikate. Für Produktion:
-   ```csharp
-   return sslPolicyErrors == SslPolicyErrors.None;
-   ```
-
-2. **SCRAM-SHA-1/256**: SASL PLAIN sendet das Passwort Base64-kodiert (nicht verschlüsselt!). Mit TLS ist das okay, aber SCRAM wäre sicherer.
-
-3. **Reconnection**: Der Client verbindet sich nicht automatisch neu bei Verbindungsabbruch.
-
-4. **Message Carbons & MAM**: Für Multi-Device-Support fehlen XEP-0280 (Carbons) und XEP-0313 (MAM).
+- Nur SASL PLAIN (kein SCRAM-SHA-1/256)
+- Kein automatisches Reconnect
+- Keine End-to-End-Verschlüsselung (OMEMO)
+- Keine Multi-User Chats (MUC)
+- Zertifikat-Validierung ist permissiv (für Demo)

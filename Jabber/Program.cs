@@ -35,11 +35,27 @@ class Program
         {
             _connection = new XmppConnection(jid, password, server, port);
             
-            // Event-Handler registrieren
+            // Core Event-Handler
             _connection.OnMessage += HandleMessage;
             _connection.OnPresence += HandlePresence;
             _connection.OnError += HandleError;
             _connection.OnRawXml += HandleRawXml;
+            
+            // XEP-0085: Chat State
+            _connection.OnChatState += HandleChatState;
+            
+            // XEP-0184: Receipts
+            _connection.OnReceiptReceived += HandleReceipt;
+            
+            // XEP-0280: Carbons
+            _connection.OnCarbonMessage += HandleCarbon;
+            
+            // XEP-0060: PubSub
+            _connection.OnPubSubEvent += HandlePubSubEvent;
+            
+            // Security
+            _connection.OnSpoofingAttempt += msg => 
+                WriteWarning($"⚠️ SPOOFING: {msg}");
             
             // Roster-Events
             _connection.Roster.OnItemAdded += item => 
@@ -300,7 +316,58 @@ class Program
                 PrintPendingSubscriptions();
                 break;
                 
+            // === XEP-0085: CHAT STATE ===
+                
+            case "/typing":
+                if (_currentRecipient == null)
+                {
+                    Console.WriteLine("Kein Empfänger gesetzt. Nutze /to <jid>");
+                }
+                else
+                {
+                    await _connection!.SendChatStateAsync(_currentRecipient, ChatState.Composing);
+                    Console.WriteLine($"⌨️ Typing-Indicator gesendet an {GetShortJid(_currentRecipient)}");
+                }
+                break;
+                
+            case "/paused":
+                if (_currentRecipient == null)
+                {
+                    Console.WriteLine("Kein Empfänger gesetzt. Nutze /to <jid>");
+                }
+                else
+                {
+                    await _connection!.SendChatStateAsync(_currentRecipient, ChatState.Paused);
+                }
+                break;
+                
+            case "/gone":
+                if (_currentRecipient != null)
+                {
+                    await _connection!.SendChatStateAsync(_currentRecipient, ChatState.Gone);
+                    _currentRecipient = null;
+                    Console.WriteLine("Chat beendet");
+                }
+                break;
+                
+            // === XEP-0060: PUBSUB ===
+                
+            case "/pubsub":
+                await ProcessPubSubCommandAsync(args);
+                break;
+                
             // === SONSTIGE ===
+                
+            case "/carbons":
+                if (_connection!.Carbons?.IsEnabled == true)
+                {
+                    Console.WriteLine("✓ Message Carbons sind AKTIVIERT");
+                }
+                else
+                {
+                    Console.WriteLine("✗ Message Carbons sind NICHT aktiviert");
+                }
+                break;
                 
             case "/raw":
                 _showRawXml = !_showRawXml;
@@ -309,12 +376,104 @@ class Program
                 
             case "/who":
                 Console.WriteLine($"Angemeldet als: {_connection!.FullJid}");
+                Console.WriteLine($"Bare JID: {_connection.BareJid}");
                 if (_currentRecipient != null)
                     Console.WriteLine($"Chat mit: {_currentRecipient}");
+                Console.WriteLine($"Carbons: {(_connection.Carbons?.IsEnabled == true ? "aktiviert" : "deaktiviert")}");
                 break;
                 
             default:
                 Console.WriteLine($"Unbekannter Befehl: {command}. Tippe /help für Hilfe.");
+                break;
+        }
+    }
+
+    private static async Task ProcessPubSubCommandAsync(string args)
+    {
+        var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length == 0)
+        {
+            Console.WriteLine("PubSub-Befehle:");
+            Console.WriteLine("  /pubsub sub <node>           Node abonnieren");
+            Console.WriteLine("  /pubsub unsub <node>         Abo beenden");
+            Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
+            Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
+            Console.WriteLine("  /pubsub create <node>        Node erstellen");
+            Console.WriteLine("  /pubsub delete <node>        Node löschen");
+            return;
+        }
+        
+        var subCmd = parts[0].ToLower();
+        var nodeId = parts.Length > 1 ? parts[1] : "";
+        
+        switch (subCmd)
+        {
+            case "sub" or "subscribe":
+                if (string.IsNullOrEmpty(nodeId))
+                {
+                    Console.WriteLine("Syntax: /pubsub sub <node>");
+                    return;
+                }
+                await _connection!.PubSubSubscribeAsync(nodeId);
+                Console.WriteLine($"📢 Abonniert: {nodeId}");
+                break;
+                
+            case "unsub" or "unsubscribe":
+                if (string.IsNullOrEmpty(nodeId))
+                {
+                    Console.WriteLine("Syntax: /pubsub unsub <node>");
+                    return;
+                }
+                await _connection!.PubSubUnsubscribeAsync(nodeId);
+                Console.WriteLine($"🔕 Abo beendet: {nodeId}");
+                break;
+                
+            case "pub" or "publish":
+                if (parts.Length < 4)
+                {
+                    Console.WriteLine("Syntax: /pubsub pub <node> <itemId> <payload>");
+                    return;
+                }
+                var itemId = parts[2];
+                var payload = string.Join(' ', parts.Skip(3));
+                await _connection!.PubSubPublishAsync(nodeId, itemId, $"<data>{payload}</data>");
+                Console.WriteLine($"📤 Veröffentlicht: {nodeId}/{itemId}");
+                break;
+                
+            case "get" or "items":
+                if (string.IsNullOrEmpty(nodeId))
+                {
+                    Console.WriteLine("Syntax: /pubsub get <node> [max]");
+                    return;
+                }
+                int? max = parts.Length > 2 && int.TryParse(parts[2], out var m) ? m : null;
+                await _connection!.PubSubGetItemsAsync(nodeId, max);
+                Console.WriteLine($"📥 Items angefordert von: {nodeId}");
+                break;
+                
+            case "create":
+                if (string.IsNullOrEmpty(nodeId))
+                {
+                    Console.WriteLine("Syntax: /pubsub create <node>");
+                    return;
+                }
+                await _connection!.PubSubCreateNodeAsync(nodeId);
+                Console.WriteLine($"➕ Node erstellt: {nodeId}");
+                break;
+                
+            case "delete":
+                if (string.IsNullOrEmpty(nodeId))
+                {
+                    Console.WriteLine("Syntax: /pubsub delete <node>");
+                    return;
+                }
+                await _connection!.PubSubDeleteNodeAsync(nodeId);
+                Console.WriteLine($"➖ Node gelöscht: {nodeId}");
+                break;
+                
+            default:
+                Console.WriteLine($"Unbekannter PubSub-Befehl: {subCmd}");
                 break;
         }
     }
@@ -518,7 +677,7 @@ class Program
 
     // === EVENT-HANDLER ===
 
-    private static void HandleMessage(string from, string to, string body)
+    private static void HandleMessage(string from, string to, string body, string? messageId)
     {
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         var shortFrom = GetShortJid(from);
@@ -532,6 +691,99 @@ class Program
         Console.ResetColor();
         Console.WriteLine(body);
         
+        WritePrompt();
+    }
+
+    private static void HandleChatState(string from, ChatState state)
+    {
+        var shortFrom = GetShortJid(from);
+        
+        // Nur bestimmte States anzeigen
+        if (state == ChatState.Composing)
+        {
+            ClearCurrentLine();
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"✏️ {shortFrom} tippt...");
+            Console.ResetColor();
+            WritePrompt();
+        }
+        else if (state == ChatState.Paused)
+        {
+            ClearCurrentLine();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"⏸️ {shortFrom} hat aufgehört zu tippen");
+            Console.ResetColor();
+            WritePrompt();
+        }
+    }
+
+    private static void HandleReceipt(string from, string messageId)
+    {
+        var shortFrom = GetShortJid(from);
+        
+        ClearCurrentLine();
+        Console.ForegroundColor = ConsoleColor.DarkGreen;
+        Console.WriteLine($"✓ Zugestellt an {shortFrom}");
+        Console.ResetColor();
+        WritePrompt();
+    }
+
+    private static void HandleCarbon(CarbonMessage carbon)
+    {
+        var timestamp = DateTime.Now.ToString("HH:mm:ss");
+        
+        ClearCurrentLine();
+        Console.ForegroundColor = ConsoleColor.Magenta;
+        
+        if (carbon.IsSent)
+        {
+            // Von mir auf anderem Gerät gesendet
+            Console.Write($"[{timestamp}] ");
+            Console.ForegroundColor = ConsoleColor.DarkMagenta;
+            Console.Write($"📤 Ich → {GetShortJid(carbon.OriginalTo)}: ");
+        }
+        else
+        {
+            // Auf anderem Gerät empfangen
+            Console.Write($"[{timestamp}] ");
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.Write($"📥 {GetShortJid(carbon.OriginalFrom)} (Carbon): ");
+        }
+        
+        Console.ResetColor();
+        Console.WriteLine(carbon.Body ?? "(kein Inhalt)");
+        WritePrompt();
+    }
+
+    private static void HandlePubSubEvent(PubSubEvent evt)
+    {
+        ClearCurrentLine();
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        
+        switch (evt.Type)
+        {
+            case PubSubEventType.Items:
+                Console.WriteLine($"📢 PubSub [{evt.NodeId}]: {evt.Items.Count} Item(s)");
+                foreach (var item in evt.Items)
+                {
+                    Console.WriteLine($"   - {item.Id}: {item.Payload[..Math.Min(50, item.Payload.Length)]}...");
+                }
+                break;
+                
+            case PubSubEventType.Retract:
+                Console.WriteLine($"🗑️ PubSub [{evt.NodeId}]: Item(s) entfernt: {string.Join(", ", evt.RetractedIds)}");
+                break;
+                
+            case PubSubEventType.Purge:
+                Console.WriteLine($"🧹 PubSub [{evt.NodeId}]: Node geleert");
+                break;
+                
+            case PubSubEventType.Delete:
+                Console.WriteLine($"❌ PubSub [{evt.NodeId}]: Node gelöscht");
+                break;
+        }
+        
+        Console.ResetColor();
         WritePrompt();
     }
 
@@ -580,6 +832,15 @@ class Program
         ClearCurrentLine();
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"[*] {message}");
+        Console.ResetColor();
+        WritePrompt();
+    }
+
+    private static void WriteWarning(string message)
+    {
+        ClearCurrentLine();
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"[!] {message}");
         Console.ResetColor();
         WritePrompt();
     }
@@ -643,10 +904,26 @@ Kontaktanfragen:
   /accept [jid]      Anfrage akzeptieren
   /deny [jid]        Anfrage ablehnen
 
+Chat-Status (XEP-0085):
+  /typing            'Tippt gerade...' senden
+  /paused            'Hat aufgehört zu tippen' senden
+  /gone              Chat verlassen
+
+PubSub (XEP-0060):
+  /pubsub            PubSub-Befehle anzeigen
+  /pubsub sub <node>     Node abonnieren
+  /pubsub pub <node> <id> <data>  Item veröffentlichen
+
 Sonstiges:
-  /who    Eigene JID anzeigen
-  /raw    XML-Debug-Anzeige
-  /quit   Beenden
+  /who      Eigene JID und Status anzeigen
+  /carbons  Message Carbons Status (XEP-0280)
+  /raw      XML-Debug-Anzeige
+  /quit     Beenden
+
+Features:
+  ✓ Lesebestätigungen werden automatisch gesendet (XEP-0184)
+  ✓ Nachrichten-Sync über alle Geräte (XEP-0280 Carbons)
+  ✓ Spoofing-Schutz für Receipts, Carbons und PubSub
 ");
     }
 
