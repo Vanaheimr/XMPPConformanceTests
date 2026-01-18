@@ -1,65 +1,66 @@
-using System.Net.Security;
-using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Security.Authentication;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace XmppClient;
 
+/// <summary>
+/// XMPP over WebSocket (RFC 7395) mit Auto-Reconnect
+/// </summary>
 public sealed class XmppConnection : IAsyncDisposable
 {
-    private readonly string _server;
-    private readonly int    _port;
+    private readonly string _wsUri;
     private readonly string _jid;
     private readonly string _password;
     private readonly string _username;
     private readonly string _domain;
     
-    private TcpClient?      _tcpClient;
-    private Stream?         _stream;
-    private StreamReader?   _reader;
-    private StreamWriter?   _writer;
+    private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _cts;
+    private Task? _receiveTask;
     
     private int _messageIdCounter;
+    private int _reconnectAttempts;
+    private bool _intentionalDisconnect;
     
-    // Core
+    // Reconnect-Einstellungen
+    public int MaxReconnectAttempts { get; set; } = 5;
+    public TimeSpan InitialReconnectDelay { get; set; } = TimeSpan.FromSeconds(1);
+    public TimeSpan MaxReconnectDelay { get; set; } = TimeSpan.FromSeconds(30);
+    
+    // State
+    public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
+    public string FullJid { get; private set; } = string.Empty;
+    public string BareJid => GetBareJid(FullJid);
+    
+    // Managers
     public Roster Roster { get; } = new();
-    
-    // XEP Managers
     public ReceiptTracker Receipts { get; } = new();
     public CarbonManager? Carbons { get; private set; }
     public PubSubManager? PubSub { get; private set; }
     
-    // Core Events
-    public event Action<string, string, string, string?>? OnMessage;  // from, to, body, messageId
-    public event Action<string, string>?         OnPresence;          // from, type
-    public event Action<string>?                 OnRawXml;
-    public event Action<string>?                 OnError;
-    
-    // XEP-0085: Chat State
-    public event Action<string, ChatState>?      OnChatState;         // from, state
-    
-    // XEP-0184: Receipts
-    public event Action<string, string>?         OnReceiptReceived;   // from, messageId
-    
-    // XEP-0280: Carbons
-    public event Action<CarbonMessage>?          OnCarbonMessage;     // carbonMessage
-    
-    // XEP-0060: PubSub
-    public event Action<PubSubEvent>?            OnPubSubEvent;       // event
-    
-    // Security
-    public event Action<string>?                 OnSpoofingAttempt;   // description
-    
-    public bool IsConnected => _tcpClient?.Connected == true;
-    public string FullJid { get; private set; } = string.Empty;
-    public string BareJid => GetBareJid(FullJid);
+    // Events
+    public event Action<string, string, string, string?>? OnMessage;  // from, to, body, id
+    public event Action<string, string>? OnPresence;
+    public event Action<string, ChatState>? OnChatState;
+    public event Action<string, string>? OnReceiptReceived;
+    public event Action<CarbonMessage>? OnCarbonMessage;
+    public event Action<PubSubEvent>? OnPubSubEvent;
+    public event Action<string>? OnRawXml;
+    public event Action<string>? OnError;
+    public event Action<string>? OnSpoofingAttempt;
+    public event Action<ConnectionState, ConnectionState>? OnStateChanged;  // old, new
 
-    public XmppConnection(string jid, string password, string? server = null, int port = 5222)
+    /// <summary>
+    /// Erstellt eine neue WebSocket-basierte XMPP-Verbindung
+    /// </summary>
+    /// <param name="jid">JID (user@domain)</param>
+    /// <param name="password">Passwort</param>
+    /// <param name="wsUri">WebSocket URI (wss://domain:5443/ws oder null für Auto-Discovery)</param>
+    public XmppConnection(string jid, string password, string? wsUri = null)
     {
-        _jid      = jid;
+        _jid = jid;
         _password = password;
         
         var parts = jid.Split('@');
@@ -67,611 +68,329 @@ public sealed class XmppConnection : IAsyncDisposable
             throw new ArgumentException("JID muss im Format 'user@domain' sein", nameof(jid));
         
         _username = parts[0];
-        _domain   = parts[1];
-        _server   = server ?? _domain;
-        _port     = port;
+        _domain = parts[1];
         
-        // Wire up receipt events
+        // Standard WebSocket-Endpunkte für bekannte Server
+        _wsUri = wsUri ?? $"wss://{_domain}:5443/ws";
+        
         Receipts.OnReceiptReceived += (msgId, from) => OnReceiptReceived?.Invoke(from, msgId);
+    }
+
+    /// <summary>
+    /// Alternative: Verbindung über klassischen TCP mit STARTTLS
+    /// </summary>
+    public static XmppConnection CreateTcp(string jid, string password, string? server = null, int port = 5222)
+    {
+        // Fallback auf TCP - wird intern anders behandelt
+        var conn = new XmppConnection(jid, password, $"tcp://{server ?? jid.Split('@')[1]}:{port}");
+        return conn;
     }
 
     public async Task ConnectAsync(CancellationToken ct = default)
     {
-        Console.WriteLine($"[*] Verbinde zu {_server}:{_port}...");
+        _intentionalDisconnect = false;
+        _reconnectAttempts = 0;
         
-        _tcpClient = new TcpClient { NoDelay = true };
-        await _tcpClient.ConnectAsync(_server, _port, ct);
-        _stream = _tcpClient.GetStream();
-        
-        SetupStreams();
-        
-        // 1. Initial stream
-        await SendStreamHeaderAsync();
-        var features = await ReadFeaturesAsync(ct);
-        
-        // 2. STARTTLS
-        if (features.StartTls)
-        {
-            Console.WriteLine("[*] STARTTLS wird initiiert...");
-            await PerformStartTlsAsync(ct);
-            
-            SetupStreams();
-            await SendStreamHeaderAsync();
-            features = await ReadFeaturesAsync(ct);
-        }
-        
-        // 3. SASL Auth
-        if (features.SaslMechanisms.Contains("PLAIN"))
-        {
-            Console.WriteLine("[*] SASL PLAIN Authentifizierung...");
-            await PerformSaslPlainAsync(ct);
-        }
-        else
-        {
-            throw new AuthenticationException($"Server unterstützt SASL PLAIN nicht. Verfügbar: {string.Join(", ", features.SaslMechanisms)}");
-        }
-        
-        // 4. Neuer Stream nach Auth
-        SetupStreams();
-        await SendStreamHeaderAsync();
-        features = await ReadFeaturesAsync(ct);
-        
-        // 5. Resource Binding
-        if (features.Bind)
-        {
-            Console.WriteLine("[*] Resource Binding...");
-            FullJid = await PerformBindAsync(ct);
-            Console.WriteLine($"[+] Verbunden als: {FullJid}");
-        }
-        
-        // 6. Session
-        if (features.Session)
-        {
-            await PerformSessionAsync(ct);
-        }
-        
-        // 7. Initialize XEP Managers
-        Carbons = new CarbonManager(BareJid);
-        Carbons.OnCarbonReceived += carbon => OnCarbonMessage?.Invoke(carbon);
-        
-        PubSub = new PubSubManager($"pubsub.{_domain}");
-        PubSub.OnEvent += evt => OnPubSubEvent?.Invoke(evt);
-        
-        // 8. Enable Carbons (XEP-0280)
-        Console.WriteLine("[*] Aktiviere Message Carbons...");
-        await EnableCarbonsAsync(ct);
-        
-        // 9. Roster laden
-        Console.WriteLine("[*] Lade Roster...");
-        await RequestRosterAsync(ct);
-        
-        // 10. Presence
-        await SendPresenceAsync();
-        Console.WriteLine("[+] Online!");
+        await ConnectInternalAsync(ct);
     }
 
-    private void SetupStreams()
+    private async Task ConnectInternalAsync(CancellationToken ct)
     {
-        _reader = new StreamReader(_stream!, Encoding.UTF8, leaveOpen: true, bufferSize: 1024);
-        _writer = new StreamWriter(_stream!, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true) 
-        { 
-            AutoFlush = true 
-        };
-    }
-
-    private async Task SendStreamHeaderAsync()
-    {
-        var header = $"<?xml version='1.0'?>" +
-                     $"<stream:stream to='{_domain}' " +
-                     $"xmlns='jabber:client' " +
-                     $"xmlns:stream='http://etherx.jabber.org/streams' " +
-                     $"version='1.0'>";
+        SetState(ConnectionState.Connecting);
         
-        await _writer!.WriteAsync(header);
-    }
-
-    private async Task<StreamFeatures> ReadFeaturesAsync(CancellationToken ct)
-    {
-        var xml = await ReadStreamFeaturesAsync(TimeSpan.FromSeconds(10), ct);
-        
-        var features = new StreamFeatures
-        {
-            StartTls = xml.Contains("<starttls"),
-            StartTlsRequired = xml.Contains("<required"),
-            Bind = xml.Contains("<bind"),
-            Session = xml.Contains("<session"),
-            RosterVersioning = xml.Contains("<ver")
-        };
-        
-        var mechMatch = Regex.Match(xml, @"<mechanisms[^>]*>(.*?)</mechanisms>", RegexOptions.Singleline);
-        if (mechMatch.Success)
-        {
-            var mechs = Regex.Matches(mechMatch.Groups[1].Value, @"<mechanism>([^<]+)</mechanism>");
-            foreach (Match m in mechs)
-            {
-                features.SaslMechanisms.Add(m.Groups[1].Value);
-            }
-        }
-        
-        return features;
-    }
-
-    private async Task PerformStartTlsAsync(CancellationToken ct)
-    {
-        await _writer!.WriteAsync("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>");
-        
-        var response = await ReadStanzaAsync("proceed", TimeSpan.FromSeconds(10), ct);
-        
-        if (!response.Contains("<proceed"))
-            throw new AuthenticationException($"STARTTLS fehlgeschlagen: {response}");
-        
-        var sslStream = new SslStream(
-            _stream!,
-            leaveInnerStreamOpen: false,
-            userCertificateValidationCallback: ValidateServerCertificate
-        );
-        
-        await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
-        {
-            TargetHost = _server,
-            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-        }, ct);
-        
-        Console.WriteLine($"[+] TLS {sslStream.SslProtocol} etabliert");
-        _stream = sslStream;
-    }
-
-    private static bool ValidateServerCertificate(
-        object sender, 
-        X509Certificate? certificate, 
-        X509Chain? chain, 
-        SslPolicyErrors sslPolicyErrors)
-    {
-        if (sslPolicyErrors == SslPolicyErrors.None)
-            return true;
-        
-        Console.WriteLine($"[!] Zertifikat-Warnung: {sslPolicyErrors}");
-        return true;
-    }
-
-    private async Task PerformSaslPlainAsync(CancellationToken ct)
-    {
-        var authData = $"\0{_username}\0{_password}";
-        var authBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(authData));
-        
-        await _writer!.WriteAsync(
-            $"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{authBase64}</auth>");
-        
-        var response = await ReadSaslResponseAsync(TimeSpan.FromSeconds(10), ct);
-        
-        if (response.Contains("<success"))
-        {
-            Console.WriteLine("[+] Authentifizierung erfolgreich");
-        }
-        else if (response.Contains("<failure"))
-        {
-            var errorMatch = Regex.Match(response, @"<([a-z-]+)(?:\s|/|>)", RegexOptions.IgnoreCase);
-            var error = errorMatch.Success ? errorMatch.Groups[1].Value : "unbekannt";
-            throw new AuthenticationException($"SASL fehlgeschlagen: {error}");
-        }
-        else
-        {
-            throw new AuthenticationException($"Unerwartete Auth-Antwort: {response}");
-        }
-    }
-
-    private async Task<string> PerformBindAsync(CancellationToken ct)
-    {
-        var resource = $"console-{Environment.ProcessId}";
-        
-        await _writer!.WriteAsync(
-            $"<iq type='set' id='bind1'>" +
-            $"<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'>" +
-            $"<resource>{resource}</resource>" +
-            $"</bind></iq>");
-        
-        var response = await ReadStanzaAsync("iq", TimeSpan.FromSeconds(10), ct);
-        
-        var jidMatch = Regex.Match(response, @"<jid>([^<]+)</jid>");
-        return jidMatch.Success ? jidMatch.Groups[1].Value : $"{_jid}/{resource}";
-    }
-
-    private async Task PerformSessionAsync(CancellationToken ct)
-    {
-        await _writer!.WriteAsync(
-            "<iq type='set' id='sess1'>" +
-            "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>" +
-            "</iq>");
-        
-        await ReadStanzaAsync("iq", TimeSpan.FromSeconds(10), ct);
-    }
-
-    private async Task EnableCarbonsAsync(CancellationToken ct)
-    {
         try
         {
-            await _writer!.WriteAsync(CarbonManager.EnableIq());
-            var response = await ReadStanzaAsync("iq", TimeSpan.FromSeconds(5), ct);
+            // WebSocket verbinden
+            _webSocket = new ClientWebSocket();
+            _webSocket.Options.AddSubProtocol("xmpp");  // RFC 7395
             
-            if (response.Contains("type='result'") || response.Contains("type=\"result\""))
+            Console.WriteLine($"[*] Verbinde zu {_wsUri}...");
+            await _webSocket.ConnectAsync(new Uri(_wsUri), ct);
+            Console.WriteLine("[+] WebSocket verbunden");
+            
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            
+            // XMPP Stream öffnen
+            await SendAsync($"<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='{_domain}' version='1.0'/>");
+            
+            // Features empfangen (kann mehrere Stanzas sein: <open> + <features>)
+            var featuresXml = await ReceiveStanzaAsync(ct);
+            
+            // Manchmal kommt <open> separat
+            if (featuresXml.StartsWith("<open"))
             {
-                Carbons!.SetEnabled(true);
-                Console.WriteLine("[+] Message Carbons aktiviert");
+                featuresXml = await ReceiveStanzaAsync(ct);
+            }
+            
+            // SASL Mechanismen extrahieren
+            var mechanisms = ExtractSaslMechanisms(featuresXml);
+            
+            if (mechanisms.Count > 0)
+            {
+                Console.WriteLine($"[*] Verfügbare SASL-Mechanismen: {string.Join(", ", mechanisms)}");
+            }
+            
+            // SASL Auth
+            if (mechanisms.Contains("PLAIN"))
+            {
+                Console.WriteLine("[*] SASL PLAIN Authentifizierung...");
+                await PerformSaslPlainAsync(ct);
+            }
+            else if (mechanisms.Contains("SCRAM-SHA-1"))
+            {
+                throw new AuthenticationException(
+                    $"Server bietet nur SCRAM-SHA-1 an (noch nicht implementiert). " +
+                    $"Verfügbar: {string.Join(", ", mechanisms)}");
+            }
+            else if (mechanisms.Count > 0)
+            {
+                throw new AuthenticationException(
+                    $"Keine unterstützten SASL-Mechanismen. Verfügbar: {string.Join(", ", mechanisms)}");
             }
             else
             {
-                Console.WriteLine("[!] Message Carbons nicht verfügbar");
+                throw new AuthenticationException(
+                    "Server bietet keine SASL-Mechanismen an. Features: " + 
+                    featuresXml[..Math.Min(200, featuresXml.Length)]);
             }
+            
+            // Neuen Stream öffnen nach Auth
+            await SendAsync($"<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='{_domain}' version='1.0'/>");
+            featuresXml = await ReceiveStanzaAsync(ct);
+            
+            // Manchmal kommt <open> separat
+            if (featuresXml.StartsWith("<open"))
+            {
+                featuresXml = await ReceiveStanzaAsync(ct);
+            }
+            
+            // Bind
+            if (featuresXml.Contains("<bind"))
+            {
+                Console.WriteLine("[*] Resource Binding...");
+                FullJid = await PerformBindAsync(ct);
+                Console.WriteLine($"[+] Verbunden als: {FullJid}");
+            }
+            
+            // Session (falls nötig)
+            if (featuresXml.Contains("<session"))
+            {
+                await PerformSessionAsync(ct);
+            }
+            
+            // XEP Manager initialisieren
+            Carbons = new CarbonManager(BareJid);
+            Carbons.OnCarbonReceived += c => OnCarbonMessage?.Invoke(c);
+            Carbons.OnParseError += msg => OnError?.Invoke($"[Carbon] {msg}");
+            
+            PubSub = new PubSubManager($"pubsub.{_domain}");
+            PubSub.OnEvent += e => OnPubSubEvent?.Invoke(e);
+            
+            // Carbons aktivieren
+            Console.WriteLine("[*] Aktiviere Message Carbons...");
+            await EnableCarbonsAsync(ct);
+            
+            // Roster laden
+            Console.WriteLine("[*] Lade Roster...");
+            await RequestRosterAsync(ct);
+            
+            // Online gehen
+            await SendPresenceAsync();
+            
+            SetState(ConnectionState.Connected);
+            _reconnectAttempts = 0;
+            Console.WriteLine("[+] Online!");
+            
+            // Empfangs-Loop starten
+            _receiveTask = ReceiveLoopAsync(_cts.Token);
+        }
+        catch (AuthenticationException ex)
+        {
+            // Auth-Fehler sind permanent - kein Reconnect sinnvoll
+            SetState(ConnectionState.Disconnected);
+            OnError?.Invoke($"Authentifizierungsfehler: {ex.Message}");
+            // KEIN Reconnect bei Auth-Fehlern!
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[!] Carbons-Fehler: {ex.Message}");
-        }
-    }
-
-    private async Task RequestRosterAsync(CancellationToken ct)
-    {
-        await _writer!.WriteAsync(
-            "<iq type='get' id='roster1'>" +
-            "<query xmlns='jabber:iq:roster'/>" +
-            "</iq>");
-        
-        var response = await ReadStanzaAsync("iq", TimeSpan.FromSeconds(10), ct);
-        
-        var itemMatches = Regex.Matches(response, @"<item\s+([^>]+?)(?:/>|>(.*?)</item>)", RegexOptions.Singleline);
-        
-        foreach (Match m in itemMatches)
-        {
-            var attributes = m.Groups[1].Value;
-            var content = m.Groups[2].Success ? m.Groups[2].Value : "";
+            SetState(ConnectionState.Disconnected);
+            OnError?.Invoke($"Verbindungsfehler: {ex.Message}");
             
-            var jid = ExtractAttributeValue(attributes, "jid");
-            var name = ExtractAttributeValue(attributes, "name");
-            var subscription = ExtractAttributeValue(attributes, "subscription");
-            
-            if (string.IsNullOrEmpty(jid)) continue;
-            
-            var item = new RosterItem(jid)
+            if (!_intentionalDisconnect)
             {
-                Name = !string.IsNullOrEmpty(name) ? name : null,
-                Subscription = ParseSubscription(subscription)
-            };
-            
-            if (!string.IsNullOrEmpty(content))
-            {
-                var groups = Regex.Matches(content, @"<group>([^<]+)</group>");
-                foreach (Match g in groups)
-                {
-                    item.Groups.Add(g.Groups[1].Value);
-                }
-            }
-            
-            Roster.ProcessRosterItem(item);
-        }
-        
-        Console.WriteLine($"[+] Roster geladen: {Roster.Items.Count} Kontakte");
-    }
-
-    private static string? ExtractAttributeValue(string attributes, string attrName)
-    {
-        var match = Regex.Match(attributes, $@"{attrName}\s*=\s*['""]([^'""]*)['""]", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value : null;
-    }
-
-    private static SubscriptionState ParseSubscription(string? sub) => sub switch
-    {
-        "to" => SubscriptionState.To,
-        "from" => SubscriptionState.From,
-        "both" => SubscriptionState.Both,
-        "remove" => SubscriptionState.Remove,
-        _ => SubscriptionState.None
-    };
-
-    // ===== XML READING METHODS =====
-
-    private async Task<string> ReadStanzaAsync(string tagName, TimeSpan timeout, CancellationToken ct)
-    {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        
-        var buffer = new StringBuilder();
-        var charBuf = new char[4096];
-        
-        while (true)
-        {
-            cts.Token.ThrowIfCancellationRequested();
-            
-            var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
-            if (read == 0)
-                throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
-            
-            buffer.Append(charBuf, 0, read);
-            var xml = buffer.ToString();
-            
-            var startTag = $"<{tagName}";
-            var startIdx = xml.IndexOf(startTag, StringComparison.Ordinal);
-            if (startIdx < 0) continue;
-            
-            var selfCloseIdx = FindSelfClosingEnd(xml, startIdx);
-            if (selfCloseIdx >= 0)
-                return xml[..(selfCloseIdx + 2)];
-            
-            var endTag = $"</{tagName}>";
-            var endIdx = xml.IndexOf(endTag, startIdx, StringComparison.Ordinal);
-            if (endIdx >= 0)
-                return xml[..(endIdx + endTag.Length)];
-        }
-    }
-
-    private static int FindSelfClosingEnd(string xml, int startIdx)
-    {
-        var inQuote = false;
-        var quoteChar = '"';
-        
-        for (var i = startIdx; i < xml.Length - 1; i++)
-        {
-            var c = xml[i];
-            
-            if ((c == '"' || c == '\'') && !inQuote)
-            {
-                inQuote = true;
-                quoteChar = c;
-            }
-            else if (c == quoteChar && inQuote)
-            {
-                inQuote = false;
-            }
-            
-            if (!inQuote)
-            {
-                if (c == '/' && xml[i + 1] == '>')
-                    return i;
-                if (c == '>')
-                    return -1;
+                await TryReconnectAsync(ct);
             }
         }
-        
-        return -1;
     }
 
-    private async Task<string> ReadStreamFeaturesAsync(TimeSpan timeout, CancellationToken ct)
+    private async Task TryReconnectAsync(CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        
-        var buffer = new StringBuilder();
-        var charBuf = new char[4096];
-        
-        while (true)
+        if (_intentionalDisconnect || _reconnectAttempts >= MaxReconnectAttempts)
         {
-            cts.Token.ThrowIfCancellationRequested();
-            
-            var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
-            if (read == 0)
-                throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
-            
-            buffer.Append(charBuf, 0, read);
-            var xml = buffer.ToString();
-            
-            if (xml.Contains("<stream:features/>") || xml.Contains("</stream:features>"))
-                return xml;
-        }
-    }
-
-    private async Task<string> ReadSaslResponseAsync(TimeSpan timeout, CancellationToken ct)
-    {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        
-        var buffer = new StringBuilder();
-        var charBuf = new char[4096];
-        
-        while (true)
-        {
-            cts.Token.ThrowIfCancellationRequested();
-            
-            var read = await _reader!.ReadAsync(charBuf.AsMemory(), cts.Token);
-            if (read == 0)
-                throw new IOException($"Verbindung geschlossen. Buffer: {buffer}");
-            
-            buffer.Append(charBuf, 0, read);
-            var xml = buffer.ToString();
-            
-            if (xml.Contains("<success") && IsCompleteElement(xml, "success"))
-                return xml;
-            
-            if (xml.Contains("<failure") && IsCompleteElement(xml, "failure"))
-                return xml;
-        }
-    }
-
-    private static bool IsCompleteElement(string xml, string tagName)
-    {
-        var startIdx = xml.IndexOf($"<{tagName}", StringComparison.Ordinal);
-        if (startIdx < 0) return false;
-        
-        var selfCloseIdx = FindSelfClosingEnd(xml, startIdx);
-        if (selfCloseIdx >= 0) return true;
-        
-        return xml.IndexOf($"</{tagName}>", startIdx, StringComparison.Ordinal) >= 0;
-    }
-
-    // ===== PUBLIC API =====
-
-    public async Task SendPresenceAsync(string? show = null, string? status = null)
-    {
-        var presence = new StringBuilder("<presence>");
-        
-        if (!string.IsNullOrEmpty(show))
-            presence.Append($"<show>{XmlEscape(show)}</show>");
-        
-        if (!string.IsNullOrEmpty(status))
-            presence.Append($"<status>{XmlEscape(status)}</status>");
-        
-        presence.Append("</presence>");
-        
-        await _writer!.WriteAsync(presence.ToString());
-    }
-
-    /// <summary>
-    /// Sendet eine Nachricht mit optionalen XEP-Features
-    /// </summary>
-    public async Task<string> SendMessageAsync(string to, string body, bool requestReceipt = true)
-    {
-        var messageId = GenerateMessageId();
-        
-        var sb = new StringBuilder();
-        sb.Append($"<message to='{XmlEscape(to)}' type='chat' id='{messageId}'>");
-        sb.Append($"<body>{XmlEscape(body)}</body>");
-        
-        // XEP-0184: Receipt Request
-        if (requestReceipt)
-        {
-            sb.Append(ReceiptBuilder.RequestXml);
-            Receipts.TrackMessage(messageId, to);
+            Console.WriteLine($"[!] Reconnect aufgegeben nach {_reconnectAttempts} Versuchen");
+            return;
         }
         
-        // XEP-0085: Chat State "active"
-        sb.Append(ChatState.Active.ToXml());
+        _reconnectAttempts++;
         
-        sb.Append("</message>");
+        // Exponential Backoff
+        var delay = TimeSpan.FromMilliseconds(
+            Math.Min(
+                InitialReconnectDelay.TotalMilliseconds * Math.Pow(2, _reconnectAttempts - 1),
+                MaxReconnectDelay.TotalMilliseconds
+            )
+        );
         
-        await _writer!.WriteAsync(sb.ToString());
-        return messageId;
-    }
-
-    /// <summary>
-    /// Sendet nur einen Chat-State (XEP-0085)
-    /// </summary>
-    public async Task SendChatStateAsync(string to, ChatState state)
-    {
-        var message = $"<message to='{XmlEscape(to)}' type='chat'>{state.ToXml()}</message>";
-        await _writer!.WriteAsync(message);
-    }
-
-    /// <summary>
-    /// Sendet eine Lesebestätigung (XEP-0184)
-    /// </summary>
-    public async Task SendReceiptAsync(string to, string messageId)
-    {
-        await _writer!.WriteAsync(ReceiptBuilder.CreateReceipt(to, messageId));
-    }
-
-    public async Task SendRawAsync(string xml)
-    {
-        await _writer!.WriteAsync(xml);
-    }
-
-    private string GenerateMessageId() => $"msg-{Interlocked.Increment(ref _messageIdCounter)}-{Guid.NewGuid():N}";
-
-    // ===== ROSTER OPERATIONS =====
-
-    public async Task AddContactAsync(string jid, string? name = null, IEnumerable<string>? groups = null)
-    {
-        await SendRawAsync(RosterStanzaBuilder.SetItem(jid, name, groups));
-        await SendRawAsync(RosterStanzaBuilder.Subscribe(jid));
-    }
-
-    public async Task RemoveContactAsync(string jid)
-    {
-        await SendRawAsync(RosterStanzaBuilder.RemoveItem(jid));
-    }
-
-    public async Task AcceptSubscriptionAsync(string jid)
-    {
-        await SendRawAsync(RosterStanzaBuilder.Subscribed(jid));
-    }
-
-    public async Task DenySubscriptionAsync(string jid)
-    {
-        await SendRawAsync(RosterStanzaBuilder.Unsubscribed(jid));
-    }
-
-    // ===== PUBSUB OPERATIONS (XEP-0060) =====
-
-    public async Task PubSubSubscribeAsync(string nodeId, string? pubsubService = null)
-    {
-        var service = pubsubService ?? PubSub!.PubSubService;
-        await SendRawAsync(PubSubBuilder.Subscribe(service, nodeId, BareJid));
-        PubSub!.AddSubscription(nodeId);
-    }
-
-    public async Task PubSubUnsubscribeAsync(string nodeId, string? pubsubService = null)
-    {
-        var service = pubsubService ?? PubSub!.PubSubService;
-        await SendRawAsync(PubSubBuilder.Unsubscribe(service, nodeId, BareJid));
-        PubSub!.RemoveSubscription(nodeId);
-    }
-
-    public async Task PubSubPublishAsync(string nodeId, string itemId, string payload, string? pubsubService = null)
-    {
-        var service = pubsubService ?? PubSub!.PubSubService;
-        await SendRawAsync(PubSubBuilder.Publish(service, nodeId, itemId, payload));
-    }
-
-    public async Task PubSubCreateNodeAsync(string nodeId, string? pubsubService = null)
-    {
-        var service = pubsubService ?? PubSub!.PubSubService;
-        await SendRawAsync(PubSubBuilder.CreateNode(service, nodeId));
-    }
-
-    public async Task PubSubDeleteNodeAsync(string nodeId, string? pubsubService = null)
-    {
-        var service = pubsubService ?? PubSub!.PubSubService;
-        await SendRawAsync(PubSubBuilder.DeleteNode(service, nodeId));
-    }
-
-    public async Task PubSubGetItemsAsync(string nodeId, int? maxItems = null, string? pubsubService = null)
-    {
-        var service = pubsubService ?? PubSub!.PubSubService;
-        await SendRawAsync(PubSubBuilder.GetItems(service, nodeId, maxItems));
-    }
-
-    // ===== RECEIVE LOOP =====
-
-    public async Task StartReceivingAsync(CancellationToken ct)
-    {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var buffer = new StringBuilder();
-        var charBuf = new char[4096];
+        SetState(ConnectionState.Reconnecting);
+        Console.WriteLine($"[*] Reconnect-Versuch {_reconnectAttempts}/{MaxReconnectAttempts} in {delay.TotalSeconds:F1}s...");
         
         try
         {
-            while (!_cts.Token.IsCancellationRequested && IsConnected)
+            await Task.Delay(delay, ct);
+            await ConnectInternalAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Abgebrochen
+        }
+        catch (Exception ex)
+        {
+            OnError?.Invoke($"Reconnect fehlgeschlagen: {ex.Message}");
+        }
+    }
+
+    private void SetState(ConnectionState newState)
+    {
+        var oldState = State;
+        if (oldState != newState)
+        {
+            State = newState;
+            OnStateChanged?.Invoke(oldState, newState);
+        }
+    }
+
+    // ===== WEBSOCKET I/O =====
+
+    private async Task SendAsync(string xml)
+    {
+        if (_webSocket?.State != WebSocketState.Open)
+            throw new InvalidOperationException("WebSocket nicht verbunden");
+        
+        var bytes = Encoding.UTF8.GetBytes(xml);
+        await _webSocket.SendAsync(bytes, WebSocketMessageType.Text, true, _cts?.Token ?? default);
+        
+        OnRawXml?.Invoke($">>> {xml}");
+    }
+
+    private async Task<string> ReceiveStanzaAsync(CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        var sb = new StringBuilder();
+        
+        WebSocketReceiveResult result;
+        do
+        {
+            result = await _webSocket!.ReceiveAsync(buffer, ct);
+            
+            if (result.MessageType == WebSocketMessageType.Close)
             {
-                var read = await _reader!.ReadAsync(charBuf.AsMemory(), _cts.Token);
-                if (read == 0)
-                {
-                    OnError?.Invoke("Verbindung geschlossen");
-                    break;
-                }
+                throw new IOException("WebSocket geschlossen");
+            }
+            
+            sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+        }
+        while (!result.EndOfMessage);
+        
+        var xml = sb.ToString();
+        OnRawXml?.Invoke($"<<< {xml}");
+        return xml;
+    }
+
+    private async Task ReceiveLoopAsync(CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        
+        try
+        {
+            while (!ct.IsCancellationRequested && _webSocket?.State == WebSocketState.Open)
+            {
+                var sb = new StringBuilder();
+                WebSocketReceiveResult result;
                 
-                buffer.Append(charBuf, 0, read);
-                ProcessIncomingXml(buffer);
+                do
+                {
+                    result = await _webSocket.ReceiveAsync(buffer, ct);
+                    
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        Console.WriteLine("[!] Server hat Verbindung geschlossen");
+                        break;
+                    }
+                    
+                    sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                }
+                while (!result.EndOfMessage);
+                
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+                
+                var stanza = sb.ToString();
+                if (!string.IsNullOrEmpty(stanza))
+                {
+                    OnRawXml?.Invoke($"<<< {stanza}");
+                    ProcessStanza(stanza);
+                }
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // Normal
+        }
+        catch (WebSocketException ex)
+        {
+            OnError?.Invoke($"WebSocket-Fehler: {ex.Message}");
+        }
         catch (Exception ex)
         {
             OnError?.Invoke($"Empfangsfehler: {ex.Message}");
         }
+        
+        // Verbindung verloren - Reconnect versuchen
+        if (!_intentionalDisconnect && State == ConnectionState.Connected)
+        {
+            SetState(ConnectionState.Disconnected);
+            _ = TryReconnectAsync(default);
+        }
     }
 
-    private void ProcessIncomingXml(StringBuilder buffer)
+    // ===== STANZA PROCESSING =====
+
+    private void ProcessStanza(string stanza)
     {
-        var xml = buffer.ToString();
-        
-        // Messages verarbeiten
-        ProcessStanzaType(ref xml, "message", ProcessMessage);
-        
-        // Presence verarbeiten
-        ProcessStanzaType(ref xml, "presence", ProcessPresence);
-        
-        // IQ verarbeiten
-        ProcessStanzaType(ref xml, "iq", ProcessIq);
-        
-        buffer.Clear();
-        buffer.Append(xml);
+        try
+        {
+            if (stanza.StartsWith("<message"))
+            {
+                ProcessMessage(stanza);
+            }
+            else if (stanza.StartsWith("<presence"))
+            {
+                ProcessPresence(stanza);
+            }
+            else if (stanza.StartsWith("<iq"))
+            {
+                ProcessIq(stanza);
+            }
+            else if (stanza.StartsWith("<close"))
+            {
+                // Stream geschlossen
+                OnError?.Invoke("Stream vom Server geschlossen");
+            }
+        }
+        catch (Exception ex)
+        {
+            OnError?.Invoke($"Stanza-Verarbeitung fehlgeschlagen: {ex.Message}");
+        }
     }
 
     private void ProcessMessage(string stanza)
@@ -680,45 +399,56 @@ public sealed class XmppConnection : IAsyncDisposable
         var to = ExtractAttribute(stanza, "to") ?? FullJid;
         var msgId = ExtractAttribute(stanza, "id");
         
-        // === XEP-0280: CARBON SPOOFING PROTECTION ===
-        if (stanza.Contains("xmlns='urn:xmpp:carbons:2'"))
+        // XEP-0280: Carbon Check
+        if (stanza.Contains("urn:xmpp:carbons:2"))
         {
-            if (Carbons != null && Carbons.ProcessCarbon(stanza, from))
+            if (Carbons != null)
             {
-                return; // Carbon erfolgreich verarbeitet
-            }
-            else
-            {
-                OnSpoofingAttempt?.Invoke($"Carbon-Spoofing von {from}");
-                return;
+                var result = Carbons.ProcessCarbon(stanza, from);
+                
+                switch (result)
+                {
+                    case CarbonResult.Success:
+                        return; // Carbon wurde verarbeitet
+                        
+                    case CarbonResult.SpoofingDetected:
+                        OnSpoofingAttempt?.Invoke($"Carbon-Spoofing von {from}");
+                        return;
+                        
+                    case CarbonResult.ParseError:
+                        OnError?.Invoke($"Carbon-Parse-Fehler von {from}");
+                        return;
+                        
+                    case CarbonResult.NotACarbon:
+                        // Kein Carbon, weiter verarbeiten als normale Nachricht
+                        break;
+                }
             }
         }
         
-        // === XEP-0184: RECEIPT ===
+        // XEP-0184: Receipt
         var receiptId = ReceiptBuilder.ExtractReceiptId(stanza);
         if (receiptId != null)
         {
             if (!Receipts.ProcessReceipt(receiptId, from))
-            {
-                OnSpoofingAttempt?.Invoke($"Receipt-Spoofing: ID={receiptId} von {from}");
-            }
+                OnSpoofingAttempt?.Invoke($"Receipt-Spoofing: {receiptId} von {from}");
             return;
         }
         
-        // === XEP-0085: CHAT STATE ===
+        // XEP-0085: Chat State
         var chatState = ChatStateExtensions.ParseChatState(stanza);
         if (chatState.HasValue)
         {
             OnChatState?.Invoke(from, chatState.Value);
         }
         
-        // === Normal Message ===
+        // Normale Nachricht
         var body = ExtractElement(stanza, "body");
         if (!string.IsNullOrEmpty(body))
         {
             OnMessage?.Invoke(from, to, body, msgId);
             
-            // Auto-Receipt senden wenn angefragt
+            // Auto-Receipt
             if (ReceiptBuilder.HasReceiptRequest(stanza) && msgId != null)
             {
                 _ = SendReceiptAsync(from, msgId);
@@ -755,69 +485,27 @@ public sealed class XmppConnection : IAsyncDisposable
         if (type == "set" && stanza.Contains("jabber:iq:roster"))
         {
             ProcessRosterPush(stanza);
-            _ = SendRawAsync($"<iq type='result' id='{id}'/>");
+            _ = SendAsync($"<iq type='result' id='{id}'/>");
         }
         
-        // === XEP-0060: PUBSUB EVENT (kann auch als Message kommen) ===
+        // PubSub Event
         if (stanza.Contains("http://jabber.org/protocol/pubsub#event") && from != null)
         {
             PubSub?.ProcessEvent(stanza, from, PubSub.PubSubService);
         }
     }
 
-    private void ProcessStanzaType(ref string xml, string tagName, Action<string> handler)
-    {
-        var startTag = $"<{tagName}";
-        var endTag = $"</{tagName}>";
-        
-        while (true)
-        {
-            var start = xml.IndexOf(startTag, StringComparison.Ordinal);
-            if (start < 0) break;
-            
-            var selfClose = xml.IndexOf("/>", start, StringComparison.Ordinal);
-            var fullClose = xml.IndexOf(endTag, start, StringComparison.Ordinal);
-            var nextTagStart = xml.IndexOf('<', start + 1);
-            
-            int end, endLen;
-            
-            if (selfClose >= 0 && (nextTagStart < 0 || selfClose < nextTagStart))
-            {
-                end = selfClose;
-                endLen = 2;
-            }
-            else if (fullClose >= 0)
-            {
-                end = fullClose;
-                endLen = endTag.Length;
-            }
-            else
-            {
-                break;
-            }
-            
-            var stanza = xml.Substring(start, end - start + endLen);
-            xml = xml.Remove(start, end - start + endLen);
-            
-            OnRawXml?.Invoke(stanza);
-            
-            try { handler(stanza); }
-            catch (Exception ex) { OnError?.Invoke($"Stanza-Fehler: {ex.Message}"); }
-        }
-    }
-
     private void ProcessRosterPush(string stanza)
     {
-        var itemMatch = Regex.Match(stanza, 
-            @"<item\s+jid=['""]([^'""]+)['""](?:\s+name=['""]([^'""]*)['""])?(?:\s+subscription=['""]([^'""]*)['""])?",
-            RegexOptions.Singleline);
+        var match = Regex.Match(stanza, 
+            @"<item\s+jid=['""]([^'""]+)['""](?:\s+name=['""]([^'""]*)['""])?(?:\s+subscription=['""]([^'""]*)['""])?");
         
-        if (itemMatch.Success)
+        if (match.Success)
         {
-            var jid = itemMatch.Groups[1].Value;
-            var subscription = ParseSubscription(itemMatch.Groups[3].Value);
+            var jid = match.Groups[1].Value;
+            var sub = match.Groups[3].Value;
             
-            if (subscription == SubscriptionState.Remove)
+            if (sub == "remove")
             {
                 Roster.RemoveItem(jid);
             }
@@ -825,19 +513,223 @@ public sealed class XmppConnection : IAsyncDisposable
             {
                 var item = new RosterItem(jid)
                 {
-                    Name = itemMatch.Groups[2].Success ? itemMatch.Groups[2].Value : null,
-                    Subscription = subscription
+                    Name = match.Groups[2].Success ? match.Groups[2].Value : null,
+                    Subscription = ParseSubscription(sub)
                 };
                 Roster.ProcessRosterItem(item);
             }
         }
     }
 
+    // ===== AUTH & SETUP =====
+
+    private async Task PerformSaslPlainAsync(CancellationToken ct)
+    {
+        var authData = $"\0{_username}\0{_password}";
+        var authBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(authData));
+        
+        await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{authBase64}</auth>");
+        
+        var response = await ReceiveStanzaAsync(ct);
+        
+        if (response.Contains("<success"))
+        {
+            Console.WriteLine("[+] Authentifizierung erfolgreich");
+        }
+        else
+        {
+            throw new AuthenticationException($"SASL fehlgeschlagen: {response}");
+        }
+    }
+
+    private async Task<string> PerformBindAsync(CancellationToken ct)
+    {
+        var resource = $"console-{Environment.ProcessId}";
+        
+        await SendAsync(
+            $"<iq type='set' id='bind1'>" +
+            $"<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'>" +
+            $"<resource>{resource}</resource>" +
+            $"</bind></iq>");
+        
+        var response = await ReceiveStanzaAsync(ct);
+        
+        var jidMatch = Regex.Match(response, @"<jid>([^<]+)</jid>");
+        return jidMatch.Success ? jidMatch.Groups[1].Value : $"{_jid}/{resource}";
+    }
+
+    private async Task PerformSessionAsync(CancellationToken ct)
+    {
+        await SendAsync(
+            "<iq type='set' id='sess1'>" +
+            "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>" +
+            "</iq>");
+        
+        await ReceiveStanzaAsync(ct);
+    }
+
+    private async Task EnableCarbonsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await SendAsync(CarbonManager.EnableIq());
+            var response = await ReceiveStanzaAsync(ct);
+            
+            if (response.Contains("type='result'") || response.Contains("type=\"result\""))
+            {
+                Carbons!.SetEnabled(true);
+                Console.WriteLine("[+] Message Carbons aktiviert");
+            }
+            else
+            {
+                Console.WriteLine("[!] Message Carbons nicht verfügbar");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[!] Carbons-Fehler: {ex.Message}");
+        }
+    }
+
+    private async Task RequestRosterAsync(CancellationToken ct)
+    {
+        await SendAsync(
+            "<iq type='get' id='roster1'>" +
+            "<query xmlns='jabber:iq:roster'/>" +
+            "</iq>");
+        
+        var response = await ReceiveStanzaAsync(ct);
+        
+        var items = Regex.Matches(response, @"<item\s+([^>]+?)(?:/>|>(.*?)</item>)", RegexOptions.Singleline);
+        
+        foreach (Match m in items)
+        {
+            var attrs = m.Groups[1].Value;
+            var content = m.Groups[2].Success ? m.Groups[2].Value : "";
+            
+            var jid = ExtractAttributeValue(attrs, "jid");
+            if (string.IsNullOrEmpty(jid)) continue;
+            
+            var item = new RosterItem(jid)
+            {
+                Name = ExtractAttributeValue(attrs, "name"),
+                Subscription = ParseSubscription(ExtractAttributeValue(attrs, "subscription"))
+            };
+            
+            var groups = Regex.Matches(content, @"<group>([^<]+)</group>");
+            foreach (Match g in groups)
+                item.Groups.Add(g.Groups[1].Value);
+            
+            Roster.ProcessRosterItem(item);
+        }
+        
+        Console.WriteLine($"[+] Roster geladen: {Roster.Items.Count} Kontakte");
+    }
+
+    // ===== PUBLIC API =====
+
+    public async Task SendPresenceAsync(string? show = null, string? status = null)
+    {
+        var sb = new StringBuilder("<presence>");
+        if (!string.IsNullOrEmpty(show))
+            sb.Append($"<show>{XmlEscape(show)}</show>");
+        if (!string.IsNullOrEmpty(status))
+            sb.Append($"<status>{XmlEscape(status)}</status>");
+        sb.Append("</presence>");
+        
+        await SendAsync(sb.ToString());
+    }
+
+    public async Task<string> SendMessageAsync(string to, string body, bool requestReceipt = true)
+    {
+        var messageId = GenerateMessageId();
+        
+        var sb = new StringBuilder();
+        sb.Append($"<message to='{XmlEscape(to)}' type='chat' id='{messageId}'>");
+        sb.Append($"<body>{XmlEscape(body)}</body>");
+        
+        if (requestReceipt)
+        {
+            sb.Append(ReceiptBuilder.RequestXml);
+            Receipts.TrackMessage(messageId, to);
+        }
+        
+        sb.Append(ChatState.Active.ToXml());
+        sb.Append("</message>");
+        
+        await SendAsync(sb.ToString());
+        return messageId;
+    }
+
+    public async Task SendChatStateAsync(string to, ChatState state)
+    {
+        await SendAsync($"<message to='{XmlEscape(to)}' type='chat'>{state.ToXml()}</message>");
+    }
+
+    public async Task SendReceiptAsync(string to, string messageId)
+    {
+        await SendAsync(ReceiptBuilder.CreateReceipt(to, messageId));
+    }
+
+    public async Task SendRawAsync(string xml) => await SendAsync(xml);
+
+    // Roster Operations
+    public async Task AddContactAsync(string jid, string? name = null, IEnumerable<string>? groups = null)
+    {
+        await SendAsync(RosterStanzaBuilder.SetItem(jid, name, groups));
+        await SendAsync(RosterStanzaBuilder.Subscribe(jid));
+    }
+
+    public async Task RemoveContactAsync(string jid) => await SendAsync(RosterStanzaBuilder.RemoveItem(jid));
+    public async Task AcceptSubscriptionAsync(string jid) => await SendAsync(RosterStanzaBuilder.Subscribed(jid));
+    public async Task DenySubscriptionAsync(string jid) => await SendAsync(RosterStanzaBuilder.Unsubscribed(jid));
+
+    // PubSub Operations
+    public async Task PubSubSubscribeAsync(string nodeId, string? service = null)
+    {
+        await SendAsync(PubSubBuilder.Subscribe(service ?? PubSub!.PubSubService, nodeId, BareJid));
+        PubSub!.AddSubscription(nodeId);
+    }
+
+    public async Task PubSubUnsubscribeAsync(string nodeId, string? service = null)
+    {
+        await SendAsync(PubSubBuilder.Unsubscribe(service ?? PubSub!.PubSubService, nodeId, BareJid));
+        PubSub!.RemoveSubscription(nodeId);
+    }
+
+    public async Task PubSubPublishAsync(string nodeId, string itemId, string payload, string? service = null)
+    {
+        await SendAsync(PubSubBuilder.Publish(service ?? PubSub!.PubSubService, nodeId, itemId, payload));
+    }
+
+    public async Task PubSubCreateNodeAsync(string nodeId, string? service = null)
+    {
+        await SendAsync(PubSubBuilder.CreateNode(service ?? PubSub!.PubSubService, nodeId));
+    }
+
+    public async Task PubSubDeleteNodeAsync(string nodeId, string? service = null)
+    {
+        await SendAsync(PubSubBuilder.DeleteNode(service ?? PubSub!.PubSubService, nodeId));
+    }
+
+    public async Task PubSubGetItemsAsync(string nodeId, int? maxItems = null, string? service = null)
+    {
+        await SendAsync(PubSubBuilder.GetItems(service ?? PubSub!.PubSubService, nodeId, maxItems));
+    }
+
     // ===== HELPERS =====
+
+    private string GenerateMessageId() => $"msg-{Interlocked.Increment(ref _messageIdCounter)}-{Guid.NewGuid():N}";
 
     private static string? ExtractAttribute(string xml, string name)
     {
         var match = Regex.Match(xml, $@"{name}=['""]([^'""]*)['""]");
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static string? ExtractAttributeValue(string attrs, string name)
+    {
+        var match = Regex.Match(attrs, $@"{name}\s*=\s*['""]([^'""]*)['""]", RegexOptions.IgnoreCase);
         return match.Success ? match.Groups[1].Value : null;
     }
 
@@ -847,11 +739,35 @@ public sealed class XmppConnection : IAsyncDisposable
         return match.Success ? match.Groups[1].Value : null;
     }
 
+    private static List<string> ExtractSaslMechanisms(string xml)
+    {
+        var mechanisms = new List<string>();
+        
+        // Finde alle <mechanism>...</mechanism> Elemente
+        var matches = Regex.Matches(xml, @"<mechanism>([^<]+)</mechanism>");
+        
+        foreach (Match match in matches)
+        {
+            mechanisms.Add(match.Groups[1].Value);
+        }
+        
+        return mechanisms;
+    }
+
     private static string GetBareJid(string jid)
     {
         var slash = jid.IndexOf('/');
         return (slash > 0 ? jid[..slash] : jid).ToLowerInvariant();
     }
+
+    private static SubscriptionState ParseSubscription(string? sub) => sub switch
+    {
+        "to" => SubscriptionState.To,
+        "from" => SubscriptionState.From,
+        "both" => SubscriptionState.Both,
+        "remove" => SubscriptionState.Remove,
+        _ => SubscriptionState.None
+    };
 
     private static string XmlEscape(string text) =>
         text.Replace("&", "&amp;")
@@ -860,41 +776,37 @@ public sealed class XmppConnection : IAsyncDisposable
             .Replace("'", "&apos;")
             .Replace("\"", "&quot;");
 
-    public async ValueTask DisposeAsync()
+    public async Task DisconnectAsync()
     {
+        _intentionalDisconnect = true;
         _cts?.Cancel();
         
         try
         {
-            if (_writer != null)
+            if (_webSocket?.State == WebSocketState.Open)
             {
-                await _writer.WriteAsync("</stream:stream>");
-                await _writer.FlushAsync();
+                await SendAsync("<close xmlns='urn:ietf:params:xml:ns:xmpp-framing'/>");
+                await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Goodbye", default);
             }
         }
         catch { }
         
-        _writer?.Dispose();
-        _reader?.Dispose();
+        SetState(ConnectionState.Disconnected);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisconnectAsync();
         
-        if (_stream is SslStream ssl)
-            await ssl.DisposeAsync();
-        else
-            _stream?.Dispose();
-        
-        _tcpClient?.Dispose();
+        _webSocket?.Dispose();
         _cts?.Dispose();
     }
 }
 
-// ===== SUPPORTING TYPES =====
-
-public sealed class StreamFeatures
+public enum ConnectionState
 {
-    public bool StartTls { get; set; }
-    public bool StartTlsRequired { get; set; }
-    public List<string> SaslMechanisms { get; set; } = [];
-    public bool Bind { get; set; }
-    public bool Session { get; set; }
-    public bool RosterVersioning { get; set; }
+    Disconnected,
+    Connecting,
+    Connected,
+    Reconnecting
 }

@@ -15,7 +15,7 @@ class Program
         
         PrintHeader();
         
-        var (jid, password, server, port) = GetCredentials(args);
+        var (jid, password, wsUri) = GetCredentials(args);
         
         if (string.IsNullOrEmpty(jid) || string.IsNullOrEmpty(password))
         {
@@ -33,13 +33,30 @@ class Program
         
         try
         {
-            _connection = new XmppConnection(jid, password, server, port);
+            _connection = new XmppConnection(jid, password, wsUri);
             
             // Core Event-Handler
             _connection.OnMessage += HandleMessage;
             _connection.OnPresence += HandlePresence;
             _connection.OnError += HandleError;
             _connection.OnRawXml += HandleRawXml;
+            
+            // Connection State (für Reconnect-Anzeige)
+            _connection.OnStateChanged += (oldState, newState) =>
+            {
+                switch (newState)
+                {
+                    case ConnectionState.Reconnecting:
+                        WriteSystemMessage("🔄 Verbindung verloren, versuche Reconnect...");
+                        break;
+                    case ConnectionState.Connected when oldState == ConnectionState.Reconnecting:
+                        WriteSystemMessage("✅ Reconnect erfolgreich!");
+                        break;
+                    case ConnectionState.Disconnected when oldState == ConnectionState.Reconnecting:
+                        WriteWarning("❌ Reconnect fehlgeschlagen");
+                        break;
+                }
+            };
             
             // XEP-0085: Chat State
             _connection.OnChatState += HandleChatState;
@@ -69,18 +86,13 @@ class Program
                 WriteSystemMessage($"   Nutze /accept {from} oder /deny {from}");
             };
             
-            // Verbinden
+            // Verbinden (WebSocket + Receive-Loop starten automatisch)
             await _connection.ConnectAsync(cts.Token);
-            
-            // Empfangs-Task starten
-            var receiveTask = _connection.StartReceivingAsync(cts.Token);
             
             PrintHelp();
             
-            // Konsolen-Input verarbeiten
+            // Konsolen-Input verarbeiten (blockiert bis Ctrl+C)
             await ProcessConsoleInputAsync(cts.Token);
-            
-            await receiveTask;
         }
         catch (OperationCanceledException)
         {
@@ -101,12 +113,11 @@ class Program
         }
     }
 
-    private static (string jid, string password, string? server, int port) GetCredentials(string[] args)
+    private static (string jid, string password, string? wsUri) GetCredentials(string[] args)
     {
         string? jid = null;
         string? password = null;
-        string? server = null;
-        int port = 5222;
+        string? wsUri = null;
         
         for (int i = 0; i < args.Length; i++)
         {
@@ -118,11 +129,8 @@ class Program
                 case "-p" or "--password" when i + 1 < args.Length:
                     password = args[++i];
                     break;
-                case "-s" or "--server" when i + 1 < args.Length:
-                    server = args[++i];
-                    break;
-                case "--port" when i + 1 < args.Length:
-                    port = int.Parse(args[++i]);
+                case "-w" or "--ws" or "--websocket" when i + 1 < args.Length:
+                    wsUri = args[++i];
                     break;
                 case "-h" or "--help":
                     PrintUsage();
@@ -144,15 +152,15 @@ class Program
             Console.WriteLine();
         }
         
-        if (string.IsNullOrEmpty(server))
+        if (string.IsNullOrEmpty(wsUri))
         {
-            Console.Write($"Server (Enter für Domain aus JID): ");
+            Console.Write($"WebSocket URI (Enter für wss://{{domain}}:5443/ws): ");
             var input = Console.ReadLine()?.Trim();
             if (!string.IsNullOrEmpty(input))
-                server = input;
+                wsUri = input;
         }
         
-        return (jid, password, server, port);
+        return (jid, password, wsUri);
     }
 
     private static string ReadPassword()
@@ -377,9 +385,29 @@ class Program
             case "/who":
                 Console.WriteLine($"Angemeldet als: {_connection!.FullJid}");
                 Console.WriteLine($"Bare JID: {_connection.BareJid}");
+                Console.WriteLine($"Status: {_connection.State}");
                 if (_currentRecipient != null)
                     Console.WriteLine($"Chat mit: {_currentRecipient}");
                 Console.WriteLine($"Carbons: {(_connection.Carbons?.IsEnabled == true ? "aktiviert" : "deaktiviert")}");
+                Console.WriteLine($"Transport: WebSocket (RFC 7395)");
+                break;
+                
+            case "/reconnect":
+                if (_connection!.State == ConnectionState.Connected)
+                {
+                    Console.WriteLine("[*] Bereits verbunden. Trenne erst mit /disconnect");
+                }
+                else
+                {
+                    Console.WriteLine("[*] Manueller Reconnect...");
+                    await _connection.ConnectAsync(ct);
+                }
+                break;
+                
+            case "/disconnect":
+                Console.WriteLine("[*] Trenne Verbindung...");
+                await _connection!.DisconnectAsync();
+                Console.WriteLine("[+] Getrennt");
                 break;
                 
             default:
@@ -875,10 +903,10 @@ class Program
     {
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine(@"
-  ╔═══════════════════════════════════════╗
-  ║     XMPP Console Client (.NET 10)     ║
-  ║        TLS + SASL + Roster            ║
-  ╚═══════════════════════════════════════╝
+  ╔═══════════════════════════════════════════╗
+  ║      XMPP Console Client (.NET 10)        ║
+  ║   WebSocket (RFC 7395) + Auto-Reconnect   ║
+  ╚═══════════════════════════════════════════╝
 ");
         Console.ResetColor();
     }
@@ -914,16 +942,22 @@ PubSub (XEP-0060):
   /pubsub sub <node>     Node abonnieren
   /pubsub pub <node> <id> <data>  Item veröffentlichen
 
+Verbindung:
+  /who        Status und JID anzeigen
+  /reconnect  Manuell neu verbinden
+  /disconnect Verbindung trennen
+  /quit       Beenden
+
 Sonstiges:
-  /who      Eigene JID und Status anzeigen
   /carbons  Message Carbons Status (XEP-0280)
   /raw      XML-Debug-Anzeige
-  /quit     Beenden
 
 Features:
-  ✓ Lesebestätigungen werden automatisch gesendet (XEP-0184)
-  ✓ Nachrichten-Sync über alle Geräte (XEP-0280 Carbons)
-  ✓ Spoofing-Schutz für Receipts, Carbons und PubSub
+  ✓ WebSocket Transport (RFC 7395) - Firewall-freundlich
+  ✓ Auto-Reconnect mit Exponential Backoff
+  ✓ Lesebestätigungen (XEP-0184) mit Spoofing-Schutz
+  ✓ Message Carbons (XEP-0280) mit Spoofing-Schutz
+  ✓ PubSub (XEP-0060) mit Spoofing-Schutz
 ");
     }
 
@@ -933,11 +967,14 @@ Features:
 Verwendung: XmppClient [Optionen]
 
 Optionen:
-  -j, --jid <jid>       JID (z.B. user@jabber.org)
-  -p, --password <pw>   Passwort
-  -s, --server <host>   Server (falls anders als Domain)
-      --port <port>     Port (Standard: 5222)
-  -h, --help            Diese Hilfe anzeigen
+  -j, --jid <jid>         JID (z.B. user@jabber.org)
+  -p, --password <pw>     Passwort
+  -w, --websocket <uri>   WebSocket URI (z.B. wss://jabber.org:5443/ws)
+  -h, --help              Diese Hilfe anzeigen
+
+Beispiele:
+  XmppClient -j user@jabber.org -p geheim
+  XmppClient -j user@example.com -p pw -w wss://xmpp.example.com/ws
 ");
     }
 }

@@ -196,6 +196,14 @@ public sealed class CarbonMessage
     }
 }
 
+public enum CarbonResult
+{
+    Success,
+    SpoofingDetected,
+    ParseError,
+    NotACarbon
+}
+
 public sealed class CarbonManager
 {
     private readonly string _myBareJid;
@@ -204,6 +212,7 @@ public sealed class CarbonManager
     public bool IsEnabled => _enabled;
     
     public event Action<CarbonMessage>? OnCarbonReceived;
+    public event Action<string>? OnParseError;
 
     public CarbonManager(string myBareJid)
     {
@@ -215,7 +224,7 @@ public sealed class CarbonManager
     /// <summary>
     /// Verarbeitet eine Carbon-Nachricht mit Spoofing-Schutz
     /// </summary>
-    public bool ProcessCarbon(string messageXml, string from)
+    public CarbonResult ProcessCarbon(string messageXml, string from)
     {
         var bareFrom = GetBareJid(from);
 
@@ -223,45 +232,74 @@ public sealed class CarbonManager
         // Carbons dürfen NUR vom eigenen Bare-JID kommen (= vom Server)!
         if (!string.Equals(bareFrom, _myBareJid, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine($"[!] Carbon-Spoofing erkannt! Von: {from}, erwartet: {_myBareJid}");
-            return false;
+            return CarbonResult.SpoofingDetected;
         }
 
-        // Prüfe ob sent oder received
-        var isSent = messageXml.Contains("<sent xmlns='urn:xmpp:carbons:2'");
-        var isReceived = messageXml.Contains("<received xmlns='urn:xmpp:carbons:2'");
+        // Prüfe ob sent oder received (mit Single- oder Double-Quotes)
+        var isSent = messageXml.Contains("<sent") && 
+                     messageXml.Contains("urn:xmpp:carbons:2");
+        var isReceived = messageXml.Contains("<received") && 
+                         messageXml.Contains("urn:xmpp:carbons:2") &&
+                         !messageXml.Contains("urn:xmpp:receipts"); // Nicht mit XEP-0184 verwechseln!
 
         if (!isSent && !isReceived)
         {
-            return false;
+            return CarbonResult.NotACarbon;
         }
 
-        // Extrahiere die forwarded Message
+        // Extrahiere die forwarded Message - flexiblerer Regex
+        // Akzeptiert beide Quote-Styles und optionale Whitespace
         var forwardedMatch = Regex.Match(messageXml, 
-            @"<forwarded[^>]*xmlns='urn:xmpp:forward:0'[^>]*>(.*?)</forwarded>",
+            @"<forwarded[^>]*>(.*)</forwarded>",
             RegexOptions.Singleline);
 
         if (!forwardedMatch.Success)
         {
-            return false;
+            // Eventuell unvollständige Nachricht - versuche trotzdem zu parsen
+            // Suche nach der inneren <message>
+            var innerMsgStart = messageXml.IndexOf("<message", 
+                messageXml.IndexOf("<forwarded", StringComparison.Ordinal) + 1, 
+                StringComparison.Ordinal);
+            
+            if (innerMsgStart < 0)
+            {
+                OnParseError?.Invoke($"Kein </forwarded> gefunden, XML möglicherweise unvollständig");
+                return CarbonResult.ParseError;
+            }
+            
+            // Parse ab der inneren Message
+            var forwardedXml = messageXml[innerMsgStart..];
+            return ExtractAndFireCarbon(forwardedXml, isSent);
         }
 
-        var forwardedXml = forwardedMatch.Groups[1].Value;
+        return ExtractAndFireCarbon(forwardedMatch.Groups[1].Value, isSent);
+    }
 
-        // Extrahiere die Original-Nachricht
+    private CarbonResult ExtractAndFireCarbon(string forwardedXml, bool isSent)
+    {
+        // Extrahiere Attribute aus der inneren Message
         var originalFrom = ExtractAttribute(forwardedXml, "from");
         var originalTo = ExtractAttribute(forwardedXml, "to");
-        var body = ExtractElement(forwardedXml, "body");
         var msgId = ExtractAttribute(forwardedXml, "id");
 
-        if (originalFrom == null || originalTo == null)
+        if (originalFrom == null && originalTo == null)
         {
-            return false;
+            OnParseError?.Invoke("Konnte from/to nicht aus Carbon extrahieren");
+            return CarbonResult.ParseError;
         }
 
-        var carbon = new CarbonMessage(isSent, originalFrom, originalTo, body, msgId);
+        // Body extrahieren
+        var body = ExtractElement(forwardedXml, "body");
+
+        var carbon = new CarbonMessage(
+            isSent, 
+            originalFrom ?? "", 
+            originalTo ?? "", 
+            body, 
+            msgId);
+        
         OnCarbonReceived?.Invoke(carbon);
-        return true;
+        return CarbonResult.Success;
     }
 
     /// <summary>
@@ -292,13 +330,14 @@ public sealed class CarbonManager
 
     private static string? ExtractAttribute(string xml, string name)
     {
-        var match = Regex.Match(xml, $@"{name}=['""]([^'""]*)['""]");
+        // Akzeptiert sowohl single als auch double quotes
+        var match = Regex.Match(xml, $@"{name}\s*=\s*['""]([^'""]*)['""]");
         return match.Success ? match.Groups[1].Value : null;
     }
 
     private static string? ExtractElement(string xml, string name)
     {
-        var match = Regex.Match(xml, $@"<{name}>([^<]*)</{name}>");
+        var match = Regex.Match(xml, $@"<{name}[^>]*>([^<]*)</{name}>");
         return match.Success ? match.Groups[1].Value : null;
     }
 }
