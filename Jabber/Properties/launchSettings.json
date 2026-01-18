@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Jabber": {
+      "commandName": "Project",
+      "commandLineArgs": "-j ahzf@graphdefined.com -p vsp4_j4-bAww -s jabber.graphdefined.com"
+    }
+  }
+}
