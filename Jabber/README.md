@@ -1,34 +1,30 @@
 # XMPP Console Client (.NET 10)
 
-Ein vollständiger XMPP-Client für die Kommandozeile mit **WebSocket-Transport** (RFC 7395), Auto-Reconnect und umfangreicher XEP-Unterstützung.
-
-## Warum WebSocket?
-
-| Aspekt | TCP+STARTTLS | WebSocket |
-|--------|--------------|-----------|
-| **Framing** | Streaming XML (komplex) | 1 Message = 1 Stanza ✅ |
-| **Firewall** | Port 5222 (oft blockiert) | Port 443 ✅ |
-| **Proxies** | Problematisch | Transparent ✅ |
-| **Parsing** | Fragment-Zusammensetzung | Direkt verwendbar ✅ |
-| **Cloud/LB** | Schwierig | Native Unterstützung ✅ |
+Ein vollständiger XMPP-Client für die Kommandozeile mit WebSocket-Transport und umfassender XEP-Unterstützung.
 
 ## Features
 
-### Core
-- ✅ WebSocket Transport (RFC 7395 / XEP-0156)
-- ✅ SASL PLAIN Authentifizierung
-- ✅ Auto-Reconnect mit Exponential Backoff
-- ✅ Roster-Management mit Gruppen
-- ✅ Presence (Online-Status)
-- ✅ 1:1 Chat
+### Authentifizierung
+| Methode | Status |
+|---------|--------|
+| **SCRAM-SHA-256** | ✅ Bevorzugt |
+| **SCRAM-SHA-1** | ✅ Unterstützt |
+| SASL PLAIN | ✅ Fallback |
 
-### XEP-Erweiterungen mit Spoofing-Schutz
+### XEP-Unterstützung
+
 | XEP | Name | Beschreibung |
 |-----|------|--------------|
+| RFC 7395 | WebSocket Transport | Firewall-freundlich, Port 443 |
+| **XEP-0198** | Stream Management | Zuverlässige Zustellung, Resume |
+| **XEP-0199** | XMPP Ping | Keepalive, RTT-Messung |
+| **XEP-0030** | Service Discovery | Feature-Erkennung |
+| **XEP-0115** | Entity Capabilities | Capability Hashing |
+| **XEP-0333** | Chat Markers | Erweiterte Lesebestätigungen |
 | XEP-0085 | Chat State Notifications | "tippt gerade..." |
-| XEP-0184 | Message Delivery Receipts | Zustellbestätigungen |
+| XEP-0184 | Message Receipts | Zustellbestätigung |
 | XEP-0280 | Message Carbons | Multi-Device Sync |
-| XEP-0060 | Publish-Subscribe | Event-basierte Kommunikation |
+| XEP-0060 | Publish-Subscribe | Event-basiert |
 
 ## Installation
 
@@ -40,197 +36,189 @@ dotnet run
 
 ## Verwendung
 
-### Starten
 ```bash
-# Interaktiv (fragt nach Credentials)
+# Interaktiv
 dotnet run
 
 # Mit Parametern
 dotnet run -- -j user@jabber.org -p geheim
 
-# Mit expliziter WebSocket-URL
-dotnet run -- -j user@example.com -p pw -w wss://xmpp.example.com/ws
+# Mit WebSocket-URL
+dotnet run -- -j user@server.com -p pw -w wss://xmpp.server.com/ws
 ```
 
-### Standard WebSocket-Endpunkte
+## Kommandos
 
-Der Client versucht automatisch `wss://{domain}:5443/ws`. Bekannte Server:
-
-| Server | WebSocket URL |
-|--------|---------------|
-| jabber.org | wss://jabber.org:5443/ws |
-| conversations.im | wss://conversations.im:5443/ws |
-| ejabberd | wss://{host}:5443/ws |
-| Prosody | wss://{host}:5281/xmpp-websocket |
-
-### Kommandos
-
-#### Nachrichten
+### Nachrichten
 ```
 /to <jid>              Chat-Partner setzen
 /msg <jid> <text>      Nachricht senden
-/status [show] [text]  Status ändern
+/typing                Tippt-Status senden
+/mark displayed        Nachricht als gelesen markieren
 ```
 
-#### Kontakte
+### Service Discovery (XEP-0030)
 ```
-/roster [filter]   Alle Kontakte
-/online            Nur Online
-/add <jid>         Kontakt hinzufügen
-/remove <jid>      Kontakt entfernen
-```
-
-#### Chat-Status (XEP-0085)
-```
-/typing    'Tippt gerade...'
-/paused    'Hat aufgehört'
-/gone      Chat verlassen
+/disco server          Server-Features abfragen
+/disco info <jid>      Features eines JIDs
+/disco items <jid>     Services auflisten
+/features              Eigene Features anzeigen
 ```
 
-#### PubSub (XEP-0060)
+### Ping, Keepalive & Stream Management
 ```
-/pubsub sub <node>           Abonnieren
-/pubsub pub <node> <id> <x>  Veröffentlichen
-/pubsub get <node>           Items abrufen
+/ping [jid]            Ping senden (misst RTT)
+/keepalive [sek]       Keepalive Status/Interval setzen
+/sm                    Stream Management Status
 ```
 
-#### Verbindung
+### Chat Markers (XEP-0333)
+```
+/mark received         Nachricht empfangen
+/mark displayed        Nachricht gelesen
+/mark ack              Nachricht bestätigt
+```
+
+### Verbindung
 ```
 /who        Status anzeigen
-/reconnect  Manuell verbinden
+/reconnect  Neu verbinden
 /disconnect Trennen
-/quit       Beenden
 ```
 
-## Auto-Reconnect
+## Keepalive (Anti-Timeout)
 
-Bei Verbindungsverlust:
+Der Client sendet automatisch alle 30 Sekunden einen Keepalive um Server-Timeouts zu verhindern:
 
 ```
-[!] Verbindung verloren
-[*] Reconnect-Versuch 1/5 in 1.0s...
-[*] Reconnect-Versuch 2/5 in 2.0s...
-[*] Reconnect-Versuch 3/5 in 4.0s...
-[+] Reconnect erfolgreich!
+/keepalive
+Keepalive Status:
+  Aktiviert: True
+  Interval: 30s
+  Methode: Stream Management <r/>
+
+/keepalive 60      # Interval auf 60s setzen
+/keepalive off     # Deaktivieren
 ```
 
-**Einstellungen** (in XmppConnection):
-- `MaxReconnectAttempts = 5`
-- `InitialReconnectDelay = 1s`
-- `MaxReconnectDelay = 30s`
-
-## Spoofing-Schutz
-
-### Receipt-Spoofing (XEP-0184)
-```
-Nachricht an bob@server.com (ID: msg-123)
-  ↓
-Receipt von alice@evil.com → ⚠️ ABGELEHNT
-Receipt von bob@server.com → ✓ OK
-```
-
-### Carbon-Spoofing (XEP-0280)
-Carbons werden **nur** vom eigenen Bare-JID akzeptiert:
-```
-Carbon von eve@attacker.com → ⚠️ ABGELEHNT
-Carbon von mein@account.com → ✓ OK
-```
-
-### PubSub-Spoofing (XEP-0060)
-Events nur vom konfigurierten PubSub-Service.
+**Methoden:**
+- Mit Stream Management: Sendet `<r/>` (Request Ack) - sehr leichtgewichtig
+- Ohne Stream Management: Sendet XEP-0199 Ping
 
 ## Architektur
 
 ```
-┌────────────────────────────────────────────────────┐
-│                   Program.cs                       │
-│  Console UI, Event-Handler, Commands               │
-└─────────────────────┬──────────────────────────────┘
-                      │
-┌─────────────────────▼──────────────────────────────┐
-│              XmppConnection.cs                     │
-│  - WebSocket (System.Net.WebSockets)               │
-│  - RFC 7395 Framing (<open>, <close>)              │
-│  - SASL Authentication                             │
-│  - Auto-Reconnect mit Backoff                      │
-│  - Stanza Routing + Spoofing-Checks                │
-└─────────────────────┬──────────────────────────────┘
-                      │
-        ┌─────────────┼─────────────┐
-        │             │             │
-        ▼             ▼             ▼
-┌───────────┐  ┌────────────┐  ┌─────────────────┐
-│ Roster.cs │  │ XepExten-  │  │ XepExtensions   │
-│           │  │ sions.cs   │  │                 │
-│ - Items   │  │            │  │ - ChatState     │
-│ - Groups  │  │ - Receipt  │  │ - ReceiptTrack  │
-│ - Pres.   │  │   Tracker  │  │ - CarbonMgr     │
-│ - Subscr. │  │ - Carbon   │  │ - PubSubMgr     │
-└───────────┘  │   Manager  │  │ - PubSubBuild   │
-               └────────────┘  └─────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                    Program.cs                        │
+│         Console UI, Event-Handler, Commands          │
+└───────────────────────┬─────────────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────────────┐
+│               XmppConnection.cs                      │
+│                                                      │
+│  ┌─────────────┐  ┌───────────────┐  ┌───────────┐  │
+│  │ WebSocket   │  │ SCRAM-SHA-1/  │  │  Stream   │  │
+│  │ RFC 7395    │  │ 256 Auth      │  │  Mgmt     │  │
+│  └─────────────┘  └───────────────┘  └───────────┘  │
+└───────────────────────┬─────────────────────────────┘
+                        │
+    ┌───────────────────┼───────────────────┐
+    │                   │                   │
+    ▼                   ▼                   ▼
+┌─────────┐      ┌────────────┐      ┌────────────┐
+│ScramAuth│      │XepExtensions│     │XepAdvanced │
+│         │      │            │      │            │
+│SCRAM-   │      │- ChatState │      │- Ping      │
+│SHA-1/256│      │- Receipts  │      │- Disco     │
+│         │      │- Carbons   │      │- Caps      │
+│         │      │- PubSub    │      │- SM        │
+│         │      │            │      │- Markers   │
+└─────────┘      └────────────┘      └────────────┘
 ```
+
+## SCRAM-SHA-1/256 Authentifizierung
+
+Sicherer als PLAIN - Challenge-Response ohne Klartext-Passwort:
+
+```
+Client → Server: n,,n=user,r=clientNonce
+Server → Client: r=nonce,s=salt,i=4096
+Client → Server: c=biws,r=nonce,p=clientProof
+Server → Client: v=serverSignature
+```
+
+## Stream Management (XEP-0198)
+
+Zuverlässige Nachrichtenzustellung:
+- **Acknowledgements**: Server bestätigt empfangene Stanzas
+- **Resume**: Nach Disconnect wird Stream wiederhergestellt
+- **Keine verlorenen Nachrichten**: Unbestätigte werden erneut gesendet
+
+```
+/sm
+Stream Management Status:
+  Eingehend: 42
+  Ausgehend: 38
+  Unbestätigt: 2
+  Resume möglich: true
+```
+
+## Service Discovery (XEP-0030)
+
+```
+/disco server
+[*] Disco#info für jabber.org...
+Identities:
+  server/im (ejabberd)
+Features (47):
+  urn:xmpp:carbons:2
+  urn:xmpp:sm:3
+  urn:xmpp:mam:2
+  ...
+```
+
+## Chat Markers (XEP-0333)
+
+Erweiterte Lesebestätigungen:
+
+| Marker | Symbol | Bedeutung |
+|--------|--------|-----------|
+| `received` | ✓ | Nachricht empfangen |
+| `displayed` | 👁 | Nachricht gelesen |
+| `acknowledged` | ✓✓ | Nachricht bestätigt |
+
+## Entity Capabilities (XEP-0115)
+
+Capability Hashing für effiziente Feature-Discovery:
+- Hash der unterstützten Features wird in Presence mitgesendet
+- Einmaliges Abfragen pro Hash, dann gecacht
+- Vermeidet wiederholte Disco-Queries
+
+## Spoofing-Schutz
+
+Drei-Ebenen-Verteidigung:
+
+1. **Receipts**: Nur vom erwarteten Empfänger
+2. **Carbons**: Nur vom eigenen Bare-JID
+3. **PubSub**: Nur vom konfigurierten Service
 
 ## Dateien
 
 | Datei | Beschreibung |
 |-------|--------------|
-| `XmppConnection.cs` | WebSocket-Verbindung, SASL, Reconnect |
-| `XepExtensions.cs` | XEP-0085, 0184, 0280, 0060 |
+| `XmppConnection.cs` | WebSocket, Auth, Stanza-Routing |
+| `ScramAuth.cs` | SCRAM-SHA-1/256 Implementierung |
+| `XepExtensions.cs` | ChatState, Receipts, Carbons, PubSub |
+| `XepAdvanced.cs` | Ping, Disco, Caps, StreamMgmt, Markers |
 | `Roster.cs` | Kontaktverwaltung |
 | `Program.cs` | Console UI |
 
-## Beispiel-Session
-
-```
-  ╔═══════════════════════════════════════════╗
-  ║      XMPP Console Client (.NET 10)        ║
-  ║   WebSocket (RFC 7395) + Auto-Reconnect   ║
-  ╚═══════════════════════════════════════════╝
-
-[*] Verbinde zu wss://jabber.org:5443/ws...
-[+] WebSocket verbunden
-[*] SASL PLAIN Authentifizierung...
-[+] Authentifizierung erfolgreich
-[*] Resource Binding...
-[+] Verbunden als: user@jabber.org/console-12345
-[*] Aktiviere Message Carbons...
-[+] Message Carbons aktiviert
-[*] Lade Roster...
-[+] Roster geladen: 5 Kontakte
-[+] Online!
-
-> /to alice@jabber.org
-Chat mit: alice@jabber.org
-
-[alice@jabber.org] > Hallo!
-  → Gesendet an alice@jabber.org
-✓ Zugestellt an alice@jabber.org
-
-✏️ alice@jabber.org tippt...
-[10:15:32] alice@jabber.org: Hi! Wie geht's?
-
-📤 Ich → bob@jabber.org: Test vom Handy
-  (Carbon von anderem Gerät)
-
-🔄 Verbindung verloren, versuche Reconnect...
-[*] Reconnect-Versuch 1/5 in 1.0s...
-✅ Reconnect erfolgreich!
-```
-
 ## Bekannte Einschränkungen
 
-- Nur SASL PLAIN (kein SCRAM-SHA-1/256)
+- Kein SCRAM mit Channel Binding (SCRAM-SHA-*-PLUS)
 - Keine End-to-End-Verschlüsselung (OMEMO)
 - Kein Multi-User Chat (MUC/XEP-0045)
-- WebSocket-Zertifikate werden nicht strikt geprüft
-
-## Nächste Schritte
-
-- [ ] SCRAM-SHA-256 Authentifizierung
-- [ ] XEP-0045: Multi-User Chat
-- [ ] XEP-0384: OMEMO Encryption
-- [ ] XEP-0313: Message Archive Management
-- [ ] DNS SRV/TXT Lookup für WebSocket-Discovery
+- Kein Message Archive Management (MAM/XEP-0313)
 
 ## Lizenz
 

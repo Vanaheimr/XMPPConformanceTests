@@ -1,5 +1,4 @@
 using System.Net.WebSockets;
-using System.Security.Authentication;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -7,6 +6,14 @@ namespace XmppClient;
 
 /// <summary>
 /// XMPP over WebSocket (RFC 7395) mit Auto-Reconnect
+/// 
+/// Features:
+/// - SCRAM-SHA-1/256 und SASL PLAIN Authentifizierung
+/// - XEP-0198 Stream Management
+/// - XEP-0199 Ping
+/// - XEP-0030 Service Discovery
+/// - XEP-0115 Entity Capabilities
+/// - XEP-0333 Chat Markers
 /// </summary>
 public sealed class XmppConnection : IAsyncDisposable
 {
@@ -19,6 +26,7 @@ public sealed class XmppConnection : IAsyncDisposable
     private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _cts;
     private Task? _receiveTask;
+    private Task? _keepaliveTask;
     
     private int _messageIdCounter;
     private int _reconnectAttempts;
@@ -29,18 +37,33 @@ public sealed class XmppConnection : IAsyncDisposable
     public TimeSpan InitialReconnectDelay { get; set; } = TimeSpan.FromSeconds(1);
     public TimeSpan MaxReconnectDelay { get; set; } = TimeSpan.FromSeconds(30);
     
+    // Keepalive - verhindert Inactivity Timeout vom Server
+    public TimeSpan KeepaliveInterval { get; set; } = TimeSpan.FromSeconds(25);
+    public bool KeepaliveEnabled { get; set; } = true;
+    
+    // XEP-0198: Stream Management - DEAKTIVIERT wegen ejabberd-Kompatibilitätsproblemen
+    // Kann mit /sm on aktiviert werden (experimentell)
+    public bool StreamManagementEnabled { get; set; } = false;
+    
     // State
     public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
     public string FullJid { get; private set; } = string.Empty;
     public string BareJid => GetBareJid(FullJid);
+    public List<string> ServerFeatures { get; } = [];
     
-    // Managers
+    // Core Managers
     public Roster Roster { get; } = new();
     public ReceiptTracker Receipts { get; } = new();
     public CarbonManager? Carbons { get; private set; }
     public PubSubManager? PubSub { get; private set; }
     
-    // Events
+    // Advanced Managers (XEP-0030, 0115, 0198, 0199)
+    public PingManager? Ping { get; private set; }
+    public DiscoManager? Disco { get; private set; }
+    public EntityCapsManager? EntityCaps { get; private set; }
+    public StreamManagementManager? StreamManagement { get; private set; }
+    
+    // Events - Core
     public event Action<string, string, string, string?>? OnMessage;  // from, to, body, id
     public event Action<string, string>? OnPresence;
     public event Action<string, ChatState>? OnChatState;
@@ -50,14 +73,15 @@ public sealed class XmppConnection : IAsyncDisposable
     public event Action<string>? OnRawXml;
     public event Action<string>? OnError;
     public event Action<string>? OnSpoofingAttempt;
-    public event Action<ConnectionState, ConnectionState>? OnStateChanged;  // old, new
+    public event Action<ConnectionState, ConnectionState>? OnStateChanged;
+    
+    // Events - Advanced
+    public event Action<ChatMarker>? OnChatMarker;
+    public event Action<string, DiscoInfo>? OnCapsDiscovered;
 
     /// <summary>
     /// Erstellt eine neue WebSocket-basierte XMPP-Verbindung
     /// </summary>
-    /// <param name="jid">JID (user@domain)</param>
-    /// <param name="password">Passwort</param>
-    /// <param name="wsUri">WebSocket URI (wss://domain:5443/ws oder null für Auto-Discovery)</param>
     public XmppConnection(string jid, string password, string? wsUri = null)
     {
         _jid = jid;
@@ -70,7 +94,6 @@ public sealed class XmppConnection : IAsyncDisposable
         _username = parts[0];
         _domain = parts[1];
         
-        // Standard WebSocket-Endpunkte für bekannte Server
         _wsUri = wsUri ?? $"wss://{_domain}:5443/ws";
         
         Receipts.OnReceiptReceived += (msgId, from) => OnReceiptReceived?.Invoke(from, msgId);
@@ -130,17 +153,21 @@ public sealed class XmppConnection : IAsyncDisposable
                 Console.WriteLine($"[*] Verfügbare SASL-Mechanismen: {string.Join(", ", mechanisms)}");
             }
             
-            // SASL Auth
-            if (mechanisms.Contains("PLAIN"))
+            // SASL Auth - Präferenz: SCRAM-SHA-256 > SCRAM-SHA-1 > PLAIN
+            if (mechanisms.Contains("SCRAM-SHA-256"))
             {
-                Console.WriteLine("[*] SASL PLAIN Authentifizierung...");
-                await PerformSaslPlainAsync(ct);
+                Console.WriteLine("[*] SCRAM-SHA-256 Authentifizierung...");
+                await PerformScramAsync(ScramAuthenticator.ScramMechanism.ScramSha256, ct);
             }
             else if (mechanisms.Contains("SCRAM-SHA-1"))
             {
-                throw new AuthenticationException(
-                    $"Server bietet nur SCRAM-SHA-1 an (noch nicht implementiert). " +
-                    $"Verfügbar: {string.Join(", ", mechanisms)}");
+                Console.WriteLine("[*] SCRAM-SHA-1 Authentifizierung...");
+                await PerformScramAsync(ScramAuthenticator.ScramMechanism.ScramSha1, ct);
+            }
+            else if (mechanisms.Contains("PLAIN"))
+            {
+                Console.WriteLine("[*] SASL PLAIN Authentifizierung...");
+                await PerformSaslPlainAsync(ct);
             }
             else if (mechanisms.Count > 0)
             {
@@ -164,6 +191,13 @@ public sealed class XmppConnection : IAsyncDisposable
                 featuresXml = await ReceiveStanzaAsync(ct);
             }
             
+            // Server-Features speichern
+            ServerFeatures.Clear();
+            foreach (Match m in Regex.Matches(featuresXml, @"<(\w+)\s+xmlns=['""]([^'""]+)['""]"))
+            {
+                ServerFeatures.Add(m.Groups[2].Value);
+            }
+            
             // Bind
             if (featuresXml.Contains("<bind"))
             {
@@ -172,19 +206,67 @@ public sealed class XmppConnection : IAsyncDisposable
                 Console.WriteLine($"[+] Verbunden als: {FullJid}");
             }
             
-            // Session (falls nötig)
-            if (featuresXml.Contains("<session"))
+            // Session (falls nötig - deprecated in RFC 6121)
+            if (featuresXml.Contains("<session") && !featuresXml.Contains("optional"))
             {
                 await PerformSessionAsync(ct);
             }
             
-            // XEP Manager initialisieren
+            // XEP-0198: Stream Management (optional - deaktiviert wegen ejabberd-Problemen)
+            StreamManagement = new StreamManagementManager(SendAsync);
+            StreamManagement.OnAckReceived += count => 
+                Console.WriteLine($"[SM] {count} Stanzas bestätigt");
+            
+            if (StreamManagementEnabled && featuresXml.Contains("urn:xmpp:sm:3"))
+            {
+                Console.WriteLine("[*] Aktiviere Stream Management...");
+                await StreamManagement.EnableAsync(requestResume: false);
+                
+                // Warte auf <enabled> oder <failed>
+                for (int i = 0; i < 10; i++)
+                {
+                    var smResponse = await ReceiveStanzaAsync(ct);
+                    
+                    if (smResponse.Contains("<enabled") && smResponse.Contains("urn:xmpp:sm:3"))
+                    {
+                        StreamManagement.ProcessEnabled(smResponse);
+                        break;
+                    }
+                    else if (smResponse.Contains("<failed") && smResponse.Contains("urn:xmpp:sm"))
+                    {
+                        Console.WriteLine("[!] Stream Management vom Server abgelehnt");
+                        break;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[*] SM: Überspringe Stanza: {smResponse[..Math.Min(60, smResponse.Length)]}...");
+                    }
+                }
+                
+                if (StreamManagement.IsEnabled)
+                {
+                    Console.WriteLine($"[+] Stream Management aktiviert");
+                }
+            }
+            
+            // Manager initialisieren
             Carbons = new CarbonManager(BareJid);
             Carbons.OnCarbonReceived += c => OnCarbonMessage?.Invoke(c);
             Carbons.OnParseError += msg => OnError?.Invoke($"[Carbon] {msg}");
             
             PubSub = new PubSubManager($"pubsub.{_domain}");
             PubSub.OnEvent += e => OnPubSubEvent?.Invoke(e);
+            
+            // XEP-0199: Ping Manager
+            Ping = new PingManager(SendAsync);
+            Ping.OnPingTimeout += target => OnError?.Invoke($"Ping Timeout: {target}");
+            
+            // XEP-0030: Service Discovery
+            Disco = new DiscoManager(SendAsync);
+            
+            // XEP-0115: Entity Capabilities
+            EntityCaps = new EntityCapsManager(Disco);
+            EntityCaps.OnCapsDiscovered += (from, info) => OnCapsDiscovered?.Invoke(from, info);
             
             // Carbons aktivieren
             Console.WriteLine("[*] Aktiviere Message Carbons...");
@@ -203,6 +285,13 @@ public sealed class XmppConnection : IAsyncDisposable
             
             // Empfangs-Loop starten
             _receiveTask = ReceiveLoopAsync(_cts.Token);
+            
+            // Keepalive-Loop starten (verhindert Server-Timeout)
+            if (KeepaliveEnabled)
+            {
+                Console.WriteLine($"[*] Starte Keepalive (Interval: {KeepaliveInterval.TotalSeconds}s)...");
+                _keepaliveTask = KeepaliveLoopAsync(_cts.Token);
+            }
         }
         catch (AuthenticationException ex)
         {
@@ -363,12 +452,68 @@ public sealed class XmppConnection : IAsyncDisposable
         }
     }
 
+    private async Task KeepaliveLoopAsync(CancellationToken ct)
+    {
+        Console.WriteLine($"[Keepalive] Loop gestartet (Interval: {KeepaliveInterval.TotalSeconds}s)");
+        
+        try
+        {
+            while (!ct.IsCancellationRequested && State == ConnectionState.Connected)
+            {
+                await Task.Delay(KeepaliveInterval, ct);
+                
+                if (State != ConnectionState.Connected)
+                {
+                    Console.WriteLine("[Keepalive] Abbruch - nicht mehr verbunden");
+                    break;
+                }
+                
+                // Bevorzugt: Stream Management <r/> (weniger Overhead)
+                if (StreamManagement?.IsEnabled == true)
+                {
+                    Console.WriteLine("[Keepalive] Sende SM <r/>...");
+                    await StreamManagement.RequestAckAsync();
+                }
+                // Fallback: XEP-0199 Ping
+                else if (Ping != null)
+                {
+                    Console.WriteLine("[Keepalive] Sende Ping...");
+                    var rtt = await Ping.PingAsync(ct: ct);
+                    if (rtt.HasValue)
+                        Console.WriteLine($"[Keepalive] Pong: {rtt.Value.TotalMilliseconds:F0}ms");
+                    else
+                        Console.WriteLine("[Keepalive] Ping Timeout!");
+                }
+                else
+                {
+                    Console.WriteLine("[Keepalive] Weder SM noch Ping verfügbar!");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("[Keepalive] Loop beendet (cancelled)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Keepalive] Fehler: {ex.Message}");
+            OnError?.Invoke($"Keepalive-Fehler: {ex.Message}");
+        }
+    }
+
     // ===== STANZA PROCESSING =====
 
     private void ProcessStanza(string stanza)
     {
         try
         {
+            // XEP-0198: Stream Management Tracking
+            if (StreamManagement?.IsEnabled == true && 
+                (stanza.StartsWith("<message") || stanza.StartsWith("<presence") || stanza.StartsWith("<iq")))
+            {
+                StreamManagement.TrackIncoming();
+            }
+            
             if (stanza.StartsWith("<message"))
             {
                 ProcessMessage(stanza);
@@ -383,8 +528,24 @@ public sealed class XmppConnection : IAsyncDisposable
             }
             else if (stanza.StartsWith("<close"))
             {
-                // Stream geschlossen
                 OnError?.Invoke("Stream vom Server geschlossen");
+            }
+            // XEP-0198: Stream Management
+            else if (stanza.StartsWith("<a") && stanza.Contains("urn:xmpp:sm:3"))
+            {
+                StreamManagement?.ProcessAck(stanza);
+            }
+            else if (stanza.StartsWith("<r") && stanza.Contains("urn:xmpp:sm:3"))
+            {
+                _ = StreamManagement?.ProcessRequestAsync();
+            }
+            else if (stanza.StartsWith("<resumed"))
+            {
+                StreamManagement?.ProcessResumed(stanza);
+            }
+            else if (stanza.StartsWith("<failed") && stanza.Contains("urn:xmpp:sm"))
+            {
+                StreamManagement?.ProcessFailed();
             }
         }
         catch (Exception ex)
@@ -426,6 +587,14 @@ public sealed class XmppConnection : IAsyncDisposable
             }
         }
         
+        // XEP-0333: Chat Markers
+        var chatMarker = ChatMarkers.Parse(stanza, from);
+        if (chatMarker != null)
+        {
+            OnChatMarker?.Invoke(chatMarker);
+            return;
+        }
+        
         // XEP-0184: Receipt
         var receiptId = ReceiptBuilder.ExtractReceiptId(stanza);
         if (receiptId != null)
@@ -448,10 +617,16 @@ public sealed class XmppConnection : IAsyncDisposable
         {
             OnMessage?.Invoke(from, to, body, msgId);
             
-            // Auto-Receipt
+            // Auto-Receipt (XEP-0184)
             if (ReceiptBuilder.HasReceiptRequest(stanza) && msgId != null)
             {
                 _ = SendReceiptAsync(from, msgId);
+            }
+            
+            // Auto-Received Marker (XEP-0333)
+            if (ChatMarkers.IsMarkable(stanza) && msgId != null)
+            {
+                _ = SendChatMarkerAsync(from, msgId, ChatMarkerType.Received);
             }
         }
     }
@@ -470,6 +645,23 @@ public sealed class XmppConnection : IAsyncDisposable
             var show = ExtractElement(stanza, "show");
             var status = ExtractElement(stanza, "status");
             Roster.UpdatePresence(from, type, show, status);
+            
+            // XEP-0115: Entity Capabilities
+            // WICHTIG: Eigene Presences überspringen - wir kennen unsere Caps bereits!
+            // Sonst Query-Loop an uns selbst → Server-Error → Disconnect
+            var fromBareJid = GetBareJid(from);
+            var isOwnPresence = fromBareJid.Equals(BareJid, StringComparison.OrdinalIgnoreCase);
+            
+            if (!isOwnPresence && (type == "available" || string.IsNullOrEmpty(type)))
+            {
+                var caps = EntityCapsManager.ParseCaps(stanza);
+                if (caps.HasValue && EntityCaps != null)
+                {
+                    // Query an Full-JID (für korrekte Resource), nicht Bare-JID
+                    // Server routet die Antwort korrekt
+                    _ = EntityCaps.ProcessCapsAsync(from, caps.Value.Node, caps.Value.Ver);
+                }
+            }
         }
         
         OnPresence?.Invoke(from, type);
@@ -481,14 +673,65 @@ public sealed class XmppConnection : IAsyncDisposable
         var id = ExtractAttribute(stanza, "id");
         var from = ExtractAttribute(stanza, "from");
         
-        // Roster-Push
-        if (type == "set" && stanza.Contains("jabber:iq:roster"))
+        // IQ Result/Error für pending queries
+        if (type == "result" || type == "error")
         {
-            ProcessRosterPush(stanza);
-            _ = SendAsync($"<iq type='result' id='{id}'/>");
+            if (id != null)
+            {
+                // XEP-0199: Ping Antwort
+                if (id.StartsWith("ping-"))
+                {
+                    Ping?.ProcessPong(id);
+                    return;
+                }
+                
+                // XEP-0030: Disco Info Antwort
+                if (id.StartsWith("disco-info-") && from != null)
+                {
+                    Disco?.ProcessInfoResult(id, stanza, from);
+                    return;
+                }
+                
+                // XEP-0030: Disco Items Antwort
+                if (id.StartsWith("disco-items-") && from != null)
+                {
+                    Disco?.ProcessItemsResult(id, stanza, from);
+                    return;
+                }
+            }
         }
         
-        // PubSub Event
+        // IQ Get - Anfragen
+        if (type == "get" && id != null && from != null)
+        {
+            // XEP-0199: Ping Anfrage
+            if (PingManager.IsPing(stanza))
+            {
+                _ = Ping?.RespondAsync(id, from);
+                return;
+            }
+            
+            // XEP-0030: Disco Info Anfrage
+            if (stanza.Contains("http://jabber.org/protocol/disco#info"))
+            {
+                _ = Disco?.RespondInfoAsync(id, from);
+                return;
+            }
+        }
+        
+        // IQ Set
+        if (type == "set")
+        {
+            // Roster-Push
+            if (stanza.Contains("jabber:iq:roster"))
+            {
+                ProcessRosterPush(stanza);
+                _ = SendAsync($"<iq type='result' id='{id}'/>");
+                return;
+            }
+        }
+        
+        // PubSub Event (kann als message oder iq kommen)
         if (stanza.Contains("http://jabber.org/protocol/pubsub#event") && from != null)
         {
             PubSub?.ProcessEvent(stanza, from, PubSub.PubSubService);
@@ -542,6 +785,65 @@ public sealed class XmppConnection : IAsyncDisposable
         }
     }
 
+    private async Task PerformScramAsync(ScramAuthenticator.ScramMechanism mechanism, CancellationToken ct)
+    {
+        var scram = new ScramAuthenticator(_username, _password, mechanism);
+        
+        // Schritt 1: client-first-message
+        var clientFirst = scram.CreateClientFirstMessage();
+        await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='{scram.MechanismName}'>{clientFirst}</auth>");
+        
+        // Schritt 2: server-first-message (challenge)
+        var challengeResponse = await ReceiveStanzaAsync(ct);
+        
+        if (!challengeResponse.Contains("<challenge"))
+        {
+            if (challengeResponse.Contains("<failure"))
+            {
+                throw new AuthenticationException($"SCRAM fehlgeschlagen: {challengeResponse}");
+            }
+            throw new AuthenticationException($"Unerwartete Antwort: {challengeResponse}");
+        }
+        
+        // Base64-Inhalt extrahieren
+        var challengeMatch = Regex.Match(challengeResponse, @"<challenge[^>]*>([^<]+)</challenge>");
+        if (!challengeMatch.Success)
+            throw new AuthenticationException("Konnte Challenge nicht parsen");
+        
+        var serverFirst = challengeMatch.Groups[1].Value;
+        
+        // Schritt 3: client-final-message
+        var clientFinal = scram.ProcessServerFirstMessage(serverFirst);
+        await SendAsync($"<response xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{clientFinal}</response>");
+        
+        // Schritt 4: server-final-message (success oder failure)
+        var finalResponse = await ReceiveStanzaAsync(ct);
+        
+        if (finalResponse.Contains("<success"))
+        {
+            // Optional: Server-Signatur verifizieren
+            var successMatch = Regex.Match(finalResponse, @"<success[^>]*>([^<]*)</success>");
+            if (successMatch.Success && !string.IsNullOrEmpty(successMatch.Groups[1].Value))
+            {
+                if (!scram.VerifyServerFinalMessage(successMatch.Groups[1].Value))
+                {
+                    throw new AuthenticationException("Server-Signatur ungültig - möglicher MITM-Angriff!");
+                }
+            }
+            Console.WriteLine("[+] Authentifizierung erfolgreich");
+        }
+        else if (finalResponse.Contains("<failure"))
+        {
+            var errorMatch = Regex.Match(finalResponse, @"<(\w+)\s+xmlns=['""]urn:ietf:params:xml:ns:xmpp-sasl['""]");
+            var error = errorMatch.Success ? errorMatch.Groups[1].Value : finalResponse;
+            throw new AuthenticationException($"SCRAM fehlgeschlagen: {error}");
+        }
+        else
+        {
+            throw new AuthenticationException($"Unerwartete Antwort: {finalResponse}");
+        }
+    }
+
     private async Task<string> PerformBindAsync(CancellationToken ct)
     {
         var resource = $"console-{Environment.ProcessId}";
@@ -573,16 +875,30 @@ public sealed class XmppConnection : IAsyncDisposable
         try
         {
             await SendAsync(CarbonManager.EnableIq());
-            var response = await ReceiveStanzaAsync(ct);
             
-            if (response.Contains("type='result'") || response.Contains("type=\"result\""))
+            // Warte auf IQ-Antwort mit id='carbons-enable' - ignoriere andere Stanzas
+            for (int i = 0; i < 10; i++)
             {
-                Carbons!.SetEnabled(true);
-                Console.WriteLine("[+] Message Carbons aktiviert");
-            }
-            else
-            {
-                Console.WriteLine("[!] Message Carbons nicht verfügbar");
+                var response = await ReceiveStanzaAsync(ct);
+                
+                if (response.Contains("id='carbons-enable'") || response.Contains("id=\"carbons-enable\""))
+                {
+                    if (response.Contains("type='result'") || response.Contains("type=\"result\""))
+                    {
+                        Carbons!.SetEnabled(true);
+                        Console.WriteLine("[+] Message Carbons aktiviert");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[!] Message Carbons nicht verfügbar (Server-Fehler)");
+                    }
+                    break;
+                }
+                else
+                {
+                    // Andere Stanza - ignorieren und weiter warten
+                    Console.WriteLine($"[*] Carbons: Überspringe Stanza: {response[..Math.Min(80, response.Length)]}...");
+                }
             }
         }
         catch (Exception ex)
@@ -598,7 +914,22 @@ public sealed class XmppConnection : IAsyncDisposable
             "<query xmlns='jabber:iq:roster'/>" +
             "</iq>");
         
-        var response = await ReceiveStanzaAsync(ct);
+        // Warte auf Roster-Antwort - ignoriere andere Stanzas
+        string response = "";
+        for (int i = 0; i < 10; i++)
+        {
+            response = await ReceiveStanzaAsync(ct);
+            
+            if (response.Contains("id='roster1'") || response.Contains("id=\"roster1\""))
+            {
+                break;
+            }
+            else
+            {
+                // Andere Stanza - ignorieren
+                Console.WriteLine($"[*] Roster: Überspringe Stanza: {response[..Math.Min(80, response.Length)]}...");
+            }
+        }
         
         var items = Regex.Matches(response, @"<item\s+([^>]+?)(?:/>|>(.*?)</item>)", RegexOptions.Singleline);
         
@@ -635,12 +966,19 @@ public sealed class XmppConnection : IAsyncDisposable
             sb.Append($"<show>{XmlEscape(show)}</show>");
         if (!string.IsNullOrEmpty(status))
             sb.Append($"<status>{XmlEscape(status)}</status>");
+        
+        // XEP-0115: Entity Capabilities
+        if (EntityCaps != null)
+        {
+            sb.Append(EntityCaps.GetCapsElement());
+        }
+        
         sb.Append("</presence>");
         
         await SendAsync(sb.ToString());
     }
 
-    public async Task<string> SendMessageAsync(string to, string body, bool requestReceipt = true)
+    public async Task<string> SendMessageAsync(string to, string body, bool requestReceipt = true, bool markable = true)
     {
         var messageId = GenerateMessageId();
         
@@ -648,16 +986,29 @@ public sealed class XmppConnection : IAsyncDisposable
         sb.Append($"<message to='{XmlEscape(to)}' type='chat' id='{messageId}'>");
         sb.Append($"<body>{XmlEscape(body)}</body>");
         
+        // XEP-0184: Receipt Request
         if (requestReceipt)
         {
             sb.Append(ReceiptBuilder.RequestXml);
             Receipts.TrackMessage(messageId, to);
         }
         
+        // XEP-0333: Chat Markers - markable
+        if (markable)
+        {
+            sb.Append(ChatMarkers.Markable);
+        }
+        
+        // XEP-0085: Chat State
         sb.Append(ChatState.Active.ToXml());
         sb.Append("</message>");
         
-        await SendAsync(sb.ToString());
+        var xml = sb.ToString();
+        
+        // XEP-0198: Track outgoing
+        StreamManagement?.TrackOutgoing(xml);
+        
+        await SendAsync(xml);
         return messageId;
     }
 
@@ -669,6 +1020,46 @@ public sealed class XmppConnection : IAsyncDisposable
     public async Task SendReceiptAsync(string to, string messageId)
     {
         await SendAsync(ReceiptBuilder.CreateReceipt(to, messageId));
+    }
+
+    /// <summary>
+    /// XEP-0333: Sendet einen Chat Marker
+    /// </summary>
+    public async Task SendChatMarkerAsync(string to, string refMessageId, ChatMarkerType type)
+    {
+        await SendAsync(ChatMarkers.CreateMarker(to, refMessageId, type));
+    }
+
+    /// <summary>
+    /// XEP-0199: Sendet einen Ping
+    /// </summary>
+    public Task<TimeSpan?> PingAsync(string? to = null, CancellationToken ct = default)
+    {
+        return Ping?.PingAsync(to, ct) ?? Task.FromResult<TimeSpan?>(null);
+    }
+
+    /// <summary>
+    /// XEP-0030: Fragt Service Discovery Info ab
+    /// </summary>
+    public Task<DiscoInfo?> DiscoverInfoAsync(string jid, CancellationToken ct = default)
+    {
+        return Disco?.QueryInfoAsync(jid, ct: ct) ?? Task.FromResult<DiscoInfo?>(null);
+    }
+
+    /// <summary>
+    /// XEP-0030: Fragt Service Discovery Items ab
+    /// </summary>
+    public Task<DiscoItems?> DiscoverItemsAsync(string jid, CancellationToken ct = default)
+    {
+        return Disco?.QueryItemsAsync(jid, ct: ct) ?? Task.FromResult<DiscoItems?>(null);
+    }
+
+    /// <summary>
+    /// XEP-0198: Fordert Ack vom Server an
+    /// </summary>
+    public Task RequestAckAsync()
+    {
+        return StreamManagement?.RequestAckAsync() ?? Task.CompletedTask;
     }
 
     public async Task SendRawAsync(string xml) => await SendAsync(xml);

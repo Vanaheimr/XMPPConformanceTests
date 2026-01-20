@@ -70,6 +70,18 @@ class Program
             // XEP-0060: PubSub
             _connection.OnPubSubEvent += HandlePubSubEvent;
             
+            // XEP-0333: Chat Markers
+            _connection.OnChatMarker += HandleChatMarker;
+            
+            // XEP-0115: Entity Caps
+            _connection.OnCapsDiscovered += (from, info) =>
+            {
+                if (_showRawXml)
+                {
+                    WriteSystemMessage($"[Caps] {from}: {string.Join(", ", info.Identities)}");
+                }
+            };
+            
             // Security
             _connection.OnSpoofingAttempt += msg => 
                 WriteWarning($"⚠️ SPOOFING: {msg}");
@@ -203,6 +215,7 @@ class Program
             try
             {
                 input = await Task.Run(Console.ReadLine, ct);
+                input = input?.Trim();  // Führende/abschließende Leerzeichen entfernen
             }
             catch (OperationCanceledException)
             {
@@ -389,7 +402,100 @@ class Program
                 if (_currentRecipient != null)
                     Console.WriteLine($"Chat mit: {_currentRecipient}");
                 Console.WriteLine($"Carbons: {(_connection.Carbons?.IsEnabled == true ? "aktiviert" : "deaktiviert")}");
+                Console.WriteLine($"Stream Mgmt: {(_connection.StreamManagement?.IsEnabled == true ? "aktiviert" : "deaktiviert")}");
+                Console.WriteLine($"Keepalive: {(_connection.KeepaliveEnabled ? $"alle {_connection.KeepaliveInterval.TotalSeconds}s" : "deaktiviert")}");
                 Console.WriteLine($"Transport: WebSocket (RFC 7395)");
+                break;
+                
+            case "/ping":
+                await ProcessPingCommandAsync(args, ct);
+                break;
+                
+            case "/disco":
+                await ProcessDiscoCommandAsync(args, ct);
+                break;
+                
+            case "/features":
+                Console.WriteLine("Server-Features:");
+                foreach (var feature in _connection!.ServerFeatures)
+                {
+                    Console.WriteLine($"  {feature}");
+                }
+                Console.WriteLine($"\nLokal unterstützte Features:");
+                foreach (var feature in _connection.Disco?.LocalFeatures ?? [])
+                {
+                    Console.WriteLine($"  {feature}");
+                }
+                break;
+                
+            case "/mark":
+                if (string.IsNullOrEmpty(args))
+                {
+                    Console.WriteLine("Verwendung: /mark <received|displayed|ack> <message-id>");
+                    Console.WriteLine("            /mark displayed (für letzte Nachricht an aktuellen Empfänger)");
+                }
+                else
+                {
+                    await ProcessMarkCommandAsync(args);
+                }
+                break;
+                
+            case "/sm":
+                Console.WriteLine($"Stream Management:");
+                Console.WriteLine($"  Konfiguriert: {_connection!.StreamManagementEnabled}");
+                Console.WriteLine($"  Aktiv: {_connection.StreamManagement?.IsEnabled == true}");
+                
+                if (_connection.StreamManagement?.IsEnabled == true)
+                {
+                    var sm = _connection.StreamManagement;
+                    Console.WriteLine($"  Eingehend: {sm.InboundCount}");
+                    Console.WriteLine($"  Ausgehend: {sm.OutboundCount}");
+                    Console.WriteLine($"  Unbestätigt: {sm.UnackedCount}");
+                    
+                    Console.WriteLine("[*] Fordere Ack an...");
+                    await _connection.RequestAckAsync();
+                }
+                
+                if (!string.IsNullOrEmpty(args))
+                {
+                    if (args.ToLower() == "on")
+                    {
+                        _connection.StreamManagementEnabled = true;
+                        Console.WriteLine("[*] SM aktiviert (wirkt nach Reconnect)");
+                        Console.WriteLine("[!] WARNUNG: SM kann bei einigen Servern (ejabberd) zu Disconnects führen!");
+                    }
+                    else if (args.ToLower() == "off")
+                    {
+                        _connection.StreamManagementEnabled = false;
+                        Console.WriteLine("[*] SM deaktiviert (wirkt nach Reconnect)");
+                    }
+                }
+                break;
+                
+            case "/keepalive":
+                Console.WriteLine($"Keepalive Status:");
+                Console.WriteLine($"  Aktiviert: {_connection!.KeepaliveEnabled}");
+                Console.WriteLine($"  Interval: {_connection.KeepaliveInterval.TotalSeconds}s");
+                Console.WriteLine($"  Methode: {(_connection.StreamManagement?.IsEnabled == true ? "Stream Management <r/>" : "XEP-0199 Ping")}");
+                
+                if (!string.IsNullOrEmpty(args))
+                {
+                    if (args.ToLower() == "off" || args == "0")
+                    {
+                        _connection.KeepaliveEnabled = false;
+                        Console.WriteLine("[*] Keepalive deaktiviert");
+                    }
+                    else if (args.ToLower() == "on" || args == "1")
+                    {
+                        _connection.KeepaliveEnabled = true;
+                        Console.WriteLine("[*] Keepalive aktiviert (wirkt nach Reconnect)");
+                    }
+                    else if (int.TryParse(args, out var seconds) && seconds > 0)
+                    {
+                        _connection.KeepaliveInterval = TimeSpan.FromSeconds(seconds);
+                        Console.WriteLine($"[*] Keepalive-Interval auf {seconds}s gesetzt (wirkt nach Reconnect)");
+                    }
+                }
                 break;
                 
             case "/reconnect":
@@ -415,6 +521,130 @@ class Program
                 break;
         }
     }
+
+    private static async Task ProcessPingCommandAsync(string args, CancellationToken ct)
+    {
+        var target = string.IsNullOrEmpty(args) ? null : args.Trim();
+        var targetDisplay = target ?? "Server";
+        
+        Console.WriteLine($"[*] Ping an {targetDisplay}...");
+        var rtt = await _connection!.PingAsync(target, ct);
+        
+        if (rtt.HasValue)
+        {
+            Console.WriteLine($"[+] Pong von {targetDisplay}: {rtt.Value.TotalMilliseconds:F1}ms");
+        }
+        else
+        {
+            Console.WriteLine($"[!] Timeout - keine Antwort von {targetDisplay}");
+        }
+    }
+
+    private static async Task ProcessDiscoCommandAsync(string args, CancellationToken ct)
+    {
+        var parts = args.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length == 0)
+        {
+            Console.WriteLine("Disco-Befehle:");
+            Console.WriteLine("  /disco info <jid>    Features abfragen");
+            Console.WriteLine("  /disco items <jid>   Services/Items abfragen");
+            Console.WriteLine("  /disco server        Server-Features abfragen");
+            return;
+        }
+        
+        var subCommand = parts[0].ToLower();
+        var jid = parts.Length > 1 ? parts[1] : _connection!.BareJid.Split('@')[1];
+        
+        switch (subCommand)
+        {
+            case "info":
+            case "server":
+                if (subCommand == "server")
+                    jid = _connection!.BareJid.Split('@')[1];
+                
+                Console.WriteLine($"[*] Disco#info für {jid}...");
+                var info = await _connection!.DiscoverInfoAsync(jid, ct);
+                
+                if (info != null)
+                {
+                    Console.WriteLine($"Identities:");
+                    foreach (var id in info.Identities)
+                        Console.WriteLine($"  {id}");
+                    
+                    Console.WriteLine($"Features ({info.Features.Count}):");
+                    foreach (var feature in info.Features.Take(20))
+                        Console.WriteLine($"  {feature}");
+                    
+                    if (info.Features.Count > 20)
+                        Console.WriteLine($"  ... und {info.Features.Count - 20} weitere");
+                }
+                else
+                {
+                    Console.WriteLine("[!] Keine Antwort oder Timeout");
+                }
+                break;
+                
+            case "items":
+                Console.WriteLine($"[*] Disco#items für {jid}...");
+                var items = await _connection!.DiscoverItemsAsync(jid, ct);
+                
+                if (items != null)
+                {
+                    Console.WriteLine($"Items ({items.Items.Count}):");
+                    foreach (var item in items.Items)
+                        Console.WriteLine($"  {item}");
+                }
+                else
+                {
+                    Console.WriteLine("[!] Keine Antwort oder Timeout");
+                }
+                break;
+                
+            default:
+                Console.WriteLine($"Unbekannter Disco-Befehl: {subCommand}");
+                break;
+        }
+    }
+
+    private static async Task ProcessMarkCommandAsync(string args)
+    {
+        var parts = args.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length == 0 || _currentRecipient == null)
+        {
+            Console.WriteLine("Verwendung: /mark <received|displayed|ack> [message-id]");
+            return;
+        }
+        
+        var typeStr = parts[0].ToLower();
+        var msgId = parts.Length > 1 ? parts[1] : _lastReceivedMessageId;
+        
+        if (string.IsNullOrEmpty(msgId))
+        {
+            Console.WriteLine("[!] Keine Message-ID angegeben und keine letzte Nachricht bekannt");
+            return;
+        }
+        
+        var markerType = typeStr switch
+        {
+            "received" or "r" => ChatMarkerType.Received,
+            "displayed" or "d" or "read" => ChatMarkerType.Displayed,
+            "acknowledged" or "ack" or "a" => ChatMarkerType.Acknowledged,
+            _ => (ChatMarkerType?)null
+        };
+        
+        if (!markerType.HasValue)
+        {
+            Console.WriteLine($"[!] Unbekannter Marker-Typ: {typeStr}");
+            return;
+        }
+        
+        await _connection!.SendChatMarkerAsync(_currentRecipient, msgId, markerType.Value);
+        Console.WriteLine($"[+] {ChatMarkers.GetSymbol(markerType.Value)} Marker gesendet");
+    }
+
+    private static string? _lastReceivedMessageId;
 
     private static async Task ProcessPubSubCommandAsync(string args)
     {
@@ -710,6 +940,12 @@ class Program
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         var shortFrom = GetShortJid(from);
         
+        // Store last message ID for /mark command
+        if (!string.IsNullOrEmpty(messageId))
+        {
+            _lastReceivedMessageId = messageId;
+        }
+        
         ClearCurrentLine();
         
         Console.ForegroundColor = ConsoleColor.Cyan;
@@ -780,6 +1016,18 @@ class Program
         
         Console.ResetColor();
         Console.WriteLine(carbon.Body ?? "(kein Inhalt)");
+        WritePrompt();
+    }
+
+    private static void HandleChatMarker(ChatMarker marker)
+    {
+        ClearCurrentLine();
+        var shortFrom = GetShortJid(marker.From);
+        var symbol = ChatMarkers.GetSymbol(marker.Type);
+        
+        Console.ForegroundColor = ConsoleColor.DarkCyan;
+        Console.WriteLine($"{symbol} {shortFrom}: {marker.Type} (Msg: {marker.MessageId[..Math.Min(12, marker.MessageId.Length)]}...)");
+        Console.ResetColor();
         WritePrompt();
     }
 
@@ -922,42 +1170,53 @@ Nachrichten:
 Kontakte (Roster):
   /roster [filter]   Alle Kontakte anzeigen
   /online            Nur Online-Kontakte
-  /add <jid> [name] [gruppen]  Kontakt hinzufügen
+  /add <jid> [name]  Kontakt hinzufügen
   /remove <jid>      Kontakt entfernen
   /info <jid>        Kontakt-Details anzeigen
-  /groups            Alle Gruppen anzeigen
-
-Kontaktanfragen:
-  /pending           Ausstehende Anfragen anzeigen
-  /accept [jid]      Anfrage akzeptieren
-  /deny [jid]        Anfrage ablehnen
 
 Chat-Status (XEP-0085):
-  /typing            'Tippt gerade...' senden
-  /paused            'Hat aufgehört zu tippen' senden
-  /gone              Chat verlassen
+  /typing    'Tippt gerade...' senden
+  /paused    'Hat aufgehört zu tippen'
+  /gone      Chat verlassen
 
-PubSub (XEP-0060):
-  /pubsub            PubSub-Befehle anzeigen
-  /pubsub sub <node>     Node abonnieren
-  /pubsub pub <node> <id> <data>  Item veröffentlichen
+Chat Markers (XEP-0333):
+  /mark displayed    Nachricht als gelesen markieren
+  /mark ack          Nachricht bestätigen
+
+Service Discovery (XEP-0030):
+  /disco server      Server-Features abfragen
+  /disco info <jid>  Features eines JIDs abfragen
+  /disco items <jid> Services auflisten
+  /features          Eigene Features anzeigen
 
 Verbindung:
-  /who        Status und JID anzeigen
-  /reconnect  Manuell neu verbinden
-  /disconnect Verbindung trennen
-  /quit       Beenden
+  /ping [jid]     Ping senden (XEP-0199)
+  /sm [on|off]    Stream Management (XEP-0198, experimentell)
+  /keepalive [s]  Keepalive Status/Interval setzen
+  /who            Status anzeigen
+  /reconnect      Neu verbinden
+  /disconnect     Trennen
+  /quit           Beenden
+
+PubSub (XEP-0060):
+  /pubsub sub <node>   Node abonnieren
+  /pubsub pub <n> <id> Item veröffentlichen
 
 Sonstiges:
-  /carbons  Message Carbons Status (XEP-0280)
+  /carbons  Message Carbons Status
   /raw      XML-Debug-Anzeige
 
 Features:
-  ✓ WebSocket Transport (RFC 7395) - Firewall-freundlich
+  ✓ SCRAM-SHA-1/256 + SASL PLAIN Authentifizierung
+  ✓ WebSocket Transport (RFC 7395)
   ✓ Auto-Reconnect mit Exponential Backoff
-  ✓ Lesebestätigungen (XEP-0184) mit Spoofing-Schutz
-  ✓ Message Carbons (XEP-0280) mit Spoofing-Schutz
-  ✓ PubSub (XEP-0060) mit Spoofing-Schutz
+  ✓ Keepalive (verhindert Server-Timeout)
+  ✓ Service Discovery (XEP-0030)
+  ✓ Entity Capabilities (XEP-0115)
+  ✓ Ping (XEP-0199)
+  ✓ Chat Markers (XEP-0333)
+  ✓ Receipts (XEP-0184) mit Spoofing-Schutz
+  ✓ Carbons (XEP-0280) mit Spoofing-Schutz
 ");
     }
 
