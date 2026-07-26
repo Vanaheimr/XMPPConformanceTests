@@ -24,8 +24,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     /// <param name="Jid">Bare-JID des Kontakts.</param>
     /// <param name="Name">Anzeigename oder null.</param>
     /// <param name="Subscription">none, to, from oder both.</param>
+    /// <param name="Ask">
+    /// <c>subscribe</c>, solange eine gestellte Anfrage noch unbeantwortet ist,
+    /// sonst null (RFC 6121, Abschnitt 3.1.2). Der Zustand hängt nicht an
+    /// <paramref name="Subscription"/>: eine offene Anfrage lässt die
+    /// Subscription bei <c>none</c> stehen.
+    /// </param>
     public sealed record RosterEntry(String   Jid,
                                          String?  Name          = null,
-                                         String   Subscription  = "both");
+                                         String   Subscription  = "both",
+                                         String?  Ask           = null);
 
 }

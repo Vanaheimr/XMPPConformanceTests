@@ -371,6 +371,9 @@ miteinander sprechen:
   plus die eigenen weiteren Resourcen. Dazu Presence-Probes, das Nachliefern
   des Kontaktzustands beim Anmelden und die Abmeldung beim Verbindungsende —
   auch wenn sie abreisst und der Client selbst nichts mehr sagen kann (§4.5.2)
+- Subscription-Handshake (RFC 6121 §3): `subscribe`/`subscribed`/`unsubscribe`/
+  `unsubscribed` ändern die Roster **beider** Seiten und lösen Roster-Pushes
+  aus; `ask='subscribe'` hält eine offene Anfrage fest
 - XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
 - serverseitiger Roster mit Roster-Push
 - XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
@@ -410,11 +413,9 @@ Server-Implementierung:
   schwächsten Mechanismus zurück.
 - **Keine dauerhafte Kontenverwaltung.** Konten und Roster leben im Speicher
   einer `XMPPServer`-Instanz und sind beim Beenden weg.
-- **Kein Subscription-Handshake** (RFC 6121 §3). Presence wird nach den
-  Subscription-Zuständen gefiltert, aber `subscribe`/`subscribed` werden nur
-  weitergeleitet, ohne die Zustände zu ändern. Sie müssen von aussen gesetzt
-  werden — `account.SetRosterEntry(new RosterEntry(jid, name, "both"))`,
-  in Tests `MakeContacts("alice", "bob")`.
+- **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
+  offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
+  gerade nicht verbundenes Konto wird nicht aufbewahrt.
 - **Keine Server-zu-Server-Föderation** (RFC 6120 §4) — alle Sitzungen müssen
   auf derselben Domain liegen.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die

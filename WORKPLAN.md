@@ -29,11 +29,12 @@ Stand: 2026-07-26
 | `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | `39cb6fb` |
 | Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | `cc9dccb` |
 | S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | `4fe23cd` |
-| S3c: Abmeldung beim Verbindungsende, auch bei Abriss | offen im Working Tree |
+| S3c: Abmeldung beim Verbindungsende, auch bei Abriss | `fdb8c3b` |
+| S3b: Subscription-Handshake, Roster-Set lässt die Subscription in Ruhe | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **179 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **196 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -75,19 +76,18 @@ das Nachliefern des Kontaktzustands beim Anmelden.
 
 Was dabei offen blieb und jetzt der nächste Schritt ist:
 
-### S3b. Subscription-Handshake (RFC 6121 §3)
+### S3b. Subscription-Handshake (RFC 6121 §3) ✅
 
-Die Zustände werden ausgewertet, aber der Server kann sie nicht **herstellen**:
-`subscribe`/`subscribed`/`unsubscribe`/`unsubscribed` werden nur weitergeleitet.
-In Tests setzt `MakeContacts(…)` sie von aussen. Nötig sind die Zustandsübergänge
-aus §3.1.2 samt Roster-Pushes an beide Seiten — und danach fällt auch die
-Zustellung der Presence direkt nach `subscribed` an.
+Erledigt. Die vier Schritte ändern die Roster beider Seiten und lösen
+Roster-Pushes aus; `ask='subscribe'` hält eine offene Anfrage fest. Nach der
+Annahme geht die aktuelle Presence sofort an den Antragsteller (§3.1.5), nach
+einem Entzug ein `unavailable` (§3.2.2). Ein Roster-Set fasst den
+Subscription-Zustand nicht mehr an (§2.3).
 
-**Umfang:** mittel.
-**Warum es sich lohnt:** erst damit lässt sich der Weg, den der Client mit
-`AcceptSubscriptionAsync`/`DenySubscriptionAsync` schon anbietet, überhaupt
-durchspielen. Zugleich fällt der Punkt "eingehende `subscribed`/`unsubscribed`
-in den Roster einpflegen" aus der Später-Liste damit erst richtig an.
+Was daran offen blieb:
+- **Pre-Approval** (§3.4) fehlt.
+- Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
+  (§3.1.3) — sie geht verloren statt beim nächsten Anmelden zuzustellen.
 
 ### S3c. `unavailable` beim Verbindungsende ✅
 
@@ -139,7 +139,11 @@ ankommt, den Aufbau aber abbricht. Sauber wäre: bei `<conflict/>` einmal ohne
 ## Später
 
 ### Protokoll
-- Eingehende `subscribed`/`unsubscribed`/`unsubscribe` in den Roster einpflegen
+- Eingehende `subscribed`/`unsubscribed`/`unsubscribe` im Client auswerten.
+  Seit S3b schickt der Server dazu Roster-Pushes, der Zustand kommt also an —
+  die Stanzas selbst laufen aber weiter durch `UpdatePresence` und setzen den
+  Kontakt dabei fälschlich auf *online*, weil sie kein `type='unavailable'`
+  tragen. Das ist jetzt erreichbar geworden und gehört zusammen behoben.
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
 - Roster-Versionierung nutzen (`Roster.Version` und `RosterStanzaBuilder.GetRoster` liegen ungenutzt herum)
 - SASL-Downgrade-Schutz: gewählten Mechanismus pinnen statt blind der Server-Ankündigung folgen

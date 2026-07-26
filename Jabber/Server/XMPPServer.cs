@@ -33,9 +33,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     ///
     /// Gedacht als Gegenstelle für Tests und für die Entwicklung, nicht für
     /// den Produktivbetrieb: es gibt weder TLS noch eine dauerhafte
-    /// Kontenverwaltung, und den Subscription-Handshake (RFC 6121,
-    /// Abschnitt 3) beherrscht er noch nicht - die Zustände müssen von aussen
-    /// gesetzt werden.
+    /// Kontenverwaltung.
     ///
     /// Er beherrscht so viel vom Protokoll, dass sich mehrere echte
     /// <c>XMPPClient</c>-Instanzen gleichzeitig anmelden und miteinander
@@ -46,6 +44,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     ///   <item>Resource Binding mit eindeutiger Resource je Verbindung</item>
     ///   <item>Routing von message, presence und iq zwischen den Sitzungen</item>
     ///   <item>Presence nur an Subscriber, samt Probe (RFC 6121, Abschnitt 4)</item>
+    ///   <item>Subscription-Handshake mit Roster-Pushes an beide Seiten (Abschnitt 3)</item>
     ///   <item>XEP-0280 Message Carbons zwischen den Resourcen eines Kontos</item>
     ///   <item>serverseitiger Roster inklusive Roster-Push</item>
     ///   <item>XEP-0199 Ping, zum Server und zwischen Clients</item>
@@ -802,26 +801,41 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 }
 
                 if (subscription == "remove")
+                {
                     account.RemoveRosterEntry(jid);
-                else
-                    account.SetRosterEntry(new RosterEntry(jid, name, subscription ?? "none"));
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                    var entfernt = $"<item jid='{jid}' subscription='remove'/>";
+
+                    foreach (var s in SessionsOf(account.BareJid))
+                        await s.SendAsync(
+                            $"<iq type='set' id='push-{Guid.NewGuid():N}' to='{s.FullJid}'>" +
+                            $"<query xmlns='jabber:iq:roster'>{entfernt}</query></iq>");
+
+                    return;
+                }
+
+                // RFC 6121, Abschnitt 2.3.2: Ein Roster-Set ändert Name und
+                // Gruppen. Den Subscription-Zustand fasst es nicht an - der
+                // gehört dem Handshake aus Abschnitt 3. Das fehlende Attribut
+                // als 'none' zu übernehmen hätte eine gerade erst erteilte
+                // Berechtigung beim blossen Umbenennen wieder gelöscht.
+                var bestand = account.Roster.FirstOrDefault(
+                                  e => String.Equals(e.Jid, jid, StringComparison.OrdinalIgnoreCase));
+
+                account.SetRosterEntry(new RosterEntry(jid,
+                                                       name,
+                                                       bestand?.Subscription ?? "none",
+                                                       bestand?.Ask));
 
                 await session.SendAsync($"<iq type='result' id='{id}'/>");
 
-                // Der Push wird aus den gelesenen Werten neu gebaut und nicht
-                // aus dem Text des Clients zusammengesetzt. Ein <item/> mit
-                // getrenntem Schluss-Tag - was RosterStanzaBuilder.SetItem
+                // Der Push wird aus dem gespeicherten Eintrag neu gebaut und
+                // nicht aus dem Text des Clients zusammengesetzt. Ein <item/>
+                // mit getrenntem Schluss-Tag - was RosterStanzaBuilder.SetItem
                 // erzeugt - ergäbe sonst ein offenes Element im Push und damit
                 // unwohlgeformtes XML.
-                var item = $"<item jid='{jid}'" +
-                           (name is not null ? $" name='{name}'" : "") +
-                           $" subscription='{(subscription ?? "none")}'/>";
-
-                // Roster-Push an alle Resourcen des Kontos - ohne 'from', wie ein echter Server.
-                foreach (var s in SessionsOf(account.BareJid))
-                    await s.SendAsync(
-                        $"<iq type='set' id='push-{Guid.NewGuid():N}' to='{s.FullJid}'>" +
-                        $"<query xmlns='jabber:iq:roster'>{item}</query></iq>");
+                await PushRosterEntryAsync(account, jid);
 
             }
 
@@ -885,9 +899,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            // Gerichtete Presence geht genau dorthin - darunter die
-            // Subscription-Anfragen, deren Zweck es ja gerade ist, die
-            // Berechtigung erst herzustellen.
+            // Der Subscription-Handshake (RFC 6121, Abschnitt 3).
+            if (to is not null &&
+                type is "subscribe" or "subscribed" or "unsubscribe" or "unsubscribed")
+            {
+                await HandleSubscriptionAsync(session, type, BareOf(to));
+                return;
+            }
+
+            // Sonstige gerichtete Presence geht genau dorthin.
             if (to is not null)
             {
                 await RouteToAsync(to, stamped);
@@ -912,6 +932,211 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // aus, was wir wissen - das Ergebnis einer Probe wäre dasselbe.
             if (initial && type is null)
                 await SendKnownPresencesToAsync(session);
+
+        }
+
+        /// <summary>
+        /// Der Subscription-Handshake nach RFC 6121, Abschnitt 3.
+        /// </summary>
+        /// <remarks>
+        /// Ein echter Server sieht davon immer nur eine Hälfte: die Abschnitte
+        /// trennen die ausgehende Verarbeitung beim Absender von der
+        /// eingehenden beim Empfänger, weil dazwischen die S2S-Verbindung
+        /// liegt. Hier liegen beide Konten in derselben Instanz, also fallen
+        /// die Hälften zusammen - was die Roster beider Seiten in einem Schritt
+        /// ändert.
+        ///
+        /// Beide Roster-Einträge müssen dabei zueinander passen: <c>from</c>
+        /// beim einen heisst <c>to</c> beim anderen. Jede Richtung ändert
+        /// deshalb nur ihre eigene Hälfte.
+        /// </remarks>
+        /// <param name="sender">Die Sitzung, die den Handshake-Schritt schickt.</param>
+        /// <param name="type">subscribe, subscribed, unsubscribe oder unsubscribed.</param>
+        /// <param name="peerBareJid">Der Bare-JID der Gegenseite.</param>
+        private async Task HandleSubscriptionAsync(XMPPSession sender, String type, String peerBareJid)
+        {
+
+            var senderAccount  = sender.Account;
+            var peerAccount    = GetAccount(peerBareJid);
+
+            if (senderAccount is null)
+                return;
+
+            // Nach RFC 6121, Abschnitt 3.1.1 trägt der Handshake immer den
+            // Bare-JID - die Anfrage gilt dem Konto, nicht einer Resource.
+            var stanza = $"<presence from='{senderAccount.BareJid}' to='{peerBareJid}' type='{type}'/>";
+
+            switch (type)
+            {
+
+                // Abschnitt 3.1.2: Der Eintrag entsteht mit subscription='none'
+                // - erlaubt ist noch nichts -, und ask='subscribe' hält fest,
+                // dass die Anfrage offen ist.
+                case "subscribe":
+                    UpdateRosterEntry(senderAccount, peerBareJid, subscription: null, ask: AskChange.Set);
+                    await PushRosterEntryAsync(senderAccount, peerBareJid);
+                    break;
+
+                // Abschnitt 3.1.5 und 3.1.6: Der Zustimmende erlaubt dem
+                // Gegenüber, ihn zu sehen; beim Gegenüber ist damit die Anfrage
+                // erledigt und die Gegenrichtung gesetzt.
+                case "subscribed":
+                    UpdateRosterEntry(senderAccount, peerBareJid,
+                                      GrantFrom(senderAccount.SubscriptionOf(peerBareJid)));
+                    await PushRosterEntryAsync(senderAccount, peerBareJid);
+
+                    if (peerAccount is not null)
+                    {
+                        UpdateRosterEntry(peerAccount, senderAccount.BareJid,
+                                          GrantTo(peerAccount.SubscriptionOf(senderAccount.BareJid)),
+                                          ask: AskChange.Clear);
+                        await PushRosterEntryAsync(peerAccount, senderAccount.BareJid);
+                    }
+                    break;
+
+                // Abschnitt 3.2.2 und 3.2.3: der Entzug, spiegelbildlich.
+                case "unsubscribed":
+                    UpdateRosterEntry(senderAccount, peerBareJid,
+                                      RevokeFrom(senderAccount.SubscriptionOf(peerBareJid)));
+                    await PushRosterEntryAsync(senderAccount, peerBareJid);
+
+                    if (peerAccount is not null)
+                    {
+                        UpdateRosterEntry(peerAccount, senderAccount.BareJid,
+                                          RevokeTo(peerAccount.SubscriptionOf(senderAccount.BareJid)),
+                                          ask: AskChange.Clear);
+                        await PushRosterEntryAsync(peerAccount, senderAccount.BareJid);
+                    }
+                    break;
+
+                // Abschnitt 3.3.2 und 3.3.3: Der Absender kündigt seine eigene
+                // Subscription - hier ändert sich also seine 'to'-Hälfte.
+                case "unsubscribe":
+                    UpdateRosterEntry(senderAccount, peerBareJid,
+                                      RevokeTo(senderAccount.SubscriptionOf(peerBareJid)),
+                                      ask: AskChange.Clear);
+                    await PushRosterEntryAsync(senderAccount, peerBareJid);
+
+                    if (peerAccount is not null)
+                    {
+                        UpdateRosterEntry(peerAccount, senderAccount.BareJid,
+                                          RevokeFrom(peerAccount.SubscriptionOf(senderAccount.BareJid)));
+                        await PushRosterEntryAsync(peerAccount, senderAccount.BareJid);
+                    }
+                    break;
+
+            }
+
+            // Die Stanza selbst geht an die Gegenseite: der Kontakt soll die
+            // Anfrage sehen, der Antragsteller die Antwort.
+            await RouteToAsync(peerBareJid, stanza);
+
+            // Abschnitt 3.1.5: "The contact's server MUST then also send current
+            // presence to the user from each of the contact's available
+            // resources." Ohne das wartet der Antragsteller, bis der Kontakt
+            // das nächste Mal von sich aus etwas schickt.
+            if (type == "subscribed")
+                await SendOwnPresenceToAsync(sender, peerBareJid);
+
+            // Abschnitt 3.2.2: "the contact's server MUST send a presence stanza
+            // of type 'unavailable' from all of the contact's online
+            // resources". Sonst behielte die Gegenseite den letzten bekannten
+            // Zustand, obwohl sie ihn nicht mehr sehen darf.
+            if (type == "unsubscribed")
+                await SendOwnUnavailableToAsync(senderAccount, peerBareJid);
+
+            // Spiegelbildlich zum Entzug: wer selbst kündigt, soll den Kontakt
+            // ebenfalls nicht mehr als anwesend führen.
+            if (type == "unsubscribe" && peerAccount is not null)
+                await SendOwnUnavailableToAsync(peerAccount, senderAccount.BareJid);
+
+        }
+
+        /// <summary>
+        /// Was mit dem ask-Vermerk eines Roster-Eintrags geschehen soll.
+        /// </summary>
+        /// <remarks>
+        /// Drei Fälle, und null taugt für höchstens zwei davon: eine Anfrage
+        /// vermerken, eine beantwortete löschen, oder den Vermerk gar nicht
+        /// anfassen.
+        /// </remarks>
+        private enum AskChange
+        {
+            Keep,
+            Set,
+            Clear
+        }
+
+        /// <summary>
+        /// Setzt Subscription und/oder ask eines Roster-Eintrags und legt ihn
+        /// an, falls es ihn noch nicht gibt. Eine Subscription von null lässt
+        /// den bisherigen Wert stehen.
+        /// </summary>
+        private static void UpdateRosterEntry(XMPPAccount  account,
+                                              String       contactBareJid,
+                                              String?      subscription  = null,
+                                              AskChange    ask           = AskChange.Keep)
+        {
+
+            var vorher = account.Roster.FirstOrDefault(
+                             e => String.Equals(e.Jid, contactBareJid, StringComparison.OrdinalIgnoreCase));
+
+            account.SetRosterEntry(new RosterEntry(contactBareJid,
+                                                   vorher?.Name,
+                                                   subscription ?? vorher?.Subscription ?? "none",
+                                                   ask switch {
+                                                       AskChange.Set    => "subscribe",
+                                                       AskChange.Clear  => null,
+                                                       _                => vorher?.Ask
+                                                   }));
+
+        }
+
+        /// <summary>
+        /// Schickt einen Roster-Push für genau einen Eintrag an alle Resourcen
+        /// des Kontos (RFC 6121, Abschnitt 2.1.6).
+        /// </summary>
+        private async Task PushRosterEntryAsync(XMPPAccount account, String contactBareJid)
+        {
+
+            var entry = account.Roster.FirstOrDefault(
+                            e => String.Equals(e.Jid, contactBareJid, StringComparison.OrdinalIgnoreCase));
+
+            if (entry is null)
+                return;
+
+            var item = $"<item jid='{entry.Jid}'" +
+                       (entry.Name is not null ? $" name='{entry.Name}'" : "") +
+                       (entry.Ask  is not null ? $" ask='{entry.Ask}'"   : "") +
+                       $" subscription='{entry.Subscription}'/>";
+
+            foreach (var s in SessionsOf(account.BareJid))
+                await s.SendAsync($"<iq type='set' id='push-{Guid.NewGuid():N}' to='{s.FullJid}'>" +
+                                  $"<query xmlns='jabber:iq:roster'>{item}</query></iq>");
+
+        }
+
+        /// <summary>
+        /// Schickt die aktuelle Presence einer Sitzung an einen einzelnen JID.
+        /// </summary>
+        private async Task SendOwnPresenceToAsync(XMPPSession sender, String peerBareJid)
+        {
+
+            if (sender.LastPresence is null)
+                return;
+
+            await RouteToAsync(peerBareJid, sender.LastPresence);
+
+        }
+
+        /// <summary>
+        /// Meldet alle Resourcen eines Kontos bei einem einzelnen JID ab.
+        /// </summary>
+        private async Task SendOwnUnavailableToAsync(XMPPAccount account, String peerBareJid)
+        {
+
+            foreach (var s in SessionsOf(account.BareJid).Where(s => s.IsAvailable && s.FullJid is not null))
+                await RouteToAsync(peerBareJid, $"<presence type='unavailable' from='{s.FullJid}'/>");
 
         }
 
@@ -1013,6 +1238,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await t.SendAsync(stanza);
 
         }
+
+        #endregion
+
+        #region Subscription-Zustände
+
+        // Die vier Übergänge aus RFC 6121, Abschnitt 3. Der Subscription-Wert
+        // steht immer aus Sicht des Roster-Eigentümers: 'from' heisst "der
+        // Kontakt sieht mich", 'to' heisst "ich sehe den Kontakt". Deshalb
+        // ändert jede Richtung nur ihre eigene Hälfte und lässt die andere
+        // stehen - genau daran scheitert eine Umsetzung, die die vier Zustände
+        // als eine Skala von none bis both behandelt.
+
+        /// <summary>Der Kontakt darf uns nun sehen: none→from, to→both.</summary>
+        internal static String GrantFrom(String? subscription)
+            => subscription is "to" or "both" ? "both" : "from";
+
+        /// <summary>Der Kontakt darf uns nicht mehr sehen: from→none, both→to.</summary>
+        internal static String RevokeFrom(String? subscription)
+            => subscription is "to" or "both" ? "to" : "none";
+
+        /// <summary>Wir dürfen den Kontakt nun sehen: none→to, from→both.</summary>
+        internal static String GrantTo(String? subscription)
+            => subscription is "from" or "both" ? "both" : "to";
+
+        /// <summary>Wir dürfen den Kontakt nicht mehr sehen: to→none, both→from.</summary>
+        internal static String RevokeTo(String? subscription)
+            => subscription is "from" or "both" ? "from" : "none";
 
         #endregion
 
