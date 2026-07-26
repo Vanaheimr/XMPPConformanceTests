@@ -17,7 +17,7 @@
 
 #region Usings
 
-using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 #endregion
 
@@ -28,10 +28,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public static class ReceiptBuilder
 {
+
+    /// <summary>Der Namespace von XEP-0184.</summary>
+    public const string Namespace = "urn:xmpp:receipts";
+
     /// <summary>
     /// Erzeugt das XML für eine Receipt-Anfrage (in ausgehende Nachricht einfügen)
     /// </summary>
-    public static string RequestXml => "<request xmlns='urn:xmpp:receipts'/>";
+    public static string RequestXml => $"<request xmlns='{Namespace}'/>";
 
     /// <summary>
     /// Erzeugt eine Receipt-Antwort
@@ -39,25 +43,33 @@ public static class ReceiptBuilder
     public static string CreateReceipt(string to, string originalMessageId)
     {
         return $"<message to='{XmlEscaping.Escape(to)}'>" +
-               $"<received xmlns='urn:xmpp:receipts' id='{XmlEscaping.Escape(originalMessageId)}'/>" +
+               $"<received xmlns='{Namespace}' id='{XmlEscaping.Escape(originalMessageId)}'/>" +
                $"</message>";
     }
 
     /// <summary>
-    /// Prüft ob eine Nachricht eine Receipt-Anfrage enthält
+    /// Prüft, ob eine Nachricht um eine Quittung bittet.
+    ///
+    /// Die frühere Prüfung suchte wörtlich nach
+    /// <c>xmlns='urn:xmpp:receipts'</c>, also nur mit einfachen
+    /// Anführungszeichen - gegen einen Server, der doppelte benutzt, blieb
+    /// jede Quittung aus. Ausserdem zählte ein <c>&lt;request/&gt;</c>
+    /// irgendwo in der Nachricht, also auch eines in einer weitergeleiteten.
     /// </summary>
-    public static bool HasReceiptRequest(string messageXml)
-    {
-        return messageXml.Contains("xmlns='urn:xmpp:receipts'") &&
-               messageXml.Contains("<request");
-    }
+    public static bool HasReceiptRequest(XElement message)
+        => message.Elements()
+                  .Any(child => child.Name.NamespaceName == Namespace &&
+                                child.Name.LocalName     == "request");
 
     /// <summary>
-    /// Extrahiert die Receipt-ID aus einer Receipt-Nachricht
+    /// Extrahiert die Quittungs-ID aus einer Quittung.
+    ///
+    /// Die Namespace-Prüfung trennt sie vom gleichnamigen
+    /// <c>&lt;received/&gt;</c> aus XEP-0333.
     /// </summary>
-    public static string? ExtractReceiptId(string messageXml)
-    {
-        var match = Regex.Match(messageXml, @"<received[^>]+id=['""]([^'""]+)['""]");
-        return match.Success ? match.Groups[1].Value : null;
-    }
+    public static string? ExtractReceiptId(XElement message)
+        => message.Elements()
+                  .FirstOrDefault(child => child.Name.NamespaceName == Namespace &&
+                                           child.Name.LocalName     == "received")
+                  ?.Attr("id");
 }

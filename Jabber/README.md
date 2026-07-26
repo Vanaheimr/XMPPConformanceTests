@@ -34,7 +34,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0198 | Stream Management | ⚠️ | Zählung korrekt und getestet; aus per Default, kein Resume |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
-| XEP-0333 | Chat Markers | ⚠️ | Parser erwartet feste Attribut-Reihenfolge |
+| XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
 
 ## RFC-Konformität
 
@@ -441,14 +441,17 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
 
 ### Architektur
-- **XML wird nur zur Hälfte mit einem Parser gelesen.** Der Rahmen einer Stanza
-  — Erkennung des Stanza-Typs, `from`/`to`/`id`/`type`, `<body/>`, `<show/>`,
-  `<status/>` und der Roster — läuft über `XElement` und verkraftet damit
-  Namespace-Präfixe, beliebige Attribut-Reihenfolge, `xml:lang`, Entities und
-  verschachtelte Elemente in `<forwarded/>`. **Die XEP-Manager parsen dagegen
-  weiterhin per Regex** (`CarbonManager`, `ChatMarkers`, `ReceiptBuilder`,
-  `EntityCapsManager`, `DiscoManager`, `PubSubManager`) — dort gelten die alten
-  Einschränkungen unverändert weiter.
+- **XML wird noch nicht überall mit einem Parser gelesen.** Über `XElement`
+  laufen inzwischen der Stanza-Rahmen, der Roster und die Auswertung von
+  `message` und `presence` samt der darin steckenden XEPs — Chat States
+  (XEP-0085), Chat Marker (XEP-0333), Quittungen (XEP-0184), Carbons (XEP-0280)
+  und Entity Capabilities (XEP-0115). Sie verkraften damit Namespace-Präfixe,
+  beliebige Attribut-Reihenfolge, beide Anführungszeichenstile, `xml:lang`,
+  Entities und verschachtelte Elemente in `<forwarded/>`.
+  **Offen sind die IQ-Nutzlasten:** `DiscoManager` und `PubSubManager` suchen
+  weiterhin per Regex im Rohtext, ebenso `StreamManagementManager` und die
+  Fehler-Parser. Deshalb reicht `ProcessIq` den Rohtext noch mit durch —
+  `ProcessMessage` und `ProcessPresence` brauchen ihn nicht mehr.
 - **Zwei konkurrierende Empfangspfade.** Während des Verbindungsaufbaus liest
   `ConnectInternalAsync` selbst vom Socket, statt die vorhandene
   `TaskCompletionSource`-Korrelation zu nutzen (wie sie `DiscoManager` und

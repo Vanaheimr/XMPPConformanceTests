@@ -24,11 +24,12 @@ Stand: 2026-07-26
 | `#region Usings` in allen Dateien | `78fdb1c` |
 | RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | `87f3dd6` |
 | RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | `0249de1` |
-| Stanza-Rahmen und Roster über `XElement` statt Regex | offen im Working Tree |
+| Stanza-Rahmen und Roster über `XElement` statt Regex | `15a11aa` |
+| `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **124 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **132 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -92,23 +93,29 @@ echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
 
 ## Als Nächstes (Client)
 
-### 1. XEP-Manager auf den XML-Parser umstellen
+### 1. Die IQ-Nutzlasten auf den XML-Parser umstellen
 
-Der Rahmen ist erledigt: Stanza-Erkennung, Attribute, `<body/>`, `<show/>`,
-`<status/>` und der Roster laufen über `XElement`. **Die XEP-Manager nicht** —
-`CarbonManager`, `ChatMarkers`, `ReceiptBuilder`, `EntityCapsManager`,
-`DiscoManager` und `PubSubManager` suchen weiterhin mit regulären Ausdrücken im
-Rohtext. Dort gelten die alten Einschränkungen unverändert: feste
-Attribut-Reihenfolge (XEP-0333), keine Präfixe, keine Entities, und
-verschachtelte Elemente können äussere treffen.
+Rahmen, Roster und die Nutzlasten von `message` und `presence` laufen über
+`XElement`. **Offen sind die IQ-Nutzlasten:** `DiscoManager.ProcessInfoResult`
+und `ProcessItemsResult`, `PubSubManager.ProcessEvent` und
+`PingManager.IsPing` suchen weiterhin mit regulären Ausdrücken im Rohtext,
+ebenso die Fallunterscheidungen in `ProcessIq` selbst
+(`stanza.Contains("jabber:iq:roster")` und so weiter).
 
-`ProcessStanza` reicht den Rohtext heute nur deshalb noch mit durch, weil diese
-Manager ihn erwarten. Sind sie umgestellt, kann der zweite Parameter entfallen.
+Deshalb reicht `ProcessIq` den Rohtext noch als zweiten Parameter mit durch;
+`ProcessMessage` und `ProcessPresence` brauchen ihn nicht mehr. Ist auch das
+erledigt, kann der Parameter ganz entfallen.
+
+Danach bleiben nur noch Parser, die bewusst auf Text arbeiten:
+`StreamManagementManager` (liest nur `h` und `id` aus Nonzas),
+`StanzaError`/`StreamError` (müssen auch mit unwohlgeformten Rahmen umgehen)
+und `SCRAMAuthenticator` (SASL ist kein XML).
 
 **Umfang:** mittel, gut portionierbar — ein Manager pro Schritt.
-**Vorgehen:** wie beim Rahmen. Erst je einen Test mit gültiger, aber
-ungewöhnlicher Schreibweise anlegen (der dann fehlschlägt), danach umstellen.
-Das hat beim Rahmen sechs echte Defekte belegt und beim Roster drei weitere.
+**Vorgehen:** wie bisher. Erst je einen Test mit gültiger, aber ungewöhnlicher
+Schreibweise anlegen, der dann fehlschlägt, danach umstellen. Diese Methode hat
+bisher sechs Defekte im Rahmen, drei im Roster und sieben in den
+message-Nutzlasten belegt.
 
 ### 2. Aufbauphase entwirren
 

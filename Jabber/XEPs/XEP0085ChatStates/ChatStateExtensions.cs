@@ -15,6 +15,12 @@
  * limitations under the License.
  */
 
+#region Usings
+
+using System.Xml.Linq;
+
+#endregion
+
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 
 /// <summary>
@@ -22,23 +28,48 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public static class ChatStateExtensions
 {
+
+    /// <summary>Der Namespace von XEP-0085.</summary>
+    public const string Namespace = "http://jabber.org/protocol/chatstates";
+
     public static string ToXml(this ChatState state) => state switch
     {
-        ChatState.Active    => "<active xmlns='http://jabber.org/protocol/chatstates'/>",
-        ChatState.Composing => "<composing xmlns='http://jabber.org/protocol/chatstates'/>",
-        ChatState.Paused    => "<paused xmlns='http://jabber.org/protocol/chatstates'/>",
-        ChatState.Inactive  => "<inactive xmlns='http://jabber.org/protocol/chatstates'/>",
-        ChatState.Gone      => "<gone xmlns='http://jabber.org/protocol/chatstates'/>",
+        ChatState.Active    => $"<active xmlns='{Namespace}'/>",
+        ChatState.Composing => $"<composing xmlns='{Namespace}'/>",
+        ChatState.Paused    => $"<paused xmlns='{Namespace}'/>",
+        ChatState.Inactive  => $"<inactive xmlns='{Namespace}'/>",
+        ChatState.Gone      => $"<gone xmlns='{Namespace}'/>",
         _ => ""
     };
 
-    public static ChatState? ParseChatState(string xml)
+    /// <summary>
+    /// Liest den Chat State aus einer Nachricht.
+    ///
+    /// Gesucht wird nur unter den direkten Kindelementen und nur im Namespace
+    /// von XEP-0085. Die frühere Prüfung <c>Contains("&lt;composing")</c> tat
+    /// beides nicht: sie meldete jedes gleichnamige Element aus einer
+    /// beliebigen Erweiterung als Chat State, und der Zustand einer nach
+    /// XEP-0297 weitergeleiteten Nachricht wirkte nach aussen.
+    /// </summary>
+    public static ChatState? ParseChatState(XElement message)
     {
-        if (xml.Contains("<active"))    return ChatState.Active;
-        if (xml.Contains("<composing")) return ChatState.Composing;
-        if (xml.Contains("<paused"))    return ChatState.Paused;
-        if (xml.Contains("<inactive"))  return ChatState.Inactive;
-        if (xml.Contains("<gone"))      return ChatState.Gone;
+
+        foreach (var child in message.Elements().Where(e => e.Name.NamespaceName == Namespace))
+        {
+
+            switch (child.Name.LocalName)
+            {
+                case "active":     return ChatState.Active;
+                case "composing":  return ChatState.Composing;
+                case "paused":     return ChatState.Paused;
+                case "inactive":   return ChatState.Inactive;
+                case "gone":       return ChatState.Gone;
+            }
+
+        }
+
         return null;
+
     }
+
 }

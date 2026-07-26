@@ -17,7 +17,7 @@
 
 #region Usings
 
-using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 #endregion
 
@@ -54,37 +54,47 @@ public static class ChatMarkers
     }
 
     /// <summary>
-    /// Prüft ob eine Nachricht markierbar ist
+    /// Prüft, ob eine Nachricht markierbar ist.
     /// </summary>
-    public static bool IsMarkable(string xml) =>
-        xml.Contains("<markable") && xml.Contains(Namespace);
+    public static bool IsMarkable(XElement message)
+        => message.Elements()
+                  .Any(child => child.Name.NamespaceName == Namespace &&
+                                child.Name.LocalName     == "markable");
 
     /// <summary>
-    /// Extrahiert einen Marker aus einer Nachricht
+    /// Extrahiert einen Marker aus einer Nachricht.
+    ///
+    /// Das frühere Muster verlangte <c>xmlns</c> vor <c>id</c>; XML kennt aber
+    /// keine Attributreihenfolge, und ein Server, der sie andersherum schreibt,
+    /// wurde still ignoriert. Die Namespace-Prüfung ist hier besonders wichtig:
+    /// <c>&lt;received/&gt;</c> gibt es in XEP-0333 und in XEP-0184, und ohne
+    /// sie sind die beiden nicht auseinanderzuhalten.
     /// </summary>
-    public static ChatMarker? Parse(string xml, string from)
+    public static ChatMarker? Parse(XElement message, string from)
     {
-        if (!xml.Contains(Namespace))
-            return null;
 
-        var types = new[] {
-            ("received", ChatMarkerType.Received),
-            ("displayed", ChatMarkerType.Displayed),
-            ("acknowledged", ChatMarkerType.Acknowledged)
-        };
-
-        foreach (var (name, type) in types)
+        foreach (var child in message.Elements().Where(e => e.Name.NamespaceName == Namespace))
         {
-            var pattern = $@"<{name}\s+xmlns=['""]urn:xmpp:chat-markers:0['""]\s+id=['""]([^'""]+)['""]";
-            var match = Regex.Match(xml, pattern);
 
-            if (match.Success)
+            ChatMarkerType type;
+
+            switch (child.Name.LocalName)
             {
-                return new ChatMarker(type, from, match.Groups[1].Value, DateTime.UtcNow);
+                case "received":      type = ChatMarkerType.Received;     break;
+                case "displayed":     type = ChatMarkerType.Displayed;    break;
+                case "acknowledged":  type = ChatMarkerType.Acknowledged; break;
+                default:              continue;
             }
+
+            var id = child.Attr("id");
+
+            if (id is not null)
+                return new ChatMarker(type, from, id, DateTime.UtcNow);
+
         }
 
         return null;
+
     }
 
     /// <summary>

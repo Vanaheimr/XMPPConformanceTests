@@ -846,11 +846,11 @@ public sealed class XMPPConnection : IAsyncDisposable
             {
 
                 case "message":
-                    ProcessMessage(element, stanza);
+                    ProcessMessage(element);
                     return;
 
                 case "presence":
-                    ProcessPresence(element, stanza);
+                    ProcessPresence(element);
                     return;
 
                 case "iq":
@@ -925,7 +925,7 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     }
 
-    private void ProcessMessage(XElement element, string stanza)
+    private void ProcessMessage(XElement element)
     {
         var from = element.Attr("from") ?? "unknown";
         var to = element.Attr("to") ?? FullJid;
@@ -936,7 +936,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (element.Attr("type") == "error")
         {
 
-            var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
+            var parsed = StanzaError.TryParse(element.ToString(), out var stanzaError) && stanzaError is not null
                              ? stanzaError
                              : new StanzaError(StanzaErrorType.Cancel, "undefined-condition");
 
@@ -948,11 +948,11 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         // XEP-0280: Carbon Check
-        if (stanza.Contains("urn:xmpp:carbons:2"))
+        if (element.HasNamespace(CarbonManager.Namespace))
         {
             if (Carbons != null)
             {
-                var result = Carbons.ProcessCarbon(stanza, from);
+                var result = Carbons.ProcessCarbon(element, from);
 
                 switch (result)
                 {
@@ -977,7 +977,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         // XEP-0333: Chat Markers
-        var chatMarker = ChatMarkers.Parse(stanza, from);
+        var chatMarker = ChatMarkers.Parse(element, from);
         if (chatMarker != null)
         {
             OnChatMarker?.Invoke(chatMarker);
@@ -985,7 +985,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         // XEP-0184: Receipt
-        var receiptId = ReceiptBuilder.ExtractReceiptId(stanza);
+        var receiptId = ReceiptBuilder.ExtractReceiptId(element);
         if (receiptId != null)
         {
             if (!Receipts.ProcessReceipt(receiptId, from))
@@ -994,7 +994,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         // XEP-0085: Chat State
-        var chatState = ChatStateExtensions.ParseChatState(stanza);
+        var chatState = ChatStateExtensions.ParseChatState(element);
         if (chatState.HasValue)
         {
             OnChatState?.Invoke(from, chatState.Value);
@@ -1008,20 +1008,20 @@ public sealed class XMPPConnection : IAsyncDisposable
             OnMessage?.Invoke(from, to, body, msgId);
 
             // Auto-Receipt (XEP-0184)
-            if (ReceiptBuilder.HasReceiptRequest(stanza) && msgId != null)
+            if (ReceiptBuilder.HasReceiptRequest(element) && msgId != null)
             {
                 _ = SendReceiptAsync(from, msgId);
             }
 
             // Auto-Received Marker (XEP-0333)
-            if (ChatMarkers.IsMarkable(stanza) && msgId != null)
+            if (ChatMarkers.IsMarkable(element) && msgId != null)
             {
                 _ = SendChatMarkerAsync(from, msgId, ChatMarkerType.Received);
             }
         }
     }
 
-    private void ProcessPresence(XElement element, string stanza)
+    private void ProcessPresence(XElement element)
     {
         var from = element.Attr("from") ?? "unknown";
         var type = element.Attr("type") ?? "available";
@@ -1032,7 +1032,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (type == "error")
         {
 
-            var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
+            var parsed = StanzaError.TryParse(element.ToString(), out var stanzaError) && stanzaError is not null
                              ? stanzaError
                              : new StanzaError(StanzaErrorType.Cancel, "undefined-condition");
 
@@ -1061,7 +1061,7 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             if (!isOwnPresence && (type == "available" || string.IsNullOrEmpty(type)))
             {
-                var caps = EntityCapsManager.ParseCaps(stanza);
+                var caps = EntityCapsManager.ParseCaps(element);
                 if (caps.HasValue && EntityCaps != null)
                 {
                     // Query an Full-JID (für korrekte Resource), nicht Bare-JID

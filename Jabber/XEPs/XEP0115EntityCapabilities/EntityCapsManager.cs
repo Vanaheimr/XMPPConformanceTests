@@ -19,7 +19,7 @@
 
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 #endregion
 
@@ -31,6 +31,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public sealed class EntityCapsManager
 {
+
+    /// <summary>Der Namespace von XEP-0115.</summary>
+    public const string Namespace = "http://jabber.org/protocol/caps";
+
     private readonly DiscoManager _disco;
     private readonly Dictionary<string, DiscoInfo> _cache = new();
     private readonly object _lock = new();
@@ -79,7 +83,7 @@ public sealed class EntityCapsManager
     public string GetCapsElement()
     {
         var ver = CalculateVerificationString();
-        return $"<c xmlns='http://jabber.org/protocol/caps' hash='sha-1' node='{Node}' ver='{ver}'/>";
+        return $"<c xmlns='{Namespace}' hash='sha-1' node='{Node}' ver='{ver}'/>";
     }
 
     /// <summary>
@@ -123,27 +127,29 @@ public sealed class EntityCapsManager
     }
 
     /// <summary>
-    /// Extrahiert Caps aus einer Presence
+    /// Extrahiert Caps aus einer Presence.
+    ///
+    /// Gesucht wird unter den direkten Kindelementen im Caps-Namespace. Das
+    /// frühere Muster fand ein <c>&lt;c/&gt;</c> irgendwo in der Stanza und
+    /// verlangte ein unpräfigiertes Element.
     /// </summary>
-    public static (string Node, string Ver, string? Hash)? ParseCaps(string presenceXml)
+    public static (string Node, string Ver, string? Hash)? ParseCaps(XElement presence)
     {
-        var match = Regex.Match(presenceXml,
-            @"<c\s+[^>]*xmlns=['""]http://jabber\.org/protocol/caps['""][^>]*>",
-            RegexOptions.Singleline);
 
-        if (!match.Success) return null;
+        var caps = presence.Elements()
+                           .FirstOrDefault(child => child.Name.NamespaceName == Namespace &&
+                                                    child.Name.LocalName     == "c");
 
-        var elem = match.Value;
-        var nodeMatch = Regex.Match(elem, @"node=['""]([^'""]+)['""]");
-        var verMatch = Regex.Match(elem, @"ver=['""]([^'""]+)['""]");
-        var hashMatch = Regex.Match(elem, @"hash=['""]([^'""]+)['""]");
+        if (caps is null)
+            return null;
 
-        if (nodeMatch.Success && verMatch.Success)
-        {
-            return (nodeMatch.Groups[1].Value, verMatch.Groups[1].Value,
-                    hashMatch.Success ? hashMatch.Groups[1].Value : null);
-        }
+        var node = caps.Attr("node");
+        var ver  = caps.Attr("ver");
 
-        return null;
+        if (node is null || ver is null)
+            return null;
+
+        return (node, ver, caps.Attr("hash"));
+
     }
 }
