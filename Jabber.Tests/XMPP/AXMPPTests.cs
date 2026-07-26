@@ -128,6 +128,36 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         }
 
         /// <summary>
+        /// Trägt einen Kontakt in den serverseitigen Roster eines Kontos ein.
+        /// Beide Konten werden angelegt, falls es sie noch nicht gibt.
+        /// </summary>
+        /// <param name="localPart">Wessen Roster.</param>
+        /// <param name="contact">Wer eingetragen wird.</param>
+        /// <param name="subscription">none, to, from oder both.</param>
+        protected void SetServerRoster(String localPart, String contact, String subscription)
+        {
+
+            var account = Server.GetAccount($"{localPart}@{Server.Domain}") ?? Server.AddAccount(localPart);
+
+            if (Server.GetAccount($"{contact}@{Server.Domain}") is null)
+                Server.AddAccount(contact);
+
+            account.SetRosterEntry(new RosterEntry($"{contact}@{Server.Domain}", null, subscription));
+
+        }
+
+        /// <summary>
+        /// Stellt die beidseitige Presence-Berechtigung her, wie sie nach einem
+        /// vollständigen Subscription-Handshake bestünde (RFC 6121,
+        /// Abschnitt 3.1).
+        /// </summary>
+        protected void MakeContacts(String localPartA, String localPartB)
+        {
+            SetServerRoster(localPartA, localPartB, "both");
+            SetServerRoster(localPartB, localPartA, "both");
+        }
+
+        /// <summary>
         /// Wartet, bis die Bedingung zutrifft, und lässt den Test sonst
         /// mit einer verständlichen Meldung scheitern.
         /// </summary>
@@ -139,6 +169,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var ok = await XMPPServer.WaitUntilAsync(condition, timeout);
 
             Assert.That(ok, Is.True, $"Zeitüberschreitung beim Warten auf: {what}");
+
+        }
+
+        /// <summary>
+        /// Prüft, dass die Bedingung innerhalb der Wartezeit <b>nicht</b>
+        /// eintritt. Die Wartezeit ist bewusst kurz - ein negativer Nachweis
+        /// kostet sie in jedem Fall vollständig.
+        /// </summary>
+        protected static async Task WaitAgainst(Func<Boolean>  condition,
+                                                String         what,
+                                                TimeSpan?      timeout = null)
+        {
+
+            var happened = await XMPPServer.WaitUntilAsync(condition,
+                                                           timeout ?? TimeSpan.FromSeconds(2));
+
+            Assert.That(happened, Is.False, $"Hätte nicht eintreten dürfen: {what}");
 
         }
 

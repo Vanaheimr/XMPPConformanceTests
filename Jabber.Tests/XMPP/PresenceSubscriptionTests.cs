@@ -1,0 +1,307 @@
+﻿/*
+ * Copyright (c) 2010-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
+ * This file is part of Hermod <https://www.github.com/Vanaheimr/Hermod>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#region Usings
+
+using System.Collections.Concurrent;
+
+using NUnit.Framework;
+
+using org.GraphDefined.Vanaheimr.Hermod.XMPP;
+using org.GraphDefined.Vanaheimr.Hermod.XMPP.Server;
+
+#endregion
+
+namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
+{
+
+    /// <summary>
+    /// RFC 6121, Abschnitt 4: Presence ist keine Rundsendung.
+    ///
+    /// Wer sie bekommt, entscheidet der Subscription-Zustand im Roster des
+    /// Absenders: nur Kontakte mit <c>from</c> oder <c>both</c>, dazu die
+    /// eigenen weiteren Resourcen. Der Testserver hat sie bis hierher an alle
+    /// verteilt - jede Sitzung erfuhr damit, wer sonst noch online ist.
+    /// </summary>
+    [TestFixture]
+    public class PresenceSubscriptionTests : AXMPPTests
+    {
+
+        #region Hilfsfunktionen
+
+        /// <summary>
+        /// Verbindet einen Client und sammelt ab sofort alle Presence-Meldungen
+        /// als <c>jid|typ</c>.
+        /// </summary>
+        private async Task<(XMPPClient Client, ConcurrentQueue<String> Presences)> WatcherAsync(String localPart)
+        {
+
+            var client     = await ConnectClientAsync(localPart);
+            var presences  = new ConcurrentQueue<String>();
+
+            client.OnPresenceChanged += (from, type) => presences.Enqueue($"{from}|{type}");
+
+            return (client, presences);
+
+        }
+
+        private static Boolean Saw(ConcurrentQueue<String> presences, XMPPClient who)
+            => presences.Any(p => p.StartsWith(who.BareJid, StringComparison.OrdinalIgnoreCase));
+
+        #endregion
+
+
+        #region Presence_ReachesAContactWithSubscriptionFrom()
+
+        /// <summary>
+        /// Die Grundlage: wer <c>from</c> oder <c>both</c> hat, bekommt sie.
+        /// </summary>
+        [Test]
+        public async Task Presence_ReachesAContactWithSubscriptionFrom()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice           = await ConnectClientAsync("alice");
+            var (bob, atBobs)   = await WatcherAsync("bob");
+
+            await alice.SetPresenceAsync("away", "Bin gleich zurück");
+
+            await WaitFor(() => Saw(atBobs, alice), "Presence von Alice bei Bob");
+
+        }
+
+        #endregion
+
+        #region Presence_DoesNotReachANonContact()
+
+        /// <summary>
+        /// Der Kern: Carol steht in keinem Roster und darf nicht erfahren, dass
+        /// Alice online ist. Bisher bekam sie es mit, weil die Verteilung an
+        /// alle Sitzungen ging - eine Sitzung auf dem Server genügte, um die
+        /// Anwesenheit aller anderen mitzulesen.
+        /// </summary>
+        [Test]
+        public async Task Presence_DoesNotReachANonContact()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice             = await ConnectClientAsync("alice");
+            var (_, atCarols)     = await WatcherAsync("carol");
+
+            await alice.SetPresenceAsync("away");
+
+            await WaitAgainst(() => Saw(atCarols, alice), "Presence von Alice bei Carol");
+
+        }
+
+        #endregion
+
+        #region Presence_DoesNotReachAContactWithSubscriptionToOnly()
+
+        /// <summary>
+        /// Subscriptions sind gerichtet. Steht Bob in Alices Roster nur mit
+        /// <c>to</c>, dann sieht <b>Alice</b> die Presence von Bob - nicht
+        /// umgekehrt.
+        /// </summary>
+        [Test]
+        public async Task Presence_DoesNotReachAContactWithSubscriptionToOnly()
+        {
+
+            SetServerRoster("alice", "bob", "to");
+            SetServerRoster("bob", "alice", "from");
+
+            var alice          = await ConnectClientAsync("alice");
+            var (_, atBobs)    = await WatcherAsync("bob");
+
+            await alice.SetPresenceAsync("away");
+
+            await WaitAgainst(() => Saw(atBobs, alice), "Presence von Alice bei Bob");
+
+        }
+
+        #endregion
+
+        #region Presence_ReachesTheOwnOtherResources()
+
+        /// <summary>
+        /// RFC 6121, Abschnitt 4.4.2: die weiteren Resourcen des eigenen Kontos
+        /// bekommen sie immer, ganz ohne Roster-Eintrag.
+        ///
+        /// Das galt schon vorher - der Test steht als Regressionsschutz für die
+        /// Filterung, nicht als Beleg für einen behobenen Fehler.
+        /// </summary>
+        [Test]
+        public async Task Presence_ReachesTheOwnOtherResources()
+        {
+
+            var erste           = await ConnectClientAsync("alice");
+            var (_, atZweiter)  = await WatcherAsync("alice");
+
+            await erste.SetPresenceAsync("dnd");
+
+            await WaitFor(() => Saw(atZweiter, erste), "Presence der ersten Resource bei der zweiten");
+
+        }
+
+        #endregion
+
+        #region NewlyOnlineClient_LearnsAboutContactsAlreadyOnline()
+
+        /// <summary>
+        /// RFC 6121, Abschnitt 4.3.1: Beim Anmelden fragt der Server für den
+        /// Client den Zustand seiner Kontakte ab. Ohne das erfährt ein Client
+        /// nur von Kontakten, die sich <b>nach</b> ihm anmelden - wer schon
+        /// online war, blieb für ihn unsichtbar, bis er von sich aus etwas
+        /// schickte.
+        /// </summary>
+        [Test]
+        public async Task NewlyOnlineClient_LearnsAboutContactsAlreadyOnline()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var bob = await ConnectClientAsync("bob");
+            await bob.SetPresenceAsync("away", "Schon länger da");
+
+            var (_, atAlices) = await WatcherAsync("alice");
+
+            await WaitFor(() => Saw(atAlices, bob), "Presence des bereits angemeldeten Bob bei Alice");
+
+        }
+
+        #endregion
+
+        #region NewlyOnlineClient_LearnsNothingAboutNonContacts()
+
+        /// <summary>
+        /// Die Gegenprobe: derselbe Weg darf keine Auskunft über Fremde geben.
+        /// </summary>
+        [Test]
+        public async Task NewlyOnlineClient_LearnsNothingAboutNonContacts()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+            await bob.SetPresenceAsync("away");
+
+            var (_, atCarols) = await WatcherAsync("carol");
+
+            await WaitAgainst(() => Saw(atCarols, bob), "Presence von Bob bei der fremden Carol");
+
+        }
+
+        #endregion
+
+        #region Probe_FromASubscriber_IsAnswered()
+
+        /// <summary>
+        /// Eine ausdrückliche Probe (RFC 6121, Abschnitt 4.3) beantwortet der
+        /// Server mit dem aktuellen Zustand - sofern der Fragende ihn sehen
+        /// darf.
+        /// </summary>
+        [Test]
+        public async Task Probe_FromASubscriber_IsAnswered()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice = await ConnectClientAsync("alice");
+            await alice.SetPresenceAsync("dnd", "Nicht stören");
+
+            var (bob, atBobs) = await WatcherAsync("bob");
+
+            // Die Sammlung leeren: die Anmeldung selbst bringt schon Presence mit.
+            atBobs.Clear();
+
+            await bob.SendRawAsync($"<presence type='probe' to='{alice.BareJid}'/>");
+
+            await WaitFor(() => Saw(atBobs, alice), "Antwort auf die Presence-Probe");
+
+        }
+
+        #endregion
+
+        #region Probe_FromANonSubscriber_IsIgnored()
+
+        /// <summary>
+        /// Ohne Berechtigung bleibt die Probe unbeantwortet. RFC 6121,
+        /// Abschnitt 4.3.2 stellt dem Server <c>&lt;unsubscribed/&gt;</c> und
+        /// Schweigen frei; Schweigen verrät nicht einmal, ob es das Konto gibt.
+        /// </summary>
+        [Test]
+        public async Task Probe_FromANonSubscriber_IsIgnored()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            await alice.SetPresenceAsync("dnd");
+
+            var (carol, atCarols) = await WatcherAsync("carol");
+
+            atCarols.Clear();
+
+            await carol.SendRawAsync($"<presence type='probe' to='{alice.BareJid}'/>");
+
+            await WaitAgainst(() => Saw(atCarols, alice), "Antwort auf die unberechtigte Probe");
+
+        }
+
+        #endregion
+
+        #region IsPresenceSubscriber_ReadsTheSubscriptionState()
+
+        /// <summary>
+        /// Die Richtung, um die es geht: <c>from</c> und <c>both</c> heissen
+        /// "der Kontakt sieht mich". Ein <c>to</c> heisst das Gegenteil, und
+        /// eine Verwechslung der beiden gäbe die Presence genau an die falsche
+        /// Hälfte des Rosters.
+        /// </summary>
+        [TestCase("both",   true)]
+        [TestCase("from",   true)]
+        [TestCase("to",     false)]
+        [TestCase("none",   false)]
+        [TestCase("remove", false)]
+        public void IsPresenceSubscriber_ReadsTheSubscriptionState(String subscription, Boolean expected)
+        {
+
+            var account = new XMPPAccount("alice@localhost", "pw");
+            account.SetRosterEntry(new RosterEntry("bob@localhost", null, subscription));
+
+            Assert.That(account.IsPresenceSubscriber("bob@localhost"), Is.EqualTo(expected));
+
+        }
+
+        #endregion
+
+        #region IsPresenceSubscriber_IsFalseForAnUnknownContact()
+
+        /// <summary>Wer gar nicht im Roster steht, sieht nichts.</summary>
+        [Test]
+        public void IsPresenceSubscriber_IsFalseForAnUnknownContact()
+        {
+
+            var account = new XMPPAccount("alice@localhost", "pw");
+
+            Assert.That(account.IsPresenceSubscriber("fremd@localhost"), Is.False);
+
+        }
+
+        #endregion
+
+    }
+
+}

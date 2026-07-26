@@ -27,11 +27,12 @@ Stand: 2026-07-26
 | Stanza-Rahmen und Roster über `XElement` statt Regex | `15a11aa` |
 | `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | `107aa87` |
 | `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | `39cb6fb` |
-| Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | offen im Working Tree |
+| Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | `cc9dccb` |
+| S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **161 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **175 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -65,17 +66,35 @@ einer In-Memory-Implementierung für Tests und einer dateibasierten für den
 Betrieb. Passwörter gehören dann als SCRAM-Salted-Password abgelegt, nicht im
 Klartext — was S1 voraussetzt, weil PLAIN sonst der einzige Mechanismus bleibt.
 
-### S3. Presence nur an Subscriber
+### S3. Presence nur an Subscriber ✅
 
-`HandlePresenceAsync` verteilt Presence an **alle** Sitzungen. RFC 6121 §4
-verlangt die Auswertung der Subscription-Zustände: nur wer `from` oder `both`
-hat, bekommt sie. Der serverseitige Roster führt die Zustände bereits, sie
-werden beim Verteilen nur nicht benutzt.
+Erledigt. Ungerichtete Presence geht nur noch an Kontakte mit `from` oder
+`both` und an die eigenen weiteren Resourcen; dazu kommen Presence-Probes und
+das Nachliefern des Kontaktzustands beim Anmelden.
 
-**Umfang:** klein bis mittel — die Daten sind da, es fehlt die Filterung plus
-die Behandlung von `probe`.
-**Achtung:** der bestehende Schalter `BroadcastPresence` hängt daran; Tests, die
-sich auf die heutige Verteilung an alle verlassen, müssen mitgezogen werden.
+Was dabei offen blieb und jetzt der nächste Schritt ist:
+
+### S3b. Subscription-Handshake (RFC 6121 §3)
+
+Die Zustände werden ausgewertet, aber der Server kann sie nicht **herstellen**:
+`subscribe`/`subscribed`/`unsubscribe`/`unsubscribed` werden nur weitergeleitet.
+In Tests setzt `MakeContacts(…)` sie von aussen. Nötig sind die Zustandsübergänge
+aus §3.1.2 samt Roster-Pushes an beide Seiten — und danach fällt auch die
+Zustellung der Presence direkt nach `subscribed` an.
+
+**Umfang:** mittel.
+**Warum es sich lohnt:** erst damit lässt sich der Weg, den der Client mit
+`AcceptSubscriptionAsync`/`DenySubscriptionAsync` schon anbietet, überhaupt
+durchspielen. Zugleich fällt der Punkt "eingehende `subscribed`/`unsubscribed`
+in den Roster einpflegen" aus der Später-Liste damit erst richtig an.
+
+### S3c. `unavailable` beim Verbindungsabriss
+
+Bricht eine Sitzung ab, erfahren die Kontakte nichts davon — der Server sendet
+kein `<presence type='unavailable'/>` in ihrem Namen (RFC 6121 §4.5).
+Kontakte sehen die Resource dann für immer als online.
+
+**Umfang:** klein. Braucht einen Aufräumpfad am Ende von `ServeAsync`.
 
 ### S4. Zwei Server, zwei Clients, eine Nachricht
 

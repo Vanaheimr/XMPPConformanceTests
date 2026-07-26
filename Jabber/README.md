@@ -367,6 +367,9 @@ miteinander sprechen:
 - SASL PLAIN gegen hinterlegte Konten, inklusive Fehlanmeldung
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
+- Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
+  plus die eigenen weiteren Resourcen. Dazu Presence-Probes und das Nachliefern
+  des Kontaktzustands beim Anmelden
 - XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
 - serverseitiger Roster mit Roster-Push
 - XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
@@ -406,9 +409,11 @@ Server-Implementierung:
   schwächsten Mechanismus zurück.
 - **Keine dauerhafte Kontenverwaltung.** Konten und Roster leben im Speicher
   einer `XMPPServer`-Instanz und sind beim Beenden weg.
-- **Presence geht an alle Sitzungen** statt nur an Subscriber; die
-  Subscription-Zustände im Roster werden beim Verteilen nicht ausgewertet
-  (RFC 6121 §4).
+- **Kein Subscription-Handshake** (RFC 6121 §3). Presence wird nach den
+  Subscription-Zuständen gefiltert, aber `subscribe`/`subscribed` werden nur
+  weitergeleitet, ohne die Zustände zu ändern. Sie müssen von aussen gesetzt
+  werden — `account.SetRosterEntry(new RosterEntry(jid, name, "both"))`,
+  in Tests `MakeContacts("alice", "bob")`.
 - **Keine Server-zu-Server-Föderation** (RFC 6120 §4) — alle Sitzungen müssen
   auf derselben Domain liegen.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die

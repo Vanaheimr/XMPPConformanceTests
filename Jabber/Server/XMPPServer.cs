@@ -33,8 +33,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     ///
     /// Gedacht als Gegenstelle für Tests und für die Entwicklung, nicht für
     /// den Produktivbetrieb: es gibt weder TLS noch eine dauerhafte
-    /// Kontenverwaltung, und Presence geht an alle Sitzungen statt nur an
-    /// Subscriber.
+    /// Kontenverwaltung, und den Subscription-Handshake (RFC 6121,
+    /// Abschnitt 3) beherrscht er noch nicht - die Zustände müssen von aussen
+    /// gesetzt werden.
     ///
     /// Er beherrscht so viel vom Protokoll, dass sich mehrere echte
     /// <c>XMPPClient</c>-Instanzen gleichzeitig anmelden und miteinander
@@ -44,6 +45,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     ///   <item>SASL PLAIN gegen hinterlegte Konten</item>
     ///   <item>Resource Binding mit eindeutiger Resource je Verbindung</item>
     ///   <item>Routing von message, presence und iq zwischen den Sitzungen</item>
+    ///   <item>Presence nur an Subscriber, samt Probe (RFC 6121, Abschnitt 4)</item>
     ///   <item>XEP-0280 Message Carbons zwischen den Resourcen eines Kontos</item>
     ///   <item>serverseitiger Roster inklusive Roster-Push</item>
     ///   <item>XEP-0199 Ping, zum Server und zwischen Clients</item>
@@ -107,7 +109,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Werden message/presence/iq zwischen Sitzungen zugestellt?</summary>
         public Boolean RouteStanzas { get; set; } = true;
 
-        /// <summary>Wird Presence ohne 'to' an alle anderen Sitzungen verteilt?</summary>
+        /// <summary>
+        /// Wird Presence ohne 'to' überhaupt verteilt? Wer sie bekommt,
+        /// entscheidet der Subscription-Zustand; dieser Schalter setzt die
+        /// Verteilung ganz aus.
+        /// </summary>
         public Boolean BroadcastPresence { get; set; } = true;
 
         /// <summary>Werden XEP-0280 Carbons an weitere Resourcen verteilt?</summary>
@@ -826,20 +832,131 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (!RouteStanzas || session.FullJid is null)
                 return;
 
+            var type     = Attr(frame, "type");
             var to       = Attr(frame, "to");
             var stamped  = StampFrom(frame, session.FullJid);
 
+            // Presence-Probe: die Frage nach dem Zustand eines Kontakts
+            // (RFC 6121, Abschnitt 4.3).
+            if (type == "probe" && to is not null)
+            {
+                await AnswerPresenceProbeAsync(session, to);
+                return;
+            }
+
+            // Gerichtete Presence geht genau dorthin - darunter die
+            // Subscription-Anfragen, deren Zweck es ja gerade ist, die
+            // Berechtigung erst herzustellen.
             if (to is not null)
             {
                 await RouteToAsync(to, stamped);
                 return;
             }
 
+            var initial = !session.HasSentInitialPresence;
+
+            session.LastPresence            = stamped;
+            session.HasSentInitialPresence  = true;
+
             if (!BroadcastPresence)
                 return;
 
-            foreach (var s in Sessions.Where(s => s != session && s.FullJid is not null))
-                await s.SendAsync(stamped);
+            foreach (var target in PresenceTargetsOf(session))
+                await target.SendAsync(stamped);
+
+            // RFC 6121, Abschnitt 4.3.1: Nach der ersten Presence fragt der
+            // Server für den Client den Zustand von dessen Kontakten ab. Weil
+            // hier alle Konten auf derselben Instanz liegen, liefern wir gleich
+            // aus, was wir wissen - das Ergebnis einer Probe wäre dasselbe.
+            if (initial && type is null)
+                await SendKnownPresencesToAsync(session);
+
+        }
+
+        /// <summary>
+        /// Wer bekommt die ungerichtete Presence dieser Sitzung?
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 4.2.2: die Kontakte mit <c>from</c> oder
+        /// <c>both</c>. Dazu nach Abschnitt 4.4.2 die weiteren Resourcen des
+        /// eigenen Kontos, für die es keinen Roster-Eintrag braucht.
+        /// </remarks>
+        private IEnumerable<XMPPSession> PresenceTargetsOf(XMPPSession session)
+        {
+
+            var account = session.Account;
+
+            if (account is null)
+                yield break;
+
+            foreach (var other in Sessions.Where(s => s != session && s.FullJid is not null))
+            {
+
+                if (String.Equals(other.BareJid, account.BareJid, StringComparison.OrdinalIgnoreCase) ||
+                    account.IsPresenceSubscriber(other.BareJid!))
+                {
+                    yield return other;
+                }
+
+            }
+
+        }
+
+        /// <summary>
+        /// Liefert einer frisch angemeldeten Sitzung den bekannten Zustand
+        /// ihrer Kontakte nach.
+        /// </summary>
+        private async Task SendKnownPresencesToAsync(XMPPSession session)
+        {
+
+            var account = session.Account;
+
+            if (account is null)
+                return;
+
+            foreach (var other in Sessions.Where(s => s != session &&
+                                                      s.FullJid     is not null &&
+                                                      s.LastPresence is not null))
+            {
+
+                // Ob ein Kontakt seinen Zustand preisgibt, entscheidet sein
+                // Roster, nicht unserer - deshalb wird hier die Gegenseite
+                // gefragt.
+                var eigeneResource = String.Equals(other.BareJid, account.BareJid,
+                                                   StringComparison.OrdinalIgnoreCase);
+
+                if (eigeneResource ||
+                    other.Account?.IsPresenceSubscriber(account.BareJid) == true)
+                {
+                    await session.SendAsync(other.LastPresence!);
+                }
+
+            }
+
+        }
+
+        /// <summary>
+        /// Beantwortet eine Presence-Probe (RFC 6121, Abschnitt 4.3.2).
+        /// </summary>
+        /// <remarks>
+        /// Fehlt die Berechtigung, bleibt die Probe unbeantwortet. Der Abschnitt
+        /// stellt dem Server <c>&lt;unsubscribed/&gt;</c> und Schweigen frei -
+        /// Schweigen verrät nicht einmal, ob es das Konto überhaupt gibt.
+        /// </remarks>
+        private async Task AnswerPresenceProbeAsync(XMPPSession prober, String to)
+        {
+
+            var account = GetAccount(BareOf(to));
+
+            if (account is null ||
+                prober.BareJid is null ||
+                !account.IsPresenceSubscriber(prober.BareJid))
+            {
+                return;
+            }
+
+            foreach (var s in SessionsOf(account.BareJid).Where(s => s.LastPresence is not null))
+                await prober.SendAsync(s.LastPresence!);
 
         }
 

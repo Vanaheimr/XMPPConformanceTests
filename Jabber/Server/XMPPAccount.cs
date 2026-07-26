@@ -79,6 +79,37 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 _roster.RemoveAll(e => String.Equals(e.Jid, jid, StringComparison.OrdinalIgnoreCase));
         }
 
+        /// <summary>
+        /// Darf dieser Kontakt die Presence dieses Kontos sehen?
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 4.2.2: das ist genau bei <c>from</c> und
+        /// <c>both</c> der Fall. Die Richtung ist leicht zu verwechseln - ein
+        /// <c>to</c> heisst, dass <b>dieses Konto</b> die Presence des
+        /// Kontakts sieht, und gäbe die eigene an genau die falsche Hälfte des
+        /// Rosters.
+        /// </remarks>
+        public Boolean IsPresenceSubscriber(String bareJid)
+            => SubscriptionOf(bareJid) is "from" or "both";
+
+        /// <summary>
+        /// Bekommt dieses Konto die Presence des Kontakts - also <c>to</c> oder
+        /// <c>both</c>?
+        /// </summary>
+        public Boolean ReceivesPresenceFrom(String bareJid)
+            => SubscriptionOf(bareJid) is "to" or "both";
+
+        /// <summary>
+        /// Der Subscription-Zustand zu diesem Kontakt, oder null, wenn er nicht
+        /// im Roster steht.
+        /// </summary>
+        public String? SubscriptionOf(String bareJid)
+        {
+            lock (_lock)
+                return _roster.FirstOrDefault(e => String.Equals(e.Jid, bareJid, StringComparison.OrdinalIgnoreCase))
+                             ?.Subscription;
+        }
+
     }
 
 }

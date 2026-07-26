@@ -64,6 +64,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>XEP-0280: Hat der Client Carbons für diese Resource aktiviert?</summary>
         public Boolean CarbonsEnabled { get; internal set; }
 
+        /// <summary>
+        /// Die zuletzt gesendete ungerichtete Presence dieser Resource, bereits
+        /// mit dem Full-JID gestempelt - oder null, solange der Client noch
+        /// keine geschickt hat.
+        /// </summary>
+        /// <remarks>
+        /// Nach RFC 6121, Abschnitt 4.2.1 ist eine gebundene Resource ohne
+        /// gesendete Presence noch nicht "available". Deshalb null und nicht
+        /// etwa ein angenommenes <c>&lt;presence/&gt;</c>: auf eine Probe
+        /// dieser Resource gibt es dann schlicht nichts zu antworten.
+        /// </remarks>
+        public String? LastPresence { get; internal set; }
+
+        /// <summary>
+        /// Hat diese Resource ihre erste ungerichtete Presence geschickt?
+        /// Genau daran hängt, wann der Server ihr den Zustand der Kontakte
+        /// nachliefert (RFC 6121, Abschnitt 4.3.1).
+        /// </summary>
+        public Boolean HasSentInitialPresence { get; internal set; }
+
         /// <summary>XEP-0198: Ist Stream Management für diese Sitzung ausgehandelt?</summary>
         public Boolean StreamManagementEnabled { get; private set; }
 

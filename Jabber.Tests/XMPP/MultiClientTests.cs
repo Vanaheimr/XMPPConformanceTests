@@ -232,11 +232,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region PresenceOfOtherClient_IsObserved()
 
         /// <summary>
-        /// Die Presence eines anderen Clients muss beim Gegenüber ankommen.
+        /// Die Presence eines anderen Clients muss beim Gegenüber ankommen -
+        /// sofern er sie sehen darf. Die beidseitige Subscription ist seit der
+        /// Filterung nach RFC 6121, Abschnitt 4 Voraussetzung; wer sie
+        /// tatsächlich bekommt und wer nicht, prüfen die
+        /// <c>PresenceSubscriptionTests</c>.
         /// </summary>
         [Test]
         public async Task PresenceOfOtherClient_IsObserved()
         {
+
+            MakeContacts("alice", "bob");
 
             var alice = await ConnectClientAsync("alice");
 
