@@ -232,6 +232,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var client  = PreparedClient();
             var errors  = new List<String>();
 
+            // Ein abgelehntes Binding schickt den Client sonst durch zwanzig
+            // Reconnects mit exponentiellem Backoff - der Testlauf hing dadurch
+            // gut sechs Minuten an dieser einen Frage, und der Runner brach ihn
+            // ab, wenn der Test allein lief. Über einen Reconnect zum selben
+            // Ergebnis zu kommen wäre auch keine Antwort, nur eine langsame
+            // Wiederholung derselben Frage.
+            client.Connection.MaxReconnectAttempts = 0;
+
             client.OnError += e => errors.Add(e);
 
             await client.ConnectAsync();
