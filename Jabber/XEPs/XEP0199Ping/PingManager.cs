@@ -88,10 +88,17 @@ public sealed class PingManager
     }
 
     /// <summary>
-    /// Beantwortet einen Ping
+    /// Beantwortet einen Ping.
+    ///
+    /// Ohne 'from' kam die Anfrage vom eigenen Server (RFC 6120,
+    /// Abschnitt 8.1.1.1); die Antwort geht dann ohne 'to' implizit dorthin
+    /// zurück.
     /// </summary>
-    public Task RespondAsync(string id, string from) =>
-        _sendStanza($"<iq type='result' id='{id}' to='{XmlEscaping.Escape(from)}'/>");
+    public Task RespondAsync(string id, string? from = null)
+    {
+        var toAttr = from != null ? $" to='{XmlEscaping.Escape(from)}'" : "";
+        return _sendStanza($"<iq type='result' id='{XmlEscaping.Escape(id)}'{toAttr}/>");
+    }
 
     /// <summary>
     /// Prüft ob ein IQ ein Ping ist

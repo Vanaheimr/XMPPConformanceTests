@@ -18,31 +18,21 @@ Stand: 2026-07-26
 | Sende-Lock, CTS-Leak, Roster-Push-Prüfung, Close-Handshake-Timeout | `e42c684` |
 | `Jabber.Tests` mit `XMPPServer` als Gegenstelle, Mehr-Client-Szenarien | `e42c684` |
 | SCRAM- und Caps-Testvektoren aus RFC 5802/7677 und XEP-0115 | `e42c684` |
-| SCRAM `ExtractValue` verankert, Caps-Sortierung oktettweise | offen im Working Tree |
-| XEP-0198 zählt korrekt (beide Richtungen, Nonzas, Überlauf) | offen im Working Tree |
-| `XMPPServer` ins Hauptprojekt, „Fake" aus den Typnamen | offen im Working Tree |
-| `#region Usings` in allen Dateien | offen im Working Tree |
+| SCRAM `ExtractValue` verankert, Caps-Sortierung oktettweise | `78fdb1c` |
+| XEP-0198 zählt korrekt (beide Richtungen, Nonzas, Überlauf) | `78fdb1c` |
+| `XMPPServer` ins Hauptprojekt, „Fake" aus den Typnamen | `78fdb1c` |
+| `#region Usings` in allen Dateien | `78fdb1c` |
+| RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **68 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **78 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
 ## Als Nächstes
 
-### 1. RFC 6120 §8.2.3 — unbeantwortete IQs (MUST-Verstoß)
-
-Unbekannte `iq` vom Typ `get`/`set` werden in `ProcessIq` still verworfen.
-Der RFC verlangt eine Antwort, mindestens `<service-unavailable/>`. Ein Server
-oder Gegenüber, der auf Antwort wartet, läuft in einen Timeout.
-
-**Umfang:** klein, eine Fallback-Verzweigung in `ProcessIq`.
-**Test:** `XMPPServer` schickt ein unbekanntes `iq get` und erwartet einen
-Fehler zurück — der Server kann das schon, es fehlt nur die Prüfung.
-**Warum zuerst:** der einzige bekannte glatte MUST-Verstoß, und billig.
-
-### 2. Stanza- und Stream-Fehler auswerten
+### 1. Stanza- und Stream-Fehler auswerten
 
 `<error/>`-Nutzlasten (§8.3) und Stream-Fehler (§4.9) werden nirgends geparst.
 Fehlgeschlagene Operationen sehen für den Aufrufer aus wie Erfolg — besonders
@@ -51,7 +41,7 @@ bei PubSub, wo IQ-Ergebnisse ohnehin nicht korreliert werden.
 **Umfang:** mittel. Braucht einen Fehlertyp und Auswertung an den Stellen mit
 `TaskCompletionSource`-Korrelation.
 
-### 3. XML nicht mehr per Regex parsen
+### 2. XML nicht mehr per Regex parsen
 
 Das ist die gemeinsame Ursache der meisten Interop-Lücken: Attribut-Reihenfolge
 (XEP-0333), Quote-Stil, Namespace-Präfixe und verschachtelte Elemente in
@@ -64,7 +54,7 @@ bei `ProcessMessage`.
 für jede betroffene Stanza-Art einen Test mit ungewöhnlicher, aber gültiger
 Schreibweise anzulegen — die schlagen dann vorher fehl und danach nicht mehr.
 
-### 4. Aufbauphase entwirren
+### 3. Aufbauphase entwirren
 
 `ConnectInternalAsync` liest selbst vom Socket, verwirft bis zu zehn nicht
 passende Stanzas (auch echte Nachrichten und Presences) und startet erst danach
@@ -75,7 +65,7 @@ und `PingManager` schon richtig machen, gibt es hier nicht.
 **Nebeneffekt:** löst zugleich den Grund, warum die XEP-0198-Zählung zwei
 Empfangspfade abdecken muss.
 
-### 5. XEP-0198 gegen einen echten Server, dann Default umstellen
+### 4. XEP-0198 gegen einen echten Server, dann Default umstellen
 
 Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen ejabberd oder
 Prosody; danach kann `StreamManagementEnabled` auf `true`.
@@ -110,7 +100,7 @@ und die unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht
 
 ### Testserver (`Jabber/Server/`)
 Die Liste steht in [Jabber/README.md](Jabber/README.md#was-dem-server-zum-produktivbetrieb-fehlt).
-Priorität hat davon nur, was Tests ermöglicht: `<resume/>` (siehe Punkt 5) und
+Priorität hat davon nur, was Tests ermöglicht: `<resume/>` (siehe Punkt 4) und
 SCRAM, damit der SCRAM-Pfad des Clients auch integrativ und nicht nur gegen die
 RFC-Vektoren geprüft ist.
 

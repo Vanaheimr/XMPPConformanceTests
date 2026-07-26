@@ -183,10 +183,14 @@ public sealed class DiscoManager
     /// <summary>
     /// Beantwortet eine disco#info Anfrage
     /// </summary>
-    public Task RespondInfoAsync(string id, string from, string? node = null)
+    public Task RespondInfoAsync(string id, string? from, string? node = null)
     {
+        // Ohne 'from' kam die Anfrage vom eigenen Server (RFC 6120,
+        // Abschnitt 8.1.1.1); die Antwort geht dann ohne 'to' dorthin zurück.
+        var toAttr = from != null ? $" to='{XmlEscaping.Escape(from)}'" : "";
+
         var sb = new StringBuilder();
-        sb.Append($"<iq type='result' id='{id}' to='{XmlEscaping.Escape(from)}'>");
+        sb.Append($"<iq type='result' id='{XmlEscaping.Escape(id)}'{toAttr}>");
 
         var nodeAttr = node != null ? $" node='{XmlEscaping.Escape(node)}'" : "";
         sb.Append($"<query xmlns='http://jabber.org/protocol/disco#info'{nodeAttr}>");

@@ -957,19 +957,26 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         // IQ Get - Anfragen
-        if (type == "get" && id != null && from != null)
+        //
+        // Kein 'from' bedeutet nicht "nicht beantwortbar": nach RFC 6120,
+        // Abschnitt 8.1.1.1 kommt die Anfrage dann vom eigenen Server. Früher
+        // wurden solche Anfragen still verworfen; jetzt antworten die Manager
+        // ohne 'to'. Ist der zuständige Manager noch nicht initialisiert, fällt
+        // die Anfrage bewusst durch bis zum <service-unavailable/> unten -
+        // das ist die ehrlichere Antwort als Schweigen.
+        if (type == "get" && id != null)
         {
             // XEP-0199: Ping Anfrage
-            if (PingManager.IsPing(stanza))
+            if (PingManager.IsPing(stanza) && Ping is not null)
             {
-                _ = Ping?.RespondAsync(id, from);
+                _ = Ping.RespondAsync(id, from);
                 return;
             }
 
             // XEP-0030: Disco Info Anfrage
-            if (stanza.Contains("http://jabber.org/protocol/disco#info"))
+            if (stanza.Contains("http://jabber.org/protocol/disco#info") && Disco is not null)
             {
-                _ = Disco?.RespondInfoAsync(id, from);
+                _ = Disco.RespondInfoAsync(id, from);
                 return;
             }
         }
@@ -989,6 +996,13 @@ public sealed class XMPPConnection : IAsyncDisposable
                 {
                     _logger.LogWarning("Roster-Push von nicht autorisiertem Absender {From} verworfen", from);
                     OnSpoofingAttempt?.Invoke($"Roster-Push-Spoofing von {from}");
+
+                    // Bewusst ohne Antwort. RFC 6121, Abschnitt 2.1.6 erlaubt
+                    // das ausdrücklich: der Client darf "refuse to return a
+                    // stanza error at all (the latter behavior overrides a
+                    // MUST-level requirement from [XMPP-CORE] for the purpose
+                    // of preventing a presence leak)". Eine Antwort würde dem
+                    // Absender bestätigen, dass dieses Konto online ist.
                     return;
                 }
 
@@ -1002,7 +1016,56 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (stanza.Contains("http://jabber.org/protocol/pubsub#event") && from != null)
         {
             PubSub?.ProcessEvent(stanza, from, PubSub.PubSubService);
+
+            // Kommt das Event als iq set statt als message, ist es eine
+            // Anfrage und braucht nach Abschnitt 8.2.3 ein Ergebnis.
+            if (type is "get" or "set" && id != null)
+                _ = SendAsync($"<iq type='result' id='{XmlEscaping.Escape(id)}' to='{XmlEscaping.Escape(from)}'/>");
+
+            return;
         }
+
+        // RFC 6120, Abschnitt 8.2.3: Auf ein iq 'get' oder 'set' MUSS eine
+        // Antwort folgen. Alles, was oben niemand beansprucht hat, wird hier
+        // abschliessend beantwortet.
+        if (type is "get" or "set")
+            RespondUnhandledIq(id, from);
+    }
+
+    /// <summary>
+    /// Beantwortet ein IQ, für das es keinen Handler gibt.
+    ///
+    /// RFC 6120, Abschnitt 8.2.3 verlangt auf jedes <c>iq</c> vom Typ
+    /// <c>get</c> oder <c>set</c> eine Antwort - <c>result</c> oder
+    /// <c>error</c>. Bleibt sie aus, wartet die Gegenstelle bis in ihren
+    /// Timeout; bei einem Server kann das die Sitzung kosten. Für nicht
+    /// unterstützte Anfragen ist die richtige Antwort nach Abschnitt 8.4
+    /// <c>&lt;service-unavailable/&gt;</c>.
+    /// </summary>
+    private void RespondUnhandledIq(string? id, string? from)
+    {
+
+        // Ohne 'id' liesse sich die Antwort nicht zuordnen - dort ist das
+        // Attribut nach Abschnitt 8.2.3 zwingend, die Anfrage ist also selbst
+        // fehlerhaft.
+        if (id is null)
+        {
+            _logger.LogWarning("IQ ohne 'id' von {From} - nicht beantwortbar", from ?? "(Server)");
+            return;
+        }
+
+        // Ohne 'from' kam die Anfrage vom eigenen Server; die Antwort geht
+        // dann ohne 'to' implizit dorthin zurück (Abschnitt 8.1.1.1).
+        var toAttr = from != null ? $" to='{XmlEscaping.Escape(from)}'" : "";
+
+        _logger.LogDebug("Unbekanntes IQ '{Id}' von {From} mit <service-unavailable/> beantwortet",
+                         id, from ?? "(Server)");
+
+        _ = SendAsync($"<iq type='error' id='{XmlEscaping.Escape(id)}'{toAttr}>" +
+                       "<error type='cancel'>" +
+                       "<service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                       "</error></iq>");
+
     }
 
     /// <summary>
