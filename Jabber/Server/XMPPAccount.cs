@@ -15,18 +15,18 @@
  * limitations under the License.
  */
 
-namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
+namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
     /// <summary>
     /// Ein Konto auf dem Testserver: Zugangsdaten und serverseitiger Roster.
     /// </summary>
-    public sealed class FakeXMPPAccount
+    public sealed class XMPPAccount
     {
 
         #region Data
 
-        private readonly List<FakeRosterEntry> _roster = [];
+        private readonly List<RosterEntry> _roster = [];
         private readonly Lock _lock = new();
 
         #endregion
@@ -40,7 +40,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         public String Password { get; }
 
         /// <summary>Momentaufnahme des serverseitigen Rosters.</summary>
-        public IReadOnlyList<FakeRosterEntry> Roster
+        public IReadOnlyList<RosterEntry> Roster
         {
             get { lock (_lock) return _roster.ToList(); }
         }
@@ -49,7 +49,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         #region Constructor(s)
 
-        public FakeXMPPAccount(String bareJid, String password)
+        public XMPPAccount(String bareJid, String password)
         {
             BareJid   = bareJid;
             Password  = password;
@@ -61,7 +61,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         /// <summary>
         /// Legt einen Roster-Eintrag an oder aktualisiert ihn.
         /// </summary>
-        public void SetRosterEntry(FakeRosterEntry entry)
+        public void SetRosterEntry(RosterEntry entry)
         {
             lock (_lock)
             {

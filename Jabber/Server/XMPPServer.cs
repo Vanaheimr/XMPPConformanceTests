@@ -25,11 +25,16 @@ using System.Text.RegularExpressions;
 
 #endregion
 
-namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
+namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
     /// <summary>
-    /// Ein minimaler XMPP-over-WebSocket-Server (RFC 7395) für Tests.
+    /// Ein minimaler XMPP-over-WebSocket-Server (RFC 7395).
+    ///
+    /// Gedacht als Gegenstelle für Tests und für die Entwicklung, nicht für
+    /// den Produktivbetrieb: es gibt weder TLS noch eine dauerhafte
+    /// Kontenverwaltung, und Presence geht an alle Sitzungen statt nur an
+    /// Subscriber.
     ///
     /// Er beherrscht so viel vom Protokoll, dass sich mehrere echte
     /// <c>XMPPClient</c>-Instanzen gleichzeitig anmelden und miteinander
@@ -42,21 +47,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
     ///   <item>XEP-0280 Message Carbons zwischen den Resourcen eines Kontos</item>
     ///   <item>serverseitiger Roster inklusive Roster-Push</item>
     ///   <item>XEP-0199 Ping, zum Server und zwischen Clients</item>
+    ///   <item>XEP-0198 Stream Management mit eigener, unabhängiger Zählung</item>
     /// </list>
     ///
-    /// Nicht implementiert und für Tests bewusst vereinfacht: Presence wird an
-    /// alle Sitzungen verteilt statt nur an Subscriber, TLS gibt es nicht, und
-    /// Fehlerfälle werden nur dort erzeugt, wo ein Schalter es verlangt.
+    /// Fehlerfälle erzeugt er nur dort, wo ein Schalter es verlangt.
     /// </summary>
-    public sealed class FakeXMPPServer : IAsyncDisposable
+    public sealed class XMPPServer : IAsyncDisposable
     {
 
         #region Data
 
         private readonly HttpListener _listener = new();
         private readonly CancellationTokenSource _cts = new();
-        private readonly Dictionary<String, FakeXMPPAccount> _accounts = new(StringComparer.OrdinalIgnoreCase);
-        private readonly List<FakeXMPPSession> _sessions = [];
+        private readonly Dictionary<String, XMPPAccount> _accounts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<XMPPSession> _sessions = [];
         private readonly Lock _lock = new();
 
         private Task? _acceptLoop;
@@ -79,7 +83,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         public Int32 ConnectionCount => Volatile.Read(ref _connectionCounter);
 
         /// <summary>Alle derzeit offenen Sitzungen.</summary>
-        public IReadOnlyList<FakeXMPPSession> Sessions
+        public IReadOnlyList<XMPPSession> Sessions
         {
             get { lock (_lock) return _sessions.Where(s => s.IsOpen).ToList(); }
         }
@@ -112,15 +116,24 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         /// <summary>Beantwortet der Server XEP-0199 Pings, die an ihn gerichtet sind?</summary>
         public Boolean AnswerPings { get; set; } = true;
 
+        /// <summary>
+        /// XEP-0198: Handelt der Server Stream Management aus? Auf false
+        /// antwortet er auf <c>&lt;enable/&gt;</c> mit <c>&lt;failed/&gt;</c>.
+        /// </summary>
+        public Boolean OfferStreamManagement { get; set; } = true;
+
+        /// <summary>XEP-0198: Beantwortet der Server ein <c>&lt;r/&gt;</c> des Clients?</summary>
+        public Boolean AnswerAckRequests { get; set; } = true;
+
         #endregion
 
         #region Events
 
         /// <summary>Wird für jede vom Client empfangene Stanza ausgelöst.</summary>
-        public event Action<FakeXMPPSession, String>? OnStanzaReceived;
+        public event Action<XMPPSession, String>? OnStanzaReceived;
 
         /// <summary>Wird ausgelöst, sobald eine Sitzung erfolgreich gebunden wurde.</summary>
-        public event Action<FakeXMPPSession>? OnSessionBound;
+        public event Action<XMPPSession>? OnSessionBound;
 
         #endregion
 
@@ -131,7 +144,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         /// </summary>
         /// <param name="domain">Die bediente Domain; muss zum JID der Clients passen.</param>
         /// <param name="port">Fester Port oder 0 für einen freien.</param>
-        public FakeXMPPServer(String domain = "localhost", Int32 port = 0)
+        public XMPPServer(String domain = "localhost", Int32 port = 0)
         {
 
             Domain  = domain;
@@ -149,10 +162,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         /// <summary>
         /// Legt ein Konto an, an dem sich ein Client anmelden darf.
         /// </summary>
-        public FakeXMPPAccount AddAccount(String localPart, String password = "pw")
+        public XMPPAccount AddAccount(String localPart, String password = "pw")
         {
 
-            var account = new FakeXMPPAccount($"{localPart}@{Domain}", password);
+            var account = new XMPPAccount($"{localPart}@{Domain}", password);
 
             lock (_lock)
                 _accounts[account.BareJid] = account;
@@ -162,7 +175,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         }
 
         /// <summary>Liefert ein Konto oder null.</summary>
-        public FakeXMPPAccount? GetAccount(String bareJid)
+        public XMPPAccount? GetAccount(String bareJid)
         {
             lock (_lock)
                 return _accounts.TryGetValue(bareJid, out var a) ? a : null;
@@ -173,7 +186,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         #region Sitzungen
 
         /// <summary>Alle offenen Sitzungen eines Kontos, älteste zuerst.</summary>
-        public IReadOnlyList<FakeXMPPSession> SessionsOf(String bareJid)
+        public IReadOnlyList<XMPPSession> SessionsOf(String bareJid)
         {
             lock (_lock)
                 return _sessions
@@ -183,7 +196,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         }
 
         /// <summary>Die Sitzung zu einem Full-JID oder null.</summary>
-        public FakeXMPPSession? SessionOf(String fullJid)
+        public XMPPSession? SessionOf(String fullJid)
         {
             lock (_lock)
                 return _sessions.FirstOrDefault(s => s.IsOpen &&
@@ -217,7 +230,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
             var targets = jid.Contains('/')
                               ? [SessionOf(jid)]
-                              : SessionsOf(jid).Cast<FakeXMPPSession?>().ToArray();
+                              : SessionsOf(jid).Cast<XMPPSession?>().ToArray();
 
             foreach (var t in targets)
                 if (t is not null)
@@ -290,7 +303,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
                 try { wsCtx = await ctx.AcceptWebSocketAsync("xmpp"); }
                 catch { continue; }
 
-                var session = new FakeXMPPSession(wsCtx.WebSocket,
+                var session = new XMPPSession(wsCtx.WebSocket,
                                                   Interlocked.Increment(ref _connectionCounter));
 
                 lock (_lock)
@@ -302,7 +315,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task ServeAsync(FakeXMPPSession session, WebSocket ws)
+        private async Task ServeAsync(XMPPSession session, WebSocket ws)
         {
 
             var buffer     = new Byte[32768];
@@ -358,7 +371,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         #region Protokollbehandlung
 
-        private async Task HandleFrameAsync(FakeXMPPSession session, String frame, Int32 openCount)
+        private async Task HandleFrameAsync(XMPPSession session, String frame, Int32 openCount)
         {
 
             if (frame.StartsWith("<open", StringComparison.Ordinal))
@@ -391,9 +404,70 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
                 return;
             }
 
+            if (frame.Contains("urn:xmpp:sm:3", StringComparison.Ordinal))
+            {
+                await HandleStreamManagementAsync(session, frame);
+                return;
+            }
+
         }
 
-        private async Task HandleStreamOpenAsync(FakeXMPPSession session, Int32 openCount)
+        /// <summary>
+        /// XEP-0198: <c>&lt;enable/&gt;</c>, <c>&lt;r/&gt;</c> und <c>&lt;a/&gt;</c>.
+        /// </summary>
+        private async Task HandleStreamManagementAsync(XMPPSession session, String frame)
+        {
+
+            if (frame.StartsWith("<enable", StringComparison.Ordinal))
+            {
+
+                if (!OfferStreamManagement)
+                {
+                    await session.SendAsync(
+                        "<failed xmlns='urn:xmpp:sm:3'>" +
+                        "<feature-not-implemented xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></failed>");
+                    return;
+                }
+
+                // Zähler zuerst zurücksetzen: das <enabled/> selbst ist eine
+                // Nonza und zählt nicht mit.
+                session.EnableStreamManagement();
+
+                await session.SendAsync(
+                    $"<enabled xmlns='urn:xmpp:sm:3' id='sm-{session.ConnectionNumber}'/>");
+
+                return;
+
+            }
+
+            // Der Client fragt unseren Empfangszähler ab.
+            if (frame.StartsWith("<r", StringComparison.Ordinal))
+            {
+
+                if (AnswerAckRequests)
+                    await session.SendAsync(
+                        $"<a xmlns='urn:xmpp:sm:3' h='{session.StanzasReceivedFromClient}'/>");
+
+                return;
+
+            }
+
+            // Der Client meldet seinen Empfangszähler.
+            if (frame.StartsWith("<a", StringComparison.Ordinal))
+            {
+
+                var h = Regex.Match(frame, @"h=['""](\d+)['""]");
+
+                if (h.Success && UInt32.TryParse(h.Groups[1].Value, out var value))
+                    session.LastAckFromClient = value;
+
+                return;
+
+            }
+
+        }
+
+        private async Task HandleStreamOpenAsync(XMPPSession session, Int32 openCount)
         {
 
             await session.SendAsync(
@@ -415,7 +489,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task HandleAuthAsync(FakeXMPPSession session, String frame)
+        private async Task HandleAuthAsync(XMPPSession session, String frame)
         {
 
             // SASL PLAIN: base64( \0 benutzer \0 passwort )
@@ -448,7 +522,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task HandleIqAsync(FakeXMPPSession session, String frame)
+        private async Task HandleIqAsync(XMPPSession session, String frame)
         {
 
             var id    = Attr(frame, "id");
@@ -508,7 +582,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
                 await session.SendAsync(
                     $"<iq type='result' id='{id}' from='{Domain}'>" +
                     "<query xmlns='http://jabber.org/protocol/disco#info'>" +
-                    "<identity category='server' type='im' name='FakeXMPPServer'/>" +
+                    "<identity category='server' type='im' name='XMPPServer'/>" +
                     "<feature var='urn:xmpp:carbons:2'/>" +
                     "<feature var='urn:xmpp:ping'/>" +
                     "<feature var='urn:xmpp:sm:3'/>" +
@@ -525,7 +599,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task HandleBindAsync(FakeXMPPSession session, String frame, String? id)
+        private async Task HandleBindAsync(XMPPSession session, String frame, String? id)
         {
 
             var requested = Regex.Match(frame, @"<resource>([^<]*)</resource>").Groups[1].Value;
@@ -565,7 +639,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task HandleRosterAsync(FakeXMPPSession session, String frame, String? id, String? type)
+        private async Task HandleRosterAsync(XMPPSession session, String frame, String? id, String? type)
         {
 
             var account = session.Account;
@@ -611,7 +685,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
                         if (subscription == "remove")
                             account.RemoveRosterEntry(jid);
                         else
-                            account.SetRosterEntry(new FakeRosterEntry(jid, AttrIn(attrs, "name"), subscription ?? "none"));
+                            account.SetRosterEntry(new RosterEntry(jid, AttrIn(attrs, "name"), subscription ?? "none"));
                     }
 
                 }
@@ -628,7 +702,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task HandleMessageAsync(FakeXMPPSession session, String frame)
+        private async Task HandleMessageAsync(XMPPSession session, String frame)
         {
 
             if (!RouteStanzas)
@@ -643,10 +717,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
             // Zustellung an den Empfänger
             var recipients = to.Contains('/')
-                                 ? (SessionOf(to) is { } one ? [one] : Array.Empty<FakeXMPPSession>())
+                                 ? (SessionOf(to) is { } one ? [one] : Array.Empty<XMPPSession>())
                                  : SessionsOf(to).ToArray();
 
-            FakeXMPPSession? primary = null;
+            XMPPSession? primary = null;
 
             if (recipients.Length > 0)
             {
@@ -668,7 +742,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
 
         }
 
-        private async Task HandlePresenceAsync(FakeXMPPSession session, String frame)
+        private async Task HandlePresenceAsync(XMPPSession session, String frame)
         {
 
             if (!RouteStanzas || session.FullJid is null)
@@ -695,7 +769,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
         {
 
             var targets = to.Contains('/')
-                              ? (SessionOf(to) is { } one ? [one] : Array.Empty<FakeXMPPSession>())
+                              ? (SessionOf(to) is { } one ? [one] : Array.Empty<XMPPSession>())
                               : SessionsOf(to).ToArray();
 
             foreach (var t in targets)

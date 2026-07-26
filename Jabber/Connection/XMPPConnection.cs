@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
+#region Usings
+
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+
+#endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 
@@ -110,8 +114,11 @@ public sealed class XMPPConnection : IAsyncDisposable
     public TimeSpan KeepaliveInterval { get; set; } = TimeSpan.FromSeconds(25);
     public bool KeepaliveEnabled { get; set; } = true;
 
-    // XEP-0198: Stream Management - DEAKTIVIERT wegen ejabberd-Kompatibilitätsproblemen
-    // Kann mit /sm on aktiviert werden (experimentell)
+    // XEP-0198: Stream Management. Die frühere Abschaltung wegen
+    // "ejabberd-Kompatibilitätsproblemen" ging auf die fehlerhafte Zählung
+    // zurück; die ist behoben und gegen XMPPServer getestet. Der Default
+    // bleibt aus, bis es einen Lauf gegen einen echten Server gab.
+    // Zur Laufzeit umschaltbar mit /sm on.
     public bool StreamManagementEnabled { get; set; } = false;
 
     // State
@@ -389,7 +396,11 @@ public sealed class XMPPConnection : IAsyncDisposable
                 await PerformSessionAsync(ct);
             }
 
-            // XEP-0198: Stream Management (optional - deaktiviert wegen ejabberd-Problemen)
+            // XEP-0198: Stream Management. Der Grund für die frühere Abschaltung
+            // ("ejabberd-Probleme") war die fehlerhafte Zählung; die ist behoben
+            // und durch Tests gegen den XMPPServer abgedeckt. Der Schalter
+            // bleibt vorerst standardmässig aus, weil noch kein Lauf gegen einen
+            // echten Server stattgefunden hat.
             StreamManagement = new StreamManagementManager(SendAsync, CreateLogger<StreamManagementManager>());
             StreamManagement.OnAckReceived += count =>
                 _logger.LogTrace("Stream Management: {Count} Stanzas bestätigt", count);
@@ -564,6 +575,14 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             await webSocket.SendAsync(bytes, WebSocketMessageType.Text, true, token);
 
+            // XEP-0198: hier ist die einzige Stelle, durch die jede ausgehende
+            // Stanza läuft - deshalb wird hier gezählt und nicht an den rund
+            // 25 Aufrufern. Erst nach dem erfolgreichen Senden, damit eine
+            // fehlgeschlagene Stanza den Zähler nicht dauerhaft verschiebt,
+            // und noch unter dem Sende-Lock, damit die Sequenznummern der
+            // Reihenfolge auf der Leitung entsprechen.
+            StreamManagement?.TrackOutgoing(xml);
+
         }
         finally
         {
@@ -597,7 +616,23 @@ public sealed class XMPPConnection : IAsyncDisposable
         var xml = sb.ToString();
         _logger.LogTrace("<<< {Xml}", xml);
         OnRawXml?.Invoke($"<<< {xml}");
+        NoteInboundStanza(xml);
         return xml;
+    }
+
+    /// <summary>
+    /// XEP-0198: zählt eine empfangene Stanza.
+    ///
+    /// Muss auf beiden Empfangspfaden laufen. Die Aufbauphase liest über
+    /// <see cref="ReceiveStanzaAsync"/> direkt vom Socket und kommt nie bei
+    /// <see cref="ProcessStanza"/> vorbei; die Ergebnisse von Carbons-Enable
+    /// und Roster-Abruf treffen aber bereits nach <c>&lt;enabled/&gt;</c> ein.
+    /// Wurde nur in ProcessStanza gezählt, fehlten sie und der Client
+    /// bestätigte dem Server dauerhaft zu wenig.
+    /// </summary>
+    private void NoteInboundStanza(string xml)
+    {
+        StreamManagement?.TrackIncoming(xml);
     }
 
     private async Task ReceiveLoopAsync(ClientWebSocket webSocket, CancellationToken ct)
@@ -633,6 +668,7 @@ public sealed class XMPPConnection : IAsyncDisposable
                 {
                     _logger.LogTrace("<<< {Xml}", stanza);
                     OnRawXml?.Invoke($"<<< {stanza}");
+                    NoteInboundStanza(stanza);
                     ProcessStanza(stanza);
                 }
             }
@@ -726,12 +762,8 @@ public sealed class XMPPConnection : IAsyncDisposable
     {
         try
         {
-            // XEP-0198: Stream Management Tracking
-            if (StreamManagement?.IsEnabled == true &&
-                (stanza.StartsWith("<message") || stanza.StartsWith("<presence") || stanza.StartsWith("<iq")))
-            {
-                StreamManagement.TrackIncoming();
-            }
+            // XEP-0198: das Mitzählen passiert bewusst nicht hier, sondern in
+            // NoteInboundStanza auf beiden Empfangspfaden.
 
             if (stanza.StartsWith("<message"))
             {
@@ -1263,9 +1295,7 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         var xml = sb.ToString();
 
-        // XEP-0198: Track outgoing
-        StreamManagement?.TrackOutgoing(xml);
-
+        // XEP-0198: das Mitzählen passiert zentral in SendAsync.
         await SendAsync(xml);
         return messageId;
     }

@@ -15,8 +15,12 @@
  * limitations under the License.
  */
 
+#region Usings
+
 using System.Text;
 using System.Text.RegularExpressions;
+
+#endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 

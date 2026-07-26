@@ -4,8 +4,8 @@ Ein XMPP-Client für die Kommandozeile mit WebSocket-Transport (RFC 7395) und
 SCRAM-Authentifizierung.
 
 > **Reifegrad:** Experimentell. Der Client verbindet, authentifiziert und
-> chattet gegen ejabberd, aber Verbindungsmanagement, Fehlerbehandlung und
-> Stream Management sind unvollständig (siehe [Bekannte
+> chattet gegen ejabberd, aber Verbindungsmanagement und Fehlerbehandlung sind
+> unvollständig, und Stream Management kann noch nicht resumen (siehe [Bekannte
 > Einschränkungen](#bekannte-einschränkungen)). Nicht für den Produktivbetrieb.
 
 ## Authentifizierung
@@ -31,7 +31,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0198 | Stream Management | 🚧 | Aus per Default; ausgehende Zählung unvollständig, kein Resume |
+| XEP-0198 | Stream Management | ⚠️ | Zählung korrekt und getestet; aus per Default, kein Resume |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0333 | Chat Markers | ⚠️ | Parser erwartet feste Attribut-Reihenfolge |
@@ -315,6 +315,9 @@ Jabber/
     ├── XEP0199Ping/                      PingManager
     ├── XEP0280MessageCarbons/            CarbonManager, CarbonMessage, CarbonResult
     └── XEP0333ChatMarkers/               ChatMarkers, ChatMarker, ChatMarkerType
+
+Server/                                   XMPPServer, XMPPSession,
+   (Namespace …Hermod.XMPP.Server)        XMPPAccount, RosterEntry
 ```
 
 Die XEP-Manager bekommen ihre Sende-Funktion als `Func<string, Task>` injiziert
@@ -332,19 +335,25 @@ wie `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter 6.2.0, Test.Sdk 18.8.1).
 Namespaces und Ordnerschnitt entsprechen `HermodTests`, damit sich der Inhalt
 von `XMPP/` später unverändert dorthin verschieben lässt.
 
-### FakeXMPPServer
+### XMPPServer
 
-`Jabber.Tests/XMPP/Server/` enthält einen echten XMPP-over-WebSocket-Server
-(RFC 7395) für Tests. Er reicht so weit, dass sich mehrere echte
-`XMPPClient`-Instanzen gleichzeitig anmelden und miteinander sprechen:
+`Jabber/Server/` enthält einen echten XMPP-over-WebSocket-Server (RFC 7395).
+Er liegt bewusst im Hauptprojekt und nicht im Testprojekt, damit er beim Umzug
+nach Hermod mitwandert; sein Namespace ist `…Hermod.XMPP.Server`. Er reicht so
+weit, dass sich mehrere echte `XMPPClient`-Instanzen gleichzeitig anmelden und
+miteinander sprechen:
 
 - SASL PLAIN gegen hinterlegte Konten, inklusive Fehlanmeldung
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
 - XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
 - serverseitiger Roster mit Roster-Push
+- XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
+  Zählung — der Server benutzt bewusst nicht dieselbe Hilfsfunktion wie der
+  Client, sonst prüften die Tests beide Seiten mit derselben Logik
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
-  `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`
+  `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
+  `OfferStreamManagement`, `AnswerAckRequests`
 
 ```csharp
 var alice = await ConnectClientAsync("alice");
@@ -356,6 +365,30 @@ await alice.SendMessageAsync(bob.BareJid, "Hallo Bob!");
 
 Verbindungsabrisse simuliert `Server.KillAllSessions()`, einzelne Resourcen
 `Server.SessionOf(fullJid)!.Kill()`.
+
+#### Was dem Server zum Produktivbetrieb fehlt
+
+Der Name sagt es nicht mehr — bis vor kurzem hiess die Klasse `FakeXMPPServer`.
+Sie ist als Gegenstelle für Tests und Entwicklung gedacht, nicht als
+Server-Implementierung:
+
+- **Kein TLS.** Der Listener spricht `http://` beziehungsweise `ws://`. Für
+  RFC 6120 §5 wäre `wss://` mit Zertifikat nötig.
+- **Nur SASL PLAIN**, und Passwörter liegen im Klartext im Speicher. SCRAM
+  beherrscht der Server nicht — der Client fällt gegen ihn also immer auf den
+  schwächsten Mechanismus zurück.
+- **Keine dauerhafte Kontenverwaltung.** Konten und Roster leben im Speicher
+  einer `XMPPServer`-Instanz und sind beim Beenden weg.
+- **Presence geht an alle Sitzungen** statt nur an Subscriber; die
+  Subscription-Zustände im Roster werden beim Verteilen nicht ausgewertet
+  (RFC 6121 §4).
+- **Keine Server-zu-Server-Föderation** (RFC 6120 §4) — alle Sitzungen müssen
+  auf derselben Domain liegen.
+- **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
+  Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
+- **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
+  Server keine Stanza-Fehler; unbekannte IQs bekommen pauschal
+  `<service-unavailable/>`.
 
 ### Kryptografische Testvektoren
 
@@ -402,6 +435,9 @@ und Proof nicht reproduzieren. Sichtbar gemacht wird sie über
 
 ## Bekannte Einschränkungen
 
+Was davon in welcher Reihenfolge angegangen wird, steht im
+[Arbeitsplan](../WORKPLAN.md).
+
 ### Architektur
 - **XML wird durchgehend per Regex und `string.Contains` geparst**, nicht mit
   einem XML-Parser. Das ist die Ursache der meisten Interop-Lücken oben:
@@ -421,6 +457,12 @@ und Proof nicht reproduzieren. Sichtbar gemacht wird sie über
   schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
   eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
   wäre die saubere Lösung.
+- **XEP-0198 ist per Default aus und kann nicht resumen.** Die Zählung stimmt
+  jetzt und ist gegen den `XMPPServer` abgesichert, aber es gab noch keinen
+  Lauf gegen einen echten Server — deshalb bleibt `StreamManagementEnabled`
+  vorerst `false`. `ResumeAsync` und `GetUnackedStanzas` existieren, werden aber
+  nirgends aufgerufen: nach einem Reconnect baut der Client den Stream neu auf,
+  statt ihn fortzusetzen, und die unbestätigten Stanzas gehen verloren.
 
 ### Funktionsumfang
 - Kein Multi-User Chat (XEP-0045)

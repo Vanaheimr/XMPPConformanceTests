@@ -15,10 +15,14 @@
  * limitations under the License.
  */
 
+#region Usings
+
 using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+
+#endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 
@@ -141,25 +145,76 @@ public sealed class StreamManagementManager
     }
 
     /// <summary>
-    /// Trackt eine ausgehende Stanza
+    /// Prüft, ob eine Stanza mitgezählt werden muss.
+    ///
+    /// XEP-0198 Abschnitt 2 zählt ausschließlich die drei Stanza-Typen
+    /// <c>message</c>, <c>presence</c> und <c>iq</c>. Nonzas - also
+    /// <c>&lt;enable/&gt;</c>, <c>&lt;r/&gt;</c>, <c>&lt;a/&gt;</c>,
+    /// <c>&lt;open/&gt;</c>, SASL-Elemente und so weiter - zählen nicht.
+    /// Zählt eine Seite falsch, laufen die Zähler auseinander und der
+    /// Gegenüber wertet das <c>h</c> als Protokollverletzung.
+    /// </summary>
+    public static bool IsCountableStanza(string xml)
+    {
+        if (string.IsNullOrEmpty(xml))
+            return false;
+
+        var i = 0;
+        while (i < xml.Length && char.IsWhiteSpace(xml[i]))
+            i++;
+
+        if (i >= xml.Length || xml[i] != '<')
+            return false;
+
+        i++;
+        var start = i;
+
+        while (i < xml.Length &&
+               (char.IsLetterOrDigit(xml[i]) || xml[i] == '-' || xml[i] == '_' || xml[i] == ':'))
+            i++;
+
+        var name = xml[start..i];
+
+        // Ein Namespace-Präfix ändert nichts am Stanza-Typ: <client:message/> zählt.
+        var colon = name.LastIndexOf(':');
+        if (colon >= 0)
+            name = name[(colon + 1)..];
+
+        return name is "message" or "presence" or "iq";
+    }
+
+    /// <summary>
+    /// Trackt eine ausgehende Stanza.
+    ///
+    /// Der Aufrufer muss dies erst nach dem erfolgreichen Senden tun und
+    /// dabei die Sendereihenfolge einhalten - die Sequenznummern müssen der
+    /// Reihenfolge auf der Leitung entsprechen, sonst bestätigt ein
+    /// <c>&lt;a h='...'/&gt;</c> die falschen Stanzas.
     /// </summary>
     public void TrackOutgoing(string stanza)
     {
-        if (!_enabled) return;
+        if (!_enabled || !IsCountableStanza(stanza)) return;
 
         lock (_lock)
         {
-            _outbound++;
+            // 32-Bit-Zähler mit Überlauf auf 0 (XEP-0198, Abschnitt 4).
+            _outbound = unchecked(_outbound + 1);
             _unacked.Enqueue((_outbound, stanza, DateTime.UtcNow));
         }
     }
 
     /// <summary>
-    /// Trackt eine eingehende Stanza
+    /// Trackt eine eingehende Stanza.
+    ///
+    /// Muss auf jedem Empfangspfad laufen - auch für Stanzas, die noch in der
+    /// Aufbauphase direkt gelesen werden. Fehlen sie, meldet
+    /// <c>&lt;a h='...'/&gt;</c> einen zu kleinen Wert.
     /// </summary>
-    public void TrackIncoming()
+    public void TrackIncoming(string stanza)
     {
-        if (!_enabled) return;
+        if (!_enabled || !IsCountableStanza(stanza)) return;
+
+        // 32-Bit-Zähler mit Überlauf auf 0 (XEP-0198, Abschnitt 4).
         Interlocked.Increment(ref _inbound);
     }
 
@@ -193,13 +248,27 @@ public sealed class StreamManagementManager
         }
     }
 
+    /// <summary>
+    /// Gilt die Stanza mit dieser Sequenznummer als bestätigt, wenn der
+    /// Gegenüber <c>h</c> meldet?
+    ///
+    /// Ein schlichtes <c>Seq &lt;= h</c> wäre falsch: der Zähler ist nach
+    /// XEP-0198 Abschnitt 4 ein 32-Bit-Wert, der nach 2^32-1 auf 0 überläuft.
+    /// Direkt nach einem Überlauf ist h dann kleiner als die Sequenznummern
+    /// der noch offenen Stanzas, und diese blieben für immer unbestätigt in
+    /// der Queue liegen. Verglichen wird deshalb der Abstand in
+    /// Modulo-Arithmetik.
+    /// </summary>
+    internal static bool IsAcknowledged(uint seq, uint h)
+        => unchecked(h - seq) < 0x8000_0000u;
+
     private void ProcessAck(uint h)
     {
         uint acked = 0;
 
         lock (_lock)
         {
-            while (_unacked.Count > 0 && _unacked.Peek().Seq <= h)
+            while (_unacked.Count > 0 && IsAcknowledged(_unacked.Peek().Seq, h))
             {
                 _unacked.Dequeue();
                 acked++;

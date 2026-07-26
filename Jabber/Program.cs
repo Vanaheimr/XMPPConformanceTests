@@ -15,7 +15,11 @@
  * limitations under the License.
  */
 
+#region Usings
+
 using Microsoft.Extensions.Logging;
+
+#endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 

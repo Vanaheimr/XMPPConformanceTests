@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
+namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
     /// <summary>
@@ -24,7 +24,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server
     /// <param name="Jid">Bare-JID des Kontakts.</param>
     /// <param name="Name">Anzeigename oder null.</param>
     /// <param name="Subscription">none, to, from oder both.</param>
-    public sealed record FakeRosterEntry(String   Jid,
+    public sealed record RosterEntry(String   Jid,
                                          String?  Name          = null,
                                          String   Subscription  = "both");
 

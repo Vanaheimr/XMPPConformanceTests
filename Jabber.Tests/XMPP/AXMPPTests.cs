@@ -19,8 +19,8 @@
 
 using NUnit.Framework;
 
-using org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP.Server;
 using org.GraphDefined.Vanaheimr.Hermod.XMPP;
+using org.GraphDefined.Vanaheimr.Hermod.XMPP.Server;
 
 #endregion
 
@@ -29,7 +29,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
     /// <summary>
     /// Basis für alle XMPP-Client-Tests: startet je Test einen
-    /// <see cref="FakeXMPPServer"/> und räumt Server und Clients wieder ab.
+    /// <see cref="XMPPServer"/> und räumt Server und Clients wieder ab.
     /// </summary>
     public abstract class AXMPPTests
     {
@@ -39,7 +39,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private readonly List<XMPPClient> _clients = [];
 
         /// <summary>Der Testserver des laufenden Tests.</summary>
-        protected FakeXMPPServer Server { get; private set; } = null!;
+        protected XMPPServer Server { get; private set; } = null!;
 
         #endregion
 
@@ -48,7 +48,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         [SetUp]
         public void StartServer()
         {
-            Server = new FakeXMPPServer();
+            Server = new XMPPServer();
             Server.Start();
         }
 
@@ -79,16 +79,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <param name="createAccount">Konto anlegen, falls es noch nicht existiert.</param>
         /// <param name="keepalive">Keepalive-Intervall; null schaltet Keepalive ab.</param>
         /// <param name="reconnectDelay">Wartezeit vor dem ersten Reconnect-Versuch.</param>
-        protected async Task<XMPPClient> ConnectClientAsync(String     localPart       = "alice",
-                                                            Boolean    createAccount   = true,
-                                                            TimeSpan?  keepalive       = null,
-                                                            TimeSpan?  reconnectDelay  = null)
+        /// <param name="streamManagement">XEP-0198 Stream Management aushandeln?</param>
+        protected async Task<XMPPClient> ConnectClientAsync(String     localPart         = "alice",
+                                                            Boolean    createAccount     = true,
+                                                            TimeSpan?  keepalive         = null,
+                                                            TimeSpan?  reconnectDelay    = null,
+                                                            Boolean    streamManagement  = false)
         {
 
             if (createAccount && Server.GetAccount($"{localPart}@{Server.Domain}") is null)
                 Server.AddAccount(localPart);
 
-            var client = CreateClient(localPart, keepalive, reconnectDelay);
+            var client = CreateClient(localPart, keepalive, reconnectDelay,
+                                      streamManagement: streamManagement);
 
             await client.ConnectAsync();
 
@@ -99,20 +102,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <summary>
         /// Erstellt einen noch nicht verbundenen Client gegen den Testserver.
         /// </summary>
-        protected XMPPClient CreateClient(String     localPart       = "alice",
-                                          TimeSpan?  keepalive       = null,
-                                          TimeSpan?  reconnectDelay  = null,
-                                          String     password        = "pw")
+        protected XMPPClient CreateClient(String     localPart         = "alice",
+                                          TimeSpan?  keepalive         = null,
+                                          TimeSpan?  reconnectDelay    = null,
+                                          String     password          = "pw",
+                                          Boolean    streamManagement  = false)
         {
 
             var connection = new XMPPConnection($"{localPart}@{Server.Domain}",
                                                 password,
                                                 Server.Uri)
             {
-                KeepaliveEnabled       = keepalive.HasValue,
-                KeepaliveInterval      = keepalive ?? TimeSpan.FromSeconds(25),
-                InitialReconnectDelay  = reconnectDelay ?? TimeSpan.FromMilliseconds(200),
-                MaxReconnectAttempts   = 20
+                KeepaliveEnabled         = keepalive.HasValue,
+                KeepaliveInterval        = keepalive ?? TimeSpan.FromSeconds(25),
+                InitialReconnectDelay    = reconnectDelay ?? TimeSpan.FromMilliseconds(200),
+                MaxReconnectAttempts     = 20,
+                StreamManagementEnabled  = streamManagement
             };
 
             var client = new XMPPClient(connection);
@@ -131,7 +136,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                                             TimeSpan?      timeout = null)
         {
 
-            var ok = await FakeXMPPServer.WaitUntilAsync(condition, timeout);
+            var ok = await XMPPServer.WaitUntilAsync(condition, timeout);
 
             Assert.That(ok, Is.True, $"Zeitüberschreitung beim Warten auf: {what}");
 
