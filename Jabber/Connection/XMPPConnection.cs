@@ -854,7 +854,7 @@ public sealed class XMPPConnection : IAsyncDisposable
                     return;
 
                 case "iq":
-                    ProcessIq(element, stanza);
+                    ProcessIq(element);
                     return;
 
                 case "close":
@@ -1074,7 +1074,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         OnPresence?.Invoke(from, type);
     }
 
-    private void ProcessIq(XElement element, string stanza)
+    private void ProcessIq(XElement element)
     {
         var type = element.Attr("type");
         var id = element.Attr("id");
@@ -1087,7 +1087,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (type == "error")
         {
 
-            var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
+            var parsed = StanzaError.TryParse(element.ToString(), out var stanzaError) && stanzaError is not null
                              ? stanzaError
                              : new StanzaError(StanzaErrorType.Cancel, "undefined-condition");
 
@@ -1123,14 +1123,14 @@ public sealed class XMPPConnection : IAsyncDisposable
                 // XEP-0030: Disco Info Antwort
                 if (id.StartsWith("disco-info-") && from != null)
                 {
-                    Disco?.ProcessInfoResult(id, stanza, from);
+                    Disco?.ProcessInfoResult(id, element, from);
                     return;
                 }
 
                 // XEP-0030: Disco Items Antwort
                 if (id.StartsWith("disco-items-") && from != null)
                 {
-                    Disco?.ProcessItemsResult(id, stanza, from);
+                    Disco?.ProcessItemsResult(id, element, from);
                     return;
                 }
             }
@@ -1147,14 +1147,14 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (type == "get" && id != null)
         {
             // XEP-0199: Ping Anfrage
-            if (PingManager.IsPing(stanza) && Ping is not null)
+            if (PingManager.IsPing(element) && Ping is not null)
             {
                 _ = Ping.RespondAsync(id, from);
                 return;
             }
 
             // XEP-0030: Disco Info Anfrage
-            if (stanza.Contains("http://jabber.org/protocol/disco#info") && Disco is not null)
+            if (element.Child(DiscoManager.InfoNamespace, "query") is not null && Disco is not null)
             {
                 _ = Disco.RespondInfoAsync(id, from);
                 return;
@@ -1165,7 +1165,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (type == "set")
         {
             // Roster-Push
-            if (stanza.Contains("jabber:iq:roster"))
+            if (element.Child(RosterStanzaBuilder.Namespace, "query") is not null)
             {
                 // RFC 6121, Abschnitt 2.1.6: Ein Roster-Push darf nur
                 // akzeptiert werden, wenn er kein 'from' trägt (dann kommt er
@@ -1193,9 +1193,9 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         // PubSub Event (kann als message oder iq kommen)
-        if (stanza.Contains("http://jabber.org/protocol/pubsub#event") && from != null)
+        if (element.Child(PubSubManager.EventNamespace, "event") is not null && from != null)
         {
-            PubSub?.ProcessEvent(stanza, from, PubSub.PubSubService);
+            PubSub?.ProcessEvent(element, from, PubSub.PubSubService);
 
             // Kommt das Event als iq set statt als message, ist es eine
             // Anfrage und braucht nach Abschnitt 8.2.3 ein Ergebnis.

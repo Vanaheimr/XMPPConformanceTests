@@ -25,11 +25,12 @@ Stand: 2026-07-26
 | RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | `87f3dd6` |
 | RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | `0249de1` |
 | Stanza-Rahmen und Roster über `XElement` statt Regex | `15a11aa` |
-| `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | offen im Working Tree |
+| `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | `107aa87` |
+| `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **132 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **138 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -93,42 +94,28 @@ echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
 
 ## Als Nächstes (Client)
 
-### 1. Die IQ-Nutzlasten auf den XML-Parser umstellen
-
-Rahmen, Roster und die Nutzlasten von `message` und `presence` laufen über
-`XElement`. **Offen sind die IQ-Nutzlasten:** `DiscoManager.ProcessInfoResult`
-und `ProcessItemsResult`, `PubSubManager.ProcessEvent` und
-`PingManager.IsPing` suchen weiterhin mit regulären Ausdrücken im Rohtext,
-ebenso die Fallunterscheidungen in `ProcessIq` selbst
-(`stanza.Contains("jabber:iq:roster")` und so weiter).
-
-Deshalb reicht `ProcessIq` den Rohtext noch als zweiten Parameter mit durch;
-`ProcessMessage` und `ProcessPresence` brauchen ihn nicht mehr. Ist auch das
-erledigt, kann der Parameter ganz entfallen.
-
-Danach bleiben nur noch Parser, die bewusst auf Text arbeiten:
-`StreamManagementManager` (liest nur `h` und `id` aus Nonzas),
-`StanzaError`/`StreamError` (müssen auch mit unwohlgeformten Rahmen umgehen)
-und `SCRAMAuthenticator` (SASL ist kein XML).
-
-**Umfang:** mittel, gut portionierbar — ein Manager pro Schritt.
-**Vorgehen:** wie bisher. Erst je einen Test mit gültiger, aber ungewöhnlicher
-Schreibweise anlegen, der dann fehlschlägt, danach umstellen. Diese Methode hat
-bisher sechs Defekte im Rahmen, drei im Roster und sieben in den
-message-Nutzlasten belegt.
-
-### 2. Aufbauphase entwirren
+### 1. Aufbauphase entwirren
 
 `ConnectInternalAsync` liest selbst vom Socket, verwirft bis zu zehn nicht
 passende Stanzas (auch echte Nachrichten und Presences) und startet erst danach
 die Empfangsschleife. Die `TaskCompletionSource`-Korrelation, die `DiscoManager`
 und `PingManager` schon richtig machen, gibt es hier nicht.
 
+Hier steckt auch der letzte Rest Regex-Parsing im Client: Stream-Features,
+SASL-Challenge, `<success/>`/`<failure/>` und das Bind-Ergebnis. Der Umbau
+sollte beides zusammen erledigen — die Stanza-Verarbeitung läuft bereits
+vollständig über `XElement`.
+
 **Umfang:** mittel.
 **Nebeneffekt:** löst zugleich den Grund, warum die XEP-0198-Zählung zwei
 Empfangspfade abdecken muss.
 
-### 3. XEP-0198 gegen einen echten Server, dann Default umstellen
+Danach bleiben nur noch Parser, die bewusst auf Text arbeiten:
+`StreamManagementManager` (liest nur `h` und `id` aus Nonzas),
+`StanzaError`/`StreamError` (müssen gerade auch mit unwohlgeformten Rahmen
+umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
+
+### 2. XEP-0198 gegen einen echten Server, dann Default umstellen
 
 Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen ejabberd oder
 Prosody; danach kann `StreamManagementEnabled` auf `true`.
@@ -164,7 +151,7 @@ und die unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
 Was dort nicht auftaucht und trotzdem ansteht:
-- XEP-0198 `<resume/>` beantworten — die Gegenprobe zu Punkt 3
+- XEP-0198 `<resume/>` beantworten — die Gegenprobe zu Punkt 2
 - SCRAM anbieten, damit der SCRAM-Pfad des Clients integrativ geprüft wird und
   nicht nur gegen die RFC-Vektoren (setzt S1 voraus)
 - Stanza-Fehler auch dort erzeugen, wo heute kein Schalter dafür existiert

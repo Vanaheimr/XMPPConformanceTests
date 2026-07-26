@@ -56,6 +56,27 @@ public static class StanzaExtensions
                   .FirstOrDefault(child => child.Name.LocalName == name);
 
     /// <summary>
+    /// Das erste direkte Kindelement mit diesem Namen aus diesem Namespace.
+    ///
+    /// Für Nutzlasten die richtige Wahl: welche Erweiterung gemeint ist, sagt
+    /// erst der Namespace. <c>&lt;query/&gt;</c> gibt es im Roster, in
+    /// disco#info und in disco#items, <c>&lt;received/&gt;</c> in XEP-0184 und
+    /// XEP-0333.
+    /// </summary>
+    public static XElement? Child(this XElement element, string namespaceName, string name)
+        => element.Elements()
+                  .FirstOrDefault(child => child.Name.NamespaceName == namespaceName &&
+                                           child.Name.LocalName     == name);
+
+    /// <summary>
+    /// Alle direkten Kindelemente mit diesem Namen aus diesem Namespace.
+    /// </summary>
+    public static IEnumerable<XElement> Children(this XElement element, string namespaceName, string name)
+        => element.Elements()
+                  .Where(child => child.Name.NamespaceName == namespaceName &&
+                                  child.Name.LocalName     == name);
+
+    /// <summary>
     /// Der Textinhalt des ersten direkten Kindelements mit diesem Namen, mit
     /// aufgelösten Entities. Null, wenn es das Element nicht gibt.
     /// </summary>

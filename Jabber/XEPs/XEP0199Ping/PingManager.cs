@@ -15,6 +15,12 @@
  * limitations under the License.
  */
 
+#region Usings
+
+using System.Xml.Linq;
+
+#endregion
+
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 
 /// <summary>
@@ -22,6 +28,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public sealed class PingManager
 {
+
+    /// <summary>Der Namespace von XEP-0199.</summary>
+    public const string Namespace = "urn:xmpp:ping";
+
     private readonly Func<string, Task> _sendStanza;
     private readonly Dictionary<string, (TaskCompletionSource<TimeSpan?> Tcs, DateTime Sent)> _pending = new();
     private readonly object _lock = new();
@@ -142,6 +152,14 @@ public sealed class PingManager
     /// <summary>
     /// Prüft ob ein IQ ein Ping ist
     /// </summary>
-    public static bool IsPing(string xml) =>
-        xml.Contains("urn:xmpp:ping") && xml.Contains("type='get'");
+    /// <summary>
+    /// Prüft, ob ein IQ ein Ping ist.
+    ///
+    /// Die frühere Prüfung suchte wörtlich nach <c>type='get'</c>, also nur mit
+    /// einfachen Anführungszeichen; gegen einen Server mit doppelten wurde der
+    /// Ping nicht erkannt. Den Typ prüft ohnehin der Aufrufer - hier zählt nur
+    /// die Nutzlast.
+    /// </summary>
+    public static bool IsPing(XElement iq)
+        => iq.Child(Namespace, "ping") is not null;
 }

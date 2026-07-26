@@ -22,6 +22,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public static class RosterStanzaBuilder
 {
+
+    /// <summary>Der Namespace des Rosters (RFC 6121, Abschnitt 2).</summary>
+    public const string Namespace = "jabber:iq:roster";
+
     public static string GetRoster(string? version = null)
     {
         var ver = version != null ? $" ver='{version}'" : "";

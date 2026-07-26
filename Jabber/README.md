@@ -441,17 +441,17 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
 
 ### Architektur
-- **XML wird noch nicht überall mit einem Parser gelesen.** Über `XElement`
-  laufen inzwischen der Stanza-Rahmen, der Roster und die Auswertung von
-  `message` und `presence` samt der darin steckenden XEPs — Chat States
-  (XEP-0085), Chat Marker (XEP-0333), Quittungen (XEP-0184), Carbons (XEP-0280)
-  und Entity Capabilities (XEP-0115). Sie verkraften damit Namespace-Präfixe,
-  beliebige Attribut-Reihenfolge, beide Anführungszeichenstile, `xml:lang`,
-  Entities und verschachtelte Elemente in `<forwarded/>`.
-  **Offen sind die IQ-Nutzlasten:** `DiscoManager` und `PubSubManager` suchen
-  weiterhin per Regex im Rohtext, ebenso `StreamManagementManager` und die
-  Fehler-Parser. Deshalb reicht `ProcessIq` den Rohtext noch mit durch —
-  `ProcessMessage` und `ProcessPresence` brauchen ihn nicht mehr.
+- **Die Aufbauphase liest noch per Regex.** Stream-Features, SASL-Challenge,
+  `<success/>`/`<failure/>` und das Bind-Ergebnis werden mit Textmustern
+  ausgewertet. Das ist der letzte Rest — die gesamte Stanza-Verarbeitung
+  (Rahmen, Roster, `message`, `presence`, `iq` samt aller XEP-Nutzlasten) läuft
+  über `XElement` und verkraftet Namespace-Präfixe, beliebige
+  Attribut-Reihenfolge, beide Anführungszeichenstile, `xml:lang`, Entities und
+  verschachtelte Elemente in `<forwarded/>`.
+
+  Bewusst auf Text bleiben `StreamManagementManager` (liest nur `h` und `id` aus
+  Nonzas), `StanzaError`/`StreamError` (müssen gerade auch mit unwohlgeformten
+  Rahmen umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
 - **Zwei konkurrierende Empfangspfade.** Während des Verbindungsaufbaus liest
   `ConnectInternalAsync` selbst vom Socket, statt die vorhandene
   `TaskCompletionSource`-Korrelation zu nutzen (wie sie `DiscoManager` und

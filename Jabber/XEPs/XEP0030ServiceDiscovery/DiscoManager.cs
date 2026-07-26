@@ -18,7 +18,7 @@
 #region Usings
 
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 #endregion
 
@@ -30,6 +30,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public sealed class DiscoManager
 {
+
+    /// <summary>Der Namespace von disco#info.</summary>
+    public const string InfoNamespace = "http://jabber.org/protocol/disco#info";
+
+    /// <summary>Der Namespace von disco#items.</summary>
+    public const string ItemsNamespace = "http://jabber.org/protocol/disco#items";
+
     private readonly Func<string, Task> _sendStanza;
     private readonly Dictionary<string, TaskCompletionSource<DiscoInfo?>> _infoQueries = new();
     private readonly Dictionary<string, TaskCompletionSource<DiscoItems?>> _itemsQueries = new();
@@ -159,9 +166,16 @@ public sealed class DiscoManager
     }
 
     /// <summary>
-    /// Verarbeitet eine disco#info Antwort
+    /// Verarbeitet eine disco#info Antwort.
+    ///
+    /// Das frühere Muster für Identitäten schloss den Schrägstrich aus
+    /// (<c>&lt;identity([^/&gt;]+)/?&gt;</c>), damit es das schliessende
+    /// <c>/&gt;</c> nicht mitfrisst - ein Name mit Schrägstrich liess die
+    /// Identität also ganz verschwinden. Beim Feature-Muster musste
+    /// <c>var</c> das erste Attribut sein, sonst fehlte das Feature in der
+    /// Liste und die Gegenstelle wirkte weniger fähig, als sie ist.
     /// </summary>
-    public bool ProcessInfoResult(string id, string xml, string from)
+    public bool ProcessInfoResult(string id, XElement iq, string from)
     {
         TaskCompletionSource<DiscoInfo?>? tcs;
         lock (_lock)
@@ -171,23 +185,24 @@ public sealed class DiscoManager
             _infoQueries.Remove(id);
         }
 
-        var info = new DiscoInfo { From = from };
+        var info  = new DiscoInfo { From = from };
+        var query = iq.Child(InfoNamespace, "query");
 
-        // Parse identities
-        foreach (Match m in Regex.Matches(xml, @"<identity([^/>]+)/?>" ))
+        if (query is not null)
         {
-            var attrs = m.Groups[1].Value;
-            info.Identities.Add(new DiscoIdentity(
-                ExtractAttr(attrs, "category") ?? "",
-                ExtractAttr(attrs, "type") ?? "",
-                ExtractAttr(attrs, "name")
-            ));
-        }
 
-        // Parse features
-        foreach (Match m in Regex.Matches(xml, @"<feature\s+var=['""]([^'""]+)['""]"))
-        {
-            info.Features.Add(m.Groups[1].Value);
+            foreach (var identity in query.Children(InfoNamespace, "identity"))
+                info.Identities.Add(new DiscoIdentity(identity.Attr("category") ?? "",
+                                                      identity.Attr("type")     ?? "",
+                                                      identity.Attr("name")));
+
+            foreach (var feature in query.Children(InfoNamespace, "feature"))
+            {
+                var var = feature.Attr("var");
+                if (var is not null)
+                    info.Features.Add(var);
+            }
+
         }
 
         tcs.TrySetResult(info);
@@ -197,7 +212,7 @@ public sealed class DiscoManager
     /// <summary>
     /// Verarbeitet eine disco#items Antwort
     /// </summary>
-    public bool ProcessItemsResult(string id, string xml, string from)
+    public bool ProcessItemsResult(string id, XElement iq, string from)
     {
         TaskCompletionSource<DiscoItems?>? tcs;
         lock (_lock)
@@ -208,14 +223,15 @@ public sealed class DiscoManager
         }
 
         var items = new DiscoItems { From = from };
+        var query = iq.Child(ItemsNamespace, "query");
 
-        foreach (Match m in Regex.Matches(xml, @"<item([^/>]+)/?>" ))
+        if (query is not null)
         {
-            var attrs = m.Groups[1].Value;
-            var jid = ExtractAttr(attrs, "jid");
-            if (jid != null)
+            foreach (var item in query.Children(ItemsNamespace, "item"))
             {
-                items.Items.Add(new DiscoItem(jid, ExtractAttr(attrs, "node"), ExtractAttr(attrs, "name")));
+                var jid = item.Attr("jid");
+                if (jid is not null)
+                    items.Items.Add(new DiscoItem(jid, item.Attr("node"), item.Attr("name")));
             }
         }
 
@@ -255,9 +271,4 @@ public sealed class DiscoManager
         return _sendStanza(sb.ToString());
     }
 
-    private static string? ExtractAttr(string attrs, string name)
-    {
-        var match = Regex.Match(attrs, $@"{name}\s*=\s*['""]([^'""]*)['""]");
-        return match.Success ? match.Groups[1].Value : null;
-    }
 }

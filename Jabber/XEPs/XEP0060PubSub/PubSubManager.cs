@@ -17,7 +17,7 @@
 
 #region Usings
 
-using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,6 +31,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public sealed class PubSubManager
 {
+
+    /// <summary>Der Namespace der PubSub-Benachrichtigungen.</summary>
+    public const string EventNamespace = "http://jabber.org/protocol/pubsub#event";
+
     private readonly HashSet<string> _subscribedNodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _pubsubService;
     private readonly object _lock = new();
@@ -50,7 +54,7 @@ public sealed class PubSubManager
     /// <summary>
     /// Verarbeitet eine eingehende PubSub-Event-Nachricht mit Spoofing-Schutz
     /// </summary>
-    public bool ProcessEvent(string messageXml, string from, string expectedPubSubJid)
+    public bool ProcessEvent(XElement stanza, string from, string expectedPubSubJid)
     {
         var bareFrom = JidUtilities.Bare(from);
         var expectedBare = JidUtilities.Bare(expectedPubSubJid);
@@ -63,74 +67,76 @@ public sealed class PubSubManager
             return false;
         }
 
-        // Parse event
-        var eventMatch = Regex.Match(messageXml,
-            @"<event\s+xmlns='http://jabber\.org/protocol/pubsub#event'[^>]*>(.*?)</event>",
-            RegexOptions.Singleline);
+        var eventElement = stanza.Child(EventNamespace, "event");
 
-        if (!eventMatch.Success)
-        {
+        if (eventElement is null)
             return false;
-        }
 
-        var eventXml = eventMatch.Groups[1].Value;
+        // Items- oder Retract-Event: beide stecken in <items node='…'/>.
+        var itemsElement = eventElement.Child(EventNamespace, "items");
 
-        // Items Event
-        var itemsMatch = Regex.Match(eventXml, @"<items\s+node=['""]([^'""]+)['""][^>]*>(.*?)</items>", RegexOptions.Singleline);
-        if (itemsMatch.Success)
+        if (itemsElement is not null)
         {
-            var nodeId = itemsMatch.Groups[1].Value;
-            var itemsXml = itemsMatch.Groups[2].Value;
 
-            var pubsubEvent = new PubSubEvent(nodeId, PubSubEventType.Items);
+            var nodeId    = itemsElement.Attr("node") ?? "";
+            var retracted = itemsElement.Children(EventNamespace, "retract").ToList();
 
-            var items = Regex.Matches(itemsXml, @"<item\s+id=['""]([^'""]+)['""][^>]*>(.*?)</item>", RegexOptions.Singleline);
-            foreach (Match item in items)
+            if (retracted.Count > 0)
             {
-                pubsubEvent.Items.Add(new PubSubItem(
-                    item.Groups[1].Value,
-                    nodeId,
-                    item.Groups[2].Value
-                ));
+
+                var retractEvent = new PubSubEvent(nodeId, PubSubEventType.Retract);
+
+                foreach (var retract in retracted)
+                {
+                    var retractId = retract.Attr("id");
+                    if (retractId is not null)
+                        retractEvent.RetractedIds.Add(retractId);
+                }
+
+                OnEvent?.Invoke(retractEvent);
+                return true;
+
             }
 
-            OnEvent?.Invoke(pubsubEvent);
+            var itemsEvent = new PubSubEvent(nodeId, PubSubEventType.Items);
+
+            foreach (var item in itemsElement.Children(EventNamespace, "item"))
+            {
+
+                var itemId = item.Attr("id");
+
+                if (itemId is null)
+                    continue;
+
+                // Die Nutzlast bleibt als rohes XML erhalten - was darin steht,
+                // ist anwendungsspezifisch. Ein <item/> ganz ohne Inhalt ist
+                // zulässig; das frühere Muster verlangte ein Tag-Paar und
+                // übersah selbstschliessende Items.
+                itemsEvent.Items.Add(new PubSubItem(itemId,
+                                                    nodeId,
+                                                    string.Concat(item.Nodes())));
+
+            }
+
+            OnEvent?.Invoke(itemsEvent);
+            return true;
+
+        }
+
+        if (eventElement.Child(EventNamespace, "purge") is { } purge)
+        {
+            OnEvent?.Invoke(new PubSubEvent(purge.Attr("node") ?? "", PubSubEventType.Purge));
             return true;
         }
 
-        // Retract Event
-        var retractMatch = Regex.Match(eventXml, @"<items\s+node=['""]([^'""]+)['""][^>]*>.*?<retract\s+id=['""]([^'""]+)['""]", RegexOptions.Singleline);
-        if (retractMatch.Success)
+        if (eventElement.Child(EventNamespace, "delete") is { } delete)
         {
-            var nodeId = retractMatch.Groups[1].Value;
-            var retractId = retractMatch.Groups[2].Value;
-
-            var pubsubEvent = new PubSubEvent(nodeId, PubSubEventType.Retract);
-            pubsubEvent.RetractedIds.Add(retractId);
-
-            OnEvent?.Invoke(pubsubEvent);
-            return true;
-        }
-
-        // Purge Event
-        var purgeMatch = Regex.Match(eventXml, @"<purge\s+node=['""]([^'""]+)['""]");
-        if (purgeMatch.Success)
-        {
-            var pubsubEvent = new PubSubEvent(purgeMatch.Groups[1].Value, PubSubEventType.Purge);
-            OnEvent?.Invoke(pubsubEvent);
-            return true;
-        }
-
-        // Delete Event
-        var deleteMatch = Regex.Match(eventXml, @"<delete\s+node=['""]([^'""]+)['""]");
-        if (deleteMatch.Success)
-        {
-            var pubsubEvent = new PubSubEvent(deleteMatch.Groups[1].Value, PubSubEventType.Delete);
-            OnEvent?.Invoke(pubsubEvent);
+            OnEvent?.Invoke(new PubSubEvent(delete.Attr("node") ?? "", PubSubEventType.Delete));
             return true;
         }
 
         return false;
+
     }
 
     public void AddSubscription(string nodeId)
