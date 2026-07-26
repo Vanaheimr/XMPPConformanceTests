@@ -53,12 +53,45 @@ Der Listener spricht `http://` beziehungsweise `ws://`. RFC 6120 §5 verlangt
 `wss://` mit Zertifikat. Ohne das ist jeder andere Punkt hier akademisch, weil
 Passwörter im Klartext über die Leitung gingen.
 
-**Umfang:** mittel. `HttpListener` kann TLS nur über eine im System registrierte
-Zertifikatsbindung (`netsh http add sslcert`), was schlecht zu Tests passt —
-realistischer ist der Wechsel auf `TcpListener` mit `SslStream` oder auf Hermods
-eigenen HTTP-Server, der ohnehin im Repo liegt.
 **Nebeneffekt:** erst damit lässt sich SCRAM sinnvoll ergänzen, und damit auch
 der SCRAM-Pfad des Clients integrativ testen statt nur gegen die RFC-Vektoren.
+
+**Entschieden:** über Hermods WebSocket-Server, nicht über selbstgeschriebenes
+`TcpListener`+`SslStream`. Jabber soll ohnehin nach Hermod wandern, und
+WebSocket-Framing ist genau die Sorte Protokollcode, in der sich Fehler
+verstecken — Hermod hat ihn schon.
+
+**Vorarbeit ist erledigt, die Umsetzung steht aus.** Was geprüft ist:
+
+- `libs/Hermod` baut (~30 s, 0 Fehler). Die `ProjectReference` von Jabber
+  darauf funktioniert; sie zieht Styx und sechs Pakete nach (BouncyCastle,
+  Newtonsoft.Json, System.Drawing.Common, System.IO.Ports,
+  PerformanceCounter, Diagnostics.Runtime).
+- **Einzige Kollision:** Hermods Namespace
+  `org.GraphDefined.Vanaheimr.Hermod.WebSocket` verdeckt
+  `System.Net.WebSockets.WebSocket`. Betroffen sind genau `XMPPServer` und
+  `XMPPSession` — also die beiden Dateien, die ohnehin umgebaut werden. Der
+  Client kompiliert unverändert.
+- API: `WebSocketServer` (Namespace `…Hermod.WebSocket`) mit
+  `HTTPPort`, `SecWebSocketProtocols: ["xmpp"]`, `ServerCertificateSelector`,
+  `AutoStart`. **Achtung:** `RequireAuthentication` steht per Default auf
+  `true` und muss abgeschaltet werden.
+- Empfangen über das Ereignis `OnTextMessageReceived`
+  (`(Timestamp, Server, Connection, Frame, EventTrackingId, TextMessage, ct)`),
+  senden über `server.SendTextMessage(connection, xml)`. Sitzungsanfang und
+  -ende über `OnNewWebSocketConnection` und `OnTCPConnectionClosed`.
+- Zertifikat: `PKIFactory` aus Hermod (siehe
+  `HermodTests/HTTP/AHTTPSServerTests.cs`) oder schlicht `CertificateRequest`
+  aus der BCL — Letzteres koppelt weniger.
+
+**Was dann noch zu tun ist:** `XMPPSession` auf
+`WebSocketServerConnection` umstellen (`IsOpen` → `!IsClosed`, `SendAsync` →
+`SendTextMessage`, `Kill` → `Close`), `XMPPServer` von `HttpListener` auf den
+neuen Server, `XMPPConnection` braucht einen
+`RemoteCertificateValidationCallback` für das Testzertifikat, und
+`AXMPPTests` muss ihn setzen. Danach die 213 Tests wieder grün bekommen — die
+Semantik von Close, Ping und Subprotokoll-Aushandlung unterscheidet sich von
+`HttpListener` und wird die eigentliche Arbeit sein.
 
 ### S2. Dauerhafte Kontenverwaltung
 
