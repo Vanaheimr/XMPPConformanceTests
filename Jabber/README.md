@@ -43,8 +43,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Bereich | Status |
 |---------|--------|
 | SASL-Aushandlung und -Durchführung (§6) | ✅ |
-| Resource Binding (§7) | ⚠️ Feste Resource `console-<pid>`, Bind-Fehler werden nicht behandelt |
-| Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn als `optional` markiert |
+| Resource Binding (§7) | ⚠️ Feste Resource `console-<pid>`; eine Ablehnung bricht den Aufbau ab, statt einen JID anzunehmen |
+| Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
 | Antwort auf unbehandelte IQs (§8.2.3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
 | Stream-Fehler (§4.9) | ✅ Geparst; nach einer nicht wiederholbaren Bedingung unterbleibt der Reconnect |
@@ -78,7 +78,7 @@ explizit angegeben werden, z. B. Prosody: `wss://<host>:5281/xmpp-websocket`.
 |---------|--------|
 | Vier-Schritt-Handshake | ✅ |
 | Nonce-Prüfung gegen MITM | ✅ |
-| Server-Signatur-Verifikation (konstante Laufzeit) | ✅ |
+| Server-Signatur-Verifikation (konstante Laufzeit) | ✅ Zwingend — ein `<success/>` ohne server-final-message bricht den Aufbau ab |
 | SASLprep (RFC 4013) | ⚠️ Auf NFKC-Normalisierung reduziert — nur für ASCII zuverlässig |
 | Channel Binding (RFC 9266 `tls-exporter`) | ❌ |
 
@@ -243,6 +243,27 @@ Drei Schichten, klar getrennt:
 `XMPPClient` und `XMPPConnection` geben nichts auf der Konsole aus — alles läuft
 über Events und die injizierte `ILoggerFactory`.
 
+### Verbindungsaufbau
+
+Der Aufbau zerfällt in zwei Abschnitte, und die Grenze liegt beim Resource
+Binding:
+
+1. **Aushandlung** (`<open/>`, Stream-Features, SASL, Binding). Hier liest
+   `ConnectInternalAsync` selbst vom Socket. Das ist unproblematisch, weil der
+   Server noch keine Resource hat, an die er etwas zustellen könnte — es kann
+   nichts anderes eintreffen. Ausgewertet wird über `StreamNegotiation`, eine
+   Sammlung reiner Funktionen auf dem geparsten `XElement`.
+2. **Sitzungsaufbau** (Legacy-Session, XEP-0198, Carbons, Roster, Presence).
+   Ab dem Binding läuft die Empfangsschleife, und alle Schritte laufen über
+   `SendIqAsync` — dieselbe `TaskCompletionSource`-Korrelation über die
+   Stanza-ID, die `DiscoManager` und `PingManager` benutzen. Was in dieser Zeit
+   sonst eintrifft (nachgelieferte Nachrichten, Presence, Roster-Pushes), wird
+   ganz normal zugestellt.
+
+Auf Textmustern arbeiten bewusst nur noch `StreamManagementManager` (liest `h`
+und `id` aus Nonzas), `StanzaError`/`StreamError` (müssen gerade auch mit
+unwohlgeformten Rahmen umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
+
 ### Als Bibliothek verwenden
 
 ```csharp
@@ -355,7 +376,11 @@ miteinander sprechen:
   `session.SendStreamErrorAsync(condition)`
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
-  `OfferStreamManagement`, `AnswerAckRequests`, `FailPings`, `FailDiscoInfo`
+  `OfferStreamManagement`, `AnswerAckRequests`, `FailPings`, `FailDiscoInfo`,
+  `FailBind`, `SessionRequired`
+- `DeliverAfterBind`: Frames, die der Server unmittelbar nach der Bind-Antwort
+  schickt — also mitten in die Aufbauphase des Clients hinein. `{jid}` darin
+  wird durch den gebundenen Full-JID ersetzt.
 
 ```csharp
 var alice = await ConnectClientAsync("alice");
@@ -441,23 +466,6 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
 
 ### Architektur
-- **Die Aufbauphase liest noch per Regex.** Stream-Features, SASL-Challenge,
-  `<success/>`/`<failure/>` und das Bind-Ergebnis werden mit Textmustern
-  ausgewertet. Das ist der letzte Rest — die gesamte Stanza-Verarbeitung
-  (Rahmen, Roster, `message`, `presence`, `iq` samt aller XEP-Nutzlasten) läuft
-  über `XElement` und verkraftet Namespace-Präfixe, beliebige
-  Attribut-Reihenfolge, beide Anführungszeichenstile, `xml:lang`, Entities und
-  verschachtelte Elemente in `<forwarded/>`.
-
-  Bewusst auf Text bleiben `StreamManagementManager` (liest nur `h` und `id` aus
-  Nonzas), `StanzaError`/`StreamError` (müssen gerade auch mit unwohlgeformten
-  Rahmen umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
-- **Zwei konkurrierende Empfangspfade.** Während des Verbindungsaufbaus liest
-  `ConnectInternalAsync` selbst vom Socket, statt die vorhandene
-  `TaskCompletionSource`-Korrelation zu nutzen (wie sie `DiscoManager` und
-  `PingManager` bereits richtig machen). Sie liest stur bis zu zehn Stanzas und
-  **verwirft** alles Unpassende (`Überspringe Stanza …`) — auch echte
-  Nachrichten und Presences. Erst danach startet die Empfangsschleife.
 - **Caps-Hash deckt keine XEP-0128-Datenformulare ab.** XEP-0115 §5.1 nimmt
   `FORM_TYPE`-Felder mit in den Verification String auf;
   `CalculateVerificationString` verarbeitet nur Identitäten und Features. Solange

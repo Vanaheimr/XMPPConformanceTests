@@ -136,6 +136,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public Boolean FailDiscoInfo { get; set; } = false;
 
+        /// <summary>
+        /// Lehnt der Server das Resource Binding ab? Ein echter Server tut das
+        /// etwa bei <c>&lt;conflict/&gt;</c> oder
+        /// <c>&lt;resource-constraint/&gt;</c>.
+        /// </summary>
+        public Boolean FailBind { get; set; } = false;
+
+        /// <summary>
+        /// Kündigt der Server die Legacy-Session (RFC 3921) als zwingend an,
+        /// also ohne <c>&lt;optional/&gt;</c>?
+        /// </summary>
+        public Boolean SessionRequired { get; set; } = false;
+
+        /// <summary>
+        /// Frames, die der Server unmittelbar nach der Bind-Antwort an die
+        /// Sitzung schickt - noch bevor der Client Carbons aktiviert und den
+        /// Roster abgeholt hat.
+        ///
+        /// So verhalten sich echte Server: nachgelieferte Nachrichten,
+        /// Roster-Pushes und Presence treffen ein, sobald die Resource
+        /// gebunden ist, und nicht erst, wenn der Client mit seiner
+        /// Aufbauphase fertig ist.
+        /// </summary>
+        public List<String> DeliverAfterBind { get; } = [];
+
         #endregion
 
         #region Events
@@ -494,8 +519,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await session.SendAsync(
                     "<stream:features xmlns:stream='http://etherx.jabber.org/streams'>" +
                     "<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>" +
-                    "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'><optional/></session>" +
-                    "<sm xmlns='urn:xmpp:sm:3'/>" +
+                    (SessionRequired
+                         ? "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>"
+                         : "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'><optional/></session>") +
+                    // XEP-0198, Abschnitt 3 zeigt das Feature genau so: das
+                    // <optional/> gehört zum <sm/> und sagt nichts über die
+                    // Legacy-Session aus.
+                    "<sm xmlns='urn:xmpp:sm:3'><optional/></sm>" +
                     "</stream:features>");
 
         }
@@ -625,6 +655,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task HandleBindAsync(XMPPSession session, String frame, String? id)
         {
 
+            if (FailBind)
+            {
+                await session.SendAsync(StanzaErrorIq(id, "not-allowed", "cancel",
+                                                      "Diese Resource darf nicht gebunden werden."));
+                return;
+            }
+
             var requested = Regex.Match(frame, @"<resource>([^<]*)</resource>").Groups[1].Value;
 
             if (String.IsNullOrEmpty(requested))
@@ -659,6 +696,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 "</bind></iq>");
 
             OnSessionBound?.Invoke(session);
+
+            // Alles, was ein echter Server direkt nach dem Binding nachliefert.
+            foreach (var frameToDeliver in DeliverAfterBind.ToArray())
+                await session.SendAsync(frameToDeliver.Replace("{jid}", session.FullJid));
 
         }
 

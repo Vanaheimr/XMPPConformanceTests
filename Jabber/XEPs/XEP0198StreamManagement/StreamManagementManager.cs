@@ -32,8 +32,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// </summary>
 public sealed class StreamManagementManager
 {
+
+    /// <summary>Der Namespace von XEP-0198.</summary>
+    public const string Namespace = "urn:xmpp:sm:3";
+
     private readonly Func<string, Task> _sendStanza;
     private readonly ILogger _logger;
+
+    /// <summary>
+    /// Läuft gerade eine Aushandlung, wartet hier <see cref="NegotiateAsync"/>
+    /// auf <c>&lt;enabled/&gt;</c> oder <c>&lt;failed/&gt;</c>.
+    /// </summary>
+    private TaskCompletionSource<bool>? _negotiation;
 
     private bool _enabled;
     private uint _inbound;       // Empfangene Stanzas
@@ -73,6 +83,51 @@ public sealed class StreamManagementManager
     }
 
     /// <summary>
+    /// Sendet <c>&lt;enable/&gt;</c> und wartet auf die Antwort des Servers.
+    /// </summary>
+    /// <remarks>
+    /// Die Antwort kommt über die normale Empfangsschleife herein, nicht über
+    /// einen eigenen Lesevorgang. Der Aufbau las früher selbst vom Socket und
+    /// verwarf dabei bis zu zehn Rahmen, die nicht nach Stream Management
+    /// aussahen - darunter Nachrichten und Presence.
+    /// </remarks>
+    /// <returns>true, wenn der Server mit <c>&lt;enabled/&gt;</c> geantwortet hat.</returns>
+    public async Task<bool> NegotiateAsync(bool               requestResume  = false,
+                                           TimeSpan?          timeout        = null,
+                                           CancellationToken  ct             = default)
+    {
+
+        // RunContinuationsAsynchronously: die Antwort trifft im Thread der
+        // Empfangsschleife ein; ohne das liefe alles Wartende dort weiter und
+        // hielte das Lesen der nächsten Stanzas auf.
+        var negotiation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Interlocked.Exchange(ref _negotiation, negotiation);
+
+        try
+        {
+
+            await EnableAsync(requestResume);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(timeout ?? TimeSpan.FromSeconds(10));
+
+            return await negotiation.Task.WaitAsync(cts.Token);
+
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Keine Antwort auf <enable/> - Stream Management bleibt aus");
+            return false;
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _negotiation, null, negotiation);
+        }
+
+    }
+
+    /// <summary>
     /// Verarbeitet <c>&lt;enabled/&gt;</c> vom Server
     /// </summary>
     public void ProcessEnabled(string xml)
@@ -93,6 +148,8 @@ public sealed class StreamManagementManager
                                    _resumeId?[..Math.Min(8, _resumeId?.Length ?? 0)]);
         else
             _logger.LogInformation("Stream Management aktiviert (ohne Resume)");
+
+        _negotiation?.TrySetResult(true);
     }
 
     /// <summary>
@@ -127,6 +184,10 @@ public sealed class StreamManagementManager
     /// </summary>
     public void ProcessFailed()
     {
+        // Gilt für beides: eine abgelehnte Aushandlung und ein
+        // fehlgeschlagenes Resume.
+        _negotiation?.TrySetResult(false);
+
         List<string> lost;
         lock (_lock)
         {

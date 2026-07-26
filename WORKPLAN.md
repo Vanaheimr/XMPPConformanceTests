@@ -26,11 +26,12 @@ Stand: 2026-07-26
 | RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | `0249de1` |
 | Stanza-Rahmen und Roster über `XElement` statt Regex | `15a11aa` |
 | `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | `107aa87` |
-| `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | offen im Working Tree |
+| `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | `39cb6fb` |
+| Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **138 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **161 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -94,28 +95,7 @@ echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
 
 ## Als Nächstes (Client)
 
-### 1. Aufbauphase entwirren
-
-`ConnectInternalAsync` liest selbst vom Socket, verwirft bis zu zehn nicht
-passende Stanzas (auch echte Nachrichten und Presences) und startet erst danach
-die Empfangsschleife. Die `TaskCompletionSource`-Korrelation, die `DiscoManager`
-und `PingManager` schon richtig machen, gibt es hier nicht.
-
-Hier steckt auch der letzte Rest Regex-Parsing im Client: Stream-Features,
-SASL-Challenge, `<success/>`/`<failure/>` und das Bind-Ergebnis. Der Umbau
-sollte beides zusammen erledigen — die Stanza-Verarbeitung läuft bereits
-vollständig über `XElement`.
-
-**Umfang:** mittel.
-**Nebeneffekt:** löst zugleich den Grund, warum die XEP-0198-Zählung zwei
-Empfangspfade abdecken muss.
-
-Danach bleiben nur noch Parser, die bewusst auf Text arbeiten:
-`StreamManagementManager` (liest nur `h` und `id` aus Nonzas),
-`StanzaError`/`StreamError` (müssen gerade auch mit unwohlgeformten Rahmen
-umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
-
-### 2. XEP-0198 gegen einen echten Server, dann Default umstellen
+### 1. XEP-0198 gegen einen echten Server, dann Default umstellen
 
 Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen ejabberd oder
 Prosody; danach kann `StreamManagementEnabled` auf `true`.
@@ -124,6 +104,16 @@ Anschließend Stream-Resume: `ResumeAsync` und `GetUnackedStanzas` existieren,
 werden aber nirgends aufgerufen — nach einem Reconnect baut der Client neu auf
 und die unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht
 `<resume/>` ebenfalls noch nicht, das wäre gleich mitzumachen.
+
+### 2. Feste Resource ersetzen
+
+Der Client bittet um `console-<pid>`. Laufen zwei Clients im selben Prozess,
+kollidieren sie, und ein Server ohne eigene Vergabe antwortet mit
+`<conflict/>` — was seit dem Umbau der Aufbauphase auch richtig als Ablehnung
+ankommt, den Aufbau aber abbricht. Sauber wäre: bei `<conflict/>` einmal ohne
+`<resource/>` neu binden und die vom Server vergebene Resource übernehmen.
+
+**Umfang:** klein.
 
 ---
 

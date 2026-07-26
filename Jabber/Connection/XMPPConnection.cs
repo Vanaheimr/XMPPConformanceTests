@@ -19,7 +19,6 @@
 
 using System.Net.WebSockets;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -95,10 +94,28 @@ public sealed class XMPPConnection : IAsyncDisposable
     private static readonly TimeSpan CloseHandshakeTimeout = TimeSpan.FromSeconds(3);
 
     /// <summary>Namespace der Stream-Ebene (RFC 6120, Abschnitt 4.8.2).</summary>
-    private const string StreamNamespace = "http://etherx.jabber.org/streams";
+    private const string StreamNamespace = StreamNegotiation.StreamNamespace;
 
     /// <summary>Namespace von XEP-0198 Stream Management.</summary>
-    private const string StreamManagementNamespace = "urn:xmpp:sm:3";
+    private const string StreamManagementNamespace = StreamManagementManager.Namespace;
+
+    /// <summary>
+    /// Wie lange die Aufbauphase auf die Antwort auf eines ihrer IQs wartet.
+    /// </summary>
+    private static readonly TimeSpan SetupTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// IQs, auf deren Antwort gerade jemand wartet, nach ihrer id.
+    ///
+    /// Ersetzt das frühere Vorgehen der Aufbauphase, bis zu zehn Rahmen selbst
+    /// vom Socket zu lesen und alles zu verwerfen, was nicht nach der
+    /// erwarteten Antwort aussah. Verworfen wurden dabei auch Nachrichten,
+    /// Presence und Roster-Pushes; und weil "sieht aus wie" ein
+    /// <c>Contains("id='roster1'")</c> auf dem Rohtext war, konnte eine
+    /// Nachricht mit dieser Zeichenfolge im Text die Antwort auch ersetzen.
+    /// </summary>
+    private readonly Dictionary<string, TaskCompletionSource<XElement>> _pendingIqs = new();
+    private readonly object _iqLock = new();
 
     private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _cts;
@@ -289,6 +306,8 @@ public sealed class XMPPConnection : IAsyncDisposable
         _keepaliveTask = null;
         _webSocket     = null;
 
+        CancelPendingIqs();
+
         if (cts is null && webSocket is null)
             return;
 
@@ -348,20 +367,17 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-            // XMPP Stream öffnen
-            await SendAsync($"<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='{_domain}' version='1.0'/>");
+            // ===== Aushandlung =====
+            //
+            // Bis zum Resource Binding liest dieser Abschnitt selbst vom
+            // Socket. Das ist hier richtig: der Server hat noch keine Resource,
+            // an die er etwas routen könnte, es kann also nichts anderes
+            // eintreffen als die Aushandlung selbst.
 
-            // Features empfangen (kann mehrere Stanzas sein: <open> + <features>)
-            var featuresXml = await ReceiveStanzaAsync(ct);
+            await SendAsync(OpenStream());
 
-            // Manchmal kommt <open> separat
-            if (featuresXml.StartsWith("<open"))
-            {
-                featuresXml = await ReceiveStanzaAsync(ct);
-            }
-
-            // SASL Mechanismen extrahieren
-            var mechanisms = ExtractSaslMechanisms(featuresXml);
+            var features   = await ReceiveFeaturesAsync(ct);
+            var mechanisms = StreamNegotiation.SaslMechanisms(features);
 
             if (mechanisms.Count > 0)
             {
@@ -395,95 +411,51 @@ public sealed class XMPPConnection : IAsyncDisposable
             {
                 throw new AuthenticationException(
                     "Server bietet keine SASL-Mechanismen an. Features: " +
-                    featuresXml[..Math.Min(200, featuresXml.Length)]);
+                    Shorten(features.ToString(), 200));
             }
 
-            // Neuen Stream öffnen nach Auth
-            await SendAsync($"<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='{_domain}' version='1.0'/>");
-            featuresXml = await ReceiveStanzaAsync(ct);
+            // Neuen Stream öffnen nach Auth (RFC 6120, Abschnitt 6.4.6)
+            await SendAsync(OpenStream());
+            features = await ReceiveFeaturesAsync(ct);
 
-            // Manchmal kommt <open> separat
-            if (featuresXml.StartsWith("<open"))
-            {
-                featuresXml = await ReceiveStanzaAsync(ct);
-            }
-
-            // Server-Features speichern
             ServerFeatures.Clear();
-            foreach (Match m in Regex.Matches(featuresXml, @"<(\w+)\s+xmlns=['""]([^'""]+)['""]"))
-            {
-                ServerFeatures.Add(m.Groups[2].Value);
-            }
+            ServerFeatures.AddRange(StreamNegotiation.FeatureNamespaces(features));
 
-            // Bind
-            if (featuresXml.Contains("<bind"))
+            if (StreamNegotiation.OffersBind(features))
             {
                 _logger.LogDebug("Resource Binding ...");
                 FullJid = await PerformBindAsync(ct);
                 _logger.LogInformation("Verbunden als {FullJid}", FullJid);
             }
 
-            // Session (falls nötig - deprecated in RFC 6121)
-            if (featuresXml.Contains("<session") && !featuresXml.Contains("optional"))
-            {
+            // ===== Ab hier ist die Sitzung nutzbar =====
+            //
+            // Die Manager entstehen vor der Empfangsschleife: sobald die
+            // Resource gebunden ist, darf der Server zustellen, und die erste
+            // Stanza kann eintreffen, bevor die nächste Zeile läuft.
+
+            InitialiseManagers();
+
+            // Die Empfangsschleife bekommt ihren Socket explizit mit, damit sie
+            // nach einem Reconnect nicht am neuen Socket hängt.
+            _receiveTask = ReceiveLoopAsync(webSocket, _cts.Token);
+
+            // Session (falls nötig - in RFC 6121 entfallen)
+            if (StreamNegotiation.RequiresSession(features))
                 await PerformSessionAsync(ct);
-            }
 
             // XEP-0198: Stream Management. Der Grund für die frühere Abschaltung
             // ("ejabberd-Probleme") war die fehlerhafte Zählung; die ist behoben
             // und durch Tests gegen den XMPPServer abgedeckt. Der Schalter
             // bleibt vorerst standardmässig aus, weil noch kein Lauf gegen einen
             // echten Server stattgefunden hat.
-            StreamManagement = new StreamManagementManager(SendAsync, CreateLogger<StreamManagementManager>());
-            StreamManagement.OnAckReceived += count =>
-                _logger.LogTrace("Stream Management: {Count} Stanzas bestätigt", count);
-
-            if (StreamManagementEnabled && featuresXml.Contains("urn:xmpp:sm:3"))
+            if (StreamManagementEnabled && StreamNegotiation.OffersStreamManagement(features))
             {
                 _logger.LogInformation("Aktiviere Stream Management ...");
-                await StreamManagement.EnableAsync(requestResume: false);
 
-                // Warte auf <enabled> oder <failed>
-                for (int i = 0; i < 10; i++)
-                {
-                    var smResponse = await ReceiveStanzaAsync(ct);
-
-                    if (smResponse.Contains("<enabled") && smResponse.Contains("urn:xmpp:sm:3"))
-                    {
-                        StreamManagement.ProcessEnabled(smResponse);
-                        break;
-                    }
-                    else if (smResponse.Contains("<failed") && smResponse.Contains("urn:xmpp:sm"))
-                    {
-                        _logger.LogWarning("Stream Management vom Server abgelehnt");
-                        break;
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Stream Management: überspringe Stanza {Stanza}",
-                                         smResponse[..Math.Min(60, smResponse.Length)]);
-                    }
-                }
+                if (!await StreamManagement!.NegotiateAsync(requestResume: false, SetupTimeout, ct))
+                    _logger.LogWarning("Stream Management vom Server abgelehnt");
             }
-
-            // Manager initialisieren
-            Carbons = new CarbonManager(BareJid);
-            Carbons.OnCarbonReceived += c => OnCarbonMessage?.Invoke(c);
-            Carbons.OnParseError += msg => OnError?.Invoke($"[Carbon] {msg}");
-
-            PubSub = new PubSubManager($"pubsub.{_domain}", CreateLogger<PubSubManager>());
-            PubSub.OnEvent += e => OnPubSubEvent?.Invoke(e);
-
-            // XEP-0199: Ping Manager
-            Ping = new PingManager(SendAsync);
-            Ping.OnPingTimeout += target => OnError?.Invoke($"Ping Timeout: {target}");
-
-            // XEP-0030: Service Discovery
-            Disco = new DiscoManager(SendAsync);
-
-            // XEP-0115: Entity Capabilities
-            EntityCaps = new EntityCapsManager(Disco);
-            EntityCaps.OnCapsDiscovered += (from, info) => OnCapsDiscovered?.Invoke(from, info);
 
             // Carbons aktivieren
             _logger.LogDebug("Aktiviere Message Carbons ...");
@@ -499,10 +471,6 @@ public sealed class XMPPConnection : IAsyncDisposable
             SetState(ConnectionState.Connected);
             _reconnectAttempts = 0;
             _logger.LogInformation("Online");
-
-            // Empfangs-Loop starten - bekommt seinen Socket explizit mit,
-            // damit er nach einem Reconnect nicht am neuen Socket hängt.
-            _receiveTask = ReceiveLoopAsync(webSocket, _cts.Token);
 
             // Keepalive-Loop starten (verhindert Server-Timeout)
             if (KeepaliveEnabled)
@@ -531,6 +499,90 @@ public sealed class XMPPConnection : IAsyncDisposable
             }
         }
     }
+
+    /// <summary>Der Stream-Kopf nach RFC 7395.</summary>
+    private string OpenStream()
+        => $"<open xmlns='{StreamNegotiation.FramingNamespace}' " +
+           $"to='{XmlEscaping.Escape(_domain)}' version='1.0'/>";
+
+    /// <summary>
+    /// Liest den nächsten Rahmen der Aushandlung und gibt ihn geparst zurück.
+    /// </summary>
+    private async Task<XElement> ReceiveElementAsync(CancellationToken ct)
+    {
+
+        var xml = await ReceiveStanzaAsync(ct);
+
+        try
+        {
+            return XElement.Parse(xml, LoadOptions.PreserveWhitespace);
+        }
+        catch (XmlException ex)
+        {
+            throw new XMPPProtocolException(
+                      $"Rahmen der Aushandlung ist kein wohlgeformtes XML: {ex.Message}", ex);
+        }
+
+    }
+
+    /// <summary>
+    /// Wartet auf die Stream-Features. Ob der Server <c>&lt;open/&gt;</c> und
+    /// <c>&lt;features/&gt;</c> in einem oder in zwei Rahmen schickt, ist ihm
+    /// überlassen.
+    /// </summary>
+    private async Task<XElement> ReceiveFeaturesAsync(CancellationToken ct)
+    {
+
+        var element = await ReceiveElementAsync(ct);
+
+        if (StreamNegotiation.IsStreamOpen(element))
+            element = await ReceiveElementAsync(ct);
+
+        if (!StreamNegotiation.IsFeatures(element))
+            throw new XMPPProtocolException(
+                      $"Erwartet wurden die Stream-Features, empfangen wurde <{element.Name.LocalName}/>.");
+
+        return element;
+
+    }
+
+    /// <summary>
+    /// Erzeugt die XEP-Manager für diese Verbindung.
+    /// </summary>
+    /// <remarks>
+    /// Muss vor dem Start der Empfangsschleife laufen: <c>ProcessStanza</c>
+    /// greift auf alle davon zu, und nach dem Resource Binding darf der Server
+    /// jederzeit zustellen.
+    /// </remarks>
+    private void InitialiseManagers()
+    {
+
+        StreamManagement = new StreamManagementManager(SendAsync, CreateLogger<StreamManagementManager>());
+        StreamManagement.OnAckReceived += count =>
+            _logger.LogTrace("Stream Management: {Count} Stanzas bestätigt", count);
+
+        Carbons = new CarbonManager(BareJid);
+        Carbons.OnCarbonReceived += c => OnCarbonMessage?.Invoke(c);
+        Carbons.OnParseError     += msg => OnError?.Invoke($"[Carbon] {msg}");
+
+        PubSub = new PubSubManager($"pubsub.{_domain}", CreateLogger<PubSubManager>());
+        PubSub.OnEvent += e => OnPubSubEvent?.Invoke(e);
+
+        // XEP-0199: Ping Manager
+        Ping = new PingManager(SendAsync);
+        Ping.OnPingTimeout += target => OnError?.Invoke($"Ping Timeout: {target}");
+
+        // XEP-0030: Service Discovery
+        Disco = new DiscoManager(SendAsync);
+
+        // XEP-0115: Entity Capabilities
+        EntityCaps = new EntityCapsManager(Disco);
+        EntityCaps.OnCapsDiscovered += (from, info) => OnCapsDiscovered?.Invoke(from, info);
+
+    }
+
+    private static string Shorten(string text, int max)
+        => text.Length <= max ? text : text[..max];
 
     private async Task TryReconnectAsync(CancellationToken ct)
     {
@@ -627,6 +679,95 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     }
 
+    /// <summary>
+    /// Sendet ein IQ und wartet auf die Antwort mit derselben id.
+    /// </summary>
+    /// <remarks>
+    /// Dasselbe Verfahren, das <see cref="DiscoManager"/> und
+    /// <see cref="PingManager"/> schon benutzen: die Antwort kommt über die
+    /// Empfangsschleife herein und wird über ihre id zugeordnet, statt dass der
+    /// Wartende selbst vom Socket liest.
+    /// </remarks>
+    /// <returns>Die Antwort, oder null bei Zeitüberschreitung.</returns>
+    private async Task<XElement?> SendIqAsync(string             id,
+                                              string             xml,
+                                              CancellationToken  ct)
+    {
+
+        // RunContinuationsAsynchronously: die Antwort wird im Thread der
+        // Empfangsschleife abgeliefert; ohne das liefe der wartende Aufbau dort
+        // weiter und hielte das Lesen der nächsten Stanzas auf.
+        var tcs = new TaskCompletionSource<XElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        lock (_iqLock)
+            _pendingIqs[id] = tcs;
+
+        try
+        {
+
+            await SendAsync(xml);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(SetupTimeout);
+
+            return await tcs.Task.WaitAsync(cts.Token);
+
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Keine Antwort auf IQ '{Id}' innerhalb von {Seconds}s",
+                               id, SetupTimeout.TotalSeconds);
+            return null;
+        }
+        finally
+        {
+            lock (_iqLock)
+                _pendingIqs.Remove(id);
+        }
+
+    }
+
+    /// <summary>
+    /// Liefert eine IQ-Antwort an den Wartenden aus, falls es einen gibt.
+    /// </summary>
+    private bool TryCompleteIq(string id, XElement element)
+    {
+
+        TaskCompletionSource<XElement>? tcs;
+
+        lock (_iqLock)
+        {
+            if (!_pendingIqs.TryGetValue(id, out tcs))
+                return false;
+
+            _pendingIqs.Remove(id);
+        }
+
+        return tcs.TrySetResult(element);
+
+    }
+
+    /// <summary>
+    /// Bricht alle offenen IQ-Anfragen ab. Ohne das wartete ein Reconnect erst
+    /// deren Zeitüberschreitung ab, obwohl die Antwort über den alten Socket
+    /// gar nicht mehr kommen kann.
+    /// </summary>
+    private void CancelPendingIqs()
+    {
+
+        List<TaskCompletionSource<XElement>> pending;
+
+        lock (_iqLock)
+        {
+            pending = [.. _pendingIqs.Values];
+            _pendingIqs.Clear();
+        }
+
+        foreach (var tcs in pending)
+            tcs.TrySetCanceled();
+
+    }
+
     private async Task<string> ReceiveStanzaAsync(CancellationToken ct)
     {
         var buffer = new byte[8192];
@@ -656,12 +797,12 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// <summary>
     /// XEP-0198: zählt eine empfangene Stanza.
     ///
-    /// Muss auf beiden Empfangspfaden laufen. Die Aufbauphase liest über
-    /// <see cref="ReceiveStanzaAsync"/> direkt vom Socket und kommt nie bei
-    /// <see cref="ProcessStanza"/> vorbei; die Ergebnisse von Carbons-Enable
-    /// und Roster-Abruf treffen aber bereits nach <c>&lt;enabled/&gt;</c> ein.
-    /// Wurde nur in ProcessStanza gezählt, fehlten sie und der Client
-    /// bestätigte dem Server dauerhaft zu wenig.
+    /// Sitzt bewusst auf beiden Empfangspfaden. Zu zählen gibt es auf dem
+    /// direkten Pfad heute zwar nichts mehr - <see cref="ReceiveStanzaAsync"/>
+    /// liest nur noch die Aushandlung, und die endet vor
+    /// <c>&lt;enabled/&gt;</c> -, aber die Zusicherung "jede empfangene Stanza
+    /// kommt hier vorbei" soll nicht davon abhängen, wo die Grenze zwischen
+    /// den beiden Pfaden gerade verläuft.
     /// </summary>
     private void NoteInboundStanza(string xml)
     {
@@ -870,6 +1011,10 @@ public sealed class XMPPConnection : IAsyncDisposable
 
                 // XEP-0198: Stream Management. Jetzt über den Namespace geprüft
                 // statt über den Anfangsbuchstaben.
+                case "enabled" when ns == StreamManagementNamespace:
+                    StreamManagement?.ProcessEnabled(stanza);
+                    return;
+
                 case "a" when ns == StreamManagementNamespace:
                     StreamManagement?.ProcessAck(stanza);
                     return;
@@ -1079,6 +1224,12 @@ public sealed class XMPPConnection : IAsyncDisposable
         var type = element.Attr("type");
         var id = element.Attr("id");
         var from = element.Attr("from");
+
+        // Wartet jemand auf genau diese Antwort? Die Zuordnung über die id geht
+        // allem anderen vor - auch dem Fehlerpfad, denn für den Wartenden ist
+        // ein 'error' genauso eine Antwort wie ein 'result'.
+        if (id is not null && type is "result" or "error" && TryCompleteIq(id, element))
+            return;
 
         // RFC 6120, Abschnitt 8.3: Ein iq 'error' ist keine Antwort mit Inhalt,
         // sondern eine Ablehnung. Früher lief er durch dieselben Handler wie ein
@@ -1333,16 +1484,19 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{authBase64}</auth>");
 
-        var response = await ReceiveStanzaAsync(ct);
+        var response = await ReceiveElementAsync(ct);
 
-        if (response.Contains("<success"))
-        {
+        if (StreamNegotiation.IsSasl(response, "success"))
             _logger.LogInformation("Authentifizierung erfolgreich (PLAIN)");
-        }
+
+        else if (StreamNegotiation.IsSasl(response, "failure"))
+            throw new AuthenticationException(
+                      $"SASL PLAIN abgelehnt: {StreamNegotiation.SaslFailureCondition(response) ?? "ohne Angabe"}");
+
         else
-        {
-            throw new AuthenticationException($"SASL fehlgeschlagen: {response}");
-        }
+            throw new AuthenticationException(
+                      $"Unerwartete Antwort auf SASL PLAIN: <{response.Name.LocalName}/>");
+
     }
 
     private async Task PerformScramAsync(SCRAMMechanism mechanism, CancellationToken ct)
@@ -1354,169 +1508,166 @@ public sealed class XMPPConnection : IAsyncDisposable
         await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='{scram.MechanismName}'>{clientFirst}</auth>");
 
         // Schritt 2: server-first-message (challenge)
-        var challengeResponse = await ReceiveStanzaAsync(ct);
+        var challenge = await ReceiveElementAsync(ct);
 
-        if (!challengeResponse.Contains("<challenge"))
+        if (!StreamNegotiation.IsSasl(challenge, "challenge"))
         {
-            if (challengeResponse.Contains("<failure"))
-            {
-                throw new AuthenticationException($"SCRAM fehlgeschlagen: {challengeResponse}");
-            }
-            throw new AuthenticationException($"Unerwartete Antwort: {challengeResponse}");
+
+            if (StreamNegotiation.IsSasl(challenge, "failure"))
+                throw new AuthenticationException(
+                          $"SCRAM abgelehnt: {StreamNegotiation.SaslFailureCondition(challenge) ?? "ohne Angabe"}");
+
+            throw new AuthenticationException(
+                      $"Unerwartete Antwort auf die client-first-message: <{challenge.Name.LocalName}/>");
+
         }
 
-        // Base64-Inhalt extrahieren
-        var challengeMatch = Regex.Match(challengeResponse, @"<challenge[^>]*>([^<]+)</challenge>");
-        if (!challengeMatch.Success)
-            throw new AuthenticationException("Konnte Challenge nicht parsen");
+        var serverFirst = StreamNegotiation.SaslPayload(challenge);
 
-        var serverFirst = challengeMatch.Groups[1].Value;
+        if (serverFirst.Length == 0)
+            throw new AuthenticationException("Die SASL-Challenge des Servers ist leer.");
 
         // Schritt 3: client-final-message
         var clientFinal = scram.ProcessServerFirstMessage(serverFirst);
         await SendAsync($"<response xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{clientFinal}</response>");
 
         // Schritt 4: server-final-message (success oder failure)
-        var finalResponse = await ReceiveStanzaAsync(ct);
+        var final = await ReceiveElementAsync(ct);
 
-        if (finalResponse.Contains("<success"))
+        if (StreamNegotiation.IsSasl(final, "success"))
         {
-            // Optional: Server-Signatur verifizieren
-            var successMatch = Regex.Match(finalResponse, @"<success[^>]*>([^<]*)</success>");
-            if (successMatch.Success && !string.IsNullOrEmpty(successMatch.Groups[1].Value))
-            {
-                if (!scram.VerifyServerFinalMessage(successMatch.Groups[1].Value))
-                {
-                    throw new AuthenticationException("Server-Signatur ungültig - möglicher MITM-Angriff!");
-                }
-            }
+
+            var serverFinal = StreamNegotiation.SaslPayload(final);
+
+            // RFC 5802, Abschnitt 5: Die Serversignatur zu prüfen ist die
+            // zweite Hälfte von SCRAM - sie belegt, dass die Gegenstelle das
+            // Passwort ebenfalls kennt. Früher war das eine Kür: kam ein
+            // <success/> ohne Nutzlast, unterblieb die Prüfung stillschweigend
+            // und die gegenseitige Authentifizierung war damit wertlos.
+            if (serverFinal.Length == 0)
+                throw new AuthenticationException(
+                          "Der Server hat SCRAM ohne server-final-message bestätigt - " +
+                          "seine Signatur ist damit nicht prüfbar.");
+
+            if (!scram.VerifyServerFinalMessage(serverFinal))
+                throw new AuthenticationException("Server-Signatur ungültig - möglicher MITM-Angriff!");
+
             _logger.LogInformation("Authentifizierung erfolgreich ({Mechanism})", scram.MechanismName);
+
         }
-        else if (finalResponse.Contains("<failure"))
-        {
-            var errorMatch = Regex.Match(finalResponse, @"<(\w+)\s+xmlns=['""]urn:ietf:params:xml:ns:xmpp-sasl['""]");
-            var error = errorMatch.Success ? errorMatch.Groups[1].Value : finalResponse;
-            throw new AuthenticationException($"SCRAM fehlgeschlagen: {error}");
-        }
+
+        else if (StreamNegotiation.IsSasl(final, "failure"))
+            throw new AuthenticationException(
+                      $"SCRAM fehlgeschlagen: {StreamNegotiation.SaslFailureCondition(final) ?? "ohne Angabe"}");
+
         else
-        {
-            throw new AuthenticationException($"Unerwartete Antwort: {finalResponse}");
-        }
+            throw new AuthenticationException(
+                      $"Unerwartete Antwort auf die client-final-message: <{final.Name.LocalName}/>");
+
     }
 
     private async Task<string> PerformBindAsync(CancellationToken ct)
     {
+
         var resource = $"console-{Environment.ProcessId}";
 
         await SendAsync(
             $"<iq type='set' id='bind1'>" +
-            $"<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'>" +
-            $"<resource>{resource}</resource>" +
+            $"<bind xmlns='{StreamNegotiation.BindNamespace}'>" +
+            $"<resource>{XmlEscaping.Escape(resource)}</resource>" +
             $"</bind></iq>");
 
-        var response = await ReceiveStanzaAsync(ct);
+        var response = await ReceiveElementAsync(ct);
+        var jid      = StreamNegotiation.ReadBoundJid(response);
 
-        var jidMatch = Regex.Match(response, @"<jid>([^<]+)</jid>");
-        return jidMatch.Success ? jidMatch.Groups[1].Value : $"{_jid}/{resource}";
+        if (jid is null)
+            throw new XMPPProtocolException($"Resource Binding abgelehnt: {DescribeRejection(response)}");
+
+        return jid;
+
     }
+
+    /// <summary>
+    /// Beschreibt eine abgelehnte Anfrage für die Fehlermeldung.
+    /// </summary>
+    private static string DescribeRejection(XElement response)
+        => StanzaError.TryParse(response.ToString(), out var error) && error is not null
+               ? error.ToString()
+               : Shorten(response.ToString(), 200);
 
     private async Task PerformSessionAsync(CancellationToken ct)
     {
-        await SendAsync(
-            "<iq type='set' id='sess1'>" +
-            "<session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>" +
-            "</iq>");
 
-        await ReceiveStanzaAsync(ct);
+        var response = await SendIqAsync(
+                           "sess1",
+                           "<iq type='set' id='sess1'>" +
+                           $"<session xmlns='{StreamNegotiation.SessionNamespace}'/>" +
+                           "</iq>",
+                           ct);
+
+        if (response is null)
+            _logger.LogWarning("Keine Antwort auf die Session-Anfrage");
+
+        else if (response.Attr("type") != "result")
+            _logger.LogWarning("Session-Anfrage abgelehnt: {Reason}", DescribeRejection(response));
+
     }
 
     private async Task EnableCarbonsAsync(CancellationToken ct)
     {
-        try
-        {
-            await SendAsync(CarbonManager.EnableIq());
 
-            // Warte auf IQ-Antwort mit id='carbons-enable' - ignoriere andere Stanzas
-            for (int i = 0; i < 10; i++)
-            {
-                var response = await ReceiveStanzaAsync(ct);
+        var response = await SendIqAsync("carbons-enable", CarbonManager.EnableIq(), ct);
 
-                if (response.Contains("id='carbons-enable'") || response.Contains("id=\"carbons-enable\""))
-                {
-                    if (response.Contains("type='result'") || response.Contains("type=\"result\""))
-                    {
-                        Carbons!.SetEnabled(true);
-                        _logger.LogInformation("Message Carbons aktiviert");
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Message Carbons nicht verfügbar (Server-Fehler)");
-                    }
-                    break;
-                }
-                else
-                {
-                    // Andere Stanza - ignorieren und weiter warten
-                    _logger.LogDebug("Carbons: überspringe Stanza {Stanza}",
-                                     response[..Math.Min(80, response.Length)]);
-                }
-            }
-        }
-        catch (Exception ex)
+        if (response is null)
         {
-            _logger.LogError(ex, "Carbons-Fehler");
+            _logger.LogWarning("Message Carbons: keine Antwort vom Server");
+            return;
         }
+
+        if (response.Attr("type") == "result")
+        {
+            Carbons!.SetEnabled(true);
+            _logger.LogInformation("Message Carbons aktiviert");
+        }
+        else
+            _logger.LogWarning("Message Carbons nicht verfügbar: {Reason}", DescribeRejection(response));
+
     }
 
     private async Task RequestRosterAsync(CancellationToken ct)
     {
-        await SendAsync(
-            "<iq type='get' id='roster1'>" +
-            "<query xmlns='jabber:iq:roster'/>" +
-            "</iq>");
 
-        // Warte auf Roster-Antwort - ignoriere andere Stanzas
-        string response = "";
-        for (int i = 0; i < 10; i++)
+        var response = await SendIqAsync(
+                           "roster1",
+                           "<iq type='get' id='roster1'>" +
+                           $"<query xmlns='{RosterStanzaBuilder.Namespace}'/>" +
+                           "</iq>",
+                           ct);
+
+        if (response is null)
         {
-            response = await ReceiveStanzaAsync(ct);
-
-            if (response.Contains("id='roster1'") || response.Contains("id=\"roster1\""))
-            {
-                break;
-            }
-            else
-            {
-                // Andere Stanza - ignorieren
-                _logger.LogDebug("Roster: überspringe Stanza {Stanza}",
-                                 response[..Math.Min(80, response.Length)]);
-            }
+            _logger.LogWarning("Keine Antwort auf die Roster-Anfrage");
+            return;
         }
 
-        try
+        if (response.Attr("type") != "result")
         {
+            _logger.LogWarning("Roster-Anfrage abgelehnt: {Reason}", DescribeRejection(response));
+            return;
+        }
 
-            var query = XElement.Parse(response, LoadOptions.PreserveWhitespace).Child("query");
+        var query = response.Child(RosterStanzaBuilder.Namespace, "query");
 
-            if (query is not null)
+        if (query is not null)
+            foreach (var itemElement in query.Children(RosterStanzaBuilder.Namespace, "item"))
             {
-                foreach (var itemElement in query.Elements().Where(e => e.Name.LocalName == "item"))
-                {
 
-                    var jid = itemElement.Attr("jid");
+                var jid = itemElement.Attr("jid");
 
-                    if (!string.IsNullOrEmpty(jid))
-                        Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
+                if (!string.IsNullOrEmpty(jid))
+                    Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
 
-                }
             }
-
-        }
-        catch (XmlException ex)
-        {
-            _logger.LogError("Roster-Antwort ist kein wohlgeformtes XML: {Reason}", ex.Message);
-            OnError?.Invoke($"Roster-Antwort ist kein wohlgeformtes XML: {ex.Message}");
-        }
 
         _logger.LogInformation("Roster geladen: {Count} Kontakte", Roster.Items.Count);
     }
@@ -1680,20 +1831,8 @@ public sealed class XMPPConnection : IAsyncDisposable
     // zurück. Ersatz sind die Erweiterungsmethoden in StanzaExtensions, die auf
     // dem geparsten XElement arbeiten.
 
-    private static List<string> ExtractSaslMechanisms(string xml)
-    {
-        var mechanisms = new List<string>();
-
-        // Finde alle <mechanism>...</mechanism> Elemente
-        var matches = Regex.Matches(xml, @"<mechanism>([^<]+)</mechanism>");
-
-        foreach (Match match in matches)
-        {
-            mechanisms.Add(match.Groups[1].Value);
-        }
-
-        return mechanisms;
-    }
+    // ExtractSaslMechanisms ist entfallen; die Aushandlung liest jetzt über
+    // StreamNegotiation aus dem geparsten <features/>.
 
     private static SubscriptionState ParseSubscription(string? sub) => sub switch
     {
