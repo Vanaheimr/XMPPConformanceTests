@@ -406,6 +406,47 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             {
                 // Verbindung abgerissen - im Test der Normalfall
             }
+            finally
+            {
+                // Egal wie die Sitzung endet - ordentlich, abgerissen oder an
+                // einer Ausnahme: die Kontakte müssen es erfahren.
+                await AnnounceUnavailableAsync(session);
+            }
+
+        }
+
+        /// <summary>
+        /// Meldet eine beendete Sitzung bei ihren Kontakten ab.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 4.5.2 (Server Processing of Outbound
+        /// Unavailable Presence): Ein Client kann seine Abmeldung nicht mehr
+        /// schicken, wenn ihm die Verbindung unter den Füssen wegbricht -
+        /// also erzeugt der Server sie in seinem Namen. Ohne das führen die
+        /// Kontakte die Resource für immer als online.
+        ///
+        /// Empfänger sind dieselben wie bei jeder anderen Presence: die
+        /// Abmeldung ist eine Auskunft über den eigenen Zustand und darf
+        /// Fremde ebenso wenig erreichen wie die Anmeldung.
+        /// </remarks>
+        private async Task AnnounceUnavailableAsync(XMPPSession session)
+        {
+
+            // Hat der Client sich selbst abgemeldet, ist die Sache erledigt.
+            if (!session.IsAvailable || session.FullJid is null)
+                return;
+
+            session.IsAvailable   = false;
+            session.LastPresence  = null;
+
+            // Beim Herunterfahren des Servers geht es an niemanden mehr.
+            if (!RouteStanzas || !BroadcastPresence || _cts.IsCancellationRequested)
+                return;
+
+            var stanza = $"<presence type='unavailable' from='{session.FullJid}'/>";
+
+            foreach (var target in PresenceTargetsOf(session))
+                await target.SendAsync(stanza);
 
         }
 
@@ -857,6 +898,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             session.LastPresence            = stamped;
             session.HasSentInitialPresence  = true;
+            session.IsAvailable             = type is null;
 
             if (!BroadcastPresence)
                 return;

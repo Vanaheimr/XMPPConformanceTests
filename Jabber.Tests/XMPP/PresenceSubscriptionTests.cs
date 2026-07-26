@@ -262,6 +262,116 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region Disconnect_MakesTheResourceUnavailable()
+
+        /// <summary>
+        /// RFC 6121, Abschnitt 4.5.2: Endet die Verbindung, ohne dass der
+        /// Client selbst <c>&lt;presence type='unavailable'/&gt;</c> geschickt
+        /// hat, erzeugt der Server sie in seinem Namen. Ohne das führen die
+        /// Kontakte die Resource für immer als online.
+        /// </summary>
+        [Test]
+        public async Task Disconnect_MakesTheResourceUnavailable()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice          = await ConnectClientAsync("alice");
+            var (_, atBobs)    = await WatcherAsync("bob");
+
+            await alice.DisconnectAsync();
+
+            await WaitFor(() => atBobs.Any(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
+                          "unavailable für die getrennte Resource");
+
+        }
+
+        #endregion
+
+        #region LostConnection_MakesTheResourceUnavailable()
+
+        /// <summary>
+        /// Derselbe Fall, aber unsanft: die Sitzung wird abgerissen, ohne dass
+        /// der Client etwas dazu sagen kann. Genau dafür gibt es die Regel.
+        /// </summary>
+        [Test]
+        public async Task LostConnection_MakesTheResourceUnavailable()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice          = await ConnectClientAsync("alice");
+            var (_, atBobs)    = await WatcherAsync("bob");
+
+            Server.SessionOf(alice.FullJid)!.Kill();
+
+            await WaitFor(() => atBobs.Any(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
+                          "unavailable für die abgerissene Resource");
+
+        }
+
+        #endregion
+
+        #region LostConnection_TellsOnlyTheSubscribers()
+
+        /// <summary>
+        /// Auch die Abmeldung ist eine Presence-Auskunft und darf Fremde nicht
+        /// erreichen - sonst verriete gerade das Ende einer Sitzung, was ihr
+        /// Beginn verschweigt.
+        /// </summary>
+        [Test]
+        public async Task LostConnection_TellsOnlyTheSubscribers()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice           = await ConnectClientAsync("alice");
+            var (_, atCarols)   = await WatcherAsync("carol");
+
+            Server.SessionOf(alice.FullJid)!.Kill();
+
+            await WaitAgainst(() => atCarols.Any(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
+                              "unavailable bei der fremden Carol");
+
+        }
+
+        #endregion
+
+        #region OwnUnavailable_IsNotRepeatedByTheServer()
+
+        /// <summary>
+        /// Hat der Client sich ordentlich abgemeldet, ist die Sache erledigt -
+        /// der Verbindungsabbau darf die Abmeldung nicht ein zweites Mal
+        /// verschicken.
+        /// </summary>
+        [Test]
+        public async Task OwnUnavailable_IsNotRepeatedByTheServer()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice          = await ConnectClientAsync("alice");
+            var (_, atBobs)    = await WatcherAsync("bob");
+
+            await alice.SendRawAsync("<presence type='unavailable'/>");
+
+            await WaitFor(() => atBobs.Any(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
+                          "eigene Abmeldung von Alice");
+
+            await alice.DisconnectAsync();
+
+            // Der Gegenprobe ihre Zeit lassen: eine zweite Abmeldung käme
+            // unmittelbar nach dem Verbindungsabbau.
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.That(atBobs.Count(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
+                        Is.EqualTo(1),
+                        "Die Abmeldung darf genau einmal ankommen.");
+
+        }
+
+        #endregion
+
         #region IsPresenceSubscriber_ReadsTheSubscriptionState()
 
         /// <summary>

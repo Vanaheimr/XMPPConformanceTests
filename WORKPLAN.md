@@ -28,11 +28,12 @@ Stand: 2026-07-26
 | `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | `107aa87` |
 | `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | `39cb6fb` |
 | Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | `cc9dccb` |
-| S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | offen im Working Tree |
+| S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | `4fe23cd` |
+| S3c: Abmeldung beim Verbindungsende, auch bei Abriss | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **175 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **179 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -88,13 +89,12 @@ Zustellung der Presence direkt nach `subscribed` an.
 durchspielen. Zugleich fällt der Punkt "eingehende `subscribed`/`unsubscribed`
 in den Roster einpflegen" aus der Später-Liste damit erst richtig an.
 
-### S3c. `unavailable` beim Verbindungsabriss
+### S3c. `unavailable` beim Verbindungsende ✅
 
-Bricht eine Sitzung ab, erfahren die Kontakte nichts davon — der Server sendet
-kein `<presence type='unavailable'/>` in ihrem Namen (RFC 6121 §4.5).
-Kontakte sehen die Resource dann für immer als online.
-
-**Umfang:** klein. Braucht einen Aufräumpfad am Ende von `ServeAsync`.
+Erledigt. Endet eine Sitzung — ordentlich, abgerissen oder an einer Ausnahme —,
+meldet der Server die Resource bei denselben Empfängern ab, die auch ihre
+Anmeldung bekommen haben. Hat der Client sich selbst abgemeldet, unterbleibt
+die Wiederholung.
 
 ### S4. Zwei Server, zwei Clients, eine Nachricht
 

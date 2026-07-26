@@ -84,6 +84,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public Boolean HasSentInitialPresence { get; internal set; }
 
+        /// <summary>
+        /// Gilt diese Resource den Kontakten gegenüber gerade als verfügbar?
+        /// </summary>
+        /// <remarks>
+        /// Getrennt von <see cref="HasSentInitialPresence"/>, weil beide etwas
+        /// anderes beantworten: ob je eine Presence kam, und ob die letzte eine
+        /// verfügbare war. Am zweiten hängt, ob der Verbindungsabbau die
+        /// Abmeldung noch nachholen muss - hat der Client sie selbst geschickt,
+        /// käme sie sonst ein zweites Mal.
+        /// </remarks>
+        public Boolean IsAvailable { get; internal set; }
+
         /// <summary>XEP-0198: Ist Stream Management für diese Sitzung ausgehandelt?</summary>
         public Boolean StreamManagementEnabled { get; private set; }
 

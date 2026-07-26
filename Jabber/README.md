@@ -368,8 +368,9 @@ miteinander sprechen:
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
 - Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
-  plus die eigenen weiteren Resourcen. Dazu Presence-Probes und das Nachliefern
-  des Kontaktzustands beim Anmelden
+  plus die eigenen weiteren Resourcen. Dazu Presence-Probes, das Nachliefern
+  des Kontaktzustands beim Anmelden und die Abmeldung beim Verbindungsende —
+  auch wenn sie abreisst und der Client selbst nichts mehr sagen kann (§4.5.2)
 - XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
 - serverseitiger Roster mit Roster-Push
 - XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
