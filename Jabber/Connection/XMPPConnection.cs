@@ -154,6 +154,18 @@ public sealed class XMPPConnection : IAsyncDisposable
     // Zur Laufzeit umschaltbar mit /sm on.
     public bool StreamManagementEnabled { get; set; } = false;
 
+    /// <summary>
+    /// Die beim Resource Binding gewünschte Resource; null überlässt die Wahl
+    /// dem Server (RFC 6120, Abschnitt 7.6).
+    /// </summary>
+    /// <remarks>
+    /// Der Vorgabewert stammt aus der Konsolenanwendung und ist für eine
+    /// Bibliothek eigentlich zu eng - zwei Nutzer im selben Prozess wünschen
+    /// sich damit dieselbe Resource. Er bleibt aus Rücksicht auf bestehende
+    /// Aufrufer, lässt sich aber jetzt setzen.
+    /// </remarks>
+    public string? Resource { get; set; } = $"console-{Environment.ProcessId}";
+
     // State
     public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
     public string FullJid { get; private set; } = string.Empty;
@@ -1579,21 +1591,60 @@ public sealed class XMPPConnection : IAsyncDisposable
     private async Task<string> PerformBindAsync(CancellationToken ct)
     {
 
-        var resource = $"console-{Environment.ProcessId}";
-
-        await SendAsync(
-            $"<iq type='set' id='bind1'>" +
-            $"<bind xmlns='{StreamNegotiation.BindNamespace}'>" +
-            $"<resource>{XmlEscaping.Escape(resource)}</resource>" +
-            $"</bind></iq>");
-
-        var response = await ReceiveElementAsync(ct);
+        var response = await RequestBindAsync("bind1", Resource, ct);
         var jid      = StreamNegotiation.ReadBoundJid(response);
 
-        if (jid is null)
-            throw new XMPPProtocolException($"Resource Binding abgelehnt: {DescribeRejection(response)}");
+        if (jid is not null)
+            return jid;
 
-        return jid;
+        // RFC 6120, Abschnitt 7.7.2.2: Ist die gewünschte Resource schon
+        // gebunden, darf der Server sie mit <conflict/> ablehnen - andere
+        // Server vergeben stattdessen selbst eine abweichende. Auf die
+        // Ablehnung gehört der zweite Versuch ohne Wunsch; nur so kommt ein
+        // zweiter Client desselben Kontos überhaupt herein.
+        //
+        // Nur bei <conflict/>: jede andere Bedingung käme beim zweiten Versuch
+        // genauso wieder.
+        if (Resource is not null && IsConflict(response))
+        {
+
+            _logger.LogInformation("Resource '{Resource}' ist belegt - der Server soll eine vergeben", Resource);
+
+            response = await RequestBindAsync("bind2", null, ct);
+            jid      = StreamNegotiation.ReadBoundJid(response);
+
+            if (jid is not null)
+                return jid;
+
+        }
+
+        throw new XMPPProtocolException($"Resource Binding abgelehnt: {DescribeRejection(response)}");
+
+    }
+
+    /// <summary>
+    /// Wurde die Anfrage mit <c>&lt;conflict/&gt;</c> abgelehnt?
+    /// </summary>
+    private static bool IsConflict(XElement response)
+        => StanzaError.TryParse(response.ToString(), out var error) &&
+           error?.Condition == "conflict";
+
+    /// <summary>
+    /// Schickt eine Bind-Anfrage und liest die Antwort.
+    /// </summary>
+    /// <param name="resource">Die gewünschte Resource, oder null für "vergib du".</param>
+    private async Task<XElement> RequestBindAsync(string id, string? resource, CancellationToken ct)
+    {
+
+        var wunsch = resource is not null
+                         ? $"<resource>{XmlEscaping.Escape(resource)}</resource>"
+                         : "";
+
+        await SendAsync($"<iq type='set' id='{id}'>" +
+                        $"<bind xmlns='{StreamNegotiation.BindNamespace}'>{wunsch}</bind>" +
+                        $"</iq>");
+
+        return await ReceiveElementAsync(ct);
 
     }
 

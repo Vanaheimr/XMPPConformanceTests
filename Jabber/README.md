@@ -43,7 +43,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Bereich | Status |
 |---------|--------|
 | SASL-Aushandlung und -Durchführung (§6) | ✅ |
-| Resource Binding (§7) | ⚠️ Feste Resource `console-<pid>`; eine Ablehnung bricht den Aufbau ab, statt einen JID anzunehmen |
+| Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
 | Antwort auf unbehandelte IQs (§8.2.3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
@@ -384,7 +384,7 @@ miteinander sprechen:
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
   `OfferStreamManagement`, `AnswerAckRequests`, `FailPings`, `FailDiscoInfo`,
-  `FailBind`, `SessionRequired`
+  `FailBind`, `SessionRequired`, `ConflictOnUsedResource`
 - `DeliverAfterBind`: Frames, die der Server unmittelbar nach der Bind-Antwort
   schickt — also mitten in die Aufbauphase des Clients hinein. `{jid}` darin
   wird durch den gebundenen Full-JID ersetzt.

@@ -155,6 +155,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean SessionRequired { get; set; } = false;
 
         /// <summary>
+        /// Antwortet der Server auf eine bereits belegte Resource mit
+        /// <c>&lt;conflict/&gt;</c>, statt selbst eine freie zu vergeben?
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 7.7.2.2 lässt dem Server beides. Der Default
+        /// bleibt das Vergeben einer abweichenden Resource - so verhalten sich
+        /// die verbreiteten Server, und die Mehr-Client-Tests im selben Prozess
+        /// hängen daran. Für die Gegenprobe gibt es diesen Schalter.
+        /// </remarks>
+        public Boolean ConflictOnUsedResource { get; set; } = false;
+
+        /// <summary>
         /// Frames, die der Server unmittelbar nach der Bind-Antwort an die
         /// Sitzung schickt - noch bevor der Client Carbons aktiviert und den
         /// Roster abgeholt hat.
@@ -708,31 +720,47 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            var requested = Regex.Match(frame, @"<resource>([^<]*)</resource>").Groups[1].Value;
-
-            if (String.IsNullOrEmpty(requested))
-                requested = "auto";
+            var requested  = Regex.Match(frame, @"<resource>([^<]*)</resource>").Groups[1].Value;
+            var gewuenscht = !String.IsNullOrEmpty(requested);
+            var konflikt   = false;
 
             // Der Client verwendet console-{ProcessId} als Resource. Laufen mehrere
             // Clients im selben Prozess, kollidieren sie - der Server vergibt dann
             // wie ein echter Server eine abweichende, eindeutige Resource.
-            String resource;
-
             lock (_lock)
             {
 
-                resource = requested;
-                var n = 2;
-
-                while (_sessions.Any(s => s.IsOpen &&
+                Boolean Belegt(String kandidat)
+                    => _sessions.Any(s => s.IsOpen &&
                                           String.Equals(s.BareJid, session.BareJid, StringComparison.OrdinalIgnoreCase) &&
-                                          String.Equals(s.Resource, resource, StringComparison.Ordinal)))
+                                          String.Equals(s.Resource, kandidat, StringComparison.Ordinal));
+
+                // RFC 6120, Abschnitt 7.7.2.2: Auf eine belegte Resource darf
+                // der Server auch schlicht mit <conflict/> antworten.
+                if (gewuenscht && ConflictOnUsedResource && Belegt(requested))
+                    konflikt = true;
+
+                else
                 {
-                    resource = $"{requested}-{n++}";
+
+                    var basis     = gewuenscht ? requested : "auto";
+                    var resource  = basis;
+                    var n         = 2;
+
+                    while (Belegt(resource))
+                        resource = $"{basis}-{n++}";
+
+                    session.Resource = resource;
+
                 }
 
-                session.Resource = resource;
+            }
 
+            if (konflikt)
+            {
+                await session.SendAsync(StanzaErrorIq(id, "conflict", "cancel",
+                                                      "Diese Resource ist bereits gebunden."));
+                return;
             }
 
             await session.SendAsync(

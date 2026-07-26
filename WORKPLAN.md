@@ -31,11 +31,12 @@ Stand: 2026-07-26
 | S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | `4fe23cd` |
 | S3c: Abmeldung beim Verbindungsende, auch bei Abriss | `fdb8c3b` |
 | S3b: Subscription-Handshake, Roster-Set lässt die Subscription in Ruhe | `590d38c` |
-| Client wertet `subscribed`/`unsubscribed`/`unsubscribe` aus, statt sie als Anwesenheit zu lesen | offen im Working Tree |
+| Client wertet `subscribed`/`unsubscribed`/`unsubscribe` aus, statt sie als Anwesenheit zu lesen | `a5bc49d` |
+| Resource einstellbar, `<conflict/>` führt zu einem zweiten Bind ohne Wunsch | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **207 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **213 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -113,7 +114,7 @@ echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
 
 ## Als Nächstes (Client)
 
-### 1. XEP-0198 gegen einen echten Server, dann Default umstellen
+### XEP-0198 gegen einen echten Server, dann Default umstellen
 
 Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen ejabberd oder
 Prosody; danach kann `StreamManagementEnabled` auf `true`.
@@ -122,16 +123,6 @@ Anschließend Stream-Resume: `ResumeAsync` und `GetUnackedStanzas` existieren,
 werden aber nirgends aufgerufen — nach einem Reconnect baut der Client neu auf
 und die unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht
 `<resume/>` ebenfalls noch nicht, das wäre gleich mitzumachen.
-
-### 2. Feste Resource ersetzen
-
-Der Client bittet um `console-<pid>`. Laufen zwei Clients im selben Prozess,
-kollidieren sie, und ein Server ohne eigene Vergabe antwortet mit
-`<conflict/>` — was seit dem Umbau der Aufbauphase auch richtig als Ablehnung
-ankommt, den Aufbau aber abbricht. Sauber wäre: bei `<conflict/>` einmal ohne
-`<resource/>` neu binden und die vom Server vergebene Resource übernehmen.
-
-**Umfang:** klein.
 
 ---
 
