@@ -25,6 +25,11 @@ using System.Text;
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
+    // Siehe XMPPServer: Hermods WebSocket-Namespace verdeckt den gleichnamigen
+    // Typ. Der Alias muss innerhalb der Namespace-Deklaration stehen - ausserhalb
+    // gewaenne das Namespace-Member.
+    using WebSocket = System.Net.WebSockets.WebSocket;
+
     /// <summary>
     /// Eine einzelne Client-Verbindung auf dem Testserver - nach dem Resource
     /// Binding entspricht sie genau einer Resource eines Kontos.

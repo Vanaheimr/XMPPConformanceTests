@@ -28,6 +28,16 @@ using System.Text.RegularExpressions;
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
+    // Hermods Namespace org.GraphDefined.Vanaheimr.Hermod.WebSocket verdeckt in
+    // diesem Namespace den Typ System.Net.WebSockets.WebSocket. Der Alias haelt
+    // beide erreichbar, solange der Transport noch auf HttpListener sitzt; er
+    // muss dafuer innerhalb der Namespace-Deklaration stehen, weil ein
+    // Namespace-Member sonst gegen einen Alias der Compilation Unit gewinnt.
+    using WebSocket = System.Net.WebSockets.WebSocket;
+
+    // Dasselbe für IPAddress: Hermod bringt einen eigenen Typ dieses Namens mit.
+    using IPAddress = System.Net.IPAddress;
+
     /// <summary>
     /// Ein minimaler XMPP-over-WebSocket-Server (RFC 7395).
     ///

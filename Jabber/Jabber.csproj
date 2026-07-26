@@ -14,6 +14,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Der Testserver benutzt Hermods WebSocket-Server samt TLS, statt WebSocket-Framing selbst zu schreiben. -->
+    <ProjectReference Include="..\libs\Hermod\Hermod\Hermod.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Zweiter Name fuer den Fall, dass die Tests spaeter nach HermodTests wandern. -->
     <InternalsVisibleTo Include="org.GraphDefined.Vanaheimr.Hermod.XMPP.Tests" />
     <InternalsVisibleTo Include="org.GraphDefined.Vanaheimr.Hermod.Tests" />
