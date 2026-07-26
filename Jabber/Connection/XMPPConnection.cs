@@ -1192,6 +1192,16 @@ public sealed class XMPPConnection : IAsyncDisposable
         {
             Roster.RaiseSubscriptionRequest(from, element.ChildValue("status") ?? "");
         }
+
+        // RFC 6121, Abschnitt 3: Zustandsänderungen, keine Anwesenheit. Sie
+        // liefen früher durch UpdatePresence, und weil dort alles ohne
+        // 'unavailable' als anwesend gilt, machte ausgerechnet ein
+        // <presence type='unsubscribed'/> den Kontakt online.
+        else if (type is "subscribed" or "unsubscribed" or "unsubscribe")
+        {
+            Roster.ProcessSubscriptionChange(from, type);
+        }
+
         else
         {
             var show = element.ChildValue("show");

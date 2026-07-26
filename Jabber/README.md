@@ -58,7 +58,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Absender-Validierung von Roster-Pushes (§2.1.6) | ✅ Nur ohne `from` oder mit dem eigenen Bare-JID; sonst verworfen und als Spoofing gemeldet |
 | Roster-Versionierung (§2.6) | ❌ API vorhanden (`Roster.Version`, `RosterStanzaBuilder.GetRoster`), aber ungenutzt |
 | Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
-| Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ❌ Werden nicht in den Roster eingepflegt |
+| Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Ändern den Subscription-Zustand und gelten nicht als Anwesenheit |
 | Message-Typen (`chat`/`error`/`groupchat`) | ❌ Nicht unterschieden |
 
 ### RFC 7395 — XMPP über WebSocket

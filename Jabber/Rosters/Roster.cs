@@ -68,6 +68,52 @@ public sealed class Roster
         }
     }
 
+    /// <summary>
+    /// RFC 6121, Abschnitt 3: Wendet eine Subscription-Änderung an, die als
+    /// Presence-Stanza hereinkommt.
+    /// </summary>
+    /// <remarks>
+    /// Der maßgebliche Zustand kommt vom Server als Roster-Push; diese Stanzas
+    /// sind die Benachrichtigung dazu. Sie hier trotzdem auszuwerten hält den
+    /// Roster auch dann richtig, wenn der Push ausbleibt - vor allem aber
+    /// hält es sie von <see cref="UpdatePresence"/> fern, wo alles ohne
+    /// <c>type='unavailable'</c> als anwesend zählt.
+    ///
+    /// Ein unbekannter Kontakt wird bewusst nicht angelegt: Einträge entstehen
+    /// durch den Roster-Push, nicht durch eine Presence.
+    /// </remarks>
+    /// <param name="from">Absender der Stanza.</param>
+    /// <param name="type">subscribed, unsubscribed oder unsubscribe.</param>
+    public void ProcessSubscriptionChange(string from, string type)
+    {
+        var bareJid = JidUtilities.Bare(from);
+
+        lock (_lock)
+        {
+            if (!_items.TryGetValue(bareJid, out var item))
+                return;
+
+            item.Subscription = type switch
+            {
+                "subscribed"    => item.Subscription.GrantTo(),
+                "unsubscribed"  => item.Subscription.RevokeTo(),
+                "unsubscribe"   => item.Subscription.RevokeFrom(),
+                _               => item.Subscription
+            };
+
+            // Ohne 'to' kommt keine Presence mehr herein. Was zuletzt bekannt
+            // war, würde ab jetzt beliebig alt - der Kontakt gilt deshalb als
+            // offline, statt auf ewig im letzten gesehenen Zustand zu stehen.
+            if (type == "unsubscribed")
+            {
+                item.Presence        = PresenceState.Offline;
+                item.PresenceStatus  = null;
+            }
+
+            OnItemUpdated?.Invoke(item);
+        }
+    }
+
     public void RemoveItem(string jid)
     {
         var bareJid = JidUtilities.Bare(jid);

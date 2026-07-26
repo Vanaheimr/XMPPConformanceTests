@@ -30,11 +30,12 @@ Stand: 2026-07-26
 | Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | `cc9dccb` |
 | S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | `4fe23cd` |
 | S3c: Abmeldung beim Verbindungsende, auch bei Abriss | `fdb8c3b` |
-| S3b: Subscription-Handshake, Roster-Set lässt die Subscription in Ruhe | offen im Working Tree |
+| S3b: Subscription-Handshake, Roster-Set lässt die Subscription in Ruhe | `590d38c` |
+| Client wertet `subscribed`/`unsubscribed`/`unsubscribe` aus, statt sie als Anwesenheit zu lesen | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **196 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **207 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -73,8 +74,6 @@ Klartext — was S1 voraussetzt, weil PLAIN sonst der einzige Mechanismus bleibt
 Erledigt. Ungerichtete Presence geht nur noch an Kontakte mit `from` oder
 `both` und an die eigenen weiteren Resourcen; dazu kommen Presence-Probes und
 das Nachliefern des Kontaktzustands beim Anmelden.
-
-Was dabei offen blieb und jetzt der nächste Schritt ist:
 
 ### S3b. Subscription-Handshake (RFC 6121 §3) ✅
 
@@ -139,11 +138,6 @@ ankommt, den Aufbau aber abbricht. Sauber wäre: bei `<conflict/>` einmal ohne
 ## Später
 
 ### Protokoll
-- Eingehende `subscribed`/`unsubscribed`/`unsubscribe` im Client auswerten.
-  Seit S3b schickt der Server dazu Roster-Pushes, der Zustand kommt also an —
-  die Stanzas selbst laufen aber weiter durch `UpdatePresence` und setzen den
-  Kontakt dabei fälschlich auf *online*, weil sie kein `type='unavailable'`
-  tragen. Das ist jetzt erreichbar geworden und gehört zusammen behoben.
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
 - Roster-Versionierung nutzen (`Roster.Version` und `RosterStanzaBuilder.GetRoster` liegen ungenutzt herum)
 - SASL-Downgrade-Schutz: gewählten Mechanismus pinnen statt blind der Server-Ankündigung folgen
