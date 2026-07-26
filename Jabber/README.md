@@ -1,30 +1,92 @@
 # XMPP Console Client (.NET 10)
 
-Ein vollständiger XMPP-Client für die Kommandozeile mit WebSocket-Transport und umfassender XEP-Unterstützung.
+Ein XMPP-Client für die Kommandozeile mit WebSocket-Transport (RFC 7395) und
+SCRAM-Authentifizierung.
 
-## Features
+> **Reifegrad:** Experimentell. Der Client verbindet, authentifiziert und
+> chattet gegen ejabberd, aber Verbindungsmanagement, Fehlerbehandlung und
+> Stream Management sind unvollständig (siehe [Bekannte
+> Einschränkungen](#bekannte-einschränkungen)). Nicht für den Produktivbetrieb.
 
-### Authentifizierung
+## Authentifizierung
+
 | Methode | Status |
 |---------|--------|
-| **SCRAM-SHA-256** | ✅ Bevorzugt |
-| **SCRAM-SHA-1** | ✅ Unterstützt |
-| SASL PLAIN | ✅ Fallback |
+| SCRAM-SHA-256 | ✅ Bevorzugt |
+| SCRAM-SHA-1 | ✅ Fallback |
+| SASL PLAIN | ⚠️ Letzter Fallback, ohne Downgrade-Schutz |
+| SCRAM-*-PLUS (Channel Binding) | ❌ Nicht implementiert |
 
-### XEP-Unterstützung
+Der Mechanismus wird allein aus der Server-Ankündigung gewählt und nicht
+gepinnt: Ein aktiver MITM, der die SCRAM-Angebote entfernt, bekommt PLAIN.
 
-| XEP | Name | Beschreibung |
-|-----|------|--------------|
-| RFC 7395 | WebSocket Transport | Firewall-freundlich, Port 443 |
-| **XEP-0198** | Stream Management | Zuverlässige Zustellung, Resume |
-| **XEP-0199** | XMPP Ping | Keepalive, RTT-Messung |
-| **XEP-0030** | Service Discovery | Feature-Erkennung |
-| **XEP-0115** | Entity Capabilities | Capability Hashing |
-| **XEP-0333** | Chat Markers | Erweiterte Lesebestätigungen |
-| XEP-0085 | Chat State Notifications | "tippt gerade..." |
-| XEP-0184 | Message Receipts | Zustellbestätigung |
-| XEP-0280 | Message Carbons | Multi-Device Sync |
-| XEP-0060 | Publish-Subscribe | Event-basiert |
+## XEP-Unterstützung
+
+Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · 🚧 vorhanden, aber standardmäßig aus
+
+| XEP | Name | Status | Anmerkung |
+|-----|------|--------|-----------|
+| XEP-0030 | Service Discovery | ⚠️ | Abfrage + Antwort; Antwort setzt kein `node`-Attribut |
+| XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst; IQ-Ergebnisse werden nicht korreliert, Fehler bleiben still |
+| XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
+| XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
+| XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
+| XEP-0198 | Stream Management | 🚧 | Aus per Default; ausgehende Zählung unvollständig, kein Resume |
+| XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
+| XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
+| XEP-0333 | Chat Markers | ⚠️ | Parser erwartet feste Attribut-Reihenfolge |
+
+## RFC-Konformität
+
+### RFC 6120 — XMPP Core
+
+| Bereich | Status |
+|---------|--------|
+| SASL-Aushandlung und -Durchführung (§6) | ✅ |
+| Resource Binding (§7) | ⚠️ Feste Resource `console-<pid>`, Bind-Fehler werden nicht behandelt |
+| Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn als `optional` markiert |
+| Stanza-Fehler (§8.3) | ❌ `<error/>`-Nutzlasten werden nicht ausgewertet |
+| Antwort auf unbehandelte IQs (§8.2.3) | ❌ **MUST-Verstoß** — unbekannte `iq get`/`set` werden still verworfen statt mit `<service-unavailable/>` beantwortet |
+| Stream-Fehler (§4.9) | ❌ Nicht geparst |
+
+### RFC 6121 — Instant Messaging und Presence
+
+| Bereich | Status |
+|---------|--------|
+| Roster abrufen, hinzufügen, entfernen, Gruppen | ✅ |
+| Roster-Pushes anwenden | ✅ |
+| Absender-Validierung von Roster-Pushes (§2.1.6) | ✅ Nur ohne `from` oder mit dem eigenen Bare-JID; sonst verworfen und als Spoofing gemeldet |
+| Roster-Versionierung (§2.6) | ❌ API vorhanden (`Roster.Version`, `RosterStanzaBuilder.GetRoster`), aber ungenutzt |
+| Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
+| Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ❌ Werden nicht in den Roster eingepflegt |
+| Message-Typen (`chat`/`error`/`groupchat`) | ❌ Nicht unterschieden |
+
+### RFC 7395 — XMPP über WebSocket
+
+| Bereich | Status |
+|---------|--------|
+| Subprotokoll `xmpp`, `<open/>`/`<close/>`-Framing | ✅ |
+| Close-Handshake | ✅ `<close/>` wird gesendet, dann bis zu 3 s auf die Gegenseite gewartet, danach Socket-Abbruch |
+| Endpunkt-Discovery (XEP-0156 / `host-meta`) | ❌ Fest verdrahtet auf `wss://<domain>:5443/ws` (ejabberd-Default) |
+
+Der Default-Port ist ejabberd-spezifisch. Für andere Server muss die URL
+explizit angegeben werden, z. B. Prosody: `wss://<host>:5281/xmpp-websocket`.
+
+### RFC 5802 / RFC 7677 — SCRAM
+
+| Bereich | Status |
+|---------|--------|
+| Vier-Schritt-Handshake | ✅ |
+| Nonce-Prüfung gegen MITM | ✅ |
+| Server-Signatur-Verifikation (konstante Laufzeit) | ✅ |
+| SASLprep (RFC 4013) | ⚠️ Auf NFKC-Normalisierung reduziert — nur für ASCII zuverlässig |
+| Channel Binding (RFC 9266 `tls-exporter`) | ❌ |
+
+### RFC 7622 — JID-Behandlung
+
+Kein PRECIS/Stringprep. Bare-JIDs werden per `ToLowerInvariant()` verglichen,
+Resourceparts werden dabei ebenfalls kleingeschrieben, obwohl sie
+case-sensitiv sind.
 
 ## Installation
 
@@ -37,189 +99,350 @@ dotnet run
 ## Verwendung
 
 ```bash
-# Interaktiv
+# Interaktiv (fragt JID, Passwort und WebSocket-URI ab)
 dotnet run
 
 # Mit Parametern
-dotnet run -- -j user@jabber.org -p geheim
+dotnet run -- -j user@example.com -p geheim
 
-# Mit WebSocket-URL
-dotnet run -- -j user@server.com -p pw -w wss://xmpp.server.com/ws
+# Mit expliziter WebSocket-URL (bei nicht-ejabberd-Servern nötig)
+dotnet run -- -j user@example.com -p pw -w wss://xmpp.example.com:5281/xmpp-websocket
+
+# Mit vollem Protokoll-Log
+dotnet run -- -j user@example.com -p geheim -v
 ```
+
+| Option | Bedeutung |
+|--------|-----------|
+| `-j`, `--jid <jid>` | JID im Format `user@domain` |
+| `-p`, `--password <pw>` | Passwort |
+| `-w`, `--ws`, `--websocket <uri>` | WebSocket-URI |
+| `-v`, `--verbose` | Ausführliches Logging (Trace-Level, zeigt alle Stanzas) |
+| `-h`, `--help` | Hilfe anzeigen |
 
 ## Kommandos
 
 ### Nachrichten
 ```
-/to <jid>              Chat-Partner setzen
-/msg <jid> <text>      Nachricht senden
-/typing                Tippt-Status senden
-/mark displayed        Nachricht als gelesen markieren
+/to <jid>                 Chat-Partner setzen (Aliase: /chat)
+/to                       Chat-Partner zurücksetzen
+/msg <jid> <text>         Einzelne Nachricht senden (Alias: /m)
+/status [show] [text]     Status setzen: available|away|chat|dnd|xa (Alias: /s)
 ```
 
-### Service Discovery (XEP-0030)
+### Kontakte (Roster)
 ```
-/disco server          Server-Features abfragen
-/disco info <jid>      Features eines JIDs
-/disco items <jid>     Services auflisten
-/features              Eigene Features anzeigen
+/roster [filter]          Kontakte anzeigen (Aliase: /list, /contacts)
+/online                   Nur Online-Kontakte
+/add <jid> [name] [g1,g2] Kontakt hinzufügen und Subscription anfragen
+/remove <jid>             Kontakt entfernen (Alias: /del)
+/info <jid>               Kontakt-Details
+/groups                   Gruppen mit Kontaktanzahl
+/pending                  Offene Kontaktanfragen
+/accept [jid]             Kontaktanfrage annehmen (ohne Argument: die erste)
+/deny [jid]               Kontaktanfrage ablehnen (ohne Argument: die erste)
 ```
 
-### Ping, Keepalive & Stream Management
+### Chat States (XEP-0085)
 ```
-/ping [jid]            Ping senden (misst RTT)
-/keepalive [sek]       Keepalive Status/Interval setzen
-/sm                    Stream Management Status
+/typing                   'tippt gerade' senden
+/paused                   'hat aufgehört zu tippen' senden
+/gone                     Chat verlassen und Empfänger zurücksetzen
 ```
 
 ### Chat Markers (XEP-0333)
 ```
-/mark received         Nachricht empfangen
-/mark displayed        Nachricht gelesen
-/mark ack              Nachricht bestätigt
+/mark received [msg-id]   Als empfangen markieren (Alias: r)
+/mark displayed [msg-id]  Als gelesen markieren (Aliase: d, read)
+/mark ack [msg-id]        Bestätigen (Aliase: acknowledged, a)
+```
+Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
+
+### Service Discovery (XEP-0030)
+```
+/disco                    Unterbefehle anzeigen
+/disco server             Features des eigenen Servers
+/disco info <jid>         Features eines JIDs
+/disco items <jid>        Services/Items eines JIDs
+/features                 Server-Features und eigene Features
+```
+
+### PubSub (XEP-0060)
+```
+/pubsub                        Unterbefehle anzeigen
+/pubsub sub <node>             Node abonnieren (Alias: subscribe)
+/pubsub unsub <node>           Abo beenden (Alias: unsubscribe)
+/pubsub pub <node> <id> <data> Item veröffentlichen (Alias: publish)
+/pubsub get <node> [max]       Items abrufen (Alias: items)
+/pubsub create <node>          Node erstellen
+/pubsub delete <node>          Node löschen
 ```
 
 ### Verbindung
 ```
-/who        Status anzeigen
-/reconnect  Neu verbinden
-/disconnect Trennen
+/ping [jid]               Ping senden und RTT messen (XEP-0199)
+/keepalive [on|off|sek]   Keepalive-Status anzeigen/ändern
+/sm [on|off]              Stream-Management-Status anzeigen/ändern
+/who                      Eigenen Verbindungsstatus anzeigen
+/carbons                  Carbon-Status anzeigen
+/reconnect                Neu verbinden
+/disconnect               Verbindung trennen
+/raw                      XML-Debug-Ausgabe umschalten
+/help                     Hilfe (Aliase: /h, /?)
+/quit                     Beenden (Aliase: /q, /exit)
 ```
 
 ## Keepalive (Anti-Timeout)
 
-Der Client sendet automatisch alle 30 Sekunden einen Keepalive um Server-Timeouts zu verhindern:
+Standard-Intervall: **25 Sekunden**. Änderungen wirken erst nach einem
+Reconnect, da die Schleife beim Verbindungsaufbau gestartet wird.
 
 ```
 /keepalive
 Keepalive Status:
   Aktiviert: True
-  Interval: 30s
-  Methode: Stream Management <r/>
+  Interval: 25s
+  Methode: XEP-0199 Ping
 
-/keepalive 60      # Interval auf 60s setzen
+/keepalive 60      # Intervall auf 60s setzen
 /keepalive off     # Deaktivieren
 ```
 
-**Methoden:**
-- Mit Stream Management: Sendet `<r/>` (Request Ack) - sehr leichtgewichtig
-- Ohne Stream Management: Sendet XEP-0199 Ping
-
-## Architektur
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    Program.cs                        │
-│         Console UI, Event-Handler, Commands          │
-└───────────────────────┬─────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────┐
-│               XmppConnection.cs                      │
-│                                                      │
-│  ┌─────────────┐  ┌───────────────┐  ┌───────────┐  │
-│  │ WebSocket   │  │ SCRAM-SHA-1/  │  │  Stream   │  │
-│  │ RFC 7395    │  │ 256 Auth      │  │  Mgmt     │  │
-│  └─────────────┘  └───────────────┘  └───────────┘  │
-└───────────────────────┬─────────────────────────────┘
-                        │
-    ┌───────────────────┼───────────────────┐
-    │                   │                   │
-    ▼                   ▼                   ▼
-┌─────────┐      ┌────────────┐      ┌────────────┐
-│ScramAuth│      │XepExtensions│     │XepAdvanced │
-│         │      │            │      │            │
-│SCRAM-   │      │- ChatState │      │- Ping      │
-│SHA-1/256│      │- Receipts  │      │- Disco     │
-│         │      │- Carbons   │      │- Caps      │
-│         │      │- PubSub    │      │- SM        │
-│         │      │            │      │- Markers   │
-└─────────┘      └────────────┘      └────────────┘
-```
-
-## SCRAM-SHA-1/256 Authentifizierung
-
-Sicherer als PLAIN - Challenge-Response ohne Klartext-Passwort:
-
-```
-Client → Server: n,,n=user,r=clientNonce
-Server → Client: r=nonce,s=salt,i=4096
-Client → Server: c=biws,r=nonce,p=clientProof
-Server → Client: v=serverSignature
-```
-
-## Stream Management (XEP-0198)
-
-Zuverlässige Nachrichtenzustellung:
-- **Acknowledgements**: Server bestätigt empfangene Stanzas
-- **Resume**: Nach Disconnect wird Stream wiederhergestellt
-- **Keine verlorenen Nachrichten**: Unbestätigte werden erneut gesendet
-
-```
-/sm
-Stream Management Status:
-  Eingehend: 42
-  Ausgehend: 38
-  Unbestätigt: 2
-  Resume möglich: true
-```
-
-## Service Discovery (XEP-0030)
-
-```
-/disco server
-[*] Disco#info für jabber.org...
-Identities:
-  server/im (ejabberd)
-Features (47):
-  urn:xmpp:carbons:2
-  urn:xmpp:sm:3
-  urn:xmpp:mam:2
-  ...
-```
-
-## Chat Markers (XEP-0333)
-
-Erweiterte Lesebestätigungen:
-
-| Marker | Symbol | Bedeutung |
-|--------|--------|-----------|
-| `received` | ✓ | Nachricht empfangen |
-| `displayed` | 👁 | Nachricht gelesen |
-| `acknowledged` | ✓✓ | Nachricht bestätigt |
-
-## Entity Capabilities (XEP-0115)
-
-Capability Hashing für effiziente Feature-Discovery:
-- Hash der unterstützten Features wird in Presence mitgesendet
-- Einmaliges Abfragen pro Hash, dann gecacht
-- Vermeidet wiederholte Disco-Queries
+**Methoden:** Ist Stream Management aktiv, wird ein `<r/>` gesendet
+(leichtgewichtig), sonst ein XEP-0199 Ping.
 
 ## Spoofing-Schutz
 
-Drei-Ebenen-Verteidigung:
+Der Client prüft bei drei Nachrichtenarten den Absender, bevor er sie
+verarbeitet:
 
-1. **Receipts**: Nur vom erwarteten Empfänger
-2. **Carbons**: Nur vom eigenen Bare-JID
-3. **PubSub**: Nur vom konfigurierten Service
+1. **Carbons (XEP-0280)** — müssen vom eigenen Bare-JID stammen (also vom
+   eigenen Server). Andernfalls könnte jeder Kontakt beliebige Nachrichten
+   als angeblich selbst gesendet einschleusen.
+2. **Receipts (XEP-0184)** — müssen vom Bare-JID des ursprünglichen
+   Empfängers stammen.
+3. **PubSub-Events (XEP-0060)** — müssen vom konfigurierten PubSub-Service
+   stammen.
+4. **Roster-Pushes (RFC 6121 §2.1.6)** — müssen ohne `from` kommen oder vom
+   eigenen Bare-JID. Sonst könnte jeder Absender Kontakte in den lokalen
+   Roster einschleusen oder daraus löschen.
 
-## Dateien
+**Nicht abgedeckt:** der XEP-0115-Caps-Cache, der die Antwort nicht gegen den
+angekündigten Hash prüft.
 
-| Datei | Beschreibung |
-|-------|--------------|
-| `XmppConnection.cs` | WebSocket, Auth, Stanza-Routing |
-| `ScramAuth.cs` | SCRAM-SHA-1/256 Implementierung |
-| `XepExtensions.cs` | ChatState, Receipts, Carbons, PubSub |
-| `XepAdvanced.cs` | Ping, Disco, Caps, StreamMgmt, Markers |
-| `Roster.cs` | Kontaktverwaltung |
-| `Program.cs` | Console UI |
+## Architektur
+
+Drei Schichten, klar getrennt:
+
+| Schicht | Typ | Aufgabe |
+|---------|-----|---------|
+| UI | `Program` | Kommandozeile, Kommando-Dispatch, Darstellung. Enthält keine Protokolllogik. |
+| Anwendung | `XMPPClient` | Sitzungszustand (Chatpartner, offene Kontaktanfragen, letzte Nachrichten-ID) und zusammengesetzte Operationen. |
+| Protokoll | `XMPPConnection` | WebSocket-I/O, SASL, Resource Binding, Stanza-Routing. |
+
+`XMPPClient` und `XMPPConnection` geben nichts auf der Konsole aus — alles läuft
+über Events und die injizierte `ILoggerFactory`.
+
+### Als Bibliothek verwenden
+
+```csharp
+using Microsoft.Extensions.Logging;
+using org.GraphDefined.Vanaheimr.Hermod.XMPP;
+
+using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
+
+await using var client = new XMPPClient(
+                             "user@example.com",
+                             "geheim",
+                             "wss://xmpp.example.com:5443/ws",
+                             loggerFactory);
+
+client.OnMessage += msg =>
+    Console.WriteLine($"{msg.FromBareJid}: {msg.Body}");
+
+client.OnSubscriptionRequest += async (from, status) =>
+    await client.AcceptSubscriptionAsync(from);
+
+await client.ConnectAsync();
+
+client.SetChatPartner("kontakt@example.com");
+await client.SendMessageAsync("Hallo!");
+```
+
+Die `ILoggerFactory` ist optional; ohne sie wird auf `NullLogger` zurückgefallen
+und gar nicht geloggt. Log-Level: `Information` für Verbindungsschritte,
+`Debug` für Protokolldetails, `Trace` für einzelne Stanzas, `Warning` für
+abgewehrte Spoofing-Versuche und Protokollauffälligkeiten.
+
+## Projektstruktur
+
+Namespace ist durchgehend flach `org.GraphDefined.Vanaheimr.Hermod.XMPP`
+(wie `Hermod.DNS` und `Hermod.HTTP`); die Ordner gliedern nur.
+Eine Datei pro Typ:
+
+```
+Jabber/
+├── Program.cs                            Konsolen-Frontend
+├── Client/
+│   ├── XMPPClient.cs                     Anwendungsnaher Client
+│   └── XMPPMessage.cs                    Empfangene Chat-Nachricht
+├── Common/
+│   ├── JidUtilities.cs                   Bare-JID-Ermittlung
+│   └── XmlEscaping.cs                    XML-Escaping
+├── Auth/
+│   ├── AuthenticationException.cs
+│   ├── SCRAMAuthenticator.cs             RFC 5802 / RFC 7677
+│   └── SCRAMMechanism.cs
+├── Connection/
+│   ├── ConnectionState.cs
+│   └── XMPPConnection.cs                 WebSocket-I/O, Auth-Ablauf, Stanza-Routing
+├── Rosters/
+│   ├── PresenceState.cs
+│   ├── Roster.cs                         Kontaktverwaltung
+│   ├── RosterItem.cs
+│   ├── RosterStanzaBuilder.cs
+│   └── SubscriptionState.cs
+└── XEPs/
+    ├── XEP0030ServiceDiscovery/          DiscoManager, DiscoInfo, DiscoItems,
+    │                                     DiscoIdentity, DiscoItem
+    ├── XEP0060PubSub/                    PubSubManager, PubSubBuilder,
+    │                                     PubSubEvent, PubSubEventType, PubSubItem
+    ├── XEP0085ChatStates/                ChatState, ChatStateExtensions
+    ├── XEP0115EntityCapabilities/        EntityCapsManager
+    ├── XEP0184MessageReceipts/           ReceiptTracker, ReceiptBuilder,
+    │                                     MessageReceipt, PendingReceipt
+    ├── XEP0198StreamManagement/          StreamManagementManager
+    ├── XEP0199Ping/                      PingManager
+    ├── XEP0280MessageCarbons/            CarbonManager, CarbonMessage, CarbonResult
+    └── XEP0333ChatMarkers/               ChatMarkers, ChatMarker, ChatMarkerType
+```
+
+Die XEP-Manager bekommen ihre Sende-Funktion als `Func<string, Task>` injiziert
+und kennen den Transport nicht — sie sind damit unabhängig von
+`XMPPConnection` testbar.
+
+## Tests
+
+```bash
+dotnet test ../Jabber.Tests/Jabber.Tests.csproj
+```
+
+Die Suite liegt in `Jabber.Tests/XMPP/` und nutzt NUnit in denselben Versionen
+wie `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter 6.2.0, Test.Sdk 18.8.1).
+Namespaces und Ordnerschnitt entsprechen `HermodTests`, damit sich der Inhalt
+von `XMPP/` später unverändert dorthin verschieben lässt.
+
+### FakeXMPPServer
+
+`Jabber.Tests/XMPP/Server/` enthält einen echten XMPP-over-WebSocket-Server
+(RFC 7395) für Tests. Er reicht so weit, dass sich mehrere echte
+`XMPPClient`-Instanzen gleichzeitig anmelden und miteinander sprechen:
+
+- SASL PLAIN gegen hinterlegte Konten, inklusive Fehlanmeldung
+- Resource Binding mit eindeutiger Resource je Verbindung
+- Routing von `message`, `presence` und `iq` zwischen den Sitzungen
+- XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
+- serverseitiger Roster mit Roster-Push
+- Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
+  `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`
+
+```csharp
+var alice = await ConnectClientAsync("alice");
+var bob   = await ConnectClientAsync("bob");
+
+bob.OnMessage += m => Console.WriteLine($"{m.FromBareJid}: {m.Body}");
+await alice.SendMessageAsync(bob.BareJid, "Hallo Bob!");
+```
+
+Verbindungsabrisse simuliert `Server.KillAllSessions()`, einzelne Resourcen
+`Server.SessionOf(fullJid)!.Kill()`.
+
+### Kryptografische Testvektoren
+
+Die Implementierungen werden gegen die veröffentlichten Vektoren gerechnet,
+nicht gegen sich selbst:
+
+| Quelle | Was geprüft wird | Ergebnis |
+|--------|------------------|----------|
+| RFC 5802 §5 | SCRAM-SHA-1: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
+| RFC 7677 §3 | SCRAM-SHA-256: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
+| XEP-0115 §5.2 | Verification String `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ exakt reproduziert |
+
+Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
+die XOR-Verknüpfung und die Server-Signaturprüfung gemeinsam abgedeckt.
+
+Die Vektorarbeit hat zwei Defekte aufgedeckt, die inzwischen behoben sind. Die
+beiden Tests bleiben als Regressionstests stehen — dass sie greifen, ist per
+Gegenprobe belegt: mit zurückgedrehtem Fix schlagen genau diese zwei fehl:
+
+- `IterationCountFollowingNonceWithPadding_IsParsedCorrectly` — `ExtractValue`
+  suchte mit dem unverankerten Muster `{key}=([^,]+)`. Endet die kombinierte
+  Nonce auf `i==`, traf die Suche nach dem Iterationszähler dieses Vorkommen
+  und lieferte `"="`; `Int32.Parse` warf dann eine `FormatException` statt
+  einer `AuthenticationException`. Das Muster ist jetzt auf `(?:^|,){key}=`
+  verankert.
+- `Features_AreSortedByOctetOrder` — XEP-0115 §5.1 verlangt Oktett-Reihenfolge,
+  `Order()` sortierte kulturabhängig (`'a'` vor `'B'` statt `'B'` vor `'a'`).
+  Für die aktuelle Feature-Liste fallen beide Reihenfolgen zufällig zusammen,
+  der offizielle Vektor allein deckte den Fehler also nicht auf. Jetzt
+  `Order(StringComparer.Ordinal)`.
+
+Dieselbe Fehlerklasse steckte in der Identitäten-Sortierung und ist mit
+`Identities_AreSortedByOctetOrderIncludingName` ebenfalls behoben und abgedeckt:
+sortiert wird jetzt oktettweise über genau die Zeichenkette
+`category/type/xml:lang/name`, die auch in den Hash eingeht — vorher lief die
+Sortierung nur über `category/type`, sodass bei gleichem Präfix die
+Einfügereihenfolge stehenblieb. Der `xml:lang`-Platz bleibt leer, weil
+`DiscoIdentity` kein `xml:lang` trägt.
+
+Zum Festnageln des Client-Nonce trägt `SCRAMAuthenticator` eine
+`internal`-Eigenschaft `FixedClientNonce`; ohne sie liessen sich AuthMessage
+und Proof nicht reproduzieren. Sichtbar gemacht wird sie über
+`InternalsVisibleTo` in `Jabber.csproj` — für beide möglichen Testassembly-Namen.
 
 ## Bekannte Einschränkungen
 
-- Kein SCRAM mit Channel Binding (SCRAM-SHA-*-PLUS)
-- Keine End-to-End-Verschlüsselung (OMEMO)
-- Kein Multi-User Chat (MUC/XEP-0045)
-- Kein Message Archive Management (MAM/XEP-0313)
+### Architektur
+- **XML wird durchgehend per Regex und `string.Contains` geparst**, nicht mit
+  einem XML-Parser. Das ist die Ursache der meisten Interop-Lücken oben:
+  Attribut-Reihenfolge, Quote-Stil und Namespace-Präfixe brechen die Erkennung,
+  und verschachtelte Elemente (z. B. in `<forwarded/>`) können äußere treffen.
+- **Zwei konkurrierende Empfangspfade.** Während des Verbindungsaufbaus liest
+  `ConnectInternalAsync` selbst vom Socket, statt die vorhandene
+  `TaskCompletionSource`-Korrelation zu nutzen (wie sie `DiscoManager` und
+  `PingManager` bereits richtig machen). Sie liest stur bis zu zehn Stanzas und
+  **verwirft** alles Unpassende (`Überspringe Stanza …`) — auch echte
+  Nachrichten und Presences. Erst danach startet die Empfangsschleife.
+- **Caps-Hash deckt keine XEP-0128-Datenformulare ab.** XEP-0115 §5.1 nimmt
+  `FORM_TYPE`-Felder mit in den Verification String auf;
+  `CalculateVerificationString` verarbeitet nur Identitäten und Features. Solange
+  die eigene disco#info-Antwort keine Formulare enthält, stimmt der Hash.
+- **Log-Ausgabe und Konsolen-UI überlagern sich.** Der Standard-Konsolenlogger
+  schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
+  eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
+  wäre die saubere Lösung.
+
+### Funktionsumfang
+- Kein Multi-User Chat (XEP-0045)
+- Kein Message Archive Management (XEP-0313)
+- Keine Ende-zu-Ende-Verschlüsselung (OMEMO, XEP-0384)
+- Kein HTTP File Upload (XEP-0363)
+- Keine Client State Indication (XEP-0352)
+- Kein Last Message Correction (XEP-0308)
+- Kein TCP-Transport — `XmppConnection.CreateTcp` erzeugt eine `tcp://`-URI,
+  die `ClientWebSocket` ablehnt, und ist damit funktionslos.
+
+### Ungenutzte API-Fläche
+Folgende öffentliche Member werden nirgends aufgerufen und sind ungetestet:
+`MessageReceipt`, `ReceiptTracker.GetTimedOutMessages`,
+`PubSubManager.OnSubscriptionResult`, `PubSubBuilder.Retract`,
+`PubSubBuilder.DiscoverNodes`, `StreamManagementManager.ResumeAsync`/
+`GetUnackedStanzas`/`OnStanzasLost`, `EntityCapsManager.GetCachedInfo`,
+`RosterStanzaBuilder.GetRoster`/`Unsubscribe`, `DiscoInfo.Supports*`,
+`CarbonManager.DisableIq`.
 
 ## Lizenz
 
-MIT
+Apache License, Version 2.0 — siehe [LICENSE](../LICENSE).
+
+Copyright (c) 2010-2026 GraphDefined GmbH &lt;achim.friedland@graphdefined.com&gt;

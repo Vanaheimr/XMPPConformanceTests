@@ -1,10 +1,22 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RootNamespace>org.GraphDefined.Vanaheimr.Hermod.XMPP</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Zweiter Name fuer den Fall, dass die Tests spaeter nach HermodTests wandern. -->
+    <InternalsVisibleTo Include="org.GraphDefined.Vanaheimr.Hermod.XMPP.Tests" />
+    <InternalsVisibleTo Include="org.GraphDefined.Vanaheimr.Hermod.Tests" />
+  </ItemGroup>
 
 </Project>

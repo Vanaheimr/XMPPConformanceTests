@@ -1,7 +1,7 @@
 *.pidb
 *.VisualState.xml
 *.suo
-Jabber/bin
-Jabber/obj
+bin/
+obj/
 .vs
 .vs/*
