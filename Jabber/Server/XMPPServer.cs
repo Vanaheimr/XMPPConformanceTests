@@ -696,30 +696,44 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 var m = Regex.Match(frame, @"<item\s+([^>]+?)/?>");
 
-                if (m.Success)
+                if (!m.Success)
                 {
-
-                    var attrs         = m.Groups[1].Value;
-                    var jid           = AttrIn(attrs, "jid");
-                    var subscription  = AttrIn(attrs, "subscription");
-
-                    if (jid is not null)
-                    {
-                        if (subscription == "remove")
-                            account.RemoveRosterEntry(jid);
-                        else
-                            account.SetRosterEntry(new RosterEntry(jid, AttrIn(attrs, "name"), subscription ?? "none"));
-                    }
-
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+                    return;
                 }
 
+                var attrs         = m.Groups[1].Value;
+                var jid           = AttrIn(attrs, "jid");
+                var name          = AttrIn(attrs, "name");
+                var subscription  = AttrIn(attrs, "subscription");
+
+                if (jid is null)
+                {
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+                    return;
+                }
+
+                if (subscription == "remove")
+                    account.RemoveRosterEntry(jid);
+                else
+                    account.SetRosterEntry(new RosterEntry(jid, name, subscription ?? "none"));
+
                 await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                // Der Push wird aus den gelesenen Werten neu gebaut und nicht
+                // aus dem Text des Clients zusammengesetzt. Ein <item/> mit
+                // getrenntem Schluss-Tag - was RosterStanzaBuilder.SetItem
+                // erzeugt - ergäbe sonst ein offenes Element im Push und damit
+                // unwohlgeformtes XML.
+                var item = $"<item jid='{jid}'" +
+                           (name is not null ? $" name='{name}'" : "") +
+                           $" subscription='{(subscription ?? "none")}'/>";
 
                 // Roster-Push an alle Resourcen des Kontos - ohne 'from', wie ein echter Server.
                 foreach (var s in SessionsOf(account.BareJid))
                     await s.SendAsync(
                         $"<iq type='set' id='push-{Guid.NewGuid():N}' to='{s.FullJid}'>" +
-                        $"<query xmlns='jabber:iq:roster'>{m.Value}</query></iq>");
+                        $"<query xmlns='jabber:iq:roster'>{item}</query></iq>");
 
             }
 

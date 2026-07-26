@@ -441,10 +441,14 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
 
 ### Architektur
-- **XML wird durchgehend per Regex und `string.Contains` geparst**, nicht mit
-  einem XML-Parser. Das ist die Ursache der meisten Interop-Lücken oben:
-  Attribut-Reihenfolge, Quote-Stil und Namespace-Präfixe brechen die Erkennung,
-  und verschachtelte Elemente (z. B. in `<forwarded/>`) können äußere treffen.
+- **XML wird nur zur Hälfte mit einem Parser gelesen.** Der Rahmen einer Stanza
+  — Erkennung des Stanza-Typs, `from`/`to`/`id`/`type`, `<body/>`, `<show/>`,
+  `<status/>` und der Roster — läuft über `XElement` und verkraftet damit
+  Namespace-Präfixe, beliebige Attribut-Reihenfolge, `xml:lang`, Entities und
+  verschachtelte Elemente in `<forwarded/>`. **Die XEP-Manager parsen dagegen
+  weiterhin per Regex** (`CarbonManager`, `ChatMarkers`, `ReceiptBuilder`,
+  `EntityCapsManager`, `DiscoManager`, `PubSubManager`) — dort gelten die alten
+  Einschränkungen unverändert weiter.
 - **Zwei konkurrierende Empfangspfade.** Während des Verbindungsaufbaus liest
   `ConnectInternalAsync` selbst vom Socket, statt die vorhandene
   `TaskCompletionSource`-Korrelation zu nutzen (wie sie `DiscoManager` und

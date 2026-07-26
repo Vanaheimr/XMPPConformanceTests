@@ -23,11 +23,12 @@ Stand: 2026-07-26
 | `XMPPServer` ins Hauptprojekt, „Fake" aus den Typnamen | `78fdb1c` |
 | `#region Usings` in allen Dateien | `78fdb1c` |
 | RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | `87f3dd6` |
-| RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | offen im Working Tree |
+| RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | `0249de1` |
+| Stanza-Rahmen und Roster über `XElement` statt Regex | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **113 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **124 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
@@ -91,18 +92,23 @@ echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
 
 ## Als Nächstes (Client)
 
-### 1. XML nicht mehr per Regex parsen
+### 1. XEP-Manager auf den XML-Parser umstellen
 
-Das ist die gemeinsame Ursache der meisten Interop-Lücken: Attribut-Reihenfolge
-(XEP-0333), Quote-Stil, Namespace-Präfixe und verschachtelte Elemente in
-`<forwarded/>`. Solange das steht, sind Einzelkorrekturen an den Parsern
-Symptombehandlung.
+Der Rahmen ist erledigt: Stanza-Erkennung, Attribute, `<body/>`, `<show/>`,
+`<status/>` und der Roster laufen über `XElement`. **Die XEP-Manager nicht** —
+`CarbonManager`, `ChatMarkers`, `ReceiptBuilder`, `EntityCapsManager`,
+`DiscoManager` und `PubSubManager` suchen weiterhin mit regulären Ausdrücken im
+Rohtext. Dort gelten die alten Einschränkungen unverändert: feste
+Attribut-Reihenfolge (XEP-0333), keine Präfixe, keine Entities, und
+verschachtelte Elemente können äussere treffen.
 
-**Umfang:** groß, aber gut portionierbar — `XElement` pro Stanza-Typ, beginnend
-bei `ProcessMessage`.
-**Risiko:** hoch ohne Tests, niedrig mit der vorhandenen Suite. Vorher lohnt es,
-für jede betroffene Stanza-Art einen Test mit ungewöhnlicher, aber gültiger
-Schreibweise anzulegen — die schlagen dann vorher fehl und danach nicht mehr.
+`ProcessStanza` reicht den Rohtext heute nur deshalb noch mit durch, weil diese
+Manager ihn erwarten. Sind sie umgestellt, kann der zweite Parameter entfallen.
+
+**Umfang:** mittel, gut portionierbar — ein Manager pro Schritt.
+**Vorgehen:** wie beim Rahmen. Erst je einen Test mit gültiger, aber
+ungewöhnlicher Schreibweise anlegen (der dann fehlschlägt), danach umstellen.
+Das hat beim Rahmen sechs echte Defekte belegt und beim Roster drei weitere.
 
 ### 2. Aufbauphase entwirren
 

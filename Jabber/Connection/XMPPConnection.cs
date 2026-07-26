@@ -20,6 +20,8 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -91,6 +93,12 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// Close-Frame nicht beantwortet.
     /// </summary>
     private static readonly TimeSpan CloseHandshakeTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>Namespace der Stream-Ebene (RFC 6120, Abschnitt 4.8.2).</summary>
+    private const string StreamNamespace = "http://etherx.jabber.org/streams";
+
+    /// <summary>Namespace von XEP-0198 Stream Management.</summary>
+    private const string StreamManagementNamespace = "urn:xmpp:sm:3";
 
     private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _cts;
@@ -790,6 +798,19 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     // ===== STANZA PROCESSING =====
 
+    /// <summary>
+    /// Zerlegt einen empfangenen Rahmen und leitet ihn weiter.
+    ///
+    /// Der Rahmen wird genau einmal geparst; die Weiterverarbeitung arbeitet
+    /// auf dem <see cref="XElement"/>. Die frühere Erkennung über
+    /// <c>StartsWith</c> scheiterte an gültigen Schreibweisen: ein an
+    /// <c>jabber:client</c> gebundenes Präfix (<c>&lt;c:message/&gt;</c>) liess
+    /// die Stanza komplett durchfallen, und <c>StartsWith("&lt;a")</c> traf
+    /// auch <c>&lt;auth/&gt;</c>.
+    ///
+    /// Der Rohtext wird zusätzlich durchgereicht, weil die XEP-Manager ihn noch
+    /// erwarten - deren Umstellung steht aus.
+    /// </summary>
     private void ProcessStanza(string stanza)
     {
         try
@@ -797,44 +818,78 @@ public sealed class XMPPConnection : IAsyncDisposable
             // XEP-0198: das Mitzählen passiert bewusst nicht hier, sondern in
             // NoteInboundStanza auf beiden Empfangspfaden.
 
-            if (stanza.StartsWith("<message"))
+            XElement element;
+
+            try
             {
-                ProcessMessage(stanza);
+                element = XElement.Parse(stanza, LoadOptions.PreserveWhitespace);
             }
-            else if (stanza.StartsWith("<presence"))
+            catch (XmlException ex)
             {
-                ProcessPresence(stanza);
+                // Nicht wohlgeformt - in der Praxis vor allem ein
+                // <stream:error/>, dessen Präfix der Server nur auf dem
+                // Stream-Root deklariert hat. Dafür bleibt der Textpfad.
+                _logger.LogWarning("Stanza ist kein wohlgeformtes XML: {Reason}", ex.Message);
+
+                if (StreamError.TryParse(stanza, out var rawStreamError) && rawStreamError is not null)
+                    ProcessStreamError(rawStreamError);
+                else
+                    OnError?.Invoke($"Stanza ist kein wohlgeformtes XML: {ex.Message}");
+
+                return;
             }
-            else if (stanza.StartsWith("<iq"))
+
+            var name = element.Name.LocalName;
+            var ns   = element.Name.NamespaceName;
+
+            switch (name)
             {
-                ProcessIq(stanza);
-            }
-            else if (stanza.StartsWith("<close"))
-            {
-                _logger.LogWarning("Stream vom Server geschlossen");
-                OnError?.Invoke("Stream vom Server geschlossen");
-            }
-            // RFC 6120, Abschnitt 4.9: Stream-Fehler. Danach ist der Stream tot.
-            else if (StreamError.TryParse(stanza, out var streamError) && streamError is not null)
-            {
-                ProcessStreamError(streamError);
-            }
-            // XEP-0198: Stream Management
-            else if (stanza.StartsWith("<a") && stanza.Contains("urn:xmpp:sm:3"))
-            {
-                StreamManagement?.ProcessAck(stanza);
-            }
-            else if (stanza.StartsWith("<r") && stanza.Contains("urn:xmpp:sm:3"))
-            {
-                _ = StreamManagement?.ProcessRequestAsync();
-            }
-            else if (stanza.StartsWith("<resumed"))
-            {
-                StreamManagement?.ProcessResumed(stanza);
-            }
-            else if (stanza.StartsWith("<failed") && stanza.Contains("urn:xmpp:sm"))
-            {
-                StreamManagement?.ProcessFailed();
+
+                case "message":
+                    ProcessMessage(element, stanza);
+                    return;
+
+                case "presence":
+                    ProcessPresence(element, stanza);
+                    return;
+
+                case "iq":
+                    ProcessIq(element, stanza);
+                    return;
+
+                case "close":
+                    _logger.LogWarning("Stream vom Server geschlossen");
+                    OnError?.Invoke("Stream vom Server geschlossen");
+                    return;
+
+                // RFC 6120, Abschnitt 4.9: Stream-Fehler. Danach ist der Stream tot.
+                case "error" when ns == StreamNamespace:
+                    if (StreamError.TryParse(stanza, out var streamError) && streamError is not null)
+                        ProcessStreamError(streamError);
+                    return;
+
+                // XEP-0198: Stream Management. Jetzt über den Namespace geprüft
+                // statt über den Anfangsbuchstaben.
+                case "a" when ns == StreamManagementNamespace:
+                    StreamManagement?.ProcessAck(stanza);
+                    return;
+
+                case "r" when ns == StreamManagementNamespace:
+                    _ = StreamManagement?.ProcessRequestAsync();
+                    return;
+
+                case "resumed" when ns == StreamManagementNamespace:
+                    StreamManagement?.ProcessResumed(stanza);
+                    return;
+
+                case "failed" when ns == StreamManagementNamespace:
+                    StreamManagement?.ProcessFailed();
+                    return;
+
+                default:
+                    _logger.LogDebug("Unbehandelter Rahmen <{Name}/> aus {Namespace}", name, ns);
+                    return;
+
             }
         }
         catch (Exception ex)
@@ -870,15 +925,15 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     }
 
-    private void ProcessMessage(string stanza)
+    private void ProcessMessage(XElement element, string stanza)
     {
-        var from = ExtractAttribute(stanza, "from") ?? "unknown";
-        var to = ExtractAttribute(stanza, "to") ?? FullJid;
-        var msgId = ExtractAttribute(stanza, "id");
+        var from = element.Attr("from") ?? "unknown";
+        var to = element.Attr("to") ?? FullJid;
+        var msgId = element.Attr("id");
 
         // RFC 6120, Abschnitt 8.3: Eine Fehler-Stanza trägt keine Nutzlast,
         // sondern die Begründung. Früher lief sie als normale Nachricht durch.
-        if (ExtractAttribute(stanza, "type") == "error")
+        if (element.Attr("type") == "error")
         {
 
             var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
@@ -945,8 +1000,9 @@ public sealed class XMPPConnection : IAsyncDisposable
             OnChatState?.Invoke(from, chatState.Value);
         }
 
-        // Normale Nachricht
-        var body = ExtractElement(stanza, "body");
+        // Normale Nachricht. Nur direkte Kinder: eine weitergeleitete Nachricht
+        // in <forwarded/> bringt ihren eigenen <body/> mit.
+        var body = element.ChildValue("body");
         if (!string.IsNullOrEmpty(body))
         {
             OnMessage?.Invoke(from, to, body, msgId);
@@ -965,10 +1021,10 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
     }
 
-    private void ProcessPresence(string stanza)
+    private void ProcessPresence(XElement element, string stanza)
     {
-        var from = ExtractAttribute(stanza, "from") ?? "unknown";
-        var type = ExtractAttribute(stanza, "type") ?? "available";
+        var from = element.Attr("from") ?? "unknown";
+        var type = element.Attr("type") ?? "available";
 
         // RFC 6120, Abschnitt 8.3: 'error' ist kein Präsenzzustand. Früher
         // wanderte er über UpdatePresence in den Roster, wo der Kontakt dann
@@ -989,12 +1045,12 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         if (type == "subscribe")
         {
-            Roster.RaiseSubscriptionRequest(from, ExtractElement(stanza, "status") ?? "");
+            Roster.RaiseSubscriptionRequest(from, element.ChildValue("status") ?? "");
         }
         else
         {
-            var show = ExtractElement(stanza, "show");
-            var status = ExtractElement(stanza, "status");
+            var show = element.ChildValue("show");
+            var status = element.ChildValue("status");
             Roster.UpdatePresence(from, type, show, status);
 
             // XEP-0115: Entity Capabilities
@@ -1018,11 +1074,11 @@ public sealed class XMPPConnection : IAsyncDisposable
         OnPresence?.Invoke(from, type);
     }
 
-    private void ProcessIq(string stanza)
+    private void ProcessIq(XElement element, string stanza)
     {
-        var type = ExtractAttribute(stanza, "type");
-        var id = ExtractAttribute(stanza, "id");
-        var from = ExtractAttribute(stanza, "from");
+        var type = element.Attr("type");
+        var id = element.Attr("id");
+        var from = element.Attr("from");
 
         // RFC 6120, Abschnitt 8.3: Ein iq 'error' ist keine Antwort mit Inhalt,
         // sondern eine Ablehnung. Früher lief er durch dieselben Handler wie ein
@@ -1130,7 +1186,7 @@ public sealed class XMPPConnection : IAsyncDisposable
                     return;
                 }
 
-                ProcessRosterPush(stanza);
+                ProcessRosterPush(element);
                 _ = SendAsync($"<iq type='result' id='{id}'/>");
                 return;
             }
@@ -1213,30 +1269,59 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     }
 
-    private void ProcessRosterPush(string stanza)
+    /// <summary>
+    /// Wendet einen Roster-Push an.
+    ///
+    /// Das frühere Muster verlangte die Attribute in der Reihenfolge
+    /// <c>jid</c>, <c>name</c>, <c>subscription</c>. Ein
+    /// <c>&lt;item subscription='both' jid='…'/&gt;</c> - gültig und je nach
+    /// Server üblich - passte darauf nicht und der Push wurde still verworfen.
+    /// Gruppen las es überhaupt nicht.
+    /// </summary>
+    private void ProcessRosterPush(XElement element)
     {
-        var match = Regex.Match(stanza,
-            @"<item\s+jid=['""]([^'""]+)['""](?:\s+name=['""]([^'""]*)['""])?(?:\s+subscription=['""]([^'""]*)['""])?");
 
-        if (match.Success)
+        var query = element.Child("query");
+
+        if (query is null)
+            return;
+
+        foreach (var itemElement in query.Elements().Where(e => e.Name.LocalName == "item"))
         {
-            var jid = match.Groups[1].Value;
-            var sub = match.Groups[3].Value;
 
-            if (sub == "remove")
-            {
+            var jid = itemElement.Attr("jid");
+
+            if (string.IsNullOrEmpty(jid))
+                continue;
+
+            if (itemElement.Attr("subscription") == "remove")
                 Roster.RemoveItem(jid);
-            }
             else
-            {
-                var item = new RosterItem(jid)
-                {
-                    Name = match.Groups[2].Success ? match.Groups[2].Value : null,
-                    Subscription = ParseSubscription(sub)
-                };
-                Roster.ProcessRosterItem(item);
-            }
+                Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
+
         }
+
+    }
+
+    /// <summary>
+    /// Baut aus einem <c>&lt;item/&gt;</c> des Rosters einen
+    /// <see cref="RosterItem"/> - inklusive der Gruppen, die vorher verloren
+    /// gingen.
+    /// </summary>
+    private static RosterItem ToRosterItem(XElement itemElement, string jid)
+    {
+
+        var item = new RosterItem(jid)
+        {
+            Name          = itemElement.Attr("name"),
+            Subscription  = ParseSubscription(itemElement.Attr("subscription") ?? "")
+        };
+
+        foreach (var group in itemElement.Elements().Where(e => e.Name.LocalName == "group"))
+            item.Groups.Add(group.Value);
+
+        return item;
+
     }
 
     // ===== AUTH & SETUP =====
@@ -1408,27 +1493,29 @@ public sealed class XMPPConnection : IAsyncDisposable
             }
         }
 
-        var items = Regex.Matches(response, @"<item\s+([^>]+?)(?:/>|>(.*?)</item>)", RegexOptions.Singleline);
-
-        foreach (Match m in items)
+        try
         {
-            var attrs = m.Groups[1].Value;
-            var content = m.Groups[2].Success ? m.Groups[2].Value : "";
 
-            var jid = ExtractAttributeValue(attrs, "jid");
-            if (string.IsNullOrEmpty(jid)) continue;
+            var query = XElement.Parse(response, LoadOptions.PreserveWhitespace).Child("query");
 
-            var item = new RosterItem(jid)
+            if (query is not null)
             {
-                Name = ExtractAttributeValue(attrs, "name"),
-                Subscription = ParseSubscription(ExtractAttributeValue(attrs, "subscription"))
-            };
+                foreach (var itemElement in query.Elements().Where(e => e.Name.LocalName == "item"))
+                {
 
-            var groups = Regex.Matches(content, @"<group>([^<]+)</group>");
-            foreach (Match g in groups)
-                item.Groups.Add(g.Groups[1].Value);
+                    var jid = itemElement.Attr("jid");
 
-            Roster.ProcessRosterItem(item);
+                    if (!string.IsNullOrEmpty(jid))
+                        Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
+
+                }
+            }
+
+        }
+        catch (XmlException ex)
+        {
+            _logger.LogError("Roster-Antwort ist kein wohlgeformtes XML: {Reason}", ex.Message);
+            OnError?.Invoke($"Roster-Antwort ist kein wohlgeformtes XML: {ex.Message}");
         }
 
         _logger.LogInformation("Roster geladen: {Count} Kontakte", Roster.Items.Count);
@@ -1587,23 +1674,11 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     private string GenerateMessageId() => $"msg-{Interlocked.Increment(ref _messageIdCounter)}-{Guid.NewGuid():N}";
 
-    private static string? ExtractAttribute(string xml, string name)
-    {
-        var match = Regex.Match(xml, $@"{name}=['""]([^'""]*)['""]");
-        return match.Success ? match.Groups[1].Value : null;
-    }
-
-    private static string? ExtractAttributeValue(string attrs, string name)
-    {
-        var match = Regex.Match(attrs, $@"{name}\s*=\s*['""]([^'""]*)['""]", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value : null;
-    }
-
-    private static string? ExtractElement(string xml, string name)
-    {
-        var match = Regex.Match(xml, $@"<{name}>([^<]*)</{name}>");
-        return match.Success ? match.Groups[1].Value : null;
-    }
+    // ExtractAttribute, ExtractAttributeValue und ExtractElement sind entfallen.
+    // Sie fanden Attribute und Elemente irgendwo im Text statt am gemeinten
+    // Element, verlangten <body> ohne Attribute und lieferten Entities roh
+    // zurück. Ersatz sind die Erweiterungsmethoden in StanzaExtensions, die auf
+    // dem geparsten XElement arbeiten.
 
     private static List<string> ExtractSaslMechanisms(string xml)
     {
