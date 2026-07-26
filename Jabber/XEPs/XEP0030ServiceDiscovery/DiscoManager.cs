@@ -31,10 +31,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 public sealed class DiscoManager
 {
     private readonly Func<string, Task> _sendStanza;
-    private readonly Dictionary<string, TaskCompletionSource<DiscoInfo>> _infoQueries = new();
-    private readonly Dictionary<string, TaskCompletionSource<DiscoItems>> _itemsQueries = new();
+    private readonly Dictionary<string, TaskCompletionSource<DiscoInfo?>> _infoQueries = new();
+    private readonly Dictionary<string, TaskCompletionSource<DiscoItems?>> _itemsQueries = new();
     private readonly object _lock = new();
     private int _counter;
+
+    /// <summary>
+    /// Eine disco-Abfrage wurde mit einem Stanza-Fehler beantwortet. Die
+    /// zugehörige Query liefert dann null - anders als bei einem Timeout ist
+    /// hier aber bekannt, warum.
+    /// </summary>
+    public event Action<string, StanzaError>? OnQueryError;
 
     // Lokale Features die wir unterstützen
     public List<DiscoIdentity> LocalIdentities { get; } = [
@@ -64,7 +71,7 @@ public sealed class DiscoManager
         TimeSpan? timeout = null, CancellationToken ct = default)
     {
         var id = $"disco-info-{Interlocked.Increment(ref _counter)}";
-        var tcs = new TaskCompletionSource<DiscoInfo>();
+        var tcs = new TaskCompletionSource<DiscoInfo?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_lock) _infoQueries[id] = tcs;
 
@@ -93,7 +100,7 @@ public sealed class DiscoManager
         TimeSpan? timeout = null, CancellationToken ct = default)
     {
         var id = $"disco-items-{Interlocked.Increment(ref _counter)}";
-        var tcs = new TaskCompletionSource<DiscoItems>();
+        var tcs = new TaskCompletionSource<DiscoItems?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_lock) _itemsQueries[id] = tcs;
 
@@ -116,11 +123,47 @@ public sealed class DiscoManager
     }
 
     /// <summary>
+    /// Verarbeitet einen Stanza-Fehler auf eine offene disco-Anfrage.
+    ///
+    /// Ohne diese Behandlung landete ein <c>iq type='error'</c> in
+    /// ProcessInfoResult; dort findet der Parser mangels <c>&lt;query/&gt;</c>
+    /// nichts und lieferte ein leeres, aber erfolgreiches Ergebnis - eine
+    /// abgelehnte Abfrage war von einer Entity ohne Features nicht zu
+    /// unterscheiden.
+    /// </summary>
+    public bool ProcessError(string id, StanzaError error)
+    {
+
+        TaskCompletionSource<DiscoInfo?>?   infoTcs   = null;
+        TaskCompletionSource<DiscoItems?>?  itemsTcs  = null;
+
+        lock (_lock)
+        {
+            if (_infoQueries.TryGetValue(id, out infoTcs))
+                _infoQueries.Remove(id);
+
+            else if (_itemsQueries.TryGetValue(id, out itemsTcs))
+                _itemsQueries.Remove(id);
+        }
+
+        if (infoTcs is null && itemsTcs is null)
+            return false;
+
+        infoTcs?.TrySetResult(null);
+        itemsTcs?.TrySetResult(null);
+
+        OnQueryError?.Invoke(id, error);
+
+        return true;
+
+    }
+
+    /// <summary>
     /// Verarbeitet eine disco#info Antwort
     /// </summary>
     public bool ProcessInfoResult(string id, string xml, string from)
     {
-        TaskCompletionSource<DiscoInfo>? tcs;
+        TaskCompletionSource<DiscoInfo?>? tcs;
         lock (_lock)
         {
             if (!_infoQueries.TryGetValue(id, out tcs))
@@ -156,7 +199,7 @@ public sealed class DiscoManager
     /// </summary>
     public bool ProcessItemsResult(string id, string xml, string from)
     {
-        TaskCompletionSource<DiscoItems>? tcs;
+        TaskCompletionSource<DiscoItems?>? tcs;
         lock (_lock)
         {
             if (!_itemsQueries.TryGetValue(id, out tcs))

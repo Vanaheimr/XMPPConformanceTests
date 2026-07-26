@@ -101,6 +101,14 @@ public sealed class XMPPConnection : IAsyncDisposable
     private int _reconnectAttempts;
     private bool _intentionalDisconnect;
 
+    /// <summary>
+    /// Gesetzt, wenn der Server den Stream mit einer nicht wiederholbaren
+    /// Bedingung beendet hat (RFC 6120, Abschnitt 4.9). Unterdrückt den
+    /// automatischen Reconnect, der sonst denselben Fehler erneut auslösen
+    /// würde. Wird bei jedem bewussten Verbindungsaufbau zurückgesetzt.
+    /// </summary>
+    private bool _fatalStreamError;
+
     #endregion
 
     #region Properties
@@ -160,6 +168,19 @@ public sealed class XMPPConnection : IAsyncDisposable
     // Events - Advanced
     public event Action<ChatMarker>? OnChatMarker;
     public event Action<string, DiscoInfo>? OnCapsDiscovered;
+
+    /// <summary>
+    /// RFC 6120, Abschnitt 8.3: Eine Stanza wurde von der Gegenstelle
+    /// abgelehnt. Der erste Parameter ist der Absender des Fehlers; er ist
+    /// null, wenn der Fehler vom eigenen Server kam.
+    /// </summary>
+    public event Action<string?, StanzaError>? OnStanzaError;
+
+    /// <summary>
+    /// RFC 6120, Abschnitt 4.9: Der Server hat den Stream mit einem Fehler
+    /// beendet. Ob ein Reconnect folgt, sagt <see cref="StreamError.IsRecoverable"/>.
+    /// </summary>
+    public event Action<StreamError>? OnStreamError;
 
     #endregion
 
@@ -229,6 +250,10 @@ public sealed class XMPPConnection : IAsyncDisposable
     {
         _intentionalDisconnect = false;
         _reconnectAttempts = 0;
+
+        // Ein bewusster Verbindungsaufbau hebt die Sperre aus einem früheren
+        // Stream-Fehler auf: der Aufrufer weiss, was er tut.
+        _fatalStreamError = false;
 
         await ConnectInternalAsync(ct);
     }
@@ -700,6 +725,13 @@ public sealed class XMPPConnection : IAsyncDisposable
         // Bewusst über Task.Run entkoppelt: der Reconnect räumt via
         // ShutdownConnectionAsync unter anderem diese Schleife ab und würde
         // sonst auf sich selbst warten.
+        if (_fatalStreamError)
+        {
+            _logger.LogDebug("Kein Reconnect nach nicht wiederholbarem Stream-Fehler");
+            SetState(ConnectionState.Disconnected);
+            return;
+        }
+
         if (!_intentionalDisconnect && State == ConnectionState.Connected)
         {
             SetState(ConnectionState.Disconnected);
@@ -782,6 +814,11 @@ public sealed class XMPPConnection : IAsyncDisposable
                 _logger.LogWarning("Stream vom Server geschlossen");
                 OnError?.Invoke("Stream vom Server geschlossen");
             }
+            // RFC 6120, Abschnitt 4.9: Stream-Fehler. Danach ist der Stream tot.
+            else if (StreamError.TryParse(stanza, out var streamError) && streamError is not null)
+            {
+                ProcessStreamError(streamError);
+            }
             // XEP-0198: Stream Management
             else if (stanza.StartsWith("<a") && stanza.Contains("urn:xmpp:sm:3"))
             {
@@ -807,11 +844,53 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// RFC 6120, Abschnitt 4.9: Nach einem Stream-Fehler schliesst der Server
+    /// den Stream unmittelbar. Ein Reconnect lohnt nur bei vorübergehenden
+    /// Bedingungen - bei allem anderen liefe er in dieselbe Ablehnung und
+    /// erzeugte eine Schleife.
+    /// </summary>
+    private void ProcessStreamError(StreamError streamError)
+    {
+
+        if (streamError.IsRecoverable)
+            _logger.LogWarning("Stream-Fehler vom Server: {Error} - Reconnect wird versucht", streamError);
+
+        else
+        {
+            _logger.LogError("Stream-Fehler vom Server: {Error} - kein Reconnect", streamError);
+
+            // Verhindert, dass die Empfangsschleife gleich einen Reconnect
+            // anstösst; der Fehler wiederholte sich nur.
+            _fatalStreamError = true;
+        }
+
+        OnStreamError?.Invoke(streamError);
+        OnError?.Invoke($"Stream-Fehler: {streamError}");
+
+    }
+
     private void ProcessMessage(string stanza)
     {
         var from = ExtractAttribute(stanza, "from") ?? "unknown";
         var to = ExtractAttribute(stanza, "to") ?? FullJid;
         var msgId = ExtractAttribute(stanza, "id");
+
+        // RFC 6120, Abschnitt 8.3: Eine Fehler-Stanza trägt keine Nutzlast,
+        // sondern die Begründung. Früher lief sie als normale Nachricht durch.
+        if (ExtractAttribute(stanza, "type") == "error")
+        {
+
+            var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
+                             ? stanzaError
+                             : new StanzaError(StanzaErrorType.Cancel, "undefined-condition");
+
+            _logger.LogDebug("Nachricht an {From} abgelehnt: {Error}", from, parsed);
+
+            OnStanzaError?.Invoke(from, parsed);
+            return;
+
+        }
 
         // XEP-0280: Carbon Check
         if (stanza.Contains("urn:xmpp:carbons:2"))
@@ -891,6 +970,23 @@ public sealed class XMPPConnection : IAsyncDisposable
         var from = ExtractAttribute(stanza, "from") ?? "unknown";
         var type = ExtractAttribute(stanza, "type") ?? "available";
 
+        // RFC 6120, Abschnitt 8.3: 'error' ist kein Präsenzzustand. Früher
+        // wanderte er über UpdatePresence in den Roster, wo der Kontakt dann
+        // als im Zustand "error" geführt wurde.
+        if (type == "error")
+        {
+
+            var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
+                             ? stanzaError
+                             : new StanzaError(StanzaErrorType.Cancel, "undefined-condition");
+
+            _logger.LogDebug("Presence von/an {From} abgelehnt: {Error}", from, parsed);
+
+            OnStanzaError?.Invoke(from, parsed);
+            return;
+
+        }
+
         if (type == "subscribe")
         {
             Roster.RaiseSubscriptionRequest(from, ExtractElement(stanza, "status") ?? "");
@@ -928,8 +1024,36 @@ public sealed class XMPPConnection : IAsyncDisposable
         var id = ExtractAttribute(stanza, "id");
         var from = ExtractAttribute(stanza, "from");
 
-        // IQ Result/Error für pending queries
-        if (type == "result" || type == "error")
+        // RFC 6120, Abschnitt 8.3: Ein iq 'error' ist keine Antwort mit Inhalt,
+        // sondern eine Ablehnung. Früher lief er durch dieselben Handler wie ein
+        // 'result' - ein abgelehnter Ping wurde damit als gemessene Laufzeit
+        // gewertet und eine abgelehnte disco-Abfrage als leeres Ergebnis.
+        if (type == "error")
+        {
+
+            var parsed = StanzaError.TryParse(stanza, out var stanzaError) && stanzaError is not null
+                             ? stanzaError
+                             : new StanzaError(StanzaErrorType.Cancel, "undefined-condition");
+
+            _logger.LogDebug("Stanza-Fehler auf IQ '{Id}' von {From}: {Error}",
+                             id ?? "(ohne id)", from ?? "(Server)", parsed);
+
+            if (id != null)
+            {
+                if (id.StartsWith("ping-"))
+                    Ping?.ProcessError(id, parsed);
+
+                else if (id.StartsWith("disco-info-") || id.StartsWith("disco-items-"))
+                    Disco?.ProcessError(id, parsed);
+            }
+
+            OnStanzaError?.Invoke(from, parsed);
+            return;
+
+        }
+
+        // IQ Result für pending queries
+        if (type == "result")
         {
             if (id != null)
             {

@@ -23,7 +23,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 public sealed class PingManager
 {
     private readonly Func<string, Task> _sendStanza;
-    private readonly Dictionary<string, (TaskCompletionSource<TimeSpan> Tcs, DateTime Sent)> _pending = new();
+    private readonly Dictionary<string, (TaskCompletionSource<TimeSpan?> Tcs, DateTime Sent)> _pending = new();
     private readonly object _lock = new();
     private int _counter;
 
@@ -31,6 +31,14 @@ public sealed class PingManager
 
     public event Action<string, TimeSpan>? OnPong;
     public event Action<string>? OnPingTimeout;
+
+    /// <summary>
+    /// Der Ping wurde mit einem Stanza-Fehler beantwortet. Das ist etwas
+    /// anderes als ein Timeout: die Gegenstelle war erreichbar, hat aber
+    /// abgelehnt - <c>service-unavailable</c> heisst schlicht, dass sie
+    /// XEP-0199 nicht unterstützt.
+    /// </summary>
+    public event Action<string, StanzaError>? OnPingError;
 
     public PingManager(Func<string, Task> sendStanza)
     {
@@ -43,7 +51,11 @@ public sealed class PingManager
     public async Task<TimeSpan?> PingAsync(string? to = null, CancellationToken ct = default)
     {
         var id = $"ping-{Interlocked.Increment(ref _counter)}";
-        var tcs = new TaskCompletionSource<TimeSpan>();
+        // RunContinuationsAsynchronously: ohne das laufen die Fortsetzungen des
+        // Aufrufers synchron in dem Thread, der die Antwort abliefert - also in
+        // der Empfangsschleife. Beliebiger Anwendercode würde dort das Lesen
+        // weiterer Stanzas aufhalten.
+        var tcs = new TaskCompletionSource<TimeSpan?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var sent = DateTime.UtcNow;
 
         lock (_lock)
@@ -85,6 +97,33 @@ public sealed class PingManager
             OnPong?.Invoke(id, rtt);
             return true;
         }
+    }
+
+    /// <summary>
+    /// Verarbeitet einen Stanza-Fehler auf einen offenen Ping.
+    ///
+    /// Ohne diese Behandlung lief ein <c>iq type='error'</c> in ProcessPong und
+    /// wurde als gültige Antwort gewertet - eine abgelehnte Anfrage sah damit
+    /// aus wie eine gemessene Laufzeit.
+    /// </summary>
+    public bool ProcessError(string id, StanzaError error)
+    {
+
+        (TaskCompletionSource<TimeSpan?> Tcs, DateTime Sent) entry;
+
+        lock (_lock)
+        {
+            if (!_pending.TryGetValue(id, out entry))
+                return false;
+
+            _pending.Remove(id);
+        }
+
+        entry.Tcs.TrySetResult(null);
+        OnPingError?.Invoke(id, error);
+
+        return true;
+
     }
 
     /// <summary>

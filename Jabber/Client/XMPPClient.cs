@@ -158,6 +158,19 @@ public sealed class XMPPClient : IAsyncDisposable
     /// <summary>Ein Spoofing-Versuch wurde abgewehrt (bereits geloggt).</summary>
     public event Action<string>? OnSpoofingAttempt;
 
+    /// <summary>
+    /// RFC 6120, Abschnitt 8.3: Eine Stanza wurde abgelehnt. Der erste
+    /// Parameter ist der Absender des Fehlers, null bei einem Fehler vom
+    /// eigenen Server.
+    /// </summary>
+    public event Action<string?, StanzaError>? OnStanzaError;
+
+    /// <summary>
+    /// RFC 6120, Abschnitt 4.9: Der Server hat den Stream mit einem Fehler
+    /// beendet. Ist er nicht wiederholbar, unterbleibt der Reconnect.
+    /// </summary>
+    public event Action<StreamError>? OnStreamError;
+
     /// <summary>Rohes XML, ein- und ausgehend - für Debug-Anzeigen.</summary>
     public event Action<string>? OnRawXml;
 
@@ -238,6 +251,19 @@ public sealed class XMPPClient : IAsyncDisposable
         {
             _logger.LogWarning("Spoofing-Versuch abgewehrt: {Details}", msg);
             OnSpoofingAttempt?.Invoke(msg);
+        };
+
+        _connection.OnStanzaError += (from, error) =>
+        {
+            _logger.LogInformation("Stanza abgelehnt von {From}: {Error}", from ?? "(Server)", error);
+            OnStanzaError?.Invoke(from, error);
+        };
+
+        _connection.OnStreamError += error =>
+        {
+            _logger.LogWarning("Stream-Fehler: {Error} (wiederholbar: {Recoverable})",
+                               error, error.IsRecoverable);
+            OnStreamError?.Invoke(error);
         };
 
         _connection.Roster.OnItemAdded   += item => OnRosterItemAdded?.Invoke(item);

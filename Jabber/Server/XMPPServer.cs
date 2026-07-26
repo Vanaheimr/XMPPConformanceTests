@@ -125,6 +125,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>XEP-0198: Beantwortet der Server ein <c>&lt;r/&gt;</c> des Clients?</summary>
         public Boolean AnswerAckRequests { get; set; } = true;
 
+        /// <summary>
+        /// Beantwortet der Server XEP-0199 Pings mit einem Stanza-Fehler statt
+        /// mit einem Ergebnis? Für Tests der Fehlerbehandlung.
+        /// </summary>
+        public Boolean FailPings { get; set; } = false;
+
+        /// <summary>
+        /// Beantwortet der Server disco#info-Abfragen mit einem Stanza-Fehler?
+        /// </summary>
+        public Boolean FailDiscoInfo { get; set; } = false;
+
         #endregion
 
         #region Events
@@ -571,14 +582,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // XEP-0199 Ping an den Server
             if (frame.Contains("urn:xmpp:ping", StringComparison.Ordinal) && type == "get")
             {
-                if (AnswerPings)
+                if (FailPings)
+                    await session.SendAsync(StanzaErrorIq(id, "service-unavailable"));
+
+                else if (AnswerPings)
                     await session.SendAsync($"<iq type='result' id='{id}' from='{Domain}'/>");
+
                 return;
             }
 
             // XEP-0030 disco#info über den Server
             if (frame.Contains("http://jabber.org/protocol/disco#info", StringComparison.Ordinal) && type == "get")
             {
+
+                if (FailDiscoInfo)
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "item-not-found", "modify",
+                                                          "Diesen Node gibt es hier nicht."));
+                    return;
+                }
+
                 await session.SendAsync(
                     $"<iq type='result' id='{id}' from='{Domain}'>" +
                     "<query xmlns='http://jabber.org/protocol/disco#info'>" +
@@ -780,6 +803,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #endregion
 
         #region Hilfsfunktionen
+
+        /// <summary>
+        /// Baut ein <c>iq type='error'</c> nach RFC 6120, Abschnitt 8.3.
+        /// </summary>
+        internal String StanzaErrorIq(String?  id,
+                                      String   condition,
+                                      String   errorType  = "cancel",
+                                      String?  text       = null)
+
+            => $"<iq type='error' id='{id}' from='{Domain}'>" +
+               $"<error type='{errorType}'>" +
+               $"<{condition} xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+               (text is not null
+                    ? $"<text xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'>{text}</text>"
+                    : "") +
+               "</error></iq>";
 
         private static String CarbonEnvelope(String kind, String ownBareJid, String targetFullJid, String inner)
             => $"<message xmlns='jabber:client' from='{ownBareJid}' to='{targetFullJid}'>" +

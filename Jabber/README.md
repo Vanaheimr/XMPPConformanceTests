@@ -27,7 +27,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP | Name | Status | Anmerkung |
 |-----|------|--------|-----------|
 | XEP-0030 | Service Discovery | ⚠️ | Abfrage + Antwort; Antwort setzt kein `node`-Attribut |
-| XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst; IQ-Ergebnisse werden nicht korreliert, Fehler bleiben still |
+| XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; IQ-Ergebnisse werden nicht korreliert |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
@@ -45,9 +45,9 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | SASL-Aushandlung und -Durchführung (§6) | ✅ |
 | Resource Binding (§7) | ⚠️ Feste Resource `console-<pid>`, Bind-Fehler werden nicht behandelt |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn als `optional` markiert |
-| Stanza-Fehler (§8.3) | ❌ `<error/>`-Nutzlasten werden nicht ausgewertet |
-| Antwort auf unbehandelte IQs (§8.2.3) | ❌ **MUST-Verstoß** — unbekannte `iq get`/`set` werden still verworfen statt mit `<service-unavailable/>` beantwortet |
-| Stream-Fehler (§4.9) | ❌ Nicht geparst |
+| Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
+| Antwort auf unbehandelte IQs (§8.2.3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
+| Stream-Fehler (§4.9) | ✅ Geparst; nach einer nicht wiederholbaren Bedingung unterbleibt der Reconnect |
 
 ### RFC 6121 — Instant Messaging und Presence
 
@@ -351,9 +351,11 @@ miteinander sprechen:
 - XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
   Zählung — der Server benutzt bewusst nicht dieselbe Hilfsfunktion wie der
   Client, sonst prüften die Tests beide Seiten mit derselben Logik
+- Stanza- und Stream-Fehler auf Zuruf: `StanzaErrorIq(…)` und
+  `session.SendStreamErrorAsync(condition)`
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
-  `OfferStreamManagement`, `AnswerAckRequests`
+  `OfferStreamManagement`, `AnswerAckRequests`, `FailPings`, `FailDiscoInfo`
 
 ```csharp
 var alice = await ConnectClientAsync("alice");

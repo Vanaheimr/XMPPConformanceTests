@@ -166,6 +166,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             => SendAsync("<r xmlns='urn:xmpp:sm:3'/>");
 
         /// <summary>
+        /// RFC 6120, Abschnitt 4.9: Beendet den Stream mit einem Fehler.
+        /// </summary>
+        /// <param name="condition">Bedingung aus Abschnitt 4.9.3, etwa <c>conflict</c>.</param>
+        /// <param name="text">Optionaler erläuternder Text.</param>
+        public Task SendStreamErrorAsync(String condition, String? text = null)
+
+            => SendAsync("<stream:error xmlns:stream='http://etherx.jabber.org/streams'>" +
+                         $"<{condition} xmlns='urn:ietf:params:xml:ns:xmpp-streams'/>" +
+                         (text is not null
+                              ? $"<text xmlns='urn:ietf:params:xml:ns:xmpp-streams'>{text}</text>"
+                              : "") +
+                         "</stream:error>");
+
+        /// <summary>
         /// Sendet eine Stanza an diesen Client.
         /// </summary>
         public async Task SendAsync(String xml)

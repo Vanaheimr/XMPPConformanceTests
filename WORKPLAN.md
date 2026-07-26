@@ -1,7 +1,7 @@
 # Arbeitsplan
 
-Was am XMPP-Client offen ist, in welcher Reihenfolge es sinnvoll ist und warum.
-Die ausführliche Beschreibung der einzelnen Lücken steht in
+Was an Client und Server offen ist, in welcher Reihenfolge es sinnvoll ist und
+warum. Die ausführliche Beschreibung der einzelnen Lücken steht in
 [Jabber/README.md](Jabber/README.md) — hier steht nur, was zu **tun** ist.
 
 Stand: 2026-07-26
@@ -22,26 +22,76 @@ Stand: 2026-07-26
 | XEP-0198 zählt korrekt (beide Richtungen, Nonzas, Überlauf) | `78fdb1c` |
 | `XMPPServer` ins Hauptprojekt, „Fake" aus den Typnamen | `78fdb1c` |
 | `#region Usings` in allen Dateien | `78fdb1c` |
-| RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | offen im Working Tree |
+| RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | `87f3dd6` |
+| RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | offen im Working Tree |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **78 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **113 Tests, 0 Fehler, 0 übersprungen**.
 
 ---
 
-## Als Nächstes
+## Der Server soll ein richtiger Server werden
 
-### 1. Stanza- und Stream-Fehler auswerten
+`XMPPServer` ist als Gegenstelle für Tests entstanden. Er soll das Image des
+reinen Testservers verlieren — dafür fehlen drei Dinge, und ein viertes wäre
+der Beweis, dass es funktioniert. Die vollständige Lückenliste steht in
+[Jabber/README.md](Jabber/README.md#was-dem-server-zum-produktivbetrieb-fehlt).
 
-`<error/>`-Nutzlasten (§8.3) und Stream-Fehler (§4.9) werden nirgends geparst.
-Fehlgeschlagene Operationen sehen für den Aufrufer aus wie Erfolg — besonders
-bei PubSub, wo IQ-Ergebnisse ohnehin nicht korreliert werden.
+### S1. TLS
 
-**Umfang:** mittel. Braucht einen Fehlertyp und Auswertung an den Stellen mit
-`TaskCompletionSource`-Korrelation.
+Der Listener spricht `http://` beziehungsweise `ws://`. RFC 6120 §5 verlangt
+`wss://` mit Zertifikat. Ohne das ist jeder andere Punkt hier akademisch, weil
+Passwörter im Klartext über die Leitung gingen.
 
-### 2. XML nicht mehr per Regex parsen
+**Umfang:** mittel. `HttpListener` kann TLS nur über eine im System registrierte
+Zertifikatsbindung (`netsh http add sslcert`), was schlecht zu Tests passt —
+realistischer ist der Wechsel auf `TcpListener` mit `SslStream` oder auf Hermods
+eigenen HTTP-Server, der ohnehin im Repo liegt.
+**Nebeneffekt:** erst damit lässt sich SCRAM sinnvoll ergänzen, und damit auch
+der SCRAM-Pfad des Clients integrativ testen statt nur gegen die RFC-Vektoren.
+
+### S2. Dauerhafte Kontenverwaltung
+
+Konten und Roster leben im Speicher einer `XMPPServer`-Instanz und sind beim
+Beenden weg. Passwörter liegen im Klartext.
+
+**Umfang:** mittel. Eine Persistenzschnittstelle (`IAccountStore` o.ä.) mit
+einer In-Memory-Implementierung für Tests und einer dateibasierten für den
+Betrieb. Passwörter gehören dann als SCRAM-Salted-Password abgelegt, nicht im
+Klartext — was S1 voraussetzt, weil PLAIN sonst der einzige Mechanismus bleibt.
+
+### S3. Presence nur an Subscriber
+
+`HandlePresenceAsync` verteilt Presence an **alle** Sitzungen. RFC 6121 §4
+verlangt die Auswertung der Subscription-Zustände: nur wer `from` oder `both`
+hat, bekommt sie. Der serverseitige Roster führt die Zustände bereits, sie
+werden beim Verteilen nur nicht benutzt.
+
+**Umfang:** klein bis mittel — die Daten sind da, es fehlt die Filterung plus
+die Behandlung von `probe`.
+**Achtung:** der bestehende Schalter `BroadcastPresence` hängt daran; Tests, die
+sich auf die heutige Verteilung an alle verlassen, müssen mitgezogen werden.
+
+### S4. Zwei Server, zwei Clients, eine Nachricht
+
+Das Zielbild: zwei `XMPPServer`-Instanzen mit verschiedenen Domains, an jeder
+ein `XMPPClient`, und eine Nachricht geht von einem zum anderen. Das ist
+Server-zu-Server-Föderation (RFC 6120 §4) und heute gar nicht vorhanden — alle
+Sitzungen müssen auf derselben Domain liegen.
+
+**Umfang:** groß. Braucht eine S2S-Verbindung zwischen den Servern, Routing
+anhand der Domain im `to`, und mindestens Dialback (XEP-0220) oder
+SASL-EXTERNAL zur Authentifizierung der Gegenstelle.
+**Warum es sich lohnt:** es ist zugleich der schärfste Integrationstest, den das
+Projekt haben kann — er übt Routing, Adressierung und Zustellung über eine
+echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
+
+---
+
+## Als Nächstes (Client)
+
+### 1. XML nicht mehr per Regex parsen
 
 Das ist die gemeinsame Ursache der meisten Interop-Lücken: Attribut-Reihenfolge
 (XEP-0333), Quote-Stil, Namespace-Präfixe und verschachtelte Elemente in
@@ -54,7 +104,7 @@ bei `ProcessMessage`.
 für jede betroffene Stanza-Art einen Test mit ungewöhnlicher, aber gültiger
 Schreibweise anzulegen — die schlagen dann vorher fehl und danach nicht mehr.
 
-### 3. Aufbauphase entwirren
+### 2. Aufbauphase entwirren
 
 `ConnectInternalAsync` liest selbst vom Socket, verwirft bis zu zehn nicht
 passende Stanzas (auch echte Nachrichten und Presences) und startet erst danach
@@ -65,7 +115,7 @@ und `PingManager` schon richtig machen, gibt es hier nicht.
 **Nebeneffekt:** löst zugleich den Grund, warum die XEP-0198-Zählung zwei
 Empfangspfade abdecken muss.
 
-### 4. XEP-0198 gegen einen echten Server, dann Default umstellen
+### 3. XEP-0198 gegen einen echten Server, dann Default umstellen
 
 Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen ejabberd oder
 Prosody; danach kann `StreamManagementEnabled` auf `true`.
@@ -98,11 +148,13 @@ und die unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht
 - `XMPPConnection.CreateTcp` erzeugt eine `tcp://`-URI, die `ClientWebSocket`
   ablehnt — entweder echt implementieren oder entfernen
 
-### Testserver (`Jabber/Server/`)
-Die Liste steht in [Jabber/README.md](Jabber/README.md#was-dem-server-zum-produktivbetrieb-fehlt).
-Priorität hat davon nur, was Tests ermöglicht: `<resume/>` (siehe Punkt 4) und
-SCRAM, damit der SCRAM-Pfad des Clients auch integrativ und nicht nur gegen die
-RFC-Vektoren geprüft ist.
+### Server (`Jabber/Server/`)
+Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
+Was dort nicht auftaucht und trotzdem ansteht:
+- XEP-0198 `<resume/>` beantworten — die Gegenprobe zu Punkt 3
+- SCRAM anbieten, damit der SCRAM-Pfad des Clients integrativ geprüft wird und
+  nicht nur gegen die RFC-Vektoren (setzt S1 voraus)
+- Stanza-Fehler auch dort erzeugen, wo heute kein Schalter dafür existiert
 
 ### Struktur
 - `Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst aufgeschoben;
