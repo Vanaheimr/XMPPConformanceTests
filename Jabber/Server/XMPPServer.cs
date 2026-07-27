@@ -1734,11 +1734,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         ///
         /// RFC 6120, Abschnitt 8.1.1.1 lässt einen Server bei einem falschen
         /// <c>from</c> den Stream mit <c>&lt;invalid-from/&gt;</c> beenden.
-        /// Das setzt einen Stream voraus, den es hier noch nicht gibt; solange
-        /// wird die Stanza verworfen und über
-        /// <see cref="OnRemoteStanzaRejected"/> gemeldet.
+        /// Ob es dazu kommt, entscheidet nicht diese Methode, sondern der
+        /// Stream, über den die Stanza kam - hier gibt es nur das Urteil.
+        /// Deshalb liefert <see cref="AcceptFromRemoteAsync"/> einen
+        /// <see cref="RemoteStanzaResult"/>; diese Überladung reicht ihn als
+        /// Ja/Nein weiter, für Aufrufer, denen der Grund gleich ist.
         /// </remarks>
         public async Task<Boolean> ReceiveFromRemoteAsync(String peerDomain, String stanza)
+
+            => await AcceptFromRemoteAsync(peerDomain, stanza) == RemoteStanzaResult.Accepted;
+
+        /// <summary>
+        /// Wie <see cref="ReceiveFromRemoteAsync"/>, aber mit dem Grund einer
+        /// Ablehnung.
+        /// </summary>
+        public async Task<RemoteStanzaResult> AcceptFromRemoteAsync(String peerDomain, String stanza)
         {
 
             var from  = Attr(stanza, "from");
@@ -1747,7 +1757,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (from is null || to is null)
             {
                 OnRemoteStanzaRejected?.Invoke(peerDomain, "from oder to fehlt");
-                return false;
+                return RemoteStanzaResult.MissingAddress;
             }
 
             if (!String.Equals(DomainOf(from), peerDomain, StringComparison.OrdinalIgnoreCase))
@@ -1755,22 +1765,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 OnRemoteStanzaRejected?.Invoke(
                     peerDomain,
                     $"'{from}' gehört nicht zu '{peerDomain}'");
-                return false;
+                return RemoteStanzaResult.ForeignSender;
             }
 
             if (!IsLocal(to))
             {
                 // Weiterleiten für Dritte wäre ein offenes Relais.
                 OnRemoteStanzaRejected?.Invoke(peerDomain, $"'{to}' liegt nicht auf '{Domain}'");
-                return false;
+                return RemoteStanzaResult.ForeignRecipient;
             }
 
             if (!RouteStanzas)
-                return false;
+                return RemoteStanzaResult.RoutingDisabled;
 
             await RouteToAsync(to, stanza);
 
-            return true;
+            return RemoteStanzaResult.Accepted;
 
         }
 
