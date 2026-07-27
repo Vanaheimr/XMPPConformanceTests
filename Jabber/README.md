@@ -43,7 +43,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Bereich | Status |
 |---------|--------|
 | TLS (§5) | ⚠️ `wss://` über den WebSocket-Transport; `XMPPConnection.ServerCertificateValidator` erlaubt eine eigene Zertifikatsprüfung, `null` überlässt sie dem Betriebssystem. Kein STARTTLS (§5.4) — WebSocket bringt TLS unter sich mit, ein Klartext-`ws://` wird aber nicht verweigert |
-| SASL-Aushandlung und -Durchführung (§6) | ✅ |
+| SASL-Aushandlung und -Durchführung (§6) | ✅ Client und Server; der Client nimmt den stärksten angebotenen Mechanismus, der Server lehnt einen nicht angebotenen ab |
 | Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
@@ -368,7 +368,14 @@ miteinander sprechen:
 - TLS: `wss://` mit einem selbst signierten Zertifikat, das der Konstruktor
   erzeugt (RFC 6120 §5). `new XMPPServer(useTLS: false)` schaltet auf `ws://`
   zurück, was für die Fehlersuche mit einem Mitschnitt gedacht ist
-- SASL PLAIN gegen hinterlegte Konten, inklusive Fehlanmeldung
+- SASL: SCRAM-SHA-256, SCRAM-SHA-1 und PLAIN, in dieser Reihenfolge angeboten.
+  Welche Mechanismen es sein sollen, steuert `OfferedSaslMechanisms`; ein nicht
+  angebotener wird auch dann abgelehnt, wenn ein Client ihn versucht
+- Zugangsdaten nach RFC 5802 §3 — Salt, Iterationszahl, `StoredKey` und
+  `ServerKey` je Mechanismus. Kein Klartextpasswort, auch nicht für PLAIN:
+  das prüft, indem es aus dem angebotenen Passwort neu ableitet
+- Konten und Roster über `IXMPPAccountStore`: `InMemoryAccountStore` (Vorgabe)
+  oder `FileAccountStore` für einen Bestand, der den Neustart übersteht
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
 - Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
@@ -388,7 +395,11 @@ miteinander sprechen:
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
   `OfferStreamManagement`, `AnswerAckRequests`, `FailPings`, `FailDiscoInfo`,
-  `FailBind`, `SessionRequired`, `ConflictOnUsedResource`
+  `FailBind`, `SessionRequired`, `ConflictOnUsedResource`,
+  `CorruptScramSignature`, `OmitScramSignature` — die letzten beiden für die
+  Gegenprobe zur zweiten Hälfte von SCRAM: ein Server, der das Passwort nicht
+  kennt, kann die Serversignatur nicht erzeugen, und der Client muss die
+  Anmeldung dann verweigern
 - `DeliverAfterBind`: Frames, die der Server unmittelbar nach der Bind-Antwort
   schickt — also mitten in die Aufbauphase des Clients hinein. `{jid}` darin
   wird durch den gebundenen Full-JID ersetzt.
@@ -430,11 +441,15 @@ Server-Implementierung:
   STARTTLS (§5.4), ein Weg ein eigenes Zertifikat zu hinterlegen, und die
   Möglichkeit `ws://` zu verbieten — `new XMPPServer(useTLS: false)` liefert
   weiterhin Klartext.
-- **Nur SASL PLAIN**, und Passwörter liegen im Klartext im Speicher. SCRAM
-  beherrscht der Server nicht — der Client fällt gegen ihn also immer auf den
-  schwächsten Mechanismus zurück.
-- **Keine dauerhafte Kontenverwaltung.** Konten und Roster leben im Speicher
-  einer `XMPPServer`-Instanz und sind beim Beenden weg.
+- **SCRAM ohne Channel Binding.** Angeboten werden SCRAM-SHA-256, SCRAM-SHA-1
+  und PLAIN; die `-PLUS`-Varianten fehlen. Ein unbekanntes Konto wird
+  abgelehnt, bevor der Austausch beginnt — damit verrät der Server, ob es ein
+  Konto gibt, statt nach RFC 5802 §7 mit einem erfundenen Salt weiterzumachen.
+- **Kein Anlegen von Konten über XMPP** (XEP-0077) und keine
+  Passwortänderung — Konten entstehen nur über `AddAccount`.
+- **Der Kontenspeicher ist unverschlüsselt.** `FileAccountStore` legt eine
+  JSON-Datei ohne gesetzte Zugriffsrechte an. Passwörter stehen nicht darin,
+  aber die abgelegten Schlüssel erlauben, eine Anmeldung zu prüfen.
 - **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
   offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
   gerade nicht verbundenes Konto wird nicht aufbewahrt.

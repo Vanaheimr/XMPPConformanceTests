@@ -35,10 +35,11 @@ Stand: 2026-07-27
 | Resource einstellbar, `<conflict/>` führt zu einem zweiten Bind ohne Wunsch | `2f6f830` |
 | Ein Test verbrachte sechs Minuten in zwanzig Reconnects | `4a2b3b6` |
 | S1: Transport auf Hermods WebSocket-Server, Server spricht `wss://` | `a92583e`, `b97db5e`, `2ebc805` |
+| S2: Zugangsdaten abgeleitet statt im Klartext, SCRAM auf dem Server, Kontenspeicher | `d54dacb`, `c35ae85`, `d29dc3c` |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **219 Tests, 0 Fehler, 0 übersprungen** in 53 Sekunden.
+Aktueller Stand der Suite: **253 Tests, 0 Fehler, 0 übersprungen** in 55 Sekunden.
 
 ---
 
@@ -88,15 +89,38 @@ Was beim Umbau anders lag als erwartet:
   nur PLAIN an, also ist der SCRAM-Pfad des Clients nach wie vor nur gegen die
   RFC-Vektoren getestet.
 
-### S2. Dauerhafte Kontenverwaltung
+### S2. Dauerhafte Kontenverwaltung ✅
 
-Konten und Roster leben im Speicher einer `XMPPServer`-Instanz und sind beim
-Beenden weg. Passwörter liegen im Klartext.
+Erledigt in drei Schritten: `d54dacb` (Zugangsdaten), `c35ae85` (SCRAM auf dem
+Server), `d29dc3c` (Kontenspeicher).
 
-**Umfang:** mittel. Eine Persistenzschnittstelle (`IAccountStore` o.ä.) mit
-einer In-Memory-Implementierung für Tests und einer dateibasierten für den
-Betrieb. Passwörter gehören dann als SCRAM-Salted-Password abgelegt, nicht im
-Klartext — was S1 voraussetzt, weil PLAIN sonst der einzige Mechanismus bleibt.
+Passwörter liegen nicht mehr im Klartext, sondern als das, was RFC 5802 §3
+dafür vorsieht: Salt, Iterationszahl und je Mechanismus `StoredKey` und
+`ServerKey`. `IXMPPAccountStore` trägt Konten und Roster; `InMemoryAccountStore`
+bleibt die Vorgabe, `FileAccountStore` schreibt eine JSON-Datei.
+
+**Der Nebeneffekt aus S1 ist damit eingelöst:** der Server bietet
+SCRAM-SHA-256, SCRAM-SHA-1 und PLAIN an, und weil der Client von sich aus den
+stärksten nimmt, läuft die gesamte Suite über SCRAM-SHA-256. Der SCRAM-Pfad des
+Clients ist damit zum ersten Mal integrativ geprüft — insbesondere seine
+Prüfung der Serversignatur, für die es zuvor keinen Test gab, der ihr Versagen
+bemerkt hätte.
+
+**Was daran offen blieb:**
+
+- **Kein Channel Binding** (`SCRAM-SHA-*-PLUS`). Der GS2-Header wird auf
+  Übereinstimmung geprüft, mehr verlangt RFC 5802 §6 von einem Server ohne
+  Channel Binding auch nicht.
+- **Ein unbekanntes Konto wird abgelehnt, bevor der Austausch beginnt.** Damit
+  verrät der Server, ob es ein Konto gibt; RFC 5802 §7 empfiehlt, mit einem
+  erfundenen Salt weiterzumachen.
+- **Die Kontendatei ist unverschlüsselt** und ihre Zugriffsrechte werden nicht
+  gesetzt. Die abgelegten Schlüssel sind keine Passwörter, erlauben aber, eine
+  Anmeldung zu prüfen.
+- **Kein Anlegen von Konten über XMPP** (XEP-0077 In-Band Registration) und
+  keine Passwortänderung.
+- Die Iterationszahl steht auf 4096, der Untergrenze aus RFC 7677 §4. Für den
+  Betrieb zu wenig; je Konto einstellbar.
 
 ### S3. Presence nur an Subscriber ✅
 
