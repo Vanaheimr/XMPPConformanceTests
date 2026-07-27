@@ -18,7 +18,10 @@
 #region Usings
 
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -86,8 +89,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Die Domain, für die der Server zuständig ist.</summary>
         public String Domain { get; }
 
+        /// <summary>
+        /// Das selbst signierte Zertifikat dieses Servers, oder null, wenn er
+        /// im Klartext spricht.
+        /// </summary>
+        public X509Certificate2? Certificate { get; }
+
         /// <summary>WebSocket-URI für den Client.</summary>
-        public String Uri => $"ws://localhost:{Port}/ws/";
+        public String Uri => $"{(Certificate is not null ? "wss" : "ws")}://localhost:{Port}/ws/";
 
         /// <summary>Anzahl aller jemals akzeptierten Verbindungen.</summary>
         public Int32 ConnectionCount => Volatile.Read(ref _connectionCounter);
@@ -208,13 +217,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         /// <param name="domain">Die bediente Domain; muss zum JID der Clients passen.</param>
         /// <param name="port">Fester Port oder 0 für einen freien.</param>
-        public XMPPServer(String domain = "localhost", Int32 port = 0)
+        /// <param name="useTLS">
+        /// TLS mit einem selbst erzeugten Zertifikat, wie RFC 6120,
+        /// Abschnitt 5 es verlangt. Auf false spricht der Server
+        /// <c>ws://</c> - brauchbar für die Fehlersuche mit einem Mitschnitt,
+        /// sonst nichts.
+        /// </param>
+        public XMPPServer(String   domain   = "localhost",
+                          Int32    port     = 0,
+                          Boolean  useTLS   = true)
         {
 
-            Domain  = domain;
-            Port    = port > 0 ? port : FreeTcpPort();
+            Domain       = domain;
+            Port         = port > 0 ? port : FreeTcpPort();
+            Certificate  = useTLS ? CreateSelfSignedCertificate(domain) : null;
 
-            _webSocketServer = new XMPPWebSocketServer(this, IPPort.Parse(Port));
+            _webSocketServer = new XMPPWebSocketServer(this, IPPort.Parse(Port), Certificate);
 
             _webSocketServer.OnNewWebSocketConnection  += OnConnectionOpenedAsync;
             _webSocketServer.OnCloseMessageReceived    += OnCloseFrameReceivedAsync;
@@ -362,10 +380,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             private readonly XMPPServer _xmpp;
 
-            public XMPPWebSocketServer(XMPPServer  xmpp,
-                                       IPPort      port)
+            public XMPPWebSocketServer(XMPPServer         xmpp,
+                                       IPPort             port,
+                                       X509Certificate2?  certificate)
 
                 : base(TCPPort:                port,
+
+                       // RFC 6120, Abschnitt 5: XMPP gehört über TLS. Ohne
+                       // Selektor bleibt der Listener im Klartext.
+                       ServerCertificateSelector:  certificate is not null
+                                                       ? (_, _) => certificate
+                                                       : null,
 
                        // Sonst verlangte Hermod eine HTTP-Basic-Authentifizierung
                        // beim Handshake. Wer sich anmelden darf, entscheidet in
@@ -1470,6 +1495,81 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var slash = jid.IndexOf('/');
             return slash > 0 ? jid[..slash] : jid;
         }
+
+        /// <summary>
+        /// Erzeugt ein selbst signiertes Serverzertifikat für die Domain.
+        /// </summary>
+        /// <remarks>
+        /// Bewusst über die BCL und nicht über Hermods <c>PKIFactory</c>: das
+        /// spart die Abhängigkeit auf BouncyCastle und eine dreistufige
+        /// CA-Kette, von der hier nichts gebraucht wird.
+        ///
+        /// Der Umweg über PFX am Ende ist auf Windows nötig. Ein Zertifikat
+        /// aus <c>CreateSelfSigned</c> trägt seinen Schlüssel in einer Form,
+        /// die <c>SslStream</c> beim Handshake nicht annimmt; erst nach Export
+        /// und erneutem Laden ist er brauchbar.
+        /// </remarks>
+        private static X509Certificate2 CreateSelfSignedCertificate(String domain)
+        {
+
+            using var key = RSA.Create(2048);
+
+            var request = new CertificateRequest($"CN={domain}",
+                                                 key,
+                                                 HashAlgorithmName.SHA256,
+                                                 RSASignaturePadding.Pkcs1);
+
+            request.CertificateExtensions.Add(
+                new X509BasicConstraintsExtension(false, false, 0, true));
+
+            request.CertificateExtensions.Add(
+                new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature |
+                                          X509KeyUsageFlags.KeyEncipherment,
+                                          true));
+
+            // Ohne Server Authentication weist die Prüfung des Betriebssystems
+            // das Zertifikat auch dann ab, wenn man ihm sonst vertraute.
+            request.CertificateExtensions.Add(
+                new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], true));
+
+            var alternativeNames = new SubjectAlternativeNameBuilder();
+            alternativeNames.AddDnsName(domain);
+            alternativeNames.AddDnsName("localhost");
+            alternativeNames.AddIpAddress(IPAddress.Loopback);
+            request.CertificateExtensions.Add(alternativeNames.Build());
+
+            var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),
+                                                       DateTimeOffset.UtcNow.AddYears(1));
+
+            return X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx),
+                                                     null);
+
+        }
+
+        /// <summary>
+        /// Eine Zertifikatsprüfung für den Client, die genau das Zertifikat
+        /// dieses Servers annimmt und sonst nichts.
+        /// </summary>
+        /// <remarks>
+        /// Steht hier, weil nur der Testserver seinen eigenen Fingerabdruck
+        /// kennt. Verglichen wird der Fingerabdruck und nicht der Name: zwei
+        /// Server dieser Klasse heissen beide "localhost", tragen aber
+        /// verschiedene Schlüssel.
+        ///
+        /// Absichtlich keine Prüfung, die alles durchwinkt. Eine solche wäre
+        /// kürzer, hätte aber die Verbindungen der Tests von TLS entkoppelt:
+        /// sie kämen dann auch gegen einen beliebigen anderen Server zustande.
+        /// </remarks>
+        public Boolean IsOwnCertificate(Object            sender,
+                                        X509Certificate?  certificate,
+                                        X509Chain?        chain,
+                                        SslPolicyErrors   errors)
+
+            => Certificate is not null &&
+               certificate is not null &&
+               String.Equals(certificate.GetCertHashString(HashAlgorithmName.SHA256),
+                             Certificate.GetCertHashString(HashAlgorithmName.SHA256),
+                             StringComparison.OrdinalIgnoreCase);
 
         private static Int32 FreeTcpPort()
         {

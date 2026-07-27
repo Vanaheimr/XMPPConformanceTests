@@ -117,7 +117,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 KeepaliveInterval        = keepalive ?? TimeSpan.FromSeconds(25),
                 InitialReconnectDelay    = reconnectDelay ?? TimeSpan.FromMilliseconds(200),
                 MaxReconnectAttempts     = 20,
-                StreamManagementEnabled  = streamManagement
+                StreamManagementEnabled  = streamManagement,
+
+                // Der Testserver signiert sein Zertifikat selbst; kein Rechner
+                // vertraut ihm. Angeheftet wird der Fingerabdruck genau dieses
+                // Servers - eine Prüfung, die alles annimmt, liesse die Tests
+                // auch gegen eine fremde Gegenstelle bestehen.
+                ServerCertificateValidator = Server.IsOwnCertificate
             };
 
             var client = new XMPPClient(connection);

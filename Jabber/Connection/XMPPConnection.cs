@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Net.Security;
 using System.Net.WebSockets;
 using System.Text;
 using System.Xml;
@@ -165,6 +166,20 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// Aufrufer, lässt sich aber jetzt setzen.
     /// </remarks>
     public string? Resource { get; set; } = $"console-{Environment.ProcessId}";
+
+    /// <summary>
+    /// Prüfung des Serverzertifikats bei <c>wss://</c>. Null überlässt sie dem
+    /// Betriebssystem - der Server braucht dann ein Zertifikat, dem der Rechner
+    /// ohnehin vertraut.
+    /// </summary>
+    /// <remarks>
+    /// Gedacht für Zertifikate, die keine bekannte CA unterschrieben hat: ein
+    /// Testserver, eine firmeneigene CA, ein angehefteter Fingerabdruck. Wer
+    /// hier eine Prüfung einsetzt, die immer true liefert, hat TLS auf
+    /// Verschlüsselung ohne Authentifizierung reduziert - gegen einen
+    /// Mitschnitt hilft das, gegen einen Zwischenmann nicht.
+    /// </remarks>
+    public RemoteCertificateValidationCallback? ServerCertificateValidator { get; set; }
 
     // State
     public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
@@ -371,6 +386,10 @@ public sealed class XMPPConnection : IAsyncDisposable
             // WebSocket verbinden
             var webSocket = new ClientWebSocket();
             webSocket.Options.AddSubProtocol("xmpp");  // RFC 7395
+
+            if (ServerCertificateValidator is not null)
+                webSocket.Options.RemoteCertificateValidationCallback = ServerCertificateValidator;
+
             _webSocket = webSocket;
 
             _logger.LogInformation("Verbinde zu {WebSocketUri} ...", _wsUri);
