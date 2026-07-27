@@ -36,10 +36,12 @@ Stand: 2026-07-27
 | Ein Test verbrachte sechs Minuten in zwanzig Reconnects | `4a2b3b6` |
 | S1: Transport auf Hermods WebSocket-Server, Server spricht `wss://` | `a92583e`, `b97db5e`, `2ebc805` |
 | S2: Zugangsdaten abgeleitet statt im Klartext, SCRAM auf dem Server, Kontenspeicher | `d54dacb`, `c35ae85`, `d29dc3c` |
+| Abmeldung wurde als letzte Presence gemerkt und nachgeliefert — Ursache des sporadischen Fehlschlags | `bccf648` |
+| S4: Domain-Weiche, Fehlerpfad, Föderation zweier Server (ohne echten Transport) | `d9c4333`, `323795f` |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **253 Tests, 0 Fehler, 0 übersprungen** in 55 Sekunden.
+Aktueller Stand der Suite: **267 Tests, 0 Fehler, 0 übersprungen** in 65 Sekunden.
 
 ---
 
@@ -148,19 +150,48 @@ meldet der Server die Resource bei denselben Empfängern ab, die auch ihre
 Anmeldung bekommen haben. Hat der Client sich selbst abgemeldet, unterbleibt
 die Wiederholung.
 
-### S4. Zwei Server, zwei Clients, eine Nachricht
+### S4. Zwei Server, zwei Clients, eine Nachricht ✅ (Routing) / ⚠️ (Transport)
 
-Das Zielbild: zwei `XMPPServer`-Instanzen mit verschiedenen Domains, an jeder
-ein `XMPPClient`, und eine Nachricht geht von einem zum anderen. Das ist
-Server-zu-Server-Föderation (RFC 6120 §4) und heute gar nicht vorhanden — alle
-Sitzungen müssen auf derselben Domain liegen.
+Das Zielbild steht: zwei `XMPPServer`-Instanzen mit verschiedenen Domains, an
+jeder ein echter `XMPPClient`, und eine Nachricht geht von einem zum anderen —
+samt Antwort zurück und samt Presence. Erledigt in zwei Schritten: `d9c4333`
+(Domain-Weiche und Fehlerpfad), `323795f` (Föderation).
 
-**Umfang:** groß. Braucht eine S2S-Verbindung zwischen den Servern, Routing
-anhand der Domain im `to`, und mindestens Dialback (XEP-0220) oder
-SASL-EXTERNAL zur Authentifizierung der Gegenstelle.
-**Warum es sich lohnt:** es ist zugleich der schärfste Integrationstest, den das
-Projekt haben kann — er übt Routing, Adressierung und Zustellung über eine
-echte Grenze hinweg, statt alles in einer Instanz kurzzuschliessen.
+**Entschieden:** erst Routing und Adressierung, der Transport später. `IServerLinks`
+ist die Stelle, an der er eingesetzt wird; `DirectServerLinks` verbindet zwei
+Server im selben Prozess.
+
+Was dabei mitkam: eine Stanza an eine fremde Domain verschwand bisher
+spurlos. Jetzt kommt `<remote-server-not-found/>` zurück (RFC 6120 §10.4.3,
+Bedingung aus §8.3.3).
+
+**Was offen bleibt — und der Grund, warum das hier kein ✅ allein ist:**
+
+- **Es gibt keinen echten Transport.** `DirectServerLinks` hat keinen Stream,
+  kein TLS, keinen Dialback und keine Authentifizierung: die Domain, für die
+  eine Gegenstelle sprechen darf, wird schlicht behauptet. Für den Betrieb ist
+  das nichts.
+- **Kein Dialback (XEP-0220) und kein SASL-EXTERNAL.** Die Absenderprüfung im
+  Eingang ist da und scharf — sie ist genau das, worauf ein echter Transport
+  danach baut —, aber es gibt nichts, was die Behauptung der Gegenstelle
+  belegt.
+- **Domainübergreifende Subscriptions fehlen.** Der Handshake aus RFC 6121 §3
+  nimmt an, dass beide Seiten lokal sind. Ein bestehender Eintrag wird über die
+  Grenze beachtet, ein neuer lässt sich nicht aushandeln.
+- **Keine Auflösung über DNS** (SRV-Records nach RFC 6120 §3.2) — Gegenstellen
+  werden von Hand eingetragen.
+
+### S4b. Der eigentliche S2S-Transport
+
+Die Entscheidung steht noch aus und ist keine kleine:
+
+- **TCP 5269 mit `jabber:server`-Streams**, wie RFC 6120 §4 es vorsieht. Echte
+  Interoperabilität mit ejabberd und Prosody. Braucht einen zweiten Listener,
+  `<stream:stream>`-XML-Streams statt WebSocket-Rahmen, STARTTLS für S2S und
+  Dialback darüber.
+- **WebSocket**, wie der Rest des Projekts. Deutlich weniger Arbeit, föderiert
+  aber nur mit sich selbst — RFC 7395 deckt WebSocket ausdrücklich nur für
+  Client-zu-Server ab.
 
 ---
 

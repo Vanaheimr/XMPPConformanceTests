@@ -376,6 +376,10 @@ miteinander sprechen:
   das prüft, indem es aus dem angebotenen Passwort neu ableitet
 - Konten und Roster über `IXMPPAccountStore`: `InMemoryAccountStore` (Vorgabe)
   oder `FileAccountStore` für einen Bestand, der den Neustart übersteht
+- Routing nach Domain: was nicht hierher gehört, geht über `IServerLinks`
+  hinaus; eine unerreichbare Domain wird mit `<remote-server-not-found/>`
+  beantwortet. `DirectServerLinks.Connect(a, b)` verbindet zwei Instanzen im
+  selben Prozess — für Tests, nicht für den Betrieb
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
 - Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
@@ -453,8 +457,13 @@ Server-Implementierung:
 - **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
   offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
   gerade nicht verbundenes Konto wird nicht aufbewahrt.
-- **Keine Server-zu-Server-Föderation** (RFC 6120 §4) — alle Sitzungen müssen
-  auf derselben Domain liegen.
+- **Föderation ohne echten Transport.** Routing nach Domain, Adressierung und
+  Zustellung über die Grenze gibt es; eine Stanza an eine unerreichbare Domain
+  wird mit `<remote-server-not-found/>` beantwortet. Was fehlt, ist die
+  Verbindung selbst: `DirectServerLinks` verdrahtet zwei Instanzen im selben
+  Prozess, ohne Stream, TLS, Dialback (XEP-0220) oder irgendeine
+  Authentifizierung der Gegenstelle. Ebenso fehlen domainübergreifende
+  Subscriptions und die Auflösung über SRV-Records (RFC 6120 §3.2).
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
