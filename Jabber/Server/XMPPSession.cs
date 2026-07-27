@@ -17,18 +17,12 @@
 
 #region Usings
 
-using System.Net.WebSockets;
-using System.Text;
+using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
-
-    // Siehe XMPPServer: Hermods WebSocket-Namespace verdeckt den gleichnamigen
-    // Typ. Der Alias muss innerhalb der Namespace-Deklaration stehen - ausserhalb
-    // gewaenne das Namespace-Member.
-    using WebSocket = System.Net.WebSockets.WebSocket;
 
     /// <summary>
     /// Eine einzelne Client-Verbindung auf dem Testserver - nach dem Resource
@@ -39,7 +33,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Data
 
-        private readonly WebSocket _webSocket;
+        private readonly AWebSocketServer _server;
+        private readonly WebSocketServerConnection _connection;
         private readonly SemaphoreSlim _sendLock = new(1, 1);
         private readonly List<String> _received = [];
         private readonly List<String> _sent = [];
@@ -124,8 +119,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public UInt32? LastAckFromClient { get; internal set; }
 
+        /// <summary>Die zugrundeliegende WebSocket-Verbindung.</summary>
+        public WebSocketServerConnection Connection => _connection;
+
         /// <summary>Ist die Verbindung noch offen?</summary>
-        public Boolean IsOpen => _webSocket.State == WebSocketState.Open;
+        public Boolean IsOpen => !_connection.IsClosed;
+
+        /// <summary>
+        /// Wie oft dieser Client bereits <c>&lt;open/&gt;</c> geschickt hat.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 6.4.6: nach erfolgreicher Authentifizierung
+        /// beginnt der Client den Stream neu. Am Zähler hängt, welche Features
+        /// der Server anbietet - vor der Anmeldung SASL, danach Binding.
+        /// </remarks>
+        internal Int32 OpenCount { get; set; }
 
         /// <summary>Alle vom Client empfangenen Frames, in Eingangsreihenfolge.</summary>
         public IReadOnlyList<String> Received
@@ -143,9 +151,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Constructor(s)
 
-        internal XMPPSession(WebSocket webSocket, Int32 connectionNumber)
+        internal XMPPSession(AWebSocketServer           server,
+                             WebSocketServerConnection  connection,
+                             Int32                      connectionNumber)
         {
-            _webSocket        = webSocket;
+            _server           = server;
+            _connection       = connection;
             ConnectionNumber  = connectionNumber;
         }
 
@@ -226,13 +237,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             try
             {
-                if (_webSocket.State != WebSocketState.Open)
+
+                if (_connection.IsClosed)
                     return;
 
-                await _webSocket.SendAsync(Encoding.UTF8.GetBytes(xml),
-                                           WebSocketMessageType.Text,
-                                           true,
-                                           CancellationToken.None);
+                var status = await _server.SendTextMessage(_connection, xml);
+
+                // Nur ein tatsächlich abgeschickter Frame zählt - sonst meldete
+                // der Server dem Client ein h, das dieser nie erreichen kann.
+                if (status != SentStatus.Success)
+                    return;
 
                 lock (_lock)
                 {
@@ -244,8 +258,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                         StanzasSentToClient++;
 
                 }
+
             }
-            catch (WebSocketException)
+            catch (Exception)
             {
                 // Verbindung wurde zwischenzeitlich abgerissen
             }
@@ -260,9 +275,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Reisst die Verbindung ohne Close-Handshake ab - simuliert einen
         /// Netzwerkausfall und löst beim Client einen Reconnect aus.
         /// </summary>
+        /// <remarks>
+        /// <c>Close</c> ohne Statuscode schickt bewusst kein Close-Frame,
+        /// sondern legt nur die TCP-Verbindung nieder - genau das unterscheidet
+        /// einen Netzwerkausfall von einer ordentlichen Abmeldung.
+        /// </remarks>
         public void Kill()
         {
-            try { _webSocket.Abort(); }
+            try { _connection.Close().GetAwaiter().GetResult(); }
             catch { /* egal */ }
         }
 

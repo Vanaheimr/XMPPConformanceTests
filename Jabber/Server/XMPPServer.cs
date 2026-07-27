@@ -19,31 +19,31 @@
 
 using System.Net;
 using System.Net.Sockets;
-using System.Net.WebSockets;
 using System.Text;
 using System.Text.RegularExpressions;
+
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
-    // Hermods Namespace org.GraphDefined.Vanaheimr.Hermod.WebSocket verdeckt in
-    // diesem Namespace den Typ System.Net.WebSockets.WebSocket. Der Alias haelt
-    // beide erreichbar, solange der Transport noch auf HttpListener sitzt; er
-    // muss dafuer innerhalb der Namespace-Deklaration stehen, weil ein
-    // Namespace-Member sonst gegen einen Alias der Compilation Unit gewinnt.
-    using WebSocket = System.Net.WebSockets.WebSocket;
-
-    // Dasselbe für IPAddress: Hermod bringt einen eigenen Typ dieses Namens mit.
+    // Hermod bringt einen eigenen Typ IPAddress mit, der hier den
+    // gleichnamigen aus System.Net verdeckt. Der Alias muss innerhalb der
+    // Namespace-Deklaration stehen, weil ein Namespace-Member sonst gegen einen
+    // Alias der Compilation Unit gewinnt.
     using IPAddress = System.Net.IPAddress;
 
     /// <summary>
     /// Ein minimaler XMPP-over-WebSocket-Server (RFC 7395).
     ///
     /// Gedacht als Gegenstelle für Tests und für die Entwicklung, nicht für
-    /// den Produktivbetrieb: es gibt weder TLS noch eine dauerhafte
-    /// Kontenverwaltung.
+    /// den Produktivbetrieb: es fehlt eine dauerhafte Kontenverwaltung.
+    ///
+    /// Den Transport - WebSocket-Rahmen, Verbindungsverwaltung und TLS -
+    /// liefert Hermods <c>AWebSocketServer</c>; hier steht nur das Protokoll.
     ///
     /// Er beherrscht so viel vom Protokoll, dass sich mehrere echte
     /// <c>XMPPClient</c>-Instanzen gleichzeitig anmelden und miteinander
@@ -68,13 +68,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Data
 
-        private readonly HttpListener _listener = new();
+        private readonly XMPPWebSocketServer _webSocketServer;
         private readonly CancellationTokenSource _cts = new();
         private readonly Dictionary<String, XMPPAccount> _accounts = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<XMPPSession> _sessions = [];
         private readonly Lock _lock = new();
 
-        private Task? _acceptLoop;
         private Int32 _connectionCounter;
 
         #endregion
@@ -111,7 +110,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         /// <summary>
         /// Beantwortet der Server das Close-Frame des Clients? Auf false lässt
-        /// sich ein Server simulieren, der den Handshake offen lässt.
+        /// sich ein Server simulieren, der den Handshake offen lässt: er hält
+        /// seine Antwort um <c>SilentCloseDelay</c> zurück, während die
+        /// Verbindung offen bleibt.
         /// </summary>
         public Boolean CompleteCloseHandshake { get; set; } = true;
 
@@ -213,7 +214,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             Domain  = domain;
             Port    = port > 0 ? port : FreeTcpPort();
 
-            _listener.Prefixes.Add($"http://localhost:{Port}/ws/");
+            _webSocketServer = new XMPPWebSocketServer(this, IPPort.Parse(Port));
+
+            _webSocketServer.OnNewWebSocketConnection  += OnConnectionOpenedAsync;
+            _webSocketServer.OnCloseMessageReceived    += OnCloseFrameReceivedAsync;
+            _webSocketServer.OnTCPConnectionClosed     += OnConnectionClosedAsync;
 
         }
 
@@ -340,99 +345,198 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #region Start und Verbindungsannahme
 
         public void Start()
+            => _webSocketServer.Start().GetAwaiter().GetResult();
+
+        /// <summary>
+        /// Der WebSocket-Transport. Das Protokoll steckt vollständig in
+        /// <see cref="XMPPServer"/>; Hermod liefert Rahmen, TLS und die
+        /// Verbindungsverwaltung.
+        /// </summary>
+        /// <remarks>
+        /// Komposition statt Vererbung: <see cref="XMPPServer"/> soll nach
+        /// aussen seine eigene, kleine Oberfläche behalten und nicht die
+        /// gesamte von <c>AWebSocketServer</c> erben.
+        /// </remarks>
+        private sealed class XMPPWebSocketServer : AWebSocketServer
         {
-            _listener.Start();
-            _acceptLoop = Task.Run(AcceptLoopAsync);
+
+            private readonly XMPPServer _xmpp;
+
+            public XMPPWebSocketServer(XMPPServer  xmpp,
+                                       IPPort      port)
+
+                : base(TCPPort:                port,
+
+                       // Sonst verlangte Hermod eine HTTP-Basic-Authentifizierung
+                       // beim Handshake. Wer sich anmelden darf, entscheidet in
+                       // XMPP das SASL danach.
+                       RequireAuthentication:  false,
+
+                       // RFC 7395, Abschnitt 3.3: das Subprotokoll heisst "xmpp".
+                       SecWebSocketProtocols:  ["xmpp"],
+
+                       AutoStart:              false)
+
+            {
+                _xmpp = xmpp;
+            }
+
+            public override Task ProcessTextMessage(DateTimeOffset             Timestamp,
+                                                    AWebSocketServer           Server,
+                                                    WebSocketServerConnection  Connection,
+                                                    EventTracking_Id           EventTrackingId,
+                                                    WebSocketFrame             TextFrame,
+                                                    String                     TextMessage,
+                                                    CancellationToken          CancellationToken)
+
+                => _xmpp.HandleTextMessageAsync(Connection, TextMessage);
+
         }
 
-        private async Task AcceptLoopAsync()
+        /// <summary>
+        /// Eine neue Verbindung steht - ab hier gibt es eine Sitzung dazu.
+        /// </summary>
+        private Task OnConnectionOpenedAsync(DateTimeOffset             timestamp,
+                                             AWebSocketServer           server,
+                                             WebSocketServerConnection  connection,
+                                             IEnumerable<String>        sharedSubprotocols,
+                                             String?                    selectedSubprotocol,
+                                             EventTracking_Id           eventTrackingId,
+                                             CancellationToken          ct)
         {
 
-            while (!_cts.IsCancellationRequested)
+            SessionOf(connection);
+
+            return Task.CompletedTask;
+
+        }
+
+        /// <summary>
+        /// Liefert die Sitzung zu einer Verbindung und legt sie an, falls es
+        /// noch keine gibt.
+        /// </summary>
+        /// <remarks>
+        /// Das Anlegen steht hier und nicht nur im Verbindungsereignis, weil
+        /// die Reihenfolge zwischen jenem Ereignis und dem ersten Textframe
+        /// nichts ist, worauf sich das Protokoll verlassen sollte.
+        /// </remarks>
+        private XMPPSession SessionOf(WebSocketServerConnection connection)
+        {
+
+            lock (_lock)
             {
 
-                HttpListenerContext ctx;
-                try { ctx = await _listener.GetContextAsync(); }
-                catch { return; }
+                var existing = _sessions.FirstOrDefault(s => ReferenceEquals(s.Connection, connection));
 
-                if (!ctx.Request.IsWebSocketRequest)
-                {
-                    ctx.Response.StatusCode = 400;
-                    ctx.Response.Close();
-                    continue;
-                }
+                if (existing is not null)
+                    return existing;
 
-                HttpListenerWebSocketContext wsCtx;
-                try { wsCtx = await ctx.AcceptWebSocketAsync("xmpp"); }
-                catch { continue; }
+                var session = new XMPPSession(_webSocketServer,
+                                              connection,
+                                              Interlocked.Increment(ref _connectionCounter));
 
-                var session = new XMPPSession(wsCtx.WebSocket,
-                                                  Interlocked.Increment(ref _connectionCounter));
+                _sessions.Add(session);
 
-                lock (_lock)
-                    _sessions.Add(session);
-
-                _ = Task.Run(() => ServeAsync(session, wsCtx.WebSocket));
+                return session;
 
             }
 
         }
 
-        private async Task ServeAsync(XMPPSession session, WebSocket ws)
+        /// <summary>
+        /// Ein Textframe des Clients - der Einstieg ins Protokoll.
+        /// </summary>
+        private async Task HandleTextMessageAsync(WebSocketServerConnection  connection,
+                                                  String                     frame)
         {
 
-            var buffer     = new Byte[32768];
-            var openCount  = 0;
+            var session = SessionOf(connection);
+
+            session.RecordReceived(frame);
+            OnStanzaReceived?.Invoke(session, frame);
+
+            if (frame.StartsWith("<open", StringComparison.Ordinal))
+                session.OpenCount++;
 
             try
             {
-                while (ws.State == WebSocketState.Open && !_cts.IsCancellationRequested)
-                {
-
-                    var sb = new StringBuilder();
-                    WebSocketReceiveResult r;
-
-                    do
-                    {
-
-                        r = await ws.ReceiveAsync(buffer, _cts.Token);
-
-                        if (r.MessageType == WebSocketMessageType.Close)
-                        {
-                            if (CompleteCloseHandshake)
-                            {
-                                try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None); }
-                                catch { }
-                            }
-                            return;
-                        }
-
-                        sb.Append(Encoding.UTF8.GetString(buffer, 0, r.Count));
-
-                    }
-                    while (!r.EndOfMessage);
-
-                    var frame = sb.ToString();
-                    session.RecordReceived(frame);
-                    OnStanzaReceived?.Invoke(session, frame);
-
-                    if (frame.StartsWith("<open", StringComparison.Ordinal))
-                        openCount++;
-
-                    await HandleFrameAsync(session, frame, openCount);
-
-                }
+                await HandleFrameAsync(session, frame, session.OpenCount);
             }
             catch
             {
                 // Verbindung abgerissen - im Test der Normalfall
             }
-            finally
+
+        }
+
+        /// <summary>
+        /// Der Client hat den Stream geschlossen.
+        /// </summary>
+        /// <remarks>
+        /// Hermod beantwortet ein Close-Frame von sich aus mit einem eigenen,
+        /// wie RFC 6455, Abschnitt 5.5.1 es verlangt, und legt danach die
+        /// TCP-Verbindung nieder. Ist <see cref="CompleteCloseHandshake"/>
+        /// abgeschaltet, hält dieser Ereignisbehandler die Antwort auf -
+        /// Hermod wartet ihn ab, bevor es schliesst.
+        ///
+        /// Verschieben und nicht unterdrücken: der Client soll Schweigen
+        /// sehen, und zwar auf einer offenen Verbindung. Ein abgerissener
+        /// Socket beendet sein Warten sofort und liesse den Test bestehen,
+        /// ohne dass das Zeitlimit je gegriffen hätte - genau daran wäre die
+        /// erste Fassung hier fast vorbeigelaufen.
+        /// </remarks>
+        private async Task OnCloseFrameReceivedAsync(DateTimeOffset                    timestamp,
+                                                     AWebSocketServer                  server,
+                                                     WebSocketServerConnection         connection,
+                                                     WebSocketFrame                    frame,
+                                                     EventTracking_Id                  eventTrackingId,
+                                                     WebSocketFrame.ClosingStatusCode  statusCode,
+                                                     String?                           reason,
+                                                     CancellationToken                 ct)
+        {
+
+            if (CompleteCloseHandshake)
+                return;
+
+            try
             {
-                // Egal wie die Sitzung endet - ordentlich, abgerissen oder an
-                // einer Ausnahme: die Kontakte müssen es erfahren.
-                await AnnounceUnavailableAsync(session);
+                await Task.Delay(SilentCloseDelay, _cts.Token);
             }
+            catch (OperationCanceledException)
+            {
+                // Server fährt herunter - dann ist die Verzögerung erledigt.
+            }
+
+        }
+
+        /// <summary>
+        /// Wie lange ein Server mit abgeschaltetem
+        /// <see cref="CompleteCloseHandshake"/> schweigt. Muss über dem
+        /// Zeitlimit liegen, das der Client seinem Close-Handshake gibt (drei
+        /// Sekunden), sonst prüft der Test nicht das Zeitlimit, sondern nur
+        /// eine langsame Antwort.
+        /// </summary>
+        private static readonly TimeSpan SilentCloseDelay = TimeSpan.FromSeconds(6);
+
+        /// <summary>
+        /// Die Verbindung ist weg - egal ob ordentlich, abgerissen oder an
+        /// einer Ausnahme: die Kontakte müssen es erfahren.
+        /// </summary>
+        private async Task OnConnectionClosedAsync(DateTimeOffset             timestamp,
+                                                   AWebSocketServer           server,
+                                                   WebSocketServerConnection  connection,
+                                                   EventTracking_Id           eventTrackingId,
+                                                   String?                    reason,
+                                                   CancellationToken          ct)
+        {
+
+            XMPPSession? session;
+
+            lock (_lock)
+                session = _sessions.FirstOrDefault(s => ReferenceEquals(s.Connection, connection));
+
+            if (session is not null)
+                await AnnounceUnavailableAsync(session);
 
         }
 
@@ -1388,15 +1492,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             KillAllSessions();
 
-            try { _listener.Stop(); } catch { }
-
-            if (_acceptLoop is not null)
-            {
-                try { await _acceptLoop.WaitAsync(TimeSpan.FromSeconds(5)); }
-                catch { }
-            }
-
-            try { _listener.Close(); } catch { }
+            try { await _webSocketServer.Shutdown(Wait: true); }
+            catch { }
 
             _cts.Dispose();
 

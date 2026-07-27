@@ -180,6 +180,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)),
                             $"DisconnectAsync hing {sw.Elapsed.TotalSeconds:F1}s.");
 
+                // Ohne Untergrenze bestünde der Test auch dann, wenn der Server
+                // gar nicht schweigt, sondern die Verbindung abreisst - der
+                // Client kehrt dann sofort zurück und das Zeitlimit hat nie
+                // gegriffen. Genau so ist er beim Umbau des Transports einmal
+                // durchgelaufen.
+                Assert.That(sw.Elapsed, Is.GreaterThan(TimeSpan.FromSeconds(2)),
+                            $"DisconnectAsync kehrte nach {sw.Elapsed.TotalSeconds:F1}s zurück - " +
+                            "das Zeitlimit des Close-Handshakes kann nicht gegriffen haben.");
+
                 Assert.That(client.IsConnected, Is.False);
             });
 
