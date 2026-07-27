@@ -38,10 +38,14 @@ Stand: 2026-07-27
 | S2: Zugangsdaten abgeleitet statt im Klartext, SCRAM auf dem Server, Kontenspeicher | `d54dacb`, `c35ae85`, `d29dc3c` |
 | Abmeldung wurde als letzte Presence gemerkt und nachgeliefert — Ursache des sporadischen Fehlschlags | `bccf648` |
 | S4: Domain-Weiche, Fehlerpfad, Föderation zweier Server (ohne echten Transport) | `d9c4333`, `323795f` |
+| S4b-1: S2S-Protokollschicht ohne Transport (`S2SStream`) | `f0a4bbd` |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **267 Tests, 0 Fehler, 0 übersprungen** in 65 Sekunden.
+Aktueller Stand der Suite: **286 Tests, 0 Fehler, 0 übersprungen** in gut einer
+Minute. Ausnahme siehe S4b: zwei Zeilen im WebSocket-Verbindungsabbau, deren
+Mutation im aktuellen Testaufbau nicht zuverlässig isoliert auf sich selbst
+zeigt.
 
 ---
 
@@ -187,11 +191,6 @@ Bedingung aus §8.3.3).
 Föderation mit vorhandenen Servern, WebSocket für Strecken zwischen zwei
 Instanzen dieses Servers.
 
-Das ist billiger als es klingt, weil der teure Teil geteilt wird: Dialback
-beziehungsweise SASL-EXTERNAL, Absenderprüfung, Adressierung, Fehlerbehandlung
-und der Lebenszyklus der Verbindungen gelten für beide. Was sich unterscheidet,
-ist die Rahmung:
-
 | | TCP 5269 | WebSocket |
 |---|---|---|
 | Rahmen | ein offenes `<stream:stream>`, Stanzas als Kindelemente | ein Frame = eine Stanza |
@@ -199,35 +198,70 @@ ist die Rahmung:
 | Auffinden | DNS SRV `_xmpp-server._tcp` (RFC 6120 §3.2) | kein Standard, Konfiguration von Hand |
 | Gegenstellen | ejabberd, Prosody, alles | nur eine andere Instanz dieses Servers |
 
-**Die Schnittstelle trägt das schon.** `IServerLinks.DeliverAsync` fragt nach
-einer Domain und nicht nach einer Verbindung; welcher Transport sie erreicht,
-entscheidet die Implementierung. Eingehend nimmt `ReceiveFromRemoteAsync`
-Domain und Stanza — zwei Listener können sie beide füttern. Am Routing ist
-dafür nichts zu ändern.
+**S4b-1 ✅ Die Protokollschicht, ohne Transport darunter.** `S2SStream` (neu,
+`Jabber/Server/S2SStream.cs`) kennt weder Socket noch WebSocket-Rahmen: sie
+bekommt eingehende Rahmen als Zeichenketten gereicht und schickt ausgehende
+über eine Funktion hinaus. Beide Rollen (`Initiate`/`Accept`) beherrschen den
+`<open/>`-Handshake nach RFC 7395 §3.4, die vom Empfänger vergebene Stream-ID
+(der Anker für Dialback), Stanza-Ein-/Ausgang, `<close/>` und Stream-Fehler.
+Der Stream ist gerichtet (RFC 6120 §4.1) — ein ausgehender Stream nimmt keine
+Stanzas an, das wäre XEP-0288 und ausgehandelt, nicht angenommen.
 
-**Reihenfolge:** erst die Protokollschicht gegen WebSocket, weil der Transport
-steht, getestet ist und die Föderationstests bereits laufen. Danach ist TCP
-eine zweite Rahmung unter einer bewährten Schicht statt eines Sprungs ins
-Kalte. Das Risiko dabei ist bekannt: die Abstraktion nimmt leicht die Form der
-ersten Implementierung an. Dagegen hilft nur, die Rahmung eng zu halten —
-verbinden, Stanza senden, Stanza empfangen, schliessen — und Stream-Begriffe
-nicht nach oben durchschlagen zu lassen.
+`ReceiveFromRemoteAsync` hat einen Zwilling bekommen, `AcceptFromRemoteAsync`,
+der als `RemoteStanzaResult` sagt, *warum* abgelehnt wurde. Das war nötig, weil
+die Ablehnungen jetzt unterschiedlich schwer sind: ein `from`, für das die
+Gegenstelle nicht sprechen darf, beendet den Stream mit `<invalid-from/>`
+(RFC 6120 §8.1.1.1); ein Empfänger auf einer dritten Domain kostet nur die eine
+Stanza. `DirectServerLinks` kannte diesen Unterschied nicht — es konnte nur
+verwerfen, nie den Stream beenden.
+
+**S4b-2 ✅ WebSocket-Transport.** `WebSocketServerLinks` (neu,
+`Jabber/Server/WebSocketServerLinks.cs`) ist `IServerLinks` über einen echten
+Socket: eingehend ein eigener `AWebSocketServer`-Zweig auf einem zweiten Port
+mit Subprotokoll `xmpp-server`, ausgehend `ClientWebSocket` mit
+Verbindungs-Cache je Domain. `WebSocketServerLinks.Connect(a, b)` verkabelt wie
+`DirectServerLinks.Connect`, nur mit echten Adressen und gepinntem Zertifikat
+statt bloss einer Objektreferenz. `WebSocketFederationTests` fährt dasselbe
+Zielbild wie `FederationTests`, diesmal über echte Sockets samt TLS.
+
+Ein Stream-Fehler beendet jetzt auch die WebSocket-Verbindung, nicht nur den
+XMPP-Stream (RFC 6120 §4.9 verlangt genau das) — sonst bliebe eine Verbindung
+offen, auf der protokollseitig nichts mehr passiert. Ehrlich vermerkt: dieser
+Teil und der symmetrische Ausstieg der Empfangsschleife greifen im aktuellen
+Testaufbau ineinander (die eine Seite schliesst aktiv, die andere reagiert
+schon auf den regulären WebSocket-Close), sodass ein Mutationstest, der nur
+eine der beiden Stellen zurückdreht, nicht zuverlässig auf genau diese Zeile
+zeigt. Beide bleiben, weil RFC 6120 §4.9 den Verbindungsabbau unabhängig vom
+jeweils anderen Mechanismus verlangt — nur die Testschärfe dafür fehlt noch.
+
+**Was jetzt WebSocket-S2S kann und was nicht:** verbinden, TLS, Stanza hin und
+zurück, Absenderprüfung mit Konsequenz (Stream *und* Verbindung enden). Was
+weiterhin fehlt: Dialback oder SASL-EXTERNAL — `AddPeer`/`Connect` *behaupten*
+die Domain der Gegenstelle immer noch, wie `DirectServerLinks` es tat, nur über
+ein Netz statt in-process. Ausserdem: was passiert, wenn zwei Server einander
+gleichzeitig anwählen (doppelte Verbindungen), und welcher Transport gewählt
+wird, wenn eine Domain über beide erreichbar wäre.
+
+**S4b-3 (offen): Dialback (XEP-0220).** Die Domain der Gegenstelle belegen
+statt sie zu glauben — über die Stream-ID aus S4b-1, damit dieselbe Prüfung
+später auch über TCP trägt. Erst danach ist ein WebSocket-Link mehr wert als
+`DirectServerLinks`.
+
+**S4b-4 (offen): TCP 5269 als zweite Rahmung.** `S2SStream` sollte dafür
+unverändert bleiben — wenn nicht, war die Trennung in S4b-1 nicht sauber genug.
+Voraussetzung für Föderation mit ejabberd oder Prosody.
 
 **Zwei Dinge, die dabei nicht untergehen dürfen:**
 
 - **Der schwächere Weg bestimmt das Niveau.** Beide Transporte müssen die
   Domain der Gegenstelle gleich gut belegen. Ein WebSocket-Link, der Dialback
   überspringt, weil „das ist ja unser eigenes Protokoll", wäre genau das Loch,
-  gegen das die Absenderprüfung in `ReceiveFromRemoteAsync` existiert.
+  gegen das die Absenderprüfung in `AcceptFromRemoteAsync` existiert.
 - **Dialback klebt am Stream.** XEP-0220 ist über XML-Streams definiert und
   hängt an der Stream-ID. Über WebSocket gibt es kein `<stream:stream>`,
-  sondern `<open/>` mit `id` (RFC 7395 §3.4). Das lässt sich abbilden, ist
-  aber eine eigene Festlegung, die ausser uns niemand kennt — ausgerechnet der
-  Teil, der beide Transporte verbinden soll, ist der stream-nächste.
-
-Ausserdem offen: welcher Transport gewählt wird, wenn eine Domain über beide
-erreichbar wäre, und wie doppelte Verbindungen vermieden werden, wenn zwei
-Server einander gleichzeitig anwählen.
+  sondern `<open/>` mit `id` (RFC 7395 §3.4) — `S2SStream.StreamId` trägt sie
+  schon. Das lässt sich abbilden, ist aber eine eigene Festlegung, die ausser
+  uns niemand kennt.
 
 ---
 

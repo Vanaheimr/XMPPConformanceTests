@@ -520,6 +520,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region Abort(reason)
+
+        /// <summary>
+        /// Beendet den Stream, ohne einen Rahmen zu schicken - für den Fall,
+        /// dass der Transport selbst schon weg ist und ein
+        /// <c>&lt;close/&gt;</c> ohnehin niemanden mehr erreichte.
+        /// </summary>
+        internal void Abort(String? reason)
+            => MarkClosed(reason);
+
+        #endregion
+
         #region (private) MarkOpen(streamId) / MarkClosed(reason)
 
         private void MarkOpen(String? streamId)

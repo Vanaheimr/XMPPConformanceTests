@@ -379,7 +379,12 @@ miteinander sprechen:
 - Routing nach Domain: was nicht hierher gehört, geht über `IServerLinks`
   hinaus; eine unerreichbare Domain wird mit `<remote-server-not-found/>`
   beantwortet. `DirectServerLinks.Connect(a, b)` verbindet zwei Instanzen im
-  selben Prozess — für Tests, nicht für den Betrieb
+  selben Prozess, ohne jedes Netz — für Tests, nicht für den Betrieb.
+  `WebSocketServerLinks.Connect(a, b)` tut dasselbe über einen echten
+  WebSocket-S2S-Stream (`S2SStream`, eigener Handshake nach RFC 7395 §3.4,
+  Subprotokoll `xmpp-server`): eine Absenderfälschung beendet dort nicht nur
+  die Zustellung, sondern den Stream und die Verbindung (RFC 6120 §8.1.1.1,
+  §4.9)
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
 - Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
@@ -457,16 +462,17 @@ Server-Implementierung:
 - **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
   offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
   gerade nicht verbundenes Konto wird nicht aufbewahrt.
-- **Föderation ohne echten Transport.** Routing nach Domain, Adressierung und
-  Zustellung über die Grenze gibt es; eine Stanza an eine unerreichbare Domain
-  wird mit `<remote-server-not-found/>` beantwortet. Was fehlt, ist die
-  Verbindung selbst: `DirectServerLinks` verdrahtet zwei Instanzen im selben
-  Prozess, ohne Stream, TLS, Dialback (XEP-0220) oder irgendeine
-  Authentifizierung der Gegenstelle. Geplant sind beide Transporte — TCP 5269
-  für die Föderation mit vorhandenen Servern, WebSocket für Strecken zwischen
-  zwei Instanzen dieses Servers; `IServerLinks` wählt je Domain. Ebenso fehlen
-  domainübergreifende Subscriptions und die Auflösung über SRV-Records
-  (RFC 6120 §3.2).
+- **Föderation ohne belegte Domain.** Routing, Adressierung und Zustellung über
+  die Grenze gibt es, jetzt über zwei Wege: `DirectServerLinks` (in-process,
+  für Tests) und `WebSocketServerLinks` (echter Stream über RFC-7395-Rahmen mit
+  eigenem S2S-Subprotokoll `xmpp-server`, nur zwischen Instanzen dieses
+  Servers gedacht). Beide *behaupten* nur die Domain der Gegenstelle, keiner
+  *belegt* sie — Dialback (XEP-0220) oder SASL-EXTERNAL fehlt noch. Bis dahin
+  ist ein WebSocket-S2S-Link so vertrauenswürdig wie `DirectServerLinks`, nur
+  über ein Netz. Die TCP-Rahmung (Port 5269, `jabber:server`-Streams) für die
+  Föderation mit vorhandenen Servern wie ejabberd oder Prosody steht noch aus.
+  Ebenso fehlen domainübergreifende Subscriptions und die Auflösung über
+  SRV-Records (RFC 6120 §3.2).
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
