@@ -255,6 +255,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Wird ausgelöst, sobald eine Sitzung erfolgreich gebunden wurde.</summary>
         public event Action<XMPPSession>? OnSessionBound;
 
+        /// <summary>
+        /// Wird ausgelöst, wenn eine Stanza von einem anderen Server abgewiesen
+        /// wurde - mit der Domain der Gegenstelle und dem Grund.
+        /// </summary>
+        public event Action<String, String>? OnRemoteStanzaRejected;
+
         #endregion
 
         #region Constructor(s)
@@ -685,6 +691,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             foreach (var target in PresenceTargetsOf(session))
                 await target.SendAsync(stanza);
+
+            foreach (var remote in RemotePresenceTargetsOf(session))
+                await RouteToAsync(remote, StampTo(stanza, remote));
 
         }
 
@@ -1336,6 +1345,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             foreach (var target in PresenceTargetsOf(session))
                 await target.SendAsync(stamped);
 
+            // Kontakte auf fremden Domains bekommen dieselbe Presence - eine
+            // nicht erreichbare Gegenstelle bleibt hier folgenlos, Presence
+            // wird nicht mit Fehlern beantwortet.
+            foreach (var remote in RemotePresenceTargetsOf(session))
+                await RouteToAsync(remote, StampTo(stamped, remote));
+
             // RFC 6121, Abschnitt 4.3.1: Nach der ersten Presence fragt der
             // Server für den Client den Zustand von dessen Kontakten ab. Weil
             // hier alle Konten auf derselben Instanz liegen, liefern wir gleich
@@ -1558,6 +1573,40 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <c>both</c>. Dazu nach Abschnitt 4.4.2 die weiteren Resourcen des
         /// eigenen Kontos, für die es keinen Roster-Eintrag braucht.
         /// </remarks>
+        /// <summary>
+        /// Die Kontakte auf fremden Domains, die die Presence dieser Sitzung
+        /// sehen dürfen - als Bare-JIDs, weil ihre Resourcen hier niemand
+        /// kennt.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 4.2.2 macht keinen Unterschied zwischen nah und
+        /// fern: wer <c>from</c> oder <c>both</c> hat, bekommt die Presence.
+        /// Getrennt von <see cref="PresenceTargetsOf"/>, weil das eine
+        /// Sitzungen liefert und das andere Adressen - eine gemeinsame Liste
+        /// müsste beides vertragen und wäre an jeder Verwendungsstelle wieder
+        /// aufzutrennen.
+        /// </remarks>
+        private IEnumerable<String> RemotePresenceTargetsOf(XMPPSession session)
+        {
+
+            var account = session.Account;
+
+            if (account is null)
+                yield break;
+
+            foreach (var entry in account.Roster)
+            {
+
+                if (!IsLocal(entry.Jid) &&
+                    entry.Subscription is "from" or "both")
+                {
+                    yield return entry.Jid;
+                }
+
+            }
+
+        }
+
         private IEnumerable<XMPPSession> PresenceTargetsOf(XMPPSession session)
         {
 
@@ -1660,6 +1709,66 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             foreach (var t in targets)
                 await t.SendAsync(stanza);
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// Nimmt eine Stanza von einem anderen Server entgegen - der
+        /// Gegenpart zu <see cref="IServerLinks"/>.
+        /// </summary>
+        /// <param name="peerDomain">
+        /// Die Domain, für die die Gegenstelle sprechen darf. Ein echter
+        /// Transport setzt das nach Dialback (XEP-0220) oder SASL-EXTERNAL;
+        /// hier ist es das Versprechen des Links.
+        /// </param>
+        /// <param name="stanza">Die eingehende Stanza.</param>
+        /// <returns>false, wenn sie abgewiesen wurde.</returns>
+        /// <remarks>
+        /// Die Absenderprüfung ist der Kern und nicht Beiwerk: eine
+        /// Gegenstelle darf ausschliesslich für ihre eigene Domain sprechen.
+        /// Ohne diese Prüfung könnte jeder Server, mit dem man je spricht,
+        /// Nachrichten im Namen jedes beliebigen anderen einschleusen - der
+        /// gesamte Aufwand von Dialback wäre dann umsonst.
+        ///
+        /// RFC 6120, Abschnitt 8.1.1.1 lässt einen Server bei einem falschen
+        /// <c>from</c> den Stream mit <c>&lt;invalid-from/&gt;</c> beenden.
+        /// Das setzt einen Stream voraus, den es hier noch nicht gibt; solange
+        /// wird die Stanza verworfen und über
+        /// <see cref="OnRemoteStanzaRejected"/> gemeldet.
+        /// </remarks>
+        public async Task<Boolean> ReceiveFromRemoteAsync(String peerDomain, String stanza)
+        {
+
+            var from  = Attr(stanza, "from");
+            var to    = Attr(stanza, "to");
+
+            if (from is null || to is null)
+            {
+                OnRemoteStanzaRejected?.Invoke(peerDomain, "from oder to fehlt");
+                return false;
+            }
+
+            if (!String.Equals(DomainOf(from), peerDomain, StringComparison.OrdinalIgnoreCase))
+            {
+                OnRemoteStanzaRejected?.Invoke(
+                    peerDomain,
+                    $"'{from}' gehört nicht zu '{peerDomain}'");
+                return false;
+            }
+
+            if (!IsLocal(to))
+            {
+                // Weiterleiten für Dritte wäre ein offenes Relais.
+                OnRemoteStanzaRejected?.Invoke(peerDomain, $"'{to}' liegt nicht auf '{Domain}'");
+                return false;
+            }
+
+            if (!RouteStanzas)
+                return false;
+
+            await RouteToAsync(to, stanza);
 
             return true;
 
@@ -1769,6 +1878,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var attrs = Regex.Replace(m.Groups[2].Value, @"\s+from=['""][^'""]*['""]", "");
 
             return $"<{m.Groups[1].Value}{attrs} from='{fullJid}'{m.Groups[3].Value}>" +
+                   stanza[m.Length..];
+
+        }
+
+        /// <summary>Setzt oder ersetzt das to-Attribut im äussersten Element.</summary>
+        /// <remarks>
+        /// Ungerichtete Presence trägt kein <c>to</c> - innerhalb eines
+        /// Servers braucht sie auch keines, weil er selbst weiss, an wen er
+        /// sie verteilt. Über eine Domain-Grenze geht das nicht: dort ist die
+        /// Adresse alles, was die Gegenstelle hat, und ohne sie weist sie die
+        /// Stanza ab.
+        /// </remarks>
+        internal static String StampTo(String stanza, String jid)
+        {
+
+            var m = Regex.Match(stanza, @"^<(\w+)([^>]*?)(/?)>");
+
+            if (!m.Success)
+                return stanza;
+
+            var attrs = Regex.Replace(m.Groups[2].Value, @"\s+to=['""][^'""]*['""]", "");
+
+            return $"<{m.Groups[1].Value}{attrs} to='{jid}'{m.Groups[3].Value}>" +
                    stanza[m.Length..];
 
         }
