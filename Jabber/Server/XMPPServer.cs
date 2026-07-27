@@ -141,6 +141,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean OfferSubscriptionPreApproval { get; set; } = true;
 
         /// <summary>
+        /// Wie viele unbeantwortete Subscription-Anfragen je Konto aufbewahrt
+        /// werden (RFC 6121, Abschnitt 3.1.3).
+        /// </summary>
+        /// <remarks>
+        /// Der Abschnitt verlangt das Aufbewahren und warnt im selben Atemzug
+        /// davor: aufgehoben wird, was Fremde schicken, und eine Anfrage darf
+        /// beliebigen erweiterten Inhalt tragen. Die Security Warning rät
+        /// ausdrücklich zu einer Obergrenze ("limits on the number or size of
+        /// inbound presence subscription requests that the server will store
+        /// in aggregate or for any given contact").
+        ///
+        /// Ist die Grenze erreicht, wird die neue Anfrage verworfen statt eine
+        /// bereits aufbewahrte zu verdrängen. Andersherum könnte ein Angreifer
+        /// die echte Anfrage eines Bekannten gezielt hinausdrängen - der
+        /// Kontakt bekäme dann Müll zu sehen und das Erwartete nicht.
+        /// </remarks>
+        public Int32 MaxStoredSubscriptionRequests { get; set; } = 100;
+
+        /// <summary>
         /// Welche SASL-Mechanismen der Server anbietet, in der Reihenfolge der
         /// Ankündigung.
         /// </summary>
@@ -1351,7 +1370,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (to is not null &&
                 type is "subscribe" or "subscribed" or "unsubscribe" or "unsubscribed")
             {
-                await HandleSubscriptionAsync(session, type, BareOf(to));
+                await HandleSubscriptionAsync(session, type, BareOf(to), frame);
                 return;
             }
 
@@ -1362,7 +1381,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            var initial = session.RecordPresence(stamped, available: type is null);
+            // Vor dem Aufzeichnen gefragt: danach ist die Sitzung verfügbar,
+            // und der Unterschied zwischen "war schon" und "ist gerade
+            // geworden" wäre nicht mehr zu sehen.
+            var wurdeVerfuegbar  = type is null && !session.IsAvailable;
+            var initial          = session.RecordPresence(stamped, available: type is null);
+
+            // RFC 6121, Abschnitt 3.1.3, Regel 4: "deliver the request when
+            // the contact next has an available resource". Vor dem
+            // Broadcast-Schalter, weil das Nachreichen aufbewahrter Anfragen
+            // nichts mit dem Verteilen von Presence zu tun hat - wer die
+            // Verteilung abschaltet, will keine Anfragen verlieren.
+            if (wurdeVerfuegbar)
+                await SendStoredSubscriptionRequestsToAsync(session);
 
             if (!BroadcastPresence)
                 return;
@@ -1403,7 +1434,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <param name="sender">Die Sitzung, die den Handshake-Schritt schickt.</param>
         /// <param name="type">subscribe, subscribed, unsubscribe oder unsubscribed.</param>
         /// <param name="peerBareJid">Der Bare-JID der Gegenseite.</param>
-        private async Task HandleSubscriptionAsync(XMPPSession sender, String type, String peerBareJid)
+        /// <param name="frame">Die Stanza, wie der Client sie geschickt hat.</param>
+        private async Task HandleSubscriptionAsync(XMPPSession  sender,
+                                                   String       type,
+                                                   String       peerBareJid,
+                                                   String       frame)
         {
 
             var senderAccount  = sender.Account;
@@ -1414,7 +1449,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             // Nach RFC 6121, Abschnitt 3.1.1 trägt der Handshake immer den
             // Bare-JID - die Anfrage gilt dem Konto, nicht einer Resource.
-            var stanza = $"<presence from='{senderAccount.BareJid}' to='{peerBareJid}' type='{type}'/>";
+            // Deshalb werden beide Adressen ersetzt und nicht bloss ergänzt.
+            //
+            // Gestempelt und nicht neu gebaut: eine Anfrage darf erweiterten
+            // Inhalt tragen, und das <status/> darin ist die Begründung, mit
+            // der ein Mensch über die Zustimmung entscheidet. Ein neu gebautes
+            // <presence .../> wirft sie weg - und Abschnitt 3.1.3 verlangt,
+            // die *vollständige* Stanza aufzubewahren.
+            var stanza = StampTo(StampFrom(frame, senderAccount.BareJid), peerBareJid);
 
             switch (type)
             {
@@ -1436,8 +1478,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 case "subscribed":
                 {
 
-                    var eintrag  = RosterEntryOf(senderAccount, peerBareJid);
-                    var bisher   = eintrag?.Subscription ?? "none";
+                    var bisher = senderAccount.SubscriptionOf(peerBareJid) ?? "none";
 
                     // Fall 1: der Kontakt darf uns ohnehin schon sehen -
                     // stillschweigend übergehen.
@@ -1448,7 +1489,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     // Vormerkung, und die Stanza geht ausdrücklich *nicht*
                     // hinaus - der Kontakt hat nichts gefragt und soll keine
                     // Antwort bekommen.
-                    if (eintrag?.PendingIn != true)
+                    //
+                    // Fragen und Erledigen in einem Schritt: die aufbewahrte
+                    // Anfrage *ist* die offene Anfrage, und wer sie erst
+                    // abfragt und dann löscht, kann beides auseinanderlaufen
+                    // lassen.
+                    if (!senderAccount.ForgetSubscriptionRequest(peerBareJid))
                     {
 
                         if (!OfferSubscriptionPreApproval)
@@ -1461,11 +1507,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     }
 
-                    // Fall 2: es liegt eine Anfrage vor - die gewöhnliche
+                    // Fall 2: es lag eine Anfrage vor - die gewöhnliche
                     // Zustimmung.
                     UpdateRosterEntry(senderAccount, peerBareJid,
-                                      GrantFrom(bisher),
-                                      pendingIn: false);
+                                      GrantFrom(bisher));
                     await PushRosterEntryAsync(senderAccount, peerBareJid);
 
                     if (peerAccount is not null)
@@ -1484,10 +1529,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // Abschnitt 3.4.2, Anmerkung: ein 'unsubscribed' nimmt auch
                 // eine Vormerkung zurück.
                 case "unsubscribed":
+                    senderAccount.ForgetSubscriptionRequest(peerBareJid);
                     UpdateRosterEntry(senderAccount, peerBareJid,
                                       RevokeFrom(senderAccount.SubscriptionOf(peerBareJid)),
-                                      approved:  false,
-                                      pendingIn: false);
+                                      approved: false);
                     await PushRosterEntryAsync(senderAccount, peerBareJid);
 
                     if (peerAccount is not null)
@@ -1574,8 +1619,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                               String       contactBareJid,
                                               String?      subscription  = null,
                                               AskChange    ask           = AskChange.Keep,
-                                              Boolean?     approved      = null,
-                                              Boolean?     pendingIn     = null)
+                                              Boolean?     approved      = null)
         {
 
             var vorher = account.Roster.FirstOrDefault(
@@ -1589,8 +1633,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                        AskChange.Clear  => null,
                                                        _                => vorher?.Ask
                                                    },
-                                                   approved   ?? vorher?.Approved  ?? false,
-                                                   pendingIn  ?? vorher?.PendingIn ?? false));
+                                                   approved   ?? vorher?.Approved  ?? false));
 
         }
 
@@ -1941,12 +1984,54 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            // Abschnitt 3.1.4: die offene Anfrage wird vermerkt, damit eine
-            // spätere Zustimmung sie als solche erkennt - und nicht als
-            // Vormerkung missversteht.
-            UpdateRosterEntry(account, fromBareJid, pendingIn: true);
+            // Abschnitt 3.1.3, Regel 4: die vollständige Stanza wird
+            // aufbewahrt, bis der Kontakt zustimmt oder ablehnt, und bei jeder
+            // neu verfügbaren Resource erneut zugestellt.
+            //
+            // Aufbewahrt wird immer, nicht nur wenn gerade niemand verbunden
+            // ist. Die Regel verlangt die Zustellung an *jede* Resource, die
+            // der Kontakt danach noch anlegt; eine Anfrage nur dann
+            // aufzuheben, wenn zufällig gerade niemand da war, verfehlte
+            // genau den Fall, für den es die Regel gibt - der Kontakt ist
+            // angemeldet, sieht aber gerade nicht hin und meldet sich ab.
+            //
+            // Nebenbei hält dasselbe Aufbewahren fest, dass eine Anfrage
+            // offen ist. Daran hängt nach Abschnitt 3.4.2, ob ein späteres
+            // 'subscribed' eine Zustimmung ist oder eine Vormerkung.
+            //
+            // Anhang A, Tabelle 6: liegt bereits eine Anfrage dieses
+            // Absenders vor, soll sie nicht ein zweites Mal zugestellt werden.
+            if (!account.RememberSubscriptionRequest(fromBareJid, stanza,
+                                                     MaxStoredSubscriptionRequests))
+            {
+                return;
+            }
 
+            // Kein Roster-Eintrag: die Security Warning desselben Abschnitts
+            // untersagt ihn ausdrücklich, solange nicht zugestimmt wurde.
             await RouteToAsync(toBareJid, stanza);
+
+        }
+
+        /// <summary>
+        /// Stellt einer neu verfügbaren Resource die aufbewahrten
+        /// Subscription-Anfragen zu (RFC 6121, Abschnitt 3.1.3, Regel 4).
+        /// </summary>
+        /// <remarks>
+        /// Die Anfragen bleiben dabei stehen. Die Regel verlangt die
+        /// Zustellung, "until the contact either approves or denies the
+        /// request" - eine beim ersten Anmelden übersehene Anfrage wäre sonst
+        /// für immer verloren, und der Antragsteller wartete auf eine Antwort,
+        /// die niemand mehr geben kann.
+        /// </remarks>
+        private async Task SendStoredSubscriptionRequestsToAsync(XMPPSession session)
+        {
+
+            if (session.Account is not { } account)
+                return;
+
+            foreach (var anfrage in account.PendingSubscriptionRequests)
+                await session.SendAsync(anfrage.Value);
 
         }
 
@@ -1963,10 +2048,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task AutoApproveAsync(XMPPAccount account, String requesterBareJid)
         {
 
+            // Vorkehrung, kein lebender Pfad: der einzige Aufrufer entscheidet
+            // sich für die selbsttätige Zustimmung, *bevor* er aufbewahrt, und
+            // beide Wege, auf denen eine Subscription 'from' wird, räumen die
+            // Anfrage bereits ab. Es gibt also heute keinen Zustand, in dem
+            // hier noch etwas läge - kein Test hält die Zeile fest, und eine
+            // Mutation überlebt sie. Sie steht, weil das eine Aussage über die
+            // Reihenfolge in DeliverSubscribeAsync ist und nicht über diese
+            // Methode: wer dort umstellt, liesse die Anfrage sonst liegen.
+            account.ForgetSubscriptionRequest(requesterBareJid);
+
             UpdateRosterEntry(account, requesterBareJid,
                               GrantFrom(account.SubscriptionOf(requesterBareJid)),
-                              approved:  false,
-                              pendingIn: false);
+                              approved: false);
 
             await PushRosterEntryAsync(account, requesterBareJid);
 

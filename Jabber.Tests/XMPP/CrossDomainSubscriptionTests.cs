@@ -90,7 +90,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #region Hilfsfunktionen
 
-        private async Task<XMPPClient> ConnectAsync(XMPPServer server, String localPart)
+        /// <param name="vorDemVerbinden">
+        /// Wird gerufen, bevor die Verbindung steht - für Ereignisse, die
+        /// sonst zwischen Anmeldung und Anhängen verlorengingen.
+        /// </param>
+        private async Task<XMPPClient> ConnectAsync(XMPPServer            server,
+                                                    String                localPart,
+                                                    Action<XMPPClient>?   vorDemVerbinden = null)
         {
 
             if (server.GetAccount($"{localPart}@{server.Domain}") is null)
@@ -107,6 +113,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var client = new XMPPClient(connection);
             _clients.Add(client);
+
+            vorDemVerbinden?.Invoke(client);
 
             await client.ConnectAsync();
 
@@ -392,6 +400,49 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(angenommen, Is.True, "Die Stanza selbst ist in Ordnung.");
                 Assert.That(_rechts.GetAccount("niemand@rechts.example"), Is.Null);
             });
+
+        }
+
+        #endregion
+
+        #region ARequestToAnOfflineAccount_IsKeptAcrossTheBoundary()
+
+        /// <summary>
+        /// Abschnitt 3.1.3, Regel 4 gilt unabhängig davon, woher die Anfrage
+        /// kam: auch eine von jenseits der Grenze wird aufbewahrt, bis der
+        /// Kontakt sie sehen kann.
+        /// </summary>
+        /// <remarks>
+        /// Über die Grenze ist der Fall der Regelfall und nicht die Ausnahme.
+        /// Innerhalb eines Servers sind beide Seiten meist gleichzeitig da;
+        /// zwischen zwei Servern kennt der eine die Anmeldezeiten des anderen
+        /// nicht, und eine Anfrage kommt gerade dann an, wenn es passt - nicht
+        /// wenn es passt.
+        /// </remarks>
+        [Test]
+        public async Task ARequestToAnOfflineAccount_IsKeptAcrossTheBoundary()
+        {
+
+            var alice = await ConnectAsync(_links, "alice");
+
+            // Bob gibt es, aber er ist nicht verbunden.
+            _rechts.AddAccount("bob");
+
+            await alice.AddContactAsync("bob@rechts.example", "Bob");
+
+            await WarteAuf(() => _rechts.GetAccount("bob@rechts.example")!
+                                        .PendingSubscriptionRequests
+                                        .ContainsKey("alice@links.example"),
+                           "die aufbewahrte Anfrage auf der anderen Seite");
+
+            var anfragen = new List<String>();
+
+            await ConnectAsync(_rechts, "bob",
+                               bob => bob.OnSubscriptionRequest += (from, _) => anfragen.Add(from));
+
+            await WarteAuf(() => anfragen.Count > 0, "die nachgereichte Anfrage bei Bob");
+
+            Assert.That(anfragen[0], Is.EqualTo("alice@links.example"));
 
         }
 

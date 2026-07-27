@@ -206,6 +206,60 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region PendingRequestsAndPreApprovals_SurviveTheRoundTrip()
+
+        /// <summary>
+        /// Aufbewahrte Anfragen (RFC 6121, Abschnitt 3.1.3) und Vormerkungen
+        /// (Abschnitt 3.4) gehören ebenso zum Konto.
+        /// </summary>
+        /// <remarks>
+        /// Der Abschnitt verlangt, eine Anfrage zuzustellen, sobald der Kontakt
+        /// sich das nächste Mal anmeldet - ohne dass ein Serverneustart
+        /// dazwischen etwas ändern dürfte. Ginge sie dabei verloren, hiesse
+        /// "aufbewahrt" nur "bis zum nächsten Neustart", und der Antragsteller
+        /// wartete weiter auf eine Antwort, die niemand mehr geben kann.
+        ///
+        /// Aufbewahrt wird die vollständige Stanza, nicht nur der Absender -
+        /// deshalb wird hier eine mit erweitertem Inhalt geschrieben.
+        /// </remarks>
+        [Test]
+        public void PendingRequestsAndPreApprovals_SurviveTheRoundTrip()
+        {
+
+            var account = new XMPPAccount("alice@localhost", "geheim");
+
+            account.SetRosterEntry(new RosterEntry("dave@localhost", null, "none",
+                                                   Approved: true));
+
+            account.RememberSubscriptionRequest(
+                "carol@localhost",
+                "<presence from='carol@localhost' to='alice@localhost' type='subscribe'>" +
+                "<status>Wir kennen uns vom Bahnsteig</status></presence>");
+
+            new FileAccountStore(_datei).Save(account);
+
+            var gelesen = new FileAccountStore(_datei).Load().Single();
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gelesen.Roster.Single(e => e.Jid == "dave@localhost").Approved,
+                            Is.True,
+                            "Eine Vormerkung darf beim Neustart nicht verlorengehen.");
+
+                Assert.That(gelesen.PendingSubscriptionRequests.Keys,
+                            Is.EquivalentTo(new[] { "carol@localhost" }));
+
+                Assert.That(gelesen.PendingSubscriptionRequests["carol@localhost"],
+                            Does.Contain("Wir kennen uns vom Bahnsteig"),
+                            "Aufbewahrt wird die vollständige Stanza samt erweitertem Inhalt.");
+
+            });
+
+        }
+
+        #endregion
+
         #region SavingTwice_DoesNotDuplicate()
 
         /// <summary>

@@ -34,23 +34,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     /// Der Kontakt ist im Voraus zugelassen (RFC 6121, Abschnitt 3.4): stellt
     /// er künftig eine Anfrage, beantwortet der Server sie selbst.
     /// </param>
-    /// <param name="PendingIn">
-    /// Von diesem Kontakt liegt eine unbeantwortete Anfrage vor.
-    /// </param>
     /// <remarks>
-    /// <paramref name="Ask"/> und <paramref name="PendingIn"/> sind die beiden
-    /// Richtungen derselben Frage und werden getrennt geführt: die eine hält
-    /// fest, dass <i>wir</i> gefragt haben, die andere, dass <i>gefragt
-    /// wurde</i>. RFC 6121 nennt die Kombinationen ausgeschrieben ("None +
-    /// Pending Out+In"); ohne beide Angaben liesse sich Abschnitt 3.4 gar nicht
-    /// umsetzen, weil dort die Behandlung eines <c>subscribed</c> davon
-    /// abhängt, ob eine Anfrage offen ist.
+    /// Die Gegenrichtung von <paramref name="Ask"/> - dass <i>gefragt
+    /// wurde</i> - steht hier bewusst nicht. RFC 6121 kennt den Zustand
+    /// ("None + Pending In"), aber Abschnitt 3.1.3 untersagt im selben Atemzug
+    /// einen Roster-Eintrag für einen Antragsteller, dem noch nicht zugestimmt
+    /// wurde. Die offene Anfrage liegt deshalb neben dem Roster, in
+    /// <see cref="XMPPAccount.PendingSubscriptionRequests"/> - und dort
+    /// vollständig, samt erweitertem Inhalt, statt als blosses Ja/Nein.
     /// </remarks>
     public sealed record RosterEntry(String   Jid,
                                          String?  Name          = null,
                                          String   Subscription  = "both",
                                          String?  Ask           = null,
-                                         Boolean  Approved      = false,
-                                         Boolean  PendingIn     = false);
+                                         Boolean  Approved      = false);
 
 }

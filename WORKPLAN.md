@@ -155,8 +155,8 @@ Subscription-Zustand nicht mehr an (§2.3).
 
 Was daran offen blieb:
 - ~~Pre-Approval (§3.4) fehlt~~ ✅ erledigt in S6.
-- Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
-  (§3.1.3) — sie geht verloren statt beim nächsten Anmelden zuzustellen.
+- ~~Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
+  (§3.1.3)~~ ✅ erledigt in S7.
 
 ### S3c. `unavailable` beim Verbindungsende ✅
 
@@ -451,8 +451,8 @@ alles, was die Gegenstelle hat.
 
 **Was offen bleibt:**
 
-- **Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt**
-  (§3.1.3) — auch das gilt für beide Fälle gleichermassen.
+- ~~Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
+  (§3.1.3)~~ ✅ erledigt in S7 — und zwar für beide Fälle in derselben Stelle.
 - Die zentrale Adressierung in `RouteToAsync` ist durch keinen Test
   festgehalten; siehe den Vermerk im Code.
 
@@ -465,10 +465,11 @@ Zustimmung und einmal eine Vormerkung; die Stanza sieht in beiden Fällen gleich
 aus, der Unterschied steckt allein im Roster des Absenders.
 
 Dafür musste der Server erst lernen, offene Anfragen zu vermerken. `RosterEntry`
-hat jetzt `PendingIn` neben `Ask` — die beiden Richtungen derselben Frage: die
-eine hält fest, dass *wir* gefragt haben, die andere, dass *gefragt wurde*. Ohne
+bekam `PendingIn` neben `Ask` — die beiden Richtungen derselben Frage: die eine
+hält fest, dass *wir* gefragt haben, die andere, dass *gefragt wurde*. Ohne
 beide liesse sich §3.4 gar nicht umsetzen. Dazu kommt `Approved`, das als
-`approved='true'` in Roster-Ergebnis und -Push erscheint.
+`approved='true'` in Roster-Ergebnis und -Push erscheint. (`PendingIn` ist in S7
+wieder verschwunden; die Tatsache liegt seither vollständig woanders.)
 
 Die leicht zu übersehende Hälfte: bei einer Vormerkung darf das `subscribed`
 **nicht** hinausgehen (Fälle 3 und 4). Ginge es doch, bekäme der Kontakt eine
@@ -488,8 +489,76 @@ Vormerkung falsch. `PreApproveContactAsync` tut weder das eine noch das andere
 und verweigert von sich aus, wenn der Server das Feature nicht angekündigt hat
 (§3.4.1 verlangt genau das).
 
-**Was offen bleibt:** eine Anfrage an ein gerade nicht verbundenes Konto wird
-weiterhin nicht aufbewahrt (§3.1.3).
+**Was offen blieb:** eine Anfrage an ein gerade nicht verbundenes Konto wurde
+weiterhin nicht aufbewahrt (§3.1.3) — erledigt in S7.
+
+### S7. Aufbewahrte Subscription-Anfragen ✅
+
+RFC 6121 §3.1.3, Regel 4: wer gerade nicht verbunden ist, soll seine Anfragen
+trotzdem bekommen. Bis hierher gingen sie ersatzlos verloren, und zwar unbemerkt
+auf beiden Seiten — der Antragsteller sah `ask='subscribe'` in seinem Roster und
+wartete auf eine Antwort, der Kontakt hatte nie erfahren, dass er gefragt wurde.
+
+**Aufbewahrt wird immer, nicht nur wenn gerade niemand da ist.** Die Regel
+verlangt die Zustellung an *jede* Resource, die der Kontakt danach noch anlegt,
+bis er zustimmt oder ablehnt. Eine Anfrage nur dann aufzuheben, wenn zufällig
+niemand verbunden war, verfehlte genau den häufigen Fall: angemeldet, aber
+gerade nicht hingesehen, dann abgemeldet. Damit fällt auch die Fallunterscheidung
+weg — es gibt keinen Offline-Zweig, sondern einen Weg.
+
+**`RosterEntry.PendingIn` ist wieder weg.** Der Zustand aus S6 war ein Ja/Nein
+für dieselbe Tatsache, die jetzt vollständig in
+`XMPPAccount.PendingSubscriptionRequests` liegt: die aufbewahrte Anfrage *ist*
+die offene Anfrage. Zwei Orte für eine Tatsache laufen über kurz oder lang
+auseinander; §3.4.2 fragt seither dieselbe Stelle, die §3.1.3 füllt. Das
+Fragen und das Erledigen sind dabei ein Schritt (`ForgetSubscriptionRequest`
+liefert, ob etwas vorlag), damit sie nicht getrennt werden können.
+
+**Und der Roster bleibt sauber.** Die Security Warning desselben Abschnitts
+untersagt einen Roster-Eintrag für einen Antragsteller, dem noch nicht
+zugestimmt wurde — bisher entstand einer, mit `subscription='none'`. Wer
+beliebige Fremde in fremde Roster schreiben kann, kann sie vollschreiben.
+
+**Die Stanza wird gestempelt statt neu gebaut.** `HandleSubscriptionAsync` setzte
+bisher ein frisches `<presence …/>` zusammen und warf damit das `<status/>` weg —
+die Begründung, mit der ein Mensch über die Zustimmung entscheidet. Regel 4
+verlangt aber die *vollständige* Stanza, "including any extended content
+contained therein"; ohne diese Änderung wäre die Berufung darauf falsch gewesen.
+
+**Zwei Grenzen, beide aus dem Abschnitt selbst.** Je Absender bleibt genau eine
+Anfrage stehen, und zwar die erste — sonst bestimmte, wer zuletzt fragt, was der
+Kontakt zu sehen bekommt, und könnte es beliebig oft austauschen (Anhang A,
+Tabelle 6 sagt dazu: nicht noch einmal zustellen). Dazu
+`MaxStoredSubscriptionRequests` je Konto, Vorgabe 100: die Security Warning rät
+ausdrücklich zu einer Obergrenze, weil aufgehoben wird, was Fremde schicken. Ist
+sie erreicht, wird die neue Anfrage verworfen statt eine aufbewahrte zu
+verdrängen — andersherum liesse sich die echte Anfrage eines Bekannten gezielt
+hinausdrängen.
+
+**Nebenbefund:** `FileAccountStore` schrieb `Approved` seit S6 gar nicht mit —
+eine Vormerkung überlebte keinen Neustart. Jetzt persistieren beide, Vormerkung
+und aufbewahrte Anfrage; "aufbewahrt" hiesse sonst "bis zum nächsten Neustart".
+
+14 Mutationen, 11 sofort tot. Die drei Überlebenden waren aufschlussreich:
+
+- *Nachreichen bei jeder Presence statt beim Verfügbar**werden***: kein Test sah
+  den Unterschied. Im Betrieb hätte jeder Wechsel auf "abwesend" dieselbe
+  unbeantwortete Anfrage erneut vorgelegt. Festgehalten durch
+  `AStatusChange_DoesNotRepeatTheRequest`.
+- *Eine wiederholte Anfrage verdrängt die aufbewahrte*: unsichtbar, weil der
+  einzige Test dazu den Kontakt abgemeldet hatte — dann sieht Abweisen und
+  Ersetzen gleich aus. Bei verbundenem Kontakt geht jede angenommene Anfrage
+  sofort hinaus, und der Unterschied wird sichtbar.
+  `AFurtherRequest_IsNotDeliveredAgain` prüft jetzt beides, Zahl und Inhalt.
+- *`AutoApproveAsync` vergisst die Anfrage nicht*: überlebt, und das zu Recht —
+  der einzige Aufrufer entscheidet sich für die selbsttätige Zustimmung, bevor
+  er aufbewahrt, und beide Wege zu `from` räumen die Anfrage ohnehin ab. Die
+  Zeile ist eine Aussage über die Reihenfolge in `DeliverSubscribeAsync`, nicht
+  über diese Methode; sie steht mit genau diesem Vermerk im Code.
+
+**Was offen bleibt:** die Obergrenze wirft still weg — weder der Antragsteller
+noch der Kontakt erfährt davon. Das ist die vom Abschnitt empfohlene Antwort auf
+die Erschöpfungsgefahr, aber es bleibt ein Verlust ohne Quittung.
 
 ---
 

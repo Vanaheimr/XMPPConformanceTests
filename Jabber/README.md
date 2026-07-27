@@ -391,6 +391,12 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- Aufbewahrte Subscription-Anfragen (RFC 6121 §3.1.3): wer nicht verbunden ist,
+  bekommt seine Anfragen beim nächsten Anmelden — und bei jeder weiteren
+  Resource wieder, bis er zustimmt oder ablehnt. Aufbewahrt wird die
+  vollständige Stanza samt `<status/>`, je Absender genau eine, und mit einer
+  Obergrenze je Konto. Ein Roster-Eintrag entsteht dabei nicht: die Security
+  Warning des Abschnitts untersagt ihn vor der Zustimmung
 - Subscription-Pre-Approval (RFC 6121 §3.4): ein Kontakt lässt sich zulassen,
   bevor er fragt; seine spätere Anfrage beantwortet der Server selbst und stellt
   sie dem Nutzer gar nicht erst zu. Angekündigt als
@@ -491,9 +497,11 @@ Server-Implementierung:
 - **Der Kontenspeicher ist unverschlüsselt.** `FileAccountStore` legt eine
   JSON-Datei ohne gesetzte Zugriffsrechte an. Passwörter stehen nicht darin,
   aber die abgelegten Schlüssel erlauben, eine Anmeldung zu prüfen.
-- **Keine Zustellung offener Anfragen an später anmeldende Kontakte**
-  (RFC 6121 §3.1.3): eine Anfrage an ein gerade nicht verbundenes Konto wird
-  nicht aufbewahrt. Pre-Approval (§3.4) gibt es dagegen.
+- **Aufbewahrte Anfragen haben eine Obergrenze** (RFC 6121 §3.1.3,
+  `MaxStoredSubscriptionRequests`, Vorgabe 100). Ist sie erreicht, wird die
+  neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
+  Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
+  auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
 - **Föderation ohne SRV und ohne STARTTLS, und nie gegen einen fremden Server
   gelaufen.** Es gibt drei Wege über die Domain-Grenze: `DirectServerLinks`
   (in-process, für Tests, ohne jede Authentifizierung), `WebSocketServerLinks`

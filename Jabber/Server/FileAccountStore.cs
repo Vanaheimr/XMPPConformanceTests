@@ -191,7 +191,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                         Convert.ToBase64String(credentials.KeysOf(m).StoredKey),
                                         Convert.ToBase64String(credentials.KeysOf(m).ServerKey)))),
 
-                       [.. account.Roster.Select(e => new GespeicherterKontakt(e.Jid, e.Name, e.Subscription, e.Ask))]
+                       [.. account.Roster.Select(e => new GespeicherterKontakt(e.Jid, e.Name, e.Subscription,
+                                                                              e.Ask, e.Approved))],
+
+                       account.PendingSubscriptionRequests.Count > 0
+                           ? new Dictionary<String, String>(account.PendingSubscriptionRequests)
+                           : null
 
                    );
 
@@ -214,7 +219,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 account.SetRosterEntry(new RosterEntry(kontakt.Jid,
                                                        kontakt.Name,
                                                        kontakt.Subscription,
-                                                       kontakt.Ask));
+                                                       kontakt.Ask,
+                                                       kontakt.Approved));
+
+            // RFC 6121, Abschnitt 3.1.3: eine aufbewahrte Anfrage soll
+            // zugestellt werden, sobald der Kontakt sich das nächste Mal
+            // anmeldet - und einen Serverneustart zu überstehen gehört dazu.
+            // Ohne das wäre "aufbewahrt" nur ein anderes Wort für "bis zum
+            // nächsten Neustart".
+            foreach (var anfrage in datensatz.PendingSubscriptions ?? [])
+                account.RememberSubscriptionRequest(anfrage.Key, anfrage.Value);
 
             return account;
 
@@ -230,9 +244,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private sealed record GespeicherteKonten(Int32                     Version,
                                                  List<GespeichertesKonto>  Accounts);
 
+        /// <param name="PendingSubscriptions">
+        /// Aufbewahrte Subscription-Anfragen, nach Absender (RFC 6121,
+        /// Abschnitt 3.1.3). Fehlt in älteren Dateien und ist dann null.
+        /// </param>
         private sealed record GespeichertesKonto(String                        BareJid,
                                                  GespeicherteZugangsdaten      Credentials,
-                                                 List<GespeicherterKontakt>    Roster);
+                                                 List<GespeicherterKontakt>    Roster,
+                                                 Dictionary<String, String>?   PendingSubscriptions);
 
         private sealed record GespeicherteZugangsdaten(String                                    Salt,
                                                        Int32                                     IterationCount,
@@ -244,7 +263,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private sealed record GespeicherterKontakt(String   Jid,
                                                    String?  Name,
                                                    String   Subscription,
-                                                   String?  Ask);
+                                                   String?  Ask,
+                                                   Boolean  Approved);
 
         #endregion
 
