@@ -42,6 +42,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 
 | Bereich | Status |
 |---------|--------|
+| TLS (§5) | ⚠️ `wss://` über den WebSocket-Transport; `XMPPConnection.ServerCertificateValidator` erlaubt eine eigene Zertifikatsprüfung, `null` überlässt sie dem Betriebssystem. Kein STARTTLS (§5.4) — WebSocket bringt TLS unter sich mit, ein Klartext-`ws://` wird aber nicht verweigert |
 | SASL-Aushandlung und -Durchführung (§6) | ✅ |
 | Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
@@ -364,6 +365,9 @@ nach Hermod mitwandert; sein Namespace ist `…Hermod.XMPP.Server`. Er reicht so
 weit, dass sich mehrere echte `XMPPClient`-Instanzen gleichzeitig anmelden und
 miteinander sprechen:
 
+- TLS: `wss://` mit einem selbst signierten Zertifikat, das der Konstruktor
+  erzeugt (RFC 6120 §5). `new XMPPServer(useTLS: false)` schaltet auf `ws://`
+  zurück, was für die Fehlersuche mit einem Mitschnitt gedacht ist
 - SASL PLAIN gegen hinterlegte Konten, inklusive Fehlanmeldung
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
@@ -400,14 +404,32 @@ await alice.SendMessageAsync(bob.BareJid, "Hallo Bob!");
 Verbindungsabrisse simuliert `Server.KillAllSessions()`, einzelne Resourcen
 `Server.SessionOf(fullJid)!.Kill()`.
 
+Weil das Zertifikat selbst signiert ist, vertraut ihm kein Rechner. Der Client
+braucht deshalb eine eigene Prüfung; `Server.IsOwnCertificate` heftet den
+Fingerabdruck genau dieses Servers an:
+
+```csharp
+var connection = new XMPPConnection(jid, passwort, Server.Uri)
+{
+    ServerCertificateValidator = Server.IsOwnCertificate
+};
+```
+
+Eine Prüfung, die pauschal `true` liefert, wäre kürzer — sie nähme TLS aber die
+Authentifizierung und liesse die Tests auch gegen eine fremde Gegenstelle
+bestehen.
+
 #### Was dem Server zum Produktivbetrieb fehlt
 
 Der Name sagt es nicht mehr — bis vor kurzem hiess die Klasse `FakeXMPPServer`.
 Sie ist als Gegenstelle für Tests und Entwicklung gedacht, nicht als
 Server-Implementierung:
 
-- **Kein TLS.** Der Listener spricht `http://` beziehungsweise `ws://`. Für
-  RFC 6120 §5 wäre `wss://` mit Zertifikat nötig.
+- **TLS ohne STARTTLS und ohne Zwang.** Der Server spricht `wss://` mit einem
+  selbst signierten, zur Laufzeit erzeugten Zertifikat (RFC 6120 §5). Was fehlt:
+  STARTTLS (§5.4), ein Weg ein eigenes Zertifikat zu hinterlegen, und die
+  Möglichkeit `ws://` zu verbieten — `new XMPPServer(useTLS: false)` liefert
+  weiterhin Klartext.
 - **Nur SASL PLAIN**, und Passwörter liegen im Klartext im Speicher. SCRAM
   beherrscht der Server nicht — der Client fällt gegen ihn also immer auf den
   schwächsten Mechanismus zurück.

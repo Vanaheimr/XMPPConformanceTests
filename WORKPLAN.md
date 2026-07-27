@@ -4,7 +4,7 @@ Was an Client und Server offen ist, in welcher Reihenfolge es sinnvoll ist und
 warum. Die ausführliche Beschreibung der einzelnen Lücken steht in
 [Jabber/README.md](Jabber/README.md) — hier steht nur, was zu **tun** ist.
 
-Stand: 2026-07-26
+Stand: 2026-07-27
 
 ---
 
@@ -32,66 +32,61 @@ Stand: 2026-07-26
 | S3c: Abmeldung beim Verbindungsende, auch bei Abriss | `fdb8c3b` |
 | S3b: Subscription-Handshake, Roster-Set lässt die Subscription in Ruhe | `590d38c` |
 | Client wertet `subscribed`/`unsubscribed`/`unsubscribe` aus, statt sie als Anwesenheit zu lesen | `a5bc49d` |
-| Resource einstellbar, `<conflict/>` führt zu einem zweiten Bind ohne Wunsch | offen im Working Tree |
+| Resource einstellbar, `<conflict/>` führt zu einem zweiten Bind ohne Wunsch | `2f6f830` |
+| Ein Test verbrachte sechs Minuten in zwanzig Reconnects | `4a2b3b6` |
+| S1: Transport auf Hermods WebSocket-Server, Server spricht `wss://` | `a92583e`, `b97db5e`, `2ebc805` |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **213 Tests, 0 Fehler, 0 übersprungen**.
+Aktueller Stand der Suite: **219 Tests, 0 Fehler, 0 übersprungen** in 53 Sekunden.
 
 ---
 
 ## Der Server soll ein richtiger Server werden
 
 `XMPPServer` ist als Gegenstelle für Tests entstanden. Er soll das Image des
-reinen Testservers verlieren — dafür fehlen drei Dinge, und ein viertes wäre
-der Beweis, dass es funktioniert. Die vollständige Lückenliste steht in
+reinen Testservers verlieren — dafür fehlten drei Dinge, das erste davon ist
+jetzt erledigt, und ein viertes wäre der Beweis, dass es funktioniert. Die
+vollständige Lückenliste steht in
 [Jabber/README.md](Jabber/README.md#was-dem-server-zum-produktivbetrieb-fehlt).
 
-### S1. TLS
+### S1. TLS ✅
 
-Der Listener spricht `http://` beziehungsweise `ws://`. RFC 6120 §5 verlangt
-`wss://` mit Zertifikat. Ohne das ist jeder andere Punkt hier akademisch, weil
-Passwörter im Klartext über die Leitung gingen.
+Erledigt. Der Server spricht `wss://` mit einem selbst signierten Zertifikat,
+wie RFC 6120 §5 es verlangt; die gesamte Suite läuft darüber. Umgesetzt in vier
+Schritten: `a92583e` (Referenz auf Hermod), `b97db5e` (Transport),
+`2ebc805` (TLS), plus `4a2b3b6` als Zwischenfund.
 
-**Nebeneffekt:** erst damit lässt sich SCRAM sinnvoll ergänzen, und damit auch
-der SCRAM-Pfad des Clients integrativ testen statt nur gegen die RFC-Vektoren.
+Den Transport liefert Hermods `AWebSocketServer` — `HttpListener` und die
+selbstgeschriebene Empfangsschleife sind weg. `XMPPServer` erbt ihn nicht,
+sondern hält eine private Ableitung, die `ProcessTextMessage` überschreibt; so
+bleibt seine öffentliche Oberfläche klein und alle Tests kompilierten
+unverändert weiter.
 
-**Entschieden:** über Hermods WebSocket-Server, nicht über selbstgeschriebenes
-`TcpListener`+`SslStream`. Jabber soll ohnehin nach Hermod wandern, und
-WebSocket-Framing ist genau die Sorte Protokollcode, in der sich Fehler
-verstecken — Hermod hat ihn schon.
+Was beim Umbau anders lag als erwartet:
 
-**Vorarbeit ist erledigt, die Umsetzung steht aus.** Was geprüft ist:
+- Nicht eine Namenskollision, sondern zwei: neben `WebSocket` auch `IPAddress`.
+  Beide Aliase müssen **innerhalb** der Namespace-Deklaration stehen — auf
+  Ebene der Compilation Unit gewinnt das Namespace-Member.
+- Empfangen läuft nicht über `OnTextMessageReceived`, sondern über die
+  überschriebene Methode `ProcessTextMessage`; das Ereignis gehört der
+  Beispielklasse `WebSocketMirrorServer`, nicht der Basisklasse.
+- Der Konstruktorparameter heißt `TCPPort`, nicht `HTTPPort`.
+- Close, Ping und Subprotokoll-Aushandlung waren **kein** Problem — die
+  Suite war beim ersten vollen Lauf grün. Die einzige echte Abweichung: Hermod
+  beantwortet ein Close-Frame immer und bietet keinen Schalter dagegen.
+  `CompleteCloseHandshake = false` verzögert die Antwort daher, statt sie zu
+  unterdrücken.
 
-- `libs/Hermod` baut (~30 s, 0 Fehler). Die `ProjectReference` von Jabber
-  darauf funktioniert; sie zieht Styx und sechs Pakete nach (BouncyCastle,
-  Newtonsoft.Json, System.Drawing.Common, System.IO.Ports,
-  PerformanceCounter, Diagnostics.Runtime).
-- **Einzige Kollision:** Hermods Namespace
-  `org.GraphDefined.Vanaheimr.Hermod.WebSocket` verdeckt
-  `System.Net.WebSockets.WebSocket`. Betroffen sind genau `XMPPServer` und
-  `XMPPSession` — also die beiden Dateien, die ohnehin umgebaut werden. Der
-  Client kompiliert unverändert.
-- API: `WebSocketServer` (Namespace `…Hermod.WebSocket`) mit
-  `HTTPPort`, `SecWebSocketProtocols: ["xmpp"]`, `ServerCertificateSelector`,
-  `AutoStart`. **Achtung:** `RequireAuthentication` steht per Default auf
-  `true` und muss abgeschaltet werden.
-- Empfangen über das Ereignis `OnTextMessageReceived`
-  (`(Timestamp, Server, Connection, Frame, EventTrackingId, TextMessage, ct)`),
-  senden über `server.SendTextMessage(connection, xml)`. Sitzungsanfang und
-  -ende über `OnNewWebSocketConnection` und `OnTCPConnectionClosed`.
-- Zertifikat: `PKIFactory` aus Hermod (siehe
-  `HermodTests/HTTP/AHTTPSServerTests.cs`) oder schlicht `CertificateRequest`
-  aus der BCL — Letzteres koppelt weniger.
+**Was daran offen blieb:**
 
-**Was dann noch zu tun ist:** `XMPPSession` auf
-`WebSocketServerConnection` umstellen (`IsOpen` → `!IsClosed`, `SendAsync` →
-`SendTextMessage`, `Kill` → `Close`), `XMPPServer` von `HttpListener` auf den
-neuen Server, `XMPPConnection` braucht einen
-`RemoteCertificateValidationCallback` für das Testzertifikat, und
-`AXMPPTests` muss ihn setzen. Danach die 213 Tests wieder grün bekommen — die
-Semantik von Close, Ping und Subprotokoll-Aushandlung unterscheidet sich von
-`HttpListener` und wird die eigentliche Arbeit sein.
+- Kein STARTTLS (RFC 6120 §5.4), und TLS ist nicht erzwungen — wer den Server
+  mit `useTLS: false` baut, bekommt weiter `ws://`.
+- Das Zertifikat ist selbst signiert und wird zur Laufzeit erzeugt. Für den
+  Betrieb bräuchte es einen Weg, ein eigenes zu hinterlegen.
+- Der ursprüngliche Nebeneffekt steht noch aus: der Server bietet weiterhin
+  nur PLAIN an, also ist der SCRAM-Pfad des Clients nach wie vor nur gegen die
+  RFC-Vektoren getestet.
 
 ### S2. Dauerhafte Kontenverwaltung
 
