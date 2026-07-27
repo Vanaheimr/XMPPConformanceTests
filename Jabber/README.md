@@ -462,8 +462,11 @@ Server-Implementierung:
   wird mit `<remote-server-not-found/>` beantwortet. Was fehlt, ist die
   Verbindung selbst: `DirectServerLinks` verdrahtet zwei Instanzen im selben
   Prozess, ohne Stream, TLS, Dialback (XEP-0220) oder irgendeine
-  Authentifizierung der Gegenstelle. Ebenso fehlen domainübergreifende
-  Subscriptions und die Auflösung über SRV-Records (RFC 6120 §3.2).
+  Authentifizierung der Gegenstelle. Geplant sind beide Transporte — TCP 5269
+  für die Föderation mit vorhandenen Servern, WebSocket für Strecken zwischen
+  zwei Instanzen dieses Servers; `IServerLinks` wählt je Domain. Ebenso fehlen
+  domainübergreifende Subscriptions und die Auflösung über SRV-Records
+  (RFC 6120 §3.2).
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der

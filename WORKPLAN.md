@@ -183,15 +183,51 @@ Bedingung aus §8.3.3).
 
 ### S4b. Der eigentliche S2S-Transport
 
-Die Entscheidung steht noch aus und ist keine kleine:
+**Entschieden: beides.** Nicht das eine *oder* das andere — TCP für die
+Föderation mit vorhandenen Servern, WebSocket für Strecken zwischen zwei
+Instanzen dieses Servers.
 
-- **TCP 5269 mit `jabber:server`-Streams**, wie RFC 6120 §4 es vorsieht. Echte
-  Interoperabilität mit ejabberd und Prosody. Braucht einen zweiten Listener,
-  `<stream:stream>`-XML-Streams statt WebSocket-Rahmen, STARTTLS für S2S und
-  Dialback darüber.
-- **WebSocket**, wie der Rest des Projekts. Deutlich weniger Arbeit, föderiert
-  aber nur mit sich selbst — RFC 7395 deckt WebSocket ausdrücklich nur für
-  Client-zu-Server ab.
+Das ist billiger als es klingt, weil der teure Teil geteilt wird: Dialback
+beziehungsweise SASL-EXTERNAL, Absenderprüfung, Adressierung, Fehlerbehandlung
+und der Lebenszyklus der Verbindungen gelten für beide. Was sich unterscheidet,
+ist die Rahmung:
+
+| | TCP 5269 | WebSocket |
+|---|---|---|
+| Rahmen | ein offenes `<stream:stream>`, Stanzas als Kindelemente | ein Frame = eine Stanza |
+| TLS | STARTTLS **im** Stream (RFC 6120 §5.4) | TLS unter dem Handshake, davor |
+| Auffinden | DNS SRV `_xmpp-server._tcp` (RFC 6120 §3.2) | kein Standard, Konfiguration von Hand |
+| Gegenstellen | ejabberd, Prosody, alles | nur eine andere Instanz dieses Servers |
+
+**Die Schnittstelle trägt das schon.** `IServerLinks.DeliverAsync` fragt nach
+einer Domain und nicht nach einer Verbindung; welcher Transport sie erreicht,
+entscheidet die Implementierung. Eingehend nimmt `ReceiveFromRemoteAsync`
+Domain und Stanza — zwei Listener können sie beide füttern. Am Routing ist
+dafür nichts zu ändern.
+
+**Reihenfolge:** erst die Protokollschicht gegen WebSocket, weil der Transport
+steht, getestet ist und die Föderationstests bereits laufen. Danach ist TCP
+eine zweite Rahmung unter einer bewährten Schicht statt eines Sprungs ins
+Kalte. Das Risiko dabei ist bekannt: die Abstraktion nimmt leicht die Form der
+ersten Implementierung an. Dagegen hilft nur, die Rahmung eng zu halten —
+verbinden, Stanza senden, Stanza empfangen, schliessen — und Stream-Begriffe
+nicht nach oben durchschlagen zu lassen.
+
+**Zwei Dinge, die dabei nicht untergehen dürfen:**
+
+- **Der schwächere Weg bestimmt das Niveau.** Beide Transporte müssen die
+  Domain der Gegenstelle gleich gut belegen. Ein WebSocket-Link, der Dialback
+  überspringt, weil „das ist ja unser eigenes Protokoll", wäre genau das Loch,
+  gegen das die Absenderprüfung in `ReceiveFromRemoteAsync` existiert.
+- **Dialback klebt am Stream.** XEP-0220 ist über XML-Streams definiert und
+  hängt an der Stream-ID. Über WebSocket gibt es kein `<stream:stream>`,
+  sondern `<open/>` mit `id` (RFC 7395 §3.4). Das lässt sich abbilden, ist
+  aber eine eigene Festlegung, die ausser uns niemand kennt — ausgerechnet der
+  Teil, der beide Transporte verbinden soll, ist der stream-nächste.
+
+Ausserdem offen: welcher Transport gewählt wird, wenn eine Domain über beide
+erreichbar wäre, und wie doppelte Verbindungen vermieden werden, wenn zwei
+Server einander gleichzeitig anwählen.
 
 ---
 

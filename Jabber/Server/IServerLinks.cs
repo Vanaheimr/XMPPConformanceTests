@@ -29,11 +29,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     /// den Routing-Teil des Servers nichts an. Er will wissen, ob die Stanza
     /// draussen ist.
     ///
-    /// Der echte Transport fehlt noch. RFC 6120 sieht für S2S TCP auf Port
-    /// 5269 mit <c>jabber:server</c>-Streams vor; RFC 7395 deckt WebSocket
-    /// ausdrücklich nur für Client-zu-Server ab. Welcher von beiden es wird,
-    /// ist offen - deshalb steht hier eine Schnittstelle und keine
-    /// Implementierung.
+    /// Der echte Transport fehlt noch, und zwar mit Absicht in dieser Form:
+    /// die Methode fragt nach einer <b>Domain</b> und nicht nach einer
+    /// Verbindung. Welcher Transport eine Domain erreicht, entscheidet die
+    /// Implementierung - sie kann für die eine Gegenstelle TCP und für die
+    /// andere WebSocket benutzen, ohne dass das Routing davon erfährt.
+    ///
+    /// Beides ist das Ziel. RFC 6120 sieht für S2S TCP auf Port 5269 mit
+    /// <c>jabber:server</c>-Streams vor - nur damit ist Föderation mit
+    /// ejabberd oder Prosody möglich. RFC 7395 ist auf browserbasierte
+    /// Clients zugeschnitten und sagt zu S2S nichts; es verbietet den
+    /// Transport dort aber auch nicht, und eine WebSocket-Strecke zwischen
+    /// zwei Instanzen dieses Servers ist erheblich schneller zu haben.
+    ///
+    /// Der teure Teil - Dialback beziehungsweise SASL-EXTERNAL, die
+    /// Absenderprüfung, Adressierung, Lebenszyklus - ist beiden gemeinsam.
+    /// Deshalb ist "beides" nicht doppelte Arbeit.
     /// </remarks>
     public interface IServerLinks
     {
