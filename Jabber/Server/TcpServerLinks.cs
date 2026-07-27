@@ -49,16 +49,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     /// genau das; die WebSocket-Strecke verbindet nur Instanzen dieses Servers
     /// miteinander.
     ///
-    /// <b>Was hier bewusst anders ist als in RFC 6120, Abschnitt 5.4:</b> es
-    /// gibt kein STARTTLS. TLS wird entweder von Anfang an gesprochen oder gar
-    /// nicht, je nachdem was für die Gegenstelle hinterlegt ist. STARTTLS
-    /// verhandelt Verschlüsselung <i>innerhalb</i> des Streams: Klartext-Stream
-    /// öffnen, <c>&lt;starttls/&gt;</c> anbieten, <c>&lt;proceed/&gt;</c>
-    /// abwarten, TLS aufsetzen, Stream neu öffnen. Das ist machbar, aber es ist
-    /// ein eigener Zustandsautomat über der Rahmung, und ohne ihn ist die
-    /// Strecke nicht weniger sicher - nur weniger kompatibel. Für die
-    /// Föderation mit einem Server, der Klartext nicht akzeptiert, fehlt es
-    /// trotzdem; das steht im Arbeitsplan.
+    /// <b>Wie TLS zustande kommt, entscheidet <see cref="TcpTlsMode"/>.</b>
+    /// Vorgabe ist STARTTLS (RFC 6120, Abschnitt 5.4): der Stream beginnt im
+    /// Klartext, handelt Verschlüsselung aus und fängt danach von vorn an.
+    /// <see cref="TcpTlsMode.Direct"/> spart die Aushandlung und ist zwischen
+    /// zwei Instanzen dieses Servers das Einfachere.
+    ///
+    /// Die Aushandlung selbst steht hier im Transport und nicht in
+    /// <see cref="S2SStream"/>. Das ist kein Zufall: der Stream vor TLS ist ein
+    /// Wegwerfstream, dessen Zustand nach der Verschlüsselung verworfen wird
+    /// (Abschnitt 5.4.3.3). Die Protokollschicht bekommt den Strom erst, wenn
+    /// er verschlüsselt ist, und muss von der Aushandlung nichts wissen - und
+    /// bekommt so auch keine Gelegenheit, versehentlich etwas aus der
+    /// Klartextphase zu übernehmen.
     /// </remarks>
     public sealed class TcpServerLinks : IServerLinks, IAsyncDisposable
     {
@@ -76,7 +79,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         private sealed record PeerConfig(String                                Host,
                                          Int32                                 Port,
-                                         Boolean                               UseTLS,
+                                         TcpTlsMode                            Mode,
                                          RemoteCertificateValidationCallback?  Validator);
 
         private sealed class OutboundSlot
@@ -94,6 +97,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Das Zertifikat für eingehende Verbindungen, oder null für Klartext.</summary>
         public X509Certificate2? Certificate { get; }
 
+        /// <summary>Wie eingehende Verbindungen zu TLS kommen.</summary>
+        public TcpTlsMode Mode { get; }
+
         /// <summary>Das Dialback-Geheimnis dieses Servers (XEP-0220).</summary>
         public String DialbackSecret { get; } = DialbackKey.NewSecret();
 
@@ -109,17 +115,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         /// <param name="localServer">Der Server, dessen S2S-Gegenstelle dies ist.</param>
         /// <param name="port">Fester Port, oder 0 für einen freien. Vorgesehen ist 5269.</param>
-        /// <param name="useTLS">
-        /// TLS von der ersten Sekunde an, mit dem Zertifikat des Servers. Ohne
-        /// STARTTLS ist das die einzige Art, die Strecke zu verschlüsseln.
+        /// <param name="mode">
+        /// Wie TLS zustande kommt. Vorgabe ist STARTTLS, weil das der Weg aus
+        /// RFC 6120, Abschnitt 5.4 ist und weil fremde Server ihn erwarten.
         /// </param>
         public TcpServerLinks(XMPPServer  localServer,
-                              Int32       port     = 0,
-                              Boolean     useTLS   = true)
+                              Int32       port   = 0,
+                              TcpTlsMode  mode   = TcpTlsMode.StartTls)
         {
 
             _localServer  = localServer;
-            Certificate   = useTLS ? localServer.Certificate : null;
+            Mode          = mode;
+            Certificate   = mode == TcpTlsMode.None ? null : localServer.Certificate;
 
             _listener     = new TcpListener(IPAddress.Loopback, port);
             _listener.Start();
@@ -157,11 +164,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public void AddPeer(String                                domain,
                             String                                host,
                             Int32                                 port,
-                            Boolean                               useTLS      = true,
+                            TcpTlsMode                            mode        = TcpTlsMode.StartTls,
                             RemoteCertificateValidationCallback?  validator   = null)
         {
             lock (_lock)
-                _peers[domain] = new PeerConfig(host, port, useTLS, validator);
+                _peers[domain] = new PeerConfig(host, port, mode, validator);
         }
 
         #endregion
@@ -171,7 +178,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>
         /// Verbindet zwei Server über TCP in beide Richtungen.
         /// </summary>
-        public static void Connect(XMPPServer a, XMPPServer b)
+        public static void Connect(XMPPServer a, XMPPServer b, TcpTlsMode mode = TcpTlsMode.StartTls)
         {
 
             if (String.Equals(a.Domain, b.Domain, StringComparison.OrdinalIgnoreCase))
@@ -179,23 +186,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                           $"Beide Server bedienen '{a.Domain}' - eine Föderation mit sich selbst ergibt nichts.",
                           nameof(b));
 
-            var linksA = LinksOf(a);
-            var linksB = LinksOf(b);
+            var linksA = LinksOf(a, mode);
+            var linksB = LinksOf(b, mode);
 
             // Ausdrücklich die Adresse und nicht "localhost": der Listener
             // bindet IPv4-Loopback, und ein Name, der zuerst nach IPv6
             // auflöst, kostet je Verbindung den Fallback ab.
             var loopback = IPAddress.Loopback.ToString();
 
-            linksA.AddPeer(b.Domain, loopback, linksB.Port, linksB.Certificate is not null, b.IsOwnCertificate);
-            linksB.AddPeer(a.Domain, loopback, linksA.Port, linksA.Certificate is not null, a.IsOwnCertificate);
+            linksA.AddPeer(b.Domain, loopback, linksB.Port, linksB.Mode, b.IsOwnCertificate);
+            linksB.AddPeer(a.Domain, loopback, linksA.Port, linksA.Mode, a.IsOwnCertificate);
 
         }
 
-        private static TcpServerLinks LinksOf(XMPPServer server)
+        private static TcpServerLinks LinksOf(XMPPServer server, TcpTlsMode mode)
 
             => server.ServerLinks as TcpServerLinks
-               ?? new TcpServerLinks(server);
+               ?? new TcpServerLinks(server, mode: mode);
 
         #endregion
 
@@ -251,6 +258,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await client.ConnectAsync(peer.Host, peer.Port, cts.Token);
 
                 var netz = await WrapAsync(client, peer, senderDomain, cts.Token);
+
+                if (netz is null)
+                    return false;
 
                 var stream = S2SStream.InitiateVerification(
                                  _localServer.Domain,
@@ -332,7 +342,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 netz = client.GetStream();
 
-                if (Certificate is not null)
+                if (Mode == TcpTlsMode.Direct)
                 {
 
                     var tls = new SslStream(netz, leaveInnerStreamOpen: false);
@@ -343,6 +353,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                   ClientCertificateRequired = false
                               },
                               _cts.Token);
+
+                    netz = tls;
+
+                }
+
+                else if (Mode == TcpTlsMode.StartTls)
+                {
+
+                    // Mit Zeitlimit: eine Gegenstelle, die den Handshake
+                    // anfängt und dann schweigt, hielte diese Verbindung sonst
+                    // für immer - und beim Herunterfahren den ganzen Server.
+                    using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                    handshakeCts.CancelAfter(HandshakeTimeout);
+
+                    var tls = await StartTlsAsServerAsync(netz, handshakeCts.Token);
+
+                    // Ohne TLS gibt es keinen Stream. Der Aufrufer erfährt es
+                    // daran, dass die Verbindung endet.
+                    if (tls is null)
+                        return;
 
                     netz = tls;
 
@@ -411,7 +441,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var client = new TcpClient();
                 await client.ConnectAsync(peer.Host, peer.Port, cancellationToken);
 
-                var netz = await WrapAsync(client, peer, remoteDomain, cancellationToken);
+                using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                handshakeCts.CancelAfter(HandshakeTimeout);
+
+                var netz = await WrapAsync(client, peer, remoteDomain, handshakeCts.Token);
+
+                if (netz is null)
+                {
+                    DropOutbound(remoteDomain, slot);
+                    return null;
+                }
 
                 var stream = S2SStream.Initiate(
                                  _localServer.Domain,
@@ -467,22 +506,217 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region (private class) FrameReader
+
+        /// <summary>
+        /// Liest einzelne Rahmen aus einem Strom - für die Aushandlung, bevor
+        /// ein <see cref="S2SStream"/> übernimmt.
+        /// </summary>
+        private sealed class FrameReader
+        {
+
+            private readonly Stream             _stream;
+            private readonly XmlStreamSplitter  _splitter  = new();
+            private readonly Queue<String>      _pending   = new();
+            private readonly Byte[]             _buffer    = new Byte[8192];
+
+            public FrameReader(Stream stream)
+            {
+                _stream = stream;
+            }
+
+            /// <summary>
+            /// Steht noch etwas im Puffer, das die Gegenstelle vorausgeschickt
+            /// hat?
+            /// </summary>
+            public Boolean HasPending => _pending.Count > 0;
+
+            /// <summary>Der nächste Rahmen, oder null wenn der Strom endet.</summary>
+            public async Task<String?> NextAsync(CancellationToken cancellationToken)
+            {
+
+                while (_pending.Count == 0)
+                {
+
+                    var gelesen = await _stream.ReadAsync(_buffer, cancellationToken);
+
+                    if (gelesen <= 0)
+                        return null;
+
+                    foreach (var rahmen in _splitter.Push(Encoding.UTF8.GetString(_buffer, 0, gelesen)))
+                        _pending.Enqueue(rahmen);
+
+                }
+
+                return _pending.Dequeue();
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) STARTTLS (RFC 6120, Abschnitt 5.4)
+
+        /// <summary>Der Namensraum der TLS-Aushandlung.</summary>
+        private const String TlsNamespace = "urn:ietf:params:xml:ns:xmpp-tls";
+
+        /// <summary>
+        /// STARTTLS auf der annehmenden Seite.
+        /// </summary>
+        /// <returns>Der verschlüsselte Strom, oder null wenn nichts daraus wurde.</returns>
+        private async Task<Stream?> StartTlsAsServerAsync(Stream             netz,
+                                                          CancellationToken  cancellationToken)
+        {
+
+            var leser = new FrameReader(netz);
+
+            var kopf = await leser.NextAsync(cancellationToken);
+
+            if (kopf is null || !TcpStreamFraming.Instance.IsStreamOpen(kopf))
+                return null;
+
+            await SendAsync(netz,
+                            TcpStreamFraming.Instance.StreamOpen(_localServer.Domain,
+                                                                 S2SStream.Attr(kopf, "from"),
+                                                                 Guid.NewGuid().ToString("N")),
+                            cancellationToken);
+
+            // <required/>, weil RFC 6120, Abschnitt 13.7 für S2S
+            // Verschlüsselung verlangt. Wer sie ausschlägt, bekommt keinen
+            // Stream - nicht einen unverschlüsselten.
+            await SendAsync(netz,
+                            $"<stream:features xmlns:stream='{S2SStream.StreamNamespace}'>" +
+                            $"<starttls xmlns='{TlsNamespace}'><required/></starttls>" +
+                            "</stream:features>",
+                            cancellationToken);
+
+            var anfrage = await leser.NextAsync(cancellationToken);
+
+            if (anfrage is null ||
+                !anfrage.StartsWith("<starttls", StringComparison.Ordinal) ||
+                !anfrage.Contains(TlsNamespace, StringComparison.Ordinal))
+            {
+
+                await SendAsync(netz, $"<failure xmlns='{TlsNamespace}'/>", cancellationToken);
+
+                return null;
+
+            }
+
+            // RFC 6120, Abschnitt 5.4.3.3: nach dem <starttls/> darf im
+            // Klartext nichts mehr folgen. Steht doch etwas im Puffer, hat die
+            // Gegenstelle vorausgeschickt - entweder ist sie kaputt, oder
+            // jemand versucht, Klartext in den gleich verschlüsselten Stream
+            // zu schmuggeln. Beides ist ein Grund aufzuhören und keiner
+            // weiterzumachen.
+            if (leser.HasPending)
+                return null;
+
+            await SendAsync(netz, $"<proceed xmlns='{TlsNamespace}'/>", cancellationToken);
+
+            var tls = new SslStream(netz, leaveInnerStreamOpen: false);
+
+            await tls.AuthenticateAsServerAsync(
+                      new SslServerAuthenticationOptions {
+                          ServerCertificate         = Certificate,
+                          ClientCertificateRequired = false
+                      },
+                      cancellationToken);
+
+            return tls;
+
+        }
+
+        /// <summary>
+        /// STARTTLS auf der aufbauenden Seite.
+        /// </summary>
+        /// <remarks>
+        /// Der hier geführte Stream ist ein Wegwerfstream: nach der
+        /// Verschlüsselung fängt alles von vorn an, mit neuem Stream-Kopf und
+        /// neuer Stream-ID (RFC 6120, Abschnitt 5.4.3.3). Deshalb steht das
+        /// hier im Transport und nicht in <see cref="S2SStream"/> - jene
+        /// Schicht bekommt den Strom erst, wenn er verschlüsselt ist, und
+        /// muss von der Aushandlung nichts wissen.
+        /// </remarks>
+        private async Task<Stream?> StartTlsAsClientAsync(Stream             netz,
+                                                          PeerConfig         peer,
+                                                          String             remoteDomain,
+                                                          CancellationToken  cancellationToken)
+        {
+
+            var leser = new FrameReader(netz);
+
+            await SendAsync(netz,
+                            TcpStreamFraming.Instance.StreamOpen(_localServer.Domain, remoteDomain, null),
+                            cancellationToken);
+
+            var bietetTls = false;
+
+            while (await leser.NextAsync(cancellationToken) is { } rahmen)
+            {
+
+                if (TcpStreamFraming.Instance.IsStreamOpen(rahmen))
+                    continue;
+
+                bietetTls = rahmen.Contains(TlsNamespace, StringComparison.Ordinal);
+                break;
+
+            }
+
+            // Kein STARTTLS im Angebot - dann gibt es keine Verbindung. Im
+            // Klartext weiterzumachen wäre genau der Rückfall, gegen den die
+            // Aushandlung existiert.
+            if (!bietetTls)
+                return null;
+
+            await SendAsync(netz, $"<starttls xmlns='{TlsNamespace}'/>", cancellationToken);
+
+            var antwort = await leser.NextAsync(cancellationToken);
+
+            if (antwort is null || !antwort.StartsWith("<proceed", StringComparison.Ordinal))
+                return null;
+
+            if (leser.HasPending)
+                return null;
+
+            var tls = new SslStream(netz,
+                                    leaveInnerStreamOpen: false,
+                                    userCertificateValidationCallback: peer.Validator);
+
+            await tls.AuthenticateAsClientAsync(
+                      new SslClientAuthenticationOptions {
+                          TargetHost = remoteDomain
+                      },
+                      cancellationToken);
+
+            return tls;
+
+        }
+
+        #endregion
+
         #region (private) WrapAsync / SendAsync / PumpAsync
 
         /// <summary>
-        /// Legt TLS über die Verbindung, falls für diese Gegenstelle
-        /// vorgesehen.
+        /// Bringt die Verbindung in den Zustand, in dem die Protokollschicht
+        /// sie übernehmen darf - je nach Modus im Klartext, sofort
+        /// verschlüsselt oder nach STARTTLS.
         /// </summary>
-        private static async Task<Stream> WrapAsync(TcpClient          client,
-                                                    PeerConfig         peer,
-                                                    String             remoteDomain,
-                                                    CancellationToken  cancellationToken)
+        /// <returns>null, wenn TLS vorgesehen war und nicht zustande kam.</returns>
+        private async Task<Stream?> WrapAsync(TcpClient          client,
+                                              PeerConfig         peer,
+                                              String             remoteDomain,
+                                              CancellationToken  cancellationToken)
         {
 
             var netz = (Stream) client.GetStream();
 
-            if (!peer.UseTLS)
+            if (peer.Mode == TcpTlsMode.None)
                 return netz;
+
+            if (peer.Mode == TcpTlsMode.StartTls)
+                return await StartTlsAsClientAsync(netz, peer, remoteDomain, cancellationToken);
 
             var tls = new SslStream(
                           netz,
@@ -582,8 +816,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             foreach (var task in ausgehend)
             {
-                try { (await task)?.Abort("Server wird beendet"); }
-                catch { /* Aufbau war ohnehin gescheitert */ }
+                // Mit Zeitlimit: ein hängender Verbindungsaufbau darf das
+                // Herunterfahren nicht blockieren. Ohne das wurde aus einem
+                // fehlgeschlagenen Test ein stehender Testlauf.
+                try { (await task.WaitAsync(HandshakeTimeout))?.Abort("Server wird beendet"); }
+                catch { /* Aufbau gescheitert oder zu langsam */ }
             }
 
             _cts.Dispose();

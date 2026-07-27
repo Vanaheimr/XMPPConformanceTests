@@ -41,12 +41,14 @@ Stand: 2026-07-27
 | S4b-1: S2S-Protokollschicht ohne Transport (`S2SStream`) | `f0a4bbd` |
 | S4b-2: WebSocket-S2S über echte Sockets samt TLS | `8e0aec3` |
 | S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d`, `a60631c` |
-| S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, *(dieser Commit)* |
+| S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, `e0d88f4` |
+| S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | *(dieser Commit)* |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **320 Tests, 0 Fehler, 0 übersprungen** in gut einer
-Minute. Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Aktueller Stand der Suite: **333 Tests, 0 Fehler, 1 übersprungen** in gut
+eineinhalb Minuten (der übersprungene prüft eine Eigenschaft, die es nur im
+STARTTLS-Betrieb gibt, und läuft daher nur in einer der beiden Fassungen). Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar) und die Slot-Identität im Verbindungs-Cache
@@ -314,10 +316,13 @@ funktionierte, nur langsam; kein Test wäre je rot geworden.
 
 **Was an S4b-4 offen bleibt:**
 
-- **Kein STARTTLS** (RFC 6120 §5.4). TLS gilt ab der ersten Sekunde oder gar
-  nicht, je nach Eintrag für die Gegenstelle. Das ist nicht unsicherer, aber
-  weniger kompatibel: ein Server, der Klartext nicht annimmt und STARTTLS
-  erwartet, ist so nicht erreichbar.
+- ~~Kein STARTTLS~~ ✅ **erledigt.** `TcpTlsMode` wählt zwischen Klartext, TLS
+  ab dem ersten Byte und STARTTLS nach RFC 6120 §5.4; Vorgabe ist STARTTLS.
+  Die Aushandlung steht im Transport und nicht in `S2SStream` — der Stream vor
+  TLS ist ein Wegwerfstream, dessen Zustand nach der Verschlüsselung verworfen
+  wird (§5.4.3.3), und so bekommt die Protokollschicht gar keine Gelegenheit,
+  etwas daraus zu übernehmen. `TcpFederationTests` läuft seither zweimal, einmal
+  je Betriebsart.
 - **Kein Lauf gegen ejabberd oder Prosody.** Die Rahmung ist die richtige, aber
   geprüft ist sie bisher nur gegen die eigene Gegenstelle — genau die Lücke, die
   bei XEP-0198 schon einmal auffiel.

@@ -888,7 +888,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Stream-Root und der Rahmen wäre allein gar nicht wohlgeformt - das
         /// muss diese Schicht aushalten, sie soll ja beide Rahmungen tragen.
         /// </remarks>
-        private static String? Attr(String xml, String name)
+        internal static String? Attr(String xml, String name)
         {
 
             var m = Regex.Match(xml, $@"\b{name}\s*=\s*['""]([^'""]*)['""]");

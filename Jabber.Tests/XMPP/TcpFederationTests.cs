@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 
@@ -42,11 +43,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
     /// grün ist, wäre die Trennung aus S4b-1 an genau der Stelle nicht sauber
     /// gewesen.
     /// </remarks>
-    [TestFixture]
+    [TestFixture(TcpTlsMode.StartTls)]
+    [TestFixture(TcpTlsMode.Direct)]
     public class TcpFederationTests
     {
 
         #region Data
+
+        /// <summary>
+        /// Jeder Test läuft zweimal: einmal mit STARTTLS (RFC 6120 §5.4) und
+        /// einmal mit TLS ab dem ersten Byte.
+        /// </summary>
+        /// <remarks>
+        /// Beide Wege enden in derselben Protokollschicht, unterscheiden sich
+        /// aber in allem davor. Die Fragen sind dieselben, also sollen sie auch
+        /// zweimal gestellt werden - statt einen zweiten Satz Tests zu
+        /// schreiben, der bei jeder Änderung nachzuziehen wäre.
+        /// </remarks>
+        private readonly TcpTlsMode _modus;
+
+        public TcpFederationTests(TcpTlsMode modus)
+        {
+            _modus = modus;
+        }
 
         private XMPPServer _links = null!;
         private XMPPServer _rechts = null!;
@@ -68,7 +87,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             _links.Start();
             _rechts.Start();
 
-            TcpServerLinks.Connect(_links, _rechts);
+            TcpServerLinks.Connect(_links, _rechts, _modus);
 
             _linksLinks   = (TcpServerLinks) _links.ServerLinks!;
             _rechtsLinks  = (TcpServerLinks) _rechts.ServerLinks!;
@@ -334,12 +353,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             using var client = new TcpClient();
             await client.ConnectAsync(System.Net.IPAddress.Loopback, _rechtsLinks.Port);
 
-            await using var tls = new System.Net.Security.SslStream(
-                                      client.GetStream(),
-                                      leaveInnerStreamOpen: false,
-                                      userCertificateValidationCallback: _rechts.IsOwnCertificate);
-
-            await tls.AuthenticateAsClientAsync("rechts.example");
+            // Je nach Betriebsart kommt TLS sofort oder erst nach der
+            // Aushandlung. Der Hochstapler muss denselben Weg gehen wie ein
+            // echter Server - sonst prüft der Test nur, dass zwei Seiten
+            // aneinander vorbeireden.
+            await using var tls = _modus == TcpTlsMode.StartTls
+                                      ? await StartTlsVonHandAsync(client)
+                                      : await SofortTlsAsync(client);
 
             var gelesen = new StringBuilder();
 
@@ -392,6 +412,150 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(empfangen, Is.Empty,
                             "Ohne bestandenes Dialback darf keine Stanza zugestellt werden.");
             });
+
+        }
+
+        #endregion
+
+        #region PlaintextGetsNoStream()
+
+        /// <summary>
+        /// Der Kern von STARTTLS: wer die Verschlüsselung ausschlägt, bekommt
+        /// keinen Stream - und keinen unverschlüsselten.
+        /// </summary>
+        /// <remarks>
+        /// Nur im STARTTLS-Betrieb sinnvoll; bei TLS ab dem ersten Byte gibt
+        /// es die Frage nicht, weil im Klartext gar nichts erst ankäme.
+        ///
+        /// Das ist die Zeile, an der die Aushandlung ihren Wert hat. Ein
+        /// Server, der nach einem abgelehnten <c>&lt;starttls/&gt;</c> einfach
+        /// im Klartext weitermachte, hätte die Verschlüsselung zu einer
+        /// Höflichkeit gemacht, die jeder Zwischenmann wegverhandeln kann.
+        /// </remarks>
+        [Test]
+        public async Task PlaintextGetsNoStream()
+        {
+
+            if (_modus != TcpTlsMode.StartTls)
+                Assert.Ignore("Nur im STARTTLS-Betrieb sinnvoll.");
+
+            var bob = await ConnectAsync(_rechts, "bob");
+
+            var empfangen = new List<XMPPMessage>();
+            bob.OnMessage += m => empfangen.Add(m);
+
+            using var client = new TcpClient();
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, _rechtsLinks.Port);
+
+            var netz    = client.GetStream();
+            var puffer  = new Byte[8192];
+
+            await netz.WriteAsync(Encoding.UTF8.GetBytes(
+                "<stream:stream xmlns='jabber:server' " +
+                "xmlns:stream='http://etherx.jabber.org/streams' " +
+                "from='links.example' to='rechts.example' version='1.0'>"));
+
+            var begruessung = "";
+
+            while (!begruessung.Contains("urn:ietf:params:xml:ns:xmpp-tls", StringComparison.Ordinal))
+            {
+                var n = await netz.ReadAsync(puffer);
+                if (n <= 0) break;
+                begruessung += Encoding.UTF8.GetString(puffer, 0, n);
+            }
+
+            Assert.That(begruessung, Does.Contain("<required/>"),
+                        "STARTTLS muss als zwingend angekündigt werden.");
+
+            // Statt <starttls/> gleich eine Stanza - im Klartext.
+            await netz.WriteAsync(Encoding.UTF8.GetBytes(
+                $"<message from='alice@links.example' to='{bob.BareJid}' type='chat'>" +
+                "<body>Ohne Verschlüsselung, bitte.</body></message>"));
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(empfangen, Is.Empty,
+                            "Im Klartext darf keine Stanza zugestellt werden.");
+                Assert.That(begruessung, Does.Not.Contain("proceed"),
+                            "Ohne <starttls/> gibt es kein <proceed/>.");
+            });
+
+        }
+
+        #endregion
+
+        #region (Hilfsfunktionen) SofortTlsAsync / StartTlsVonHandAsync
+
+        /// <summary>TLS ab dem ersten Byte.</summary>
+        private async Task<SslStream> SofortTlsAsync(TcpClient client)
+        {
+
+            var tls = new SslStream(client.GetStream(),
+                                    leaveInnerStreamOpen: false,
+                                    userCertificateValidationCallback: _rechts.IsOwnCertificate);
+
+            await tls.AuthenticateAsClientAsync("rechts.example");
+
+            return tls;
+
+        }
+
+        /// <summary>
+        /// Die STARTTLS-Aushandlung aus RFC 6120, Abschnitt 5.4 von Hand -
+        /// Klartext-Stream, <c>&lt;starttls/&gt;</c>, <c>&lt;proceed/&gt;</c>,
+        /// dann TLS.
+        /// </summary>
+        /// <remarks>
+        /// Von Hand und nicht über <see cref="TcpServerLinks"/>, damit der
+        /// Test die Gegenstelle wirklich prüft und nicht bloss die eigene
+        /// Implementierung gegen sich selbst.
+        /// </remarks>
+        private async Task<SslStream> StartTlsVonHandAsync(TcpClient client)
+        {
+
+            var netz    = client.GetStream();
+            var puffer  = new Byte[8192];
+
+            async Task Roh(String text)
+                => await netz.WriteAsync(Encoding.UTF8.GetBytes(text));
+
+            async Task<String> Lies()
+            {
+                var n = await netz.ReadAsync(puffer);
+                return Encoding.UTF8.GetString(puffer, 0, n);
+            }
+
+            await Roh("<stream:stream xmlns='jabber:server' " +
+                      "xmlns:stream='http://etherx.jabber.org/streams' " +
+                      "from='beliebig.example' to='rechts.example' version='1.0'>");
+
+            var begruessung = "";
+
+            while (!begruessung.Contains("urn:ietf:params:xml:ns:xmpp-tls", StringComparison.Ordinal))
+                begruessung += await Lies();
+
+            Assert.That(begruessung, Does.Contain("<required/>"),
+                        "Der Server muss STARTTLS als zwingend ankündigen.");
+
+            await Roh("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>");
+
+            var antwort = "";
+
+            while (!antwort.Contains("proceed", StringComparison.Ordinal) &&
+                   !antwort.Contains("failure", StringComparison.Ordinal))
+                antwort += await Lies();
+
+            Assert.That(antwort, Does.Contain("proceed"));
+
+            var tls = new SslStream(netz,
+                                    leaveInnerStreamOpen: false,
+                                    userCertificateValidationCallback: _rechts.IsOwnCertificate);
+
+            await tls.AuthenticateAsClientAsync("rechts.example");
+
+            return tls;
 
         }
 

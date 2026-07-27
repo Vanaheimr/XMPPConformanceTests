@@ -391,6 +391,10 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- STARTTLS auf der TCP-Strecke (RFC 6120 §5.4), Vorgabe von `TcpTlsMode`. Wird
+  als `<required/>` angekündigt und ist es auch: wer die Verschlüsselung
+  ausschlägt oder gar nicht erst anbietet, bekommt keinen Stream — und keinen
+  unverschlüsselten
 - Dialback (XEP-0220) auf beiden S2S-Wegen: die Domain der Gegenstelle
   wird belegt, nicht geglaubt. Der annehmende Server fragt dazu **nicht** den,
   der sich ausweisen will, sondern die für diese Domain hinterlegte Adresse —
@@ -480,8 +484,7 @@ Server-Implementierung:
   die Auflösung über SRV-Records (RFC 6120 §3.2) — Gegenstellen werden von Hand
   eingetragen, und genau diese Liste tritt bei der Dialback-Prüfung an die
   Stelle des DNS; eine Domain ohne hinterlegte Adresse lässt sich deshalb nicht
-  prüfen und wird abgelehnt. Ausserdem fehlen STARTTLS (RFC 6120 §5.4 — TLS
-  gilt ab der ersten Sekunde oder gar nicht), SASL-EXTERNAL als Alternative zu
+  prüfen und wird abgelehnt. Ausserdem fehlen SASL-EXTERNAL als Alternative zu
   Dialback und domainübergreifende Subscriptions. Und: der TCP-Weg ist bisher
   nur gegen die eigene Gegenstelle geprüft, nicht gegen ejabberd oder Prosody.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
