@@ -17,6 +17,9 @@
 
 #region Usings
 
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.XMPP;
@@ -223,6 +226,79 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await client.ConnectAsync();
 
             Assert.That(client.IsConnected, Is.True);
+
+        }
+
+        #endregion
+
+        #region ASuppliedCertificate_IsUsedInsteadOfASelfSignedOne()
+
+        /// <summary>
+        /// Das Serverzertifikat darf von aussen kommen.
+        /// </summary>
+        /// <remarks>
+        /// Ein selbst signiertes Zertifikat kann keine fremde Gegenstelle
+        /// prüfen: sie müsste genau dieses eine kennen, und es entsteht bei
+        /// jedem Start neu. Für einen Lauf gegen Prosody - und für jeden
+        /// Betrieb, der kein Test ist - muss es aus einer Kette kommen, der
+        /// beide Seiten trauen. Daran scheiterte der Anlauf gegen eine fremde
+        /// Gegenstelle, bevor ein einziges Byte Protokoll gewechselt war.
+        /// </remarks>
+        [Test]
+        public async Task ASuppliedCertificate_IsUsedInsteadOfASelfSignedOne()
+        {
+
+            using var eigenes = ErzeugeZertifikat("beispiel.test");
+
+            await using var server = new XMPPServer("beispiel.test", certificate: eigenes);
+
+            server.Start();
+            server.AddAccount("alice");
+
+            Assert.That(server.Certificate?.Thumbprint, Is.EqualTo(eigenes.Thumbprint),
+                        "Der Server hat sich trotzdem eines selbst gebaut.");
+
+            // Und es trägt auch wirklich den Handshake: die Prüfung des
+            // Clients heftet den Fingerabdruck genau dieses Zertifikats an.
+            var connection = new XMPPConnection($"alice@{server.Domain}", "pw", server.Uri) {
+                                 KeepaliveEnabled            = false,
+                                 MaxReconnectAttempts        = 0,
+                                 ServerCertificateValidator  = (_, c, _, _) =>
+                                     c is not null &&
+                                     c.GetCertHashString(HashAlgorithmName.SHA256)
+                                      .Equals(eigenes.GetCertHashString(HashAlgorithmName.SHA256),
+                                              StringComparison.OrdinalIgnoreCase)
+                             };
+
+            await using var client = new XMPPClient(connection);
+
+            await client.ConnectAsync();
+
+            Assert.That(client.IsConnected, Is.True);
+
+        }
+
+        private static X509Certificate2 ErzeugeZertifikat(String domain)
+        {
+
+            using var key = RSA.Create(2048);
+
+            var request = new CertificateRequest($"CN={domain}", key,
+                                                 HashAlgorithmName.SHA256,
+                                                 RSASignaturePadding.Pkcs1);
+
+            request.CertificateExtensions.Add(
+                new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], true));
+
+            var namen = new SubjectAlternativeNameBuilder();
+            namen.AddDnsName(domain);
+            namen.AddDnsName("localhost");
+            request.CertificateExtensions.Add(namen.Build());
+
+            var zertifikat = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),
+                                                      DateTimeOffset.UtcNow.AddDays(1));
+
+            return X509CertificateLoader.LoadPkcs12(zertifikat.Export(X509ContentType.Pfx), null);
 
         }
 

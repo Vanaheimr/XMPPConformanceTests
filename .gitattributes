@@ -1,0 +1,4 @@
+# Shell-Skripte behalten LF, auch auf einem Rechner mit core.autocrlf=true.
+# Ein Skript mit CRLF scheitert unter Linux schon an der Shebang-Zeile, und
+# zwar mit einer Meldung, die nichts davon verrät ("bad interpreter").
+*.sh text eol=lf

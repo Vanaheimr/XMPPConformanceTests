@@ -502,15 +502,25 @@ Server-Implementierung:
   neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
   Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
   auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
-- **Föderation ohne SRV und ohne STARTTLS, und nie gegen einen fremden Server
-  gelaufen.** Es gibt drei Wege über die Domain-Grenze: `DirectServerLinks`
-  (in-process, für Tests, ohne jede Authentifizierung), `WebSocketServerLinks`
-  und `TcpServerLinks` (beide mit TLS und Dialback nach XEP-0220). Was fehlt:
-  DNSSEC — die SRV-Auflösung ist unbeglaubigt, und wo sie die
-  Gegenstellenliste bei der Dialback-Prüfung ersetzt, wandert die
-  Vertrauenswurzel vom Betreiber ins DNS. Ausserdem: SASL-EXTERNAL gibt es nur über TCP, nicht über WebSocket, und
-  `id-on-xmppAddr` im Zertifikat wird nicht gelesen. Und: der TCP-Weg ist bisher
-  nur gegen die eigene Gegenstelle geprüft, nicht gegen ejabberd oder Prosody.
+- **Wir antworten über den eingehenden Stream — ein echter Server tut das
+  nicht.** RFC 6120 §4.1: ein XML-Stream ist einseitig, eine S2S-Verbindung
+  trägt nur eine Richtung. Prosody beantwortet eine eingehende Stanza über eine
+  *eigene* ausgehende Verbindung zur Absenderdomain; kommt die nicht zustande,
+  verwirft es die Antwort. Zwischen zwei Instanzen dieses Servers fällt das
+  nicht auf, weil beide Seiten es gleich machen. Nach aussen heisst es: senden
+  ja, Antwort nie. Zu beheben über XEP-0288 oder dadurch, dass die Gegenstelle
+  uns anwählen kann. Gefunden im Lauf gegen Prosody, siehe
+  `tools/prosody/setup.sh` und `ProsodyFederationTests`.
+- **Föderation.** Es gibt drei Wege über die Domain-Grenze:
+  `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung),
+  `WebSocketServerLinks` und `TcpServerLinks` (beide mit TLS und Dialback nach
+  XEP-0220). Was fehlt: DNSSEC — die SRV-Auflösung ist unbeglaubigt, und wo sie
+  die Gegenstellenliste bei der Dialback-Prüfung ersetzt, wandert die
+  Vertrauenswurzel vom Betreiber ins DNS. Ausserdem: SASL-EXTERNAL gibt es nur
+  über TCP, nicht über WebSocket, und `id-on-xmppAddr` im Zertifikat wird nicht
+  gelesen. Der ausgehende TCP-Weg ist inzwischen gegen Prosody 13 geprüft —
+  STARTTLS, SASL-EXTERNAL und Stanza-Zustellung tragen; Dialback und der
+  eingehende Weg sind es weiterhin nur gegen die eigene Gegenstelle.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der

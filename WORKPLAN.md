@@ -326,9 +326,8 @@ funktionierte, nur langsam; kein Test wäre je rot geworden.
   wird (§5.4.3.3), und so bekommt die Protokollschicht gar keine Gelegenheit,
   etwas daraus zu übernehmen. `TcpFederationTests` läuft seither zweimal, einmal
   je Betriebsart.
-- **Kein Lauf gegen ejabberd oder Prosody.** Die Rahmung ist die richtige, aber
-  geprüft ist sie bisher nur gegen die eigene Gegenstelle — genau die Lücke, die
-  bei XEP-0198 schon einmal auffiel.
+- ~~**Kein Lauf gegen ejabberd oder Prosody.**~~ ✅ nachgeholt in S8 — und die
+  Lücke war grösser als vermutet, siehe dort.
 - **Keine SRV-Auflösung**, Gegenstellen werden von Hand eingetragen.
 
 **S4b-7 ✅ SASL-EXTERNAL (XEP-0178).** Die Domain der Gegenstelle wird über ihr
@@ -559,6 +558,77 @@ und aufbewahrte Anfrage; "aufbewahrt" hiesse sonst "bis zum nächsten Neustart".
 **Was offen bleibt:** die Obergrenze wirft still weg — weder der Antragsteller
 noch der Kontakt erfährt davon. Das ist die vom Abschnitt empfohlene Antwort auf
 die Erschöpfungsgefahr, aber es bleibt ein Verlust ohne Quittung.
+
+### S8. Lauf gegen Prosody ⚠️ — ein Fund, der die Föderation betrifft
+
+Seit S4b stand hier: *jedes einzelne Verfahren ist gegen die eigene Gegenstelle
+geprüft, keines gegen eine fremde.* Der Lauf ist nachgeholt, gegen Prosody 13.0.1.
+
+**Der Aufbau steht in `tools/prosody/setup.sh` und braucht kein root.** Das Paket
+lässt sich mit `apt-get download` holen und mit `dpkg-deb -x` in ein Präfix
+auspacken; Prosody bringt fertige Binärmodule mit, es wird nichts übersetzt. Vier
+fest eingebaute Pfade im Debian-Launcher werden umgebogen, dazu `LUA_PATH`,
+`LUA_CPATH` und `LD_LIBRARY_PATH`. Zwei Fallen unterwegs, beide ohne brauchbare
+Fehlermeldung: `libicu76` steht nicht in den Abhängigkeiten, wird aber von
+`util.encodings.so` gebraucht; und Prosodys `certmanager` verwirft PEM-Dateien
+mit CRLF wortlos als *"non-certificate (based on contents)"*.
+
+**Was auf Anhieb trug.** STARTTLS nach RFC 6120 §5.4, TLS 1.3, unser
+CA-signiertes Zertifikat als Klientzertifikat, `EXTERNAL` von Prosody angeboten
+und angenommen — im Log: *"Accepting SASL EXTERNAL identity from jabber.test"*,
+*"Incoming s2s connection jabber.test->prosody.test complete"*. Unsere Stanza kam
+an und wurde verarbeitet. Der ganze Weg hinaus stimmt.
+
+**Dafür musste der Server erst ein Zertifikat von aussen annehmen können.** Er
+baute sich immer ein selbst signiertes. Das kann keine fremde Gegenstelle prüfen:
+sie müsste genau dieses eine kennen, und es entsteht bei jedem Start neu.
+`XMPPServer` nimmt jetzt eines entgegen — nicht für den Test, sondern weil jeder
+Betrieb ausserhalb dieser Testsammlung es braucht.
+
+**Und dann der Fund.** Prosody beantwortet den Ping — die Antwort steht im Log —
+und schickt sie **nicht** über den Stream zurück, über den die Frage kam. Es baut
+dafür eine *eigene* Verbindung zu `jabber.test` auf, scheitert daran und verwirft
+die Antwort:
+
+```
+Received[s2sin]: <iq from='alice@jabber.test/...' to='prosody.test' type='get'>
+mod_s2s  debug  opening a new outgoing connection for this stanza
+s2sout   debug  s2s connection attempt failed: unable to resolve service
+s2sout   debug  Not eligible for bouncing, discarding <iq ... type='result' ...>
+```
+
+Genau so ist RFC 6120 §4.1 gemeint: ein XML-Stream ist **einseitig**, und eine
+S2S-Verbindung trägt nur eine Richtung. Unsere Föderation antwortet über denselben
+Stream. Zwischen zwei Instanzen dieses Servers fällt das nicht auf, weil beide
+Seiten es gleich falsch machen — und das ist der Grund, warum dieser Lauf nötig
+war. Gegen jede ausgewachsene Gegenstelle heisst es: senden ja, Antwort nie.
+
+Der Fehler ist keiner, den mehr Tests gegen die eigene Gegenstelle je gefunden
+hätten. Er sass in der Annahme, nicht im Code.
+
+**Zwei Wege hinaus, beide eigene Arbeitsschritte:**
+
+- **XEP-0288 (Bidirectional Server-to-Server Streams).** Beide Richtungen über
+  eine Verbindung, ausgehandelt über `urn:xmpp:features:bidi`. Prosody kündigt es
+  an, sobald `mod_s2s_bidi` läuft — der Aufbau schaltet es ein, und die
+  Ankündigung ist geprüft. Das ist der Weg, den die XMPP-Welt genommen hat.
+- **Eingehende Verbindungen wirklich annehmen**, also die Gegenstelle uns
+  anwählen lassen. Der Weg ohne Erweiterung, und der, den ein echter Betrieb
+  ohnehin braucht.
+
+**Was den zweiten Weg hier zusätzlich blockiert:** WSL2 läuft im NAT-Modus, und
+die Hyper-V-Firewall verwirft Verbindungen von WSL zum Windows-Host. Windows →
+WSL geht, die Gegenrichtung nicht. Das trifft auch Dialback, dessen Rückfrage
+genau diese Richtung braucht — deshalb läuft der Aufbau über SASL-EXTERNAL mit
+einer gemeinsamen Test-CA und nicht über XEP-0220. Zu ändern wäre das über
+`networkingMode=mirrored` in `.wslconfig` oder eine Firewall-Regel; beides ist
+eine Entscheidung über die Maschine, nicht über dieses Projekt.
+
+**Testsammlung.** `ProsodyFederationTests` überspringt sich ohne Aufbau, sodass
+der gewöhnliche Lauf unberührt bleibt. `TheStreamToProsodyCarriesAStanza` besteht
+gegen die echte Gegenstelle. `APingReachesProsodyAndComesBack` ist mit dem Befund
+als Begründung stillgelegt statt gelöscht — ein Test, der eine bekannte Lücke
+benennt, ist mehr wert als eine Lücke ohne Test.
 
 ---
 

@@ -314,15 +314,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <see cref="InMemoryAccountStore"/>, der beim Beenden verschwindet.
         /// Vorhandene Konten werden sofort eingelesen.
         /// </param>
+        /// <param name="certificate">
+        /// Ein von aussen gesetztes Serverzertifikat; null erzeugt ein selbst
+        /// signiertes für <paramref name="domain"/>.
+        /// </param>
         public XMPPServer(String              domain         = "localhost",
                           Int32               port           = 0,
                           Boolean             useTLS         = true,
-                          IXMPPAccountStore?  accountStore   = null)
+                          IXMPPAccountStore?  accountStore   = null,
+                          X509Certificate2?   certificate    = null)
         {
 
             Domain       = domain;
             Port         = port > 0 ? port : FreeTcpPort();
-            Certificate  = useTLS ? CreateSelfSignedCertificate(domain) : null;
+
+            // Ein selbst signiertes Zertifikat kann keine fremde Gegenstelle
+            // prüfen - sie müsste genau dieses eine Zertifikat kennen, und es
+            // entsteht bei jedem Start neu. Für einen Lauf gegen ejabberd oder
+            // Prosody muss das Zertifikat von aussen kommen, aus einer Kette,
+            // der beide Seiten trauen. Das gilt genauso für jeden Betrieb, der
+            // kein Test ist.
+            Certificate  = useTLS
+                               ? certificate ?? CreateSelfSignedCertificate(domain)
+                               : null;
 
             _accountStore = accountStore ?? new InMemoryAccountStore();
 
