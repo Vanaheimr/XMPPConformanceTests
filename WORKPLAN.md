@@ -44,11 +44,12 @@ Stand: 2026-07-27
 | S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, `e0d88f4` |
 | S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | `f4a9c80` |
 | S4b-7: SASL-EXTERNAL (XEP-0178) über das TLS-Zertifikat | `031f8ca` |
-| S4b-8: SRV-Auflösung (RFC 6120 §3.2, RFC 2782) | *(dieser Commit)* |
+| S4b-8: SRV-Auflösung (RFC 6120 §3.2, RFC 2782) | `0d1391f` |
+| S5: Domainübergreifende Subscriptions (RFC 6121 §3) | *(dieser Commit)* |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **381 Tests, 0 Fehler, 1 übersprungen** in gut
+Aktueller Stand der Suite: **388 Tests, 0 Fehler, 1 übersprungen** in gut
 eineinhalb Minuten (der übersprungene prüft eine Eigenschaft, die es nur im
 STARTTLS-Betrieb gibt, und läuft daher nur in einer der beiden Fassungen). Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
@@ -188,9 +189,8 @@ Bedingung aus §8.3.3).
   Eingang ist da und scharf — sie ist genau das, worauf ein echter Transport
   danach baut —, aber es gibt nichts, was die Behauptung der Gegenstelle
   belegt.
-- **Domainübergreifende Subscriptions fehlen.** Der Handshake aus RFC 6121 §3
-  nimmt an, dass beide Seiten lokal sind. Ein bestehender Eintrag wird über die
-  Grenze beachtet, ein neuer lässt sich nicht aushandeln.
+- ~~Domainübergreifende Subscriptions fehlen~~ ✅ **erledigt (S5).** Der
+  Handshake läuft jetzt auch über die Grenze.
 - ~~Keine Auflösung über DNS~~ — erledigt in S4b-8.
 
 ### S4b. Der eigentliche S2S-Transport
@@ -421,6 +421,40 @@ gibt es einen eigenen Test, und die Mutation dazu wird gefangen.
   sondern `<open/>` mit `id` (RFC 7395 §3.4) — `S2SStream.StreamId` trägt sie.
   Das funktioniert, ist aber eine eigene Festlegung, die ausser uns niemand
   kennt; ob TCP dieselbe Schicht unverändert trägt, entscheidet sich in S4b-4.
+
+---
+
+### S5. Domainübergreifende Subscriptions ✅
+
+Der Handshake aus RFC 6121 §3 nahm an, dass derselbe Server beide Roster in der
+Hand hat: der ausgehende Weg pflegte beide Hälften, der eingehende gar keine.
+Eine Subscription-Presence von aussen wurde nur an den Client durchgereicht -
+sie kam an, aber der Server vergass sie, und die Antwort fand keinen Eintrag
+vor, den sie hätte ändern können.
+
+Jetzt pflegt jede Seite genau **eine** Hälfte, nämlich ihre eigene, und die
+Übereinstimmung entsteht allein daraus, dass beide dieselbe Stanzafolge
+verschieden auslegen: der eine setzt `from`, der andere `to`. Die andere Hälfte
+zu raten wäre falsch — über die Grenze erfährt man voneinander nur das, was
+ausdrücklich geschickt wird.
+
+Umgesetzt sind die vier Übergänge (§3.1.6, §3.2.3, §3.3.3) und die
+Selbstbeantwortung aus §3.1.4: darf der Antragsteller den Kontakt ohnehin schon
+sehen, antwortet dessen Server selbst, statt den Nutzer erneut zu fragen. Ohne
+das käme ein Antragsteller, dessen Roster verlorenging, nie wieder in Ordnung,
+ohne den Kontakt zu behelligen.
+
+Ausserdem adressiert `RouteToAsync` ausgehende Stanzas jetzt zentral. Innerhalb
+eines Servers weiss er selbst, an wen er verteilt; über die Grenze ist das `to`
+alles, was die Gegenstelle hat.
+
+**Was offen bleibt:**
+
+- **Pre-Approval** (§3.4) fehlt weiterhin, lokal wie über die Grenze.
+- **Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt**
+  (§3.1.3) — auch das gilt für beide Fälle gleichermassen.
+- Die zentrale Adressierung in `RouteToAsync` ist durch keinen Test
+  festgehalten; siehe den Vermerk im Code.
 
 ---
 

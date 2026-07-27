@@ -1700,8 +1700,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         {
 
             if (!IsLocal(to))
+            {
+
+                // Die Adresse muss mit hinaus. Innerhalb eines Servers weiss
+                // er selbst, an wen er verteilt; über die Grenze ist das
+                // 'to' alles, was die Gegenstelle hat - eine Stanza ohne
+                // wird dort verworfen. Zentral hier und nicht bei den
+                // Aufrufern, weil sonst jeder neue Aufrufer daran denken
+                // müsste.
+                //
+                // Ehrlich vermerkt: kein Test hält diese Zeile fest. Der
+                // einzige heutige Aufrufer, der ohne 'to' ankommt, ist die
+                // nachgereichte Presence aus Abschnitt 3.1.5, und dort
+                // verdeckt das Verhalten des Clients den Unterschied. Sie
+                // bleibt als Vorkehrung für den nächsten Aufrufer stehen.
                 return ServerLinks is not null &&
-                       await ServerLinks.DeliverAsync(DomainOf(to), stanza, _cts.Token);
+                       await ServerLinks.DeliverAsync(DomainOf(to),
+                                                      StampTo(stanza, to),
+                                                      _cts.Token);
+
+            }
 
             var targets = to.Contains('/')
                               ? (SessionOf(to) is { } one ? [one] : Array.Empty<XMPPSession>())
@@ -1778,9 +1796,123 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (!RouteStanzas)
                 return RemoteStanzaResult.RoutingDisabled;
 
+            // RFC 6121, Abschnitt 3: eine Subscription-Presence ist keine
+            // Nachricht, die nur weitergereicht wird - sie ändert den Roster
+            // der hiesigen Seite. Ohne diesen Schritt käme die Anfrage zwar
+            // beim Client an, aber der Server vergässe sie, und die Antwort
+            // fände keinen Eintrag vor, den sie ändern könnte.
+            var art = SubscriptionTypeOf(stanza);
+
+            if (art is not null)
+            {
+                await ApplyRemoteSubscriptionAsync(BareOf(from), BareOf(to), art, stanza);
+                return RemoteStanzaResult.Accepted;
+            }
+
             await RouteToAsync(to, stanza);
 
             return RemoteStanzaResult.Accepted;
+
+        }
+
+        /// <summary>
+        /// Der Typ einer Subscription-Presence, oder null wenn es keine ist.
+        /// </summary>
+        private static String? SubscriptionTypeOf(String stanza)
+        {
+
+            if (!stanza.StartsWith("<presence", StringComparison.Ordinal))
+                return null;
+
+            return Attr(stanza, "type") is "subscribe" or "subscribed" or
+                                           "unsubscribe" or "unsubscribed"
+                       ? Attr(stanza, "type")
+                       : null;
+
+        }
+
+        /// <summary>
+        /// Wendet eine von aussen eingegangene Subscription-Presence auf den
+        /// Roster des hiesigen Kontos an (RFC 6121, Abschnitt 3).
+        /// </summary>
+        /// <param name="remoteBareJid">Der Absender auf der fremden Domain.</param>
+        /// <param name="localBareJid">Das hiesige Konto.</param>
+        /// <param name="type">subscribe, subscribed, unsubscribe oder unsubscribed.</param>
+        /// <param name="stanza">Die eingegangene Stanza, zur Zustellung an die Resourcen.</param>
+        /// <remarks>
+        /// Hier wird genau <b>eine</b> Hälfte gepflegt: die des hiesigen
+        /// Kontos. Die andere gehört der fremden Domain, und sie zu raten wäre
+        /// falsch - jede Seite führt ihren eigenen Roster, und über die Grenze
+        /// erfährt man voneinander nur das, was ausdrücklich geschickt wird.
+        /// Genau darin liegt der Unterschied zum Handshake zwischen zwei
+        /// lokalen Konten, wo derselbe Server beide Hälften in der Hand hat.
+        /// </remarks>
+        private async Task ApplyRemoteSubscriptionAsync(String  remoteBareJid,
+                                                        String  localBareJid,
+                                                        String  type,
+                                                        String  stanza)
+        {
+
+            var account = GetAccount(localBareJid);
+
+            // RFC 6121, Abschnitt 8.1: für ein Konto, das es hier nicht gibt,
+            // ist nichts zu tun.
+            if (account is null)
+                return;
+
+            switch (type)
+            {
+
+                // Abschnitt 3.1.4: darf der Antragsteller uns ohnehin schon
+                // sehen, beantwortet der Server die Anfrage selbst, statt den
+                // Nutzer mit einer Frage zu behelligen, die schon beantwortet
+                // ist.
+                case "subscribe":
+
+                    if (account.SubscriptionOf(remoteBareJid) is "from" or "both")
+                    {
+
+                        await RouteToAsync(remoteBareJid,
+                                           $"<presence from='{account.BareJid}' to='{remoteBareJid}' type='subscribed'/>");
+
+                        return;
+
+                    }
+
+                    break;
+
+                // Abschnitt 3.1.6: die Zustimmung der Gegenseite setzt unsere
+                // 'to'-Hälfte und erledigt die offene Anfrage.
+                case "subscribed":
+                    UpdateRosterEntry(account, remoteBareJid,
+                                      GrantTo(account.SubscriptionOf(remoteBareJid)),
+                                      ask: AskChange.Clear);
+                    await PushRosterEntryAsync(account, remoteBareJid);
+                    break;
+
+                // Abschnitt 3.2.3: der Entzug nimmt uns die 'to'-Hälfte.
+                case "unsubscribed":
+                    UpdateRosterEntry(account, remoteBareJid,
+                                      RevokeTo(account.SubscriptionOf(remoteBareJid)),
+                                      ask: AskChange.Clear);
+                    await PushRosterEntryAsync(account, remoteBareJid);
+                    break;
+
+                // Abschnitt 3.3.3: die Gegenseite kündigt, was sie bei uns
+                // sehen durfte - also unsere 'from'-Hälfte. Und weil sie uns
+                // nicht mehr sehen darf, geht die Abmeldung hinterher.
+                case "unsubscribe":
+                    UpdateRosterEntry(account, remoteBareJid,
+                                      RevokeFrom(account.SubscriptionOf(remoteBareJid)));
+                    await PushRosterEntryAsync(account, remoteBareJid);
+                    await SendOwnUnavailableToAsync(account, remoteBareJid);
+                    break;
+
+            }
+
+            // Die Stanza selbst gehört dem Client: über 'subscribe' will er
+            // entscheiden, über die übrigen Bescheid wissen.
+            await RouteToAsync(localBareJid, stanza);
 
         }
 

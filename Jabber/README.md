@@ -391,6 +391,10 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- Subscription-Handshake über die Domain-Grenze (RFC 6121 §3): jede Seite
+  pflegt ihre eigene Roster-Hälfte, und ein Antragsteller, der den Kontakt
+  ohnehin schon sehen darf, wird vom Server des Kontakts direkt beschieden
+  (§3.1.4)
 - SRV-Auflösung (RFC 6120 §3.2.1): Gegenstellen werden über
   `_xmpp-server._tcp.<domain>` gefunden statt von Hand eingetragen, mit der
   Reihenfolge aus RFC 2782. Ein Eintrag von Hand geht vor; das Zertifikat wird
@@ -492,8 +496,7 @@ Server-Implementierung:
   und `TcpServerLinks` (beide mit TLS und Dialback nach XEP-0220). Was fehlt:
   DNSSEC — die SRV-Auflösung ist unbeglaubigt, und wo sie die
   Gegenstellenliste bei der Dialback-Prüfung ersetzt, wandert die
-  Vertrauenswurzel vom Betreiber ins DNS. Ausserdem fehlen domainübergreifende
-  Subscriptions; SASL-EXTERNAL gibt es nur über TCP, nicht über WebSocket, und
+  Vertrauenswurzel vom Betreiber ins DNS. Ausserdem: SASL-EXTERNAL gibt es nur über TCP, nicht über WebSocket, und
   `id-on-xmppAddr` im Zertifikat wird nicht gelesen. Und: der TCP-Weg ist bisher
   nur gegen die eigene Gegenstelle geprüft, nicht gegen ejabberd oder Prosody.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
