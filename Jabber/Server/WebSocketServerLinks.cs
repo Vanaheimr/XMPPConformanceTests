@@ -74,6 +74,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly Dictionary<String, OutboundSlot>    _outbound   = new(StringComparer.OrdinalIgnoreCase);
         private readonly Lock                                _lock       = new();
 
+        private Int32 _bidiDeliveries;
+
         private sealed record PeerConfig(String Uri, RemoteCertificateValidationCallback? Validator);
 
         private sealed record OutboundLink(ClientWebSocket Socket, S2SStream Stream);
@@ -122,6 +124,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <see cref="XMPPServer.ConnectionCount"/> zählt.
         /// </summary>
         public Int32 InboundConnectionCount => _listener.ConnectionCounter;
+
+        /// <summary>
+        /// XEP-0288: beide Richtungen über eine Verbindung.
+        /// </summary>
+        /// <remarks>
+        /// Dieselbe Erweiterung wie bei <see cref="TcpServerLinks"/> und aus
+        /// demselben Grund - die Protokollschicht darunter ist ohnehin
+        /// dieselbe. Hier fällt sie im Betrieb weniger ins Gewicht, weil an
+        /// beiden Enden dieses WebSocket-Transports Instanzen dieses Servers
+        /// hängen, die einander eingetragen haben. Sie trotzdem zu haben ist
+        /// die Antwort darauf, dass zwei Transporte unter derselben
+        /// Protokollschicht sich nicht verschieden verhalten sollten: was für
+        /// den einen gilt, muss man beim anderen nicht erst nachschlagen.
+        /// </remarks>
+        public Boolean UseBidirectionalStreams { get; init; }
+
+        /// <summary>
+        /// Wie viele Stanzas über die Rückrichtung eines eingehenden Streams
+        /// gingen, statt über eine eigene Verbindung.
+        /// </summary>
+        public Int32 BidirectionalDeliveryCount => Volatile.Read(ref _bidiDeliveries);
 
         #endregion
 
@@ -220,6 +243,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                 String             stanza,
                                                 CancellationToken  cancellationToken = default)
         {
+
+            // XEP-0288: trägt eine eingehende Verbindung dieser Domain die
+            // Rückrichtung, geht die Stanza dort hinaus - Vorrang vor dem
+            // Anwählen, weil die Gegenstelle sich die Rückrichtung genau
+            // deshalb erbeten hat.
+            if (UseBidirectionalStreams &&
+                await S2SStream.TryDeliverOverBidiAsync(_listener.InboundStreams(), remoteDomain,
+                                                        stanza, cancellationToken))
+            {
+                Interlocked.Increment(ref _bidiDeliveries);
+                return true;
+            }
 
             var link = await GetOrCreateOutboundAsync(remoteDomain, cancellationToken);
 
@@ -437,7 +472,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  _localServer.Domain,
                                  remoteDomain,
                                  (frame, ct) => SendFrameAsync(socket, frame, ct),
-                                 secret: DialbackSecret);
+                                 secret:         DialbackSecret,
+
+                                 // XEP-0288: was über die Rückrichtung
+                                 // hereinkommt, nimmt denselben Weg wie auf
+                                 // einer eingehenden Verbindung, samt
+                                 // Absenderprüfung.
+                                 deliverStanza:  (peerDomain, stanza)
+                                                     => _localServer.AcceptFromRemoteAsync(peerDomain, stanza),
+                                 useBidi:        UseBidirectionalStreams);
 
                 stream.OnClosed += _ => DropOutbound(remoteDomain, slot);
 
@@ -678,6 +721,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             #endregion
 
+            /// <summary>
+            /// Eine Momentaufnahme der offenen eingehenden Streams - für
+            /// XEP-0288 die einzige Stelle, an der sich einer für die
+            /// Rückrichtung finden lässt.
+            /// </summary>
+            /// <remarks>
+            /// Eine Kopie, damit die Sperre nicht über das Senden gehalten
+            /// wird: eine langsame Gegenstelle hielte sonst jede weitere
+            /// Zustellung auf, auch die an ganz andere Domains.
+            /// </remarks>
+            internal IReadOnlyList<S2SStream> InboundStreams()
+            {
+                lock (_lock)
+                    return [.. _streams.Values];
+            }
+
             private S2SStream StreamOf(WebSocketServerConnection connection)
             {
 
@@ -694,7 +753,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                      (frame, ct) => SendTextMessage(connection, frame),
                                      (peerDomain, stanza) => _links._localServer.AcceptFromRemoteAsync(peerDomain, stanza),
                                      secret:     _links.DialbackSecret,
-                                     verifyKey:  _links.VerifyDialbackKeyAsync);
+                                     verifyKey:  _links.VerifyDialbackKeyAsync,
+                                     offerBidi:  _links.UseBidirectionalStreams);
 
                     stream.OnClosed += reason =>
                     {

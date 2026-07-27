@@ -397,7 +397,8 @@ miteinander sprechen:
   hinter einer Firewall oder ohne DNS-Eintrag geht die Antwort dann verloren,
   und zwar stillschweigend. Angeboten auf eingehenden Verbindungen, erbeten auf
   ausgehenden; über die Rückrichtung geht nichts vor dem Ausweis der
-  Gegenstelle und nichts für eine fremde Domain. Gegen Prosody 13 geprüft
+  Gegenstelle und nichts für eine fremde Domain. Auf beiden S2S-Transporten,
+  gegen Prosody 13 geprüft
 - Aufbewahrte Subscription-Anfragen (RFC 6121 §3.1.3): wer nicht verbunden ist,
   bekommt seine Anfragen beim nächsten Anmelden — und bei jeder weiteren
   Resource wieder, bis er zustimmt oder ablehnt. Aufbewahrt wird die

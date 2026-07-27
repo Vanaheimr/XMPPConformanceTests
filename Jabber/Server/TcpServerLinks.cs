@@ -312,15 +312,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // rechnet, dass wir sie nicht erreichen. Erst anzuwählen und die
             // bestehende Verbindung nur als Notnagel zu behandeln, hiesse
             // genau dort zu scheitern, wo die Erweiterung hilft.
-            foreach (var eingehend in BidiKandidatenFuer(remoteDomain))
+            if (UseBidirectionalStreams &&
+                await S2SStream.TryDeliverOverBidiAsync(EingehendeStreams(), remoteDomain,
+                                                        stanza, cancellationToken))
             {
-
-                if (await eingehend.SendStanzaOverBidiAsync(stanza, cancellationToken))
-                {
-                    Interlocked.Increment(ref _bidiDeliveries);
-                    return true;
-                }
-
+                Interlocked.Increment(ref _bidiDeliveries);
+                return true;
             }
 
             var stream = await GetOrCreateOutboundAsync(remoteDomain, cancellationToken);
@@ -331,28 +328,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// Die eingehenden Streams dieser Domain, die die Rückrichtung tragen
-        /// dürfen.
+        /// Eine Momentaufnahme der offenen eingehenden Streams.
         /// </summary>
-        private IReadOnlyList<S2SStream> BidiKandidatenFuer(String remoteDomain)
+        /// <remarks>
+        /// Eine Kopie, damit die Sperre nicht über das Senden gehalten wird -
+        /// eine langsame Gegenstelle hielte sonst jede weitere Zustellung auf.
+        /// Der Schalter davor ist eine Abkürzung und keine Sicherung:
+        /// <c>BidiEnabled</c> setzt sich nur auf einem Stream, der mit
+        /// <c>offerBidi</c> angelegt wurde, und das kommt aus demselben
+        /// Schalter. Eine Mutation überlebt ihn deshalb zu Recht.
+        /// </remarks>
+        private IReadOnlyList<S2SStream> EingehendeStreams()
         {
-
-            // Abkürzung, keine Sicherung: ein Stream bekommt BidiEnabled nur,
-            // wenn er mit offerBidi angelegt wurde, und das kommt aus genau
-            // diesem Schalter. Die Zeile kann also nichts verhindern, was die
-            // Prüfung darunter nicht ohnehin verhindert - sie spart bei
-            // abgeschalteter Erweiterung nur die Sperre und den Durchlauf. Eine
-            // Mutation überlebt sie deshalb, und das zu Recht.
-            if (!UseBidirectionalStreams)
-                return [];
-
             lock (_lock)
-                return [.. _inbound.Where(s => s.BidiEnabled &&
-                                               s.IsAuthenticated &&
-                                               !s.IsClosed &&
-                                               String.Equals(s.RemoteDomain, remoteDomain,
-                                                             StringComparison.OrdinalIgnoreCase))];
-
+                return [.. _inbound];
         }
 
         #endregion

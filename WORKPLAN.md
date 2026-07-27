@@ -714,9 +714,44 @@ kommt ohne Rückweg aus — dieselbe Überlegung wie beim Prosody-Aufbau.
   Schalter — die Zeile ist eine Abkürzung, keine Sicherung. Sie steht mit
   diesem Vermerk im Code.
 
-**Was offen bleibt:** WebSocket-S2S handelt Bidi nicht aus. Dort ist es
-folgenlos, weil beide Enden Instanzen dieses Servers sind und einander ohnehin
-eingetragen haben — aber es ist eine Ungleichheit zwischen den Transporten.
+**Was offen blieb:** WebSocket-S2S handelte Bidi nicht aus — nachgeholt in S9b.
+
+### S9b. XEP-0288 auch über WebSocket ✅
+
+Dieselbe Erweiterung auf dem zweiten Transport. Im Betrieb fällt sie dort
+weniger ins Gewicht, weil an beiden Enden Instanzen dieses Servers hängen, die
+einander eingetragen haben. Sie trotzdem zu haben ist die Antwort darauf, dass
+zwei Transporte unter derselben Protokollschicht sich nicht verschieden
+verhalten sollten: was für den einen gilt, soll man beim anderen nicht erst
+nachschlagen müssen.
+
+**Die Auswahlregel liegt jetzt an einer Stelle.**
+`S2SStream.TryDeliverOverBidiAsync` — der Abgleich der Domain ist genau die
+Regel, an der beim Mutationslauf in S9 eine Mutation vorbeikam, und zwei
+Fassungen davon wären zwei Gelegenheiten für denselben Fehler gewesen. Seither
+töten Tests **beider** Transporte dieselbe Mutation.
+
+**Der Aufbau kann die scharfe Probe aus S9 nicht wiederholen, und das ist
+eingestanden.** Über TCP kennt die Gegenstelle uns nicht, und ohne Rückrichtung
+geht die Antwort verloren — daran hängt dort die Beweiskraft. Über WebSocket
+geht das nicht: dieser Weg weist sich ausschliesslich über Dialback aus
+(SASL-EXTERNAL gibt es hier nicht), und dessen Rückfrage braucht genau die
+Richtung, die es dann nicht gäbe. Beide Seiten sind hier also eingetragen, die
+Antwort käme auch ohne Bidi an, und deshalb prüfen diese Tests
+`BidirectionalDeliveryCount` statt der Ankunft. Der Fixture-Kommentar sagt das,
+damit der Unterschied nicht wie Nachlässigkeit aussieht.
+
+**Ein Test von mir war schlicht falsch.** Ich hatte angenommen, der anwählende
+Server benutze keine Rückrichtung — er hat ja keine eingehende Verbindung. Der
+Zähler stand aber auf 3. Sobald auch nur eine Stanza zurückläuft, schon eine
+Empfangsbestätigung nach XEP-0184, wählt die Gegenstelle ihrerseits an, und
+dann hat auch die erste Seite eine eingehende Verbindung, die sie fortan
+bevorzugt. Zwei sich gegenseitig kennende Server fallen unter Bidi also auf die
+Verbindungen zusammen, die sie ohnehin haben. Das ist der Zweck der Erweiterung
+— aber nichts, worauf sich eine zeitunabhängige Zusicherung stützen liesse. Der
+Test ist ersetzt, die Beobachtung steht als Kommentar am verbliebenen.
+
+5 Mutationen, alle tot.
 
 ---
 

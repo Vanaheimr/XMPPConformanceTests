@@ -1382,6 +1382,43 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         }
 
+        /// <summary>
+        /// Sucht unter eingehenden Streams einen, der die Rückrichtung zu
+        /// dieser Domain trägt, und schickt die Stanza dort hinaus.
+        /// </summary>
+        /// <returns>true, wenn einer sie genommen hat.</returns>
+        /// <remarks>
+        /// Hier und nicht in den Transporten, obwohl beide dasselbe brauchen:
+        /// der Abgleich der Domain ist die Stelle, an der eine Stanza an die
+        /// falsche Gegenstelle geraten kann, und zwei Fassungen davon wären
+        /// zwei Gelegenheiten dafür. Beim ersten Mutationslauf ist genau diese
+        /// Regel durchgerutscht - sie hatte keinen Test, weil an jedem Aufbau
+        /// nur eine Gegenstelle hing.
+        /// </remarks>
+        internal static async Task<Boolean> TryDeliverOverBidiAsync(IEnumerable<S2SStream>  inboundStreams,
+                                                                    String                  remoteDomain,
+                                                                    String                  stanza,
+                                                                    CancellationToken       cancellationToken = default)
+        {
+
+            foreach (var stream in inboundStreams)
+            {
+
+                if (!String.Equals(stream.RemoteDomain, remoteDomain, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Ob der Stream die Rückrichtung überhaupt tragen darf,
+                // entscheidet er selbst - dort stehen die Bedingungen aus
+                // XEP-0288, Abschnitt 4.
+                if (await stream.SendStanzaOverBidiAsync(stanza, cancellationToken))
+                    return true;
+
+            }
+
+            return false;
+
+        }
+
         private Boolean GehoertZuLocalDomain(String jid)
         {
 
