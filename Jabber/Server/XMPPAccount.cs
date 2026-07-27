@@ -36,8 +36,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Bare-JID des Kontos, z.B. alice@localhost.</summary>
         public String BareJid { get; }
 
-        /// <summary>Erwartetes Passwort für die SASL-Authentifizierung.</summary>
-        public String Password { get; }
+        /// <summary>
+        /// Die Zugangsdaten für die SASL-Authentifizierung - abgeleitet, nicht
+        /// im Klartext.
+        /// </summary>
+        public XMPPCredentials Credentials { get; }
 
         /// <summary>Momentaufnahme des serverseitigen Rosters.</summary>
         public IReadOnlyList<RosterEntry> Roster
@@ -49,10 +52,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Constructor(s)
 
+        /// <summary>
+        /// Legt ein Konto mit einem Klartextpasswort an, das sofort abgeleitet
+        /// und danach verworfen wird.
+        /// </summary>
         public XMPPAccount(String bareJid, String password)
+            : this(bareJid, XMPPCredentials.FromPassword(password))
+        { }
+
+        /// <summary>
+        /// Legt ein Konto mit bereits abgeleiteten Zugangsdaten an - der Weg,
+        /// auf dem ein Kontenspeicher sie wieder einliest.
+        /// </summary>
+        public XMPPAccount(String bareJid, XMPPCredentials credentials)
         {
-            BareJid   = bareJid;
-            Password  = password;
+            BareJid      = bareJid;
+            Credentials  = credentials;
         }
 
         #endregion

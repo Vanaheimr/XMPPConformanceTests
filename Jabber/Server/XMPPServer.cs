@@ -748,7 +748,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var account = GetAccount($"{user}@{Domain}");
 
-            if (account is null || account.Password != password)
+            if (account is null || !account.Credentials.Verify(password))
             {
                 await session.SendAsync(
                     "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><not-authorized/></failure>");
