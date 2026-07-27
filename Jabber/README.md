@@ -385,7 +385,13 @@ miteinander sprechen:
   Subprotokoll `xmpp-server`): eine Absenderfälschung beendet dort nicht nur
   die Zustellung, sondern den Stream und die Verbindung (RFC 6120 §8.1.1.1,
   §4.9)
-- Dialback (XEP-0220) auf dem WebSocket-S2S-Weg: die Domain der Gegenstelle
+- Zwei S2S-Transporte unter derselben Protokollschicht (`S2SStream`):
+  `WebSocketServerLinks` (RFC-7395-Rahmen, Subprotokoll `xmpp-server`, nur
+  zwischen Instanzen dieses Servers) und `TcpServerLinks`
+  (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
+  Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
+  dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- Dialback (XEP-0220) auf beiden S2S-Wegen: die Domain der Gegenstelle
   wird belegt, nicht geglaubt. Der annehmende Server fragt dazu **nicht** den,
   der sich ausweisen will, sondern die für diese Domain hinterlegte Adresse —
   über eine eigene, kurzlebige Verbindung. Vor bestandenem Dialback trägt der
@@ -467,18 +473,17 @@ Server-Implementierung:
 - **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
   offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
   gerade nicht verbundenes Konto wird nicht aufbewahrt.
-- **Föderation nur über WebSocket, und nur mit sich selbst.** Routing,
-  Adressierung und Zustellung über die Grenze gibt es über zwei Wege:
-  `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung) und
-  `WebSocketServerLinks` (echter Stream, TLS, Dialback nach XEP-0220). Der
-  zweite belegt die Domain der Gegenstelle inzwischen; was ihm fehlt, ist die
-  Auflösung über SRV-Records (RFC 6120 §3.2) — Gegenstellen werden von Hand
+- **Föderation ohne SRV und ohne STARTTLS, und nie gegen einen fremden Server
+  gelaufen.** Es gibt drei Wege über die Domain-Grenze: `DirectServerLinks`
+  (in-process, für Tests, ohne jede Authentifizierung), `WebSocketServerLinks`
+  und `TcpServerLinks` (beide mit TLS und Dialback nach XEP-0220). Was fehlt:
+  die Auflösung über SRV-Records (RFC 6120 §3.2) — Gegenstellen werden von Hand
   eingetragen, und genau diese Liste tritt bei der Dialback-Prüfung an die
-  Stelle des DNS. Eine Domain ohne hinterlegte Adresse lässt sich deshalb nicht
-  prüfen und wird abgelehnt. Die TCP-Rahmung (Port 5269, `jabber:server`-Streams)
-  für die Föderation mit ejabberd oder Prosody steht noch aus, ebenso
-  SASL-EXTERNAL als Alternative zu Dialback und domainübergreifende
-  Subscriptions.
+  Stelle des DNS; eine Domain ohne hinterlegte Adresse lässt sich deshalb nicht
+  prüfen und wird abgelehnt. Ausserdem fehlen STARTTLS (RFC 6120 §5.4 — TLS
+  gilt ab der ersten Sekunde oder gar nicht), SASL-EXTERNAL als Alternative zu
+  Dialback und domainübergreifende Subscriptions. Und: der TCP-Weg ist bisher
+  nur gegen die eigene Gegenstelle geprüft, nicht gegen ejabberd oder Prosody.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der

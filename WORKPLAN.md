@@ -40,11 +40,12 @@ Stand: 2026-07-27
 | S4: Domain-Weiche, Fehlerpfad, Föderation zweier Server (ohne echten Transport) | `d9c4333`, `323795f` |
 | S4b-1: S2S-Protokollschicht ohne Transport (`S2SStream`) | `f0a4bbd` |
 | S4b-2: WebSocket-S2S über echte Sockets samt TLS | `8e0aec3` |
-| S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d` |
+| S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d`, `a60631c` |
+| S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, *(dieser Commit)* |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **298 Tests, 0 Fehler, 0 übersprungen** in gut einer
+Aktueller Stand der Suite: **320 Tests, 0 Fehler, 0 übersprungen** in gut einer
 Minute. Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
@@ -283,9 +284,44 @@ Zwei Fehler kamen dabei ans Licht, beide älter als dieser Schritt:
   Normalfall, weil der Aufbau mehrere Umläufe dauert —, blieb der Eintrag für
   immer stehen. Jetzt wird über die Identität des Platzes aufgeräumt.
 
-**S4b-4 (offen): TCP 5269 als zweite Rahmung.** `S2SStream` sollte dafür
-unverändert bleiben — wenn nicht, war die Trennung in S4b-1 nicht sauber genug.
-Voraussetzung für Föderation mit ejabberd oder Prosody.
+**S4b-4 ✅ TCP als zweite Rahmung.** `TcpServerLinks` spricht
+`jabber:server`-Streams über TCP (RFC 6120) — dieselbe Protokollschicht,
+darunter `TcpStreamFraming` statt `WebSocketFraming` und `XmlStreamSplitter`
+statt fertiger Frames. `TcpFederationTests` prüft dasselbe wie die
+WebSocket-Fassung und läuft grün.
+
+**Die Antwort auf die Frage aus S4b-1: nein, `S2SStream` blieb nicht
+unverändert.** An sechs Stellen steckte RFC 7395 fest im Code — die beiden
+`<open/>`-Sendungen, das `<close/>`, die zwei Erkennungen dazu, und, am
+unauffälligsten, ein `XElement.Parse` auf dem Stream-Kopf. Über TCP ist der
+Kopf ein *offenes* Tag; jede TCP-Verbindung wäre mit `<bad-format/>` gescheitert.
+Die Abstraktion hatte die Form ihrer ersten Implementierung angenommen, genau
+wie hier als Risiko notiert. Was gehalten hat, ist alles Übrige: Handshake,
+Stream-ID, Dialback, Absenderprüfung, Fehlerbehandlung, Lebenszyklus — und das
+ist jetzt belegt statt behauptet, weil `S2SStreamTests` dieselbe Klasse mit
+beiden Rahmungen fährt, ohne Socket.
+
+Nebenbei bestätigt: die Entscheidung aus S4b-3, Dialback-Elemente über einen
+regulären Ausdruck statt über einen XML-Parser zu lesen, zahlt sich hier aus.
+Ein `<db:result/>` über TCP ist für sich genommen nicht wohlgeformt — sein
+Präfix hängt am Wurzelelement.
+
+Ein Fund, den nur eine Messung liefert: der erste Zustellvorgang dauerte
+4167 ms statt 82 ms. Nicht TLS, sondern `localhost` — der Name löst zuerst nach
+IPv6 auf, der Listener bindet IPv4-Loopback, und jede der beiden Verbindungen
+(Stanza-Stream und Dialback-Nachfrage) zahlte rund zwei Sekunden Fallback. Alles
+funktionierte, nur langsam; kein Test wäre je rot geworden.
+
+**Was an S4b-4 offen bleibt:**
+
+- **Kein STARTTLS** (RFC 6120 §5.4). TLS gilt ab der ersten Sekunde oder gar
+  nicht, je nach Eintrag für die Gegenstelle. Das ist nicht unsicherer, aber
+  weniger kompatibel: ein Server, der Klartext nicht annimmt und STARTTLS
+  erwartet, ist so nicht erreichbar.
+- **Kein Lauf gegen ejabberd oder Prosody.** Die Rahmung ist die richtige, aber
+  geprüft ist sie bisher nur gegen die eigene Gegenstelle — genau die Lücke, die
+  bei XEP-0198 schon einmal auffiel.
+- **Keine SRV-Auflösung**, Gegenstellen werden von Hand eingetragen.
 
 **Zwei Dinge, die dabei nicht untergehen dürfen:**
 
