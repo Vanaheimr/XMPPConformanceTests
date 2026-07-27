@@ -43,11 +43,12 @@ Stand: 2026-07-27
 | S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d`, `a60631c` |
 | S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, `e0d88f4` |
 | S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | `f4a9c80` |
-| S4b-7: SASL-EXTERNAL (XEP-0178) über das TLS-Zertifikat | *(dieser Commit)* |
+| S4b-7: SASL-EXTERNAL (XEP-0178) über das TLS-Zertifikat | `031f8ca` |
+| S4b-8: SRV-Auflösung (RFC 6120 §3.2, RFC 2782) | *(dieser Commit)* |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **355 Tests, 0 Fehler, 1 übersprungen** in gut
+Aktueller Stand der Suite: **381 Tests, 0 Fehler, 1 übersprungen** in gut
 eineinhalb Minuten (der übersprungene prüft eine Eigenschaft, die es nur im
 STARTTLS-Betrieb gibt, und läuft daher nur in einer der beiden Fassungen). Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
@@ -190,8 +191,7 @@ Bedingung aus §8.3.3).
 - **Domainübergreifende Subscriptions fehlen.** Der Handshake aus RFC 6121 §3
   nimmt an, dass beide Seiten lokal sind. Ein bestehender Eintrag wird über die
   Grenze beachtet, ein neuer lässt sich nicht aushandeln.
-- **Keine Auflösung über DNS** (SRV-Records nach RFC 6120 §3.2) — Gegenstellen
-  werden von Hand eingetragen.
+- ~~Keine Auflösung über DNS~~ — erledigt in S4b-8.
 
 ### S4b. Der eigentliche S2S-Transport
 
@@ -367,6 +367,47 @@ lautlos. Dafür gibt es jetzt `WaitUntilReadyAsync`.
   *wofür* ein Zertifikat ausgestellt ist, nicht, ob ihm zu trauen ist — das
   entscheidet die hinterlegte Prüfung im TLS-Handshake, im Testaufbau ein
   angehefteter Fingerabdruck.
+
+**S4b-8 ✅ SRV-Auflösung (RFC 6120 §3.2.1).** Gegenstellen müssen nicht mehr von
+Hand eingetragen werden. `DnsS2SAddressResolver` fragt
+`_xmpp-server._tcp.<domain>` und fällt ohne Eintrag auf die Domain selbst
+zurück; `SrvSelection` bringt die Ziele in die Reihenfolge aus RFC 2782. Ein
+Eintrag von Hand geht weiterhin vor - eine Entscheidung des Betreibers wiegt
+schwerer als eine Auskunft aus dem Netz.
+
+Der auswahlkritische Teil ist die Gewichtung: sie ist **keine** Sortierung nach
+Gewicht, sondern eine gewichtete Ziehung ohne Zurücklegen. Wer stattdessen
+absteigend sortiert, schickt allen Verkehr an den stärksten Rechner, und die
+Lastverteilung findet nie statt - auffallen würde das erst im Betrieb, und auch
+dort nur jemandem, der die Auslastung anschaut. Die Zufallsquelle ist deshalb
+einsetzbar, damit der Ablauf prüfbar bleibt.
+
+**Geprüft wird gegen einen echten DNS-Server**, nicht gegen eine nachgebaute
+Antwort: Hermod bringt einen mit, `InMemoryDNSZone` nimmt die Einträge, und die
+Abfrage läuft über echte DNS-Pakete. Das hat sich sofort ausgezahlt -
+`DnsFederationTests` verkabelt zwei Server ganz ohne Liste und deckte dabei
+auf, dass die **Dialback-Rückfrage** den Resolver gar nicht benutzte. Sie
+schaute nur in die Gegenstellenliste; mit einem nachgebauten Resolver wäre das
+nie aufgefallen, weil kein Test ohne Liste ausgekommen wäre.
+
+**Was das für die Vertrauenswurzel bedeutet, und es ist eine Verschlechterung:**
+bisher stand bei der Dialback-Prüfung ausschliesslich die Liste des Betreibers,
+und genau daraus bezog sie ihre Schärfe. Wird die autoritative Adresse über DNS
+gesucht, ist Dialback nur noch so verlässlich wie die Auflösung - so ist
+XEP-0220 gemeint, aber es ist weniger als vorher. Wer das nicht will, lässt
+`AddressResolver` null und trägt seine Gegenstellen ein.
+
+Unverändert gilt: **das Zertifikat wird gegen die gesuchte Domain geprüft**,
+nicht gegen den Rechnernamen aus dem SRV-Eintrag (RFC 6120 §13.7.2.1). Sonst
+brächte ein Angreifer, der DNS fälschen kann, den Massstab gleich mit. Dafür
+gibt es einen eigenen Test, und die Mutation dazu wird gefangen.
+
+**Was an S4b-8 offen bleibt:**
+
+- **Kein `_xmpps-server._tcp`** (XEP-0368, direktes TLS ohne STARTTLS). Die
+  Auswahl zwischen beiden Diensten wäre eine eigene Entscheidung.
+- **Kein DNSSEC.** Ohne das bleibt die Auflösung unbeglaubigt; sie sagt, wohin
+  verbunden wird, nie mit wem.
 
 **Zwei Dinge, die dabei nicht untergehen dürfen:**
 

@@ -391,6 +391,11 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- SRV-Auflösung (RFC 6120 §3.2.1): Gegenstellen werden über
+  `_xmpp-server._tcp.<domain>` gefunden statt von Hand eingetragen, mit der
+  Reihenfolge aus RFC 2782. Ein Eintrag von Hand geht vor; das Zertifikat wird
+  gegen die gesuchte Domain geprüft, nie gegen den Rechnernamen aus dem
+  SRV-Eintrag
 - SASL-EXTERNAL auf der TCP-Strecke (XEP-0178): die Domain der Gegenstelle wird
   über ihr TLS-Zertifikat belegt statt über eine Dialback-Rückfrage.
   `CertificateIdentity` liest die dNSName-Einträge — bei vorhandener SAN zählt
@@ -485,10 +490,9 @@ Server-Implementierung:
   gelaufen.** Es gibt drei Wege über die Domain-Grenze: `DirectServerLinks`
   (in-process, für Tests, ohne jede Authentifizierung), `WebSocketServerLinks`
   und `TcpServerLinks` (beide mit TLS und Dialback nach XEP-0220). Was fehlt:
-  die Auflösung über SRV-Records (RFC 6120 §3.2) — Gegenstellen werden von Hand
-  eingetragen, und genau diese Liste tritt bei der Dialback-Prüfung an die
-  Stelle des DNS; eine Domain ohne hinterlegte Adresse lässt sich deshalb nicht
-  prüfen und wird abgelehnt. Ausserdem fehlen domainübergreifende
+  DNSSEC — die SRV-Auflösung ist unbeglaubigt, und wo sie die
+  Gegenstellenliste bei der Dialback-Prüfung ersetzt, wandert die
+  Vertrauenswurzel vom Betreiber ins DNS. Ausserdem fehlen domainübergreifende
   Subscriptions; SASL-EXTERNAL gibt es nur über TCP, nicht über WebSocket, und
   `id-on-xmppAddr` im Zertifikat wird nicht gelesen. Und: der TCP-Weg ist bisher
   nur gegen die eigene Gegenstelle geprüft, nicht gegen ejabberd oder Prosody.

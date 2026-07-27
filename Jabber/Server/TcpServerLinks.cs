@@ -116,6 +116,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Das Dialback-Geheimnis dieses Servers (XEP-0220).</summary>
         public String DialbackSecret { get; } = DialbackKey.NewSecret();
 
+        /// <summary>
+        /// Woher die Adresse einer Domain kommt, die nicht von Hand
+        /// hinterlegt ist. Null lässt es bei der Gegenstellenliste.
+        /// </summary>
+        /// <remarks>
+        /// Die Liste geht vor. Das ist Absicht und keine Bequemlichkeit: ein
+        /// Eintrag von Hand ist eine Entscheidung des Betreibers, eine
+        /// DNS-Antwort nur eine Auskunft aus dem Netz - und ohne DNSSEC eine
+        /// unbeglaubigte. Wer beides hat, soll die Entscheidung behalten.
+        ///
+        /// <b>Für die Dialback-Rückfrage verschiebt das die Vertrauenswurzel.</b>
+        /// Bisher stand dort ausschliesslich die Liste des Betreibers, und
+        /// genau daraus bezog die Prüfung ihre Schärfe. Wird die autoritative
+        /// Adresse über DNS gesucht, ist Dialback nur noch so verlässlich wie
+        /// die Auflösung - so ist XEP-0220 gemeint, aber es ist weniger, als
+        /// die Liste bot. Wer das nicht will, lässt diese Eigenschaft null und
+        /// trägt seine Gegenstellen ein.
+        /// </remarks>
+        public IS2SAddressResolver? AddressResolver { get; init; }
+
         /// <summary>Anzahl der jemals angenommenen eingehenden Verbindungen.</summary>
         public Int32 InboundConnectionCount => Volatile.Read(ref _inboundCounter);
 
@@ -269,13 +289,72 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             Interlocked.Increment(ref _dialbackVerifications);
 
-            PeerConfig? peer;
+            foreach (var peer in await KandidatenFuerAsync(senderDomain))
+            {
+
+                if (await VerifyAtAsync(peer, senderDomain, streamId, key))
+                    return true;
+
+            }
+
+            return false;
+
+        }
+
+        /// <summary>
+        /// Die Adressen, unter denen eine Domain für die Dialback-Rückfrage
+        /// erreichbar sein könnte.
+        /// </summary>
+        /// <remarks>
+        /// Der Eintrag von Hand geht vor; erst danach die Auflösung. Ohne
+        /// beides gibt es niemanden zu fragen - und Glauben ist keine
+        /// Prüfung.
+        ///
+        /// Dass die Rückfrage überhaupt aufgelöst werden muss, ist der
+        /// Normalfall aus XEP-0220: der prüfende Server sucht den autoritativen
+        /// selbst. Es verschiebt aber die Vertrauenswurzel vom Betreiber ins
+        /// DNS - siehe <see cref="AddressResolver"/>.
+        /// </remarks>
+        private async Task<IReadOnlyList<PeerConfig>> KandidatenFuerAsync(String domain)
+        {
+
+            PeerConfig? eingetragen;
 
             lock (_lock)
-                _peers.TryGetValue(senderDomain, out peer);
+                _peers.TryGetValue(domain, out eingetragen);
 
-            if (peer is null)
-                return false;
+            if (eingetragen is not null)
+                return [eingetragen];
+
+            if (AddressResolver is null)
+                return [];
+
+            try
+            {
+
+                var ziele = await AddressResolver.ResolveAsync(domain);
+
+                return [.. ziele.Select(z => new PeerConfig(z.Host,
+                                                            z.Port,
+                                                            Mode,
+                                                            DefaultPeerValidator))];
+
+            }
+            catch (Exception)
+            {
+                return [];
+            }
+
+        }
+
+        /// <summary>
+        /// Fragt eine einzelne Adresse nach dem Dialback-Schlüssel.
+        /// </summary>
+        private async Task<Boolean> VerifyAtAsync(PeerConfig  peer,
+                                                  String      senderDomain,
+                                                  String      streamId,
+                                                  String      key)
+        {
 
             TcpClient? client = null;
 
@@ -447,19 +526,100 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (_outbound.TryGetValue(remoteDomain, out var vorhanden))
                     return vorhanden.Connecting!;
 
-                if (!_peers.TryGetValue(remoteDomain, out var peer))
+                // Kein Eintrag von Hand und kein Resolver - dann gibt es die
+                // Domain für diesen Server nicht.
+                if (!_peers.TryGetValue(remoteDomain, out var peer) &&
+                    AddressResolver is null)
+                {
                     return Task.FromResult<S2SStream?>(null);
+                }
 
                 var slot = new OutboundSlot();
                 _outbound[remoteDomain] = slot;
 
-                slot.Connecting = ConnectOutboundAsync(remoteDomain, peer, slot, cancellationToken);
+                slot.Connecting = peer is not null
+                                      ? ConnectOutboundAsync(remoteDomain, peer, slot, cancellationToken)
+                                      : ResolveAndConnectAsync(remoteDomain, slot, cancellationToken);
 
                 return slot.Connecting;
 
             }
 
         }
+
+        /// <summary>
+        /// Sucht die Adressen einer Domain und versucht sie der Reihe nach.
+        /// </summary>
+        /// <remarks>
+        /// Der Reihe nach und nicht nur das erste Ziel: SRV-Einträge nennen
+        /// Ausweichrechner, und sie aufzulisten ohne sie zu benutzen wäre eine
+        /// halbe Umsetzung. Die Reihenfolge stammt aus
+        /// <see cref="SrvSelection"/> und wird hier nicht mehr angetastet.
+        ///
+        /// Die Betriebsart und die Zertifikatsprüfung kommen von den
+        /// Vorgabewerten dieses Servers - insbesondere wird gegen die
+        /// <b>gesuchte Domain</b> geprüft und nicht gegen den Rechnernamen aus
+        /// dem SRV-Eintrag. Andersherum genügte ein gefälschter Eintrag, um
+        /// die Prüfung zu bestehen.
+        /// </remarks>
+        private async Task<S2SStream?> ResolveAndConnectAsync(String             remoteDomain,
+                                                              OutboundSlot       slot,
+                                                              CancellationToken  cancellationToken)
+        {
+
+            IReadOnlyList<SrvTarget> ziele;
+
+            try
+            {
+                ziele = await AddressResolver!.ResolveAsync(remoteDomain, cancellationToken);
+            }
+            catch (Exception)
+            {
+                ziele = [];
+            }
+
+            foreach (var ziel in ziele)
+            {
+
+                var peer = new PeerConfig(ziel.Host,
+                                          ziel.Port,
+                                          Mode,
+                                          DefaultPeerValidator);
+
+                var stream = await ConnectOutboundAsync(remoteDomain, peer, slot, cancellationToken);
+
+                if (stream is not null)
+                {
+
+                    // Der Platz im Cache wurde von ConnectOutboundAsync bei
+                    // jedem Fehlversuch geräumt - für den Erfolg muss er
+                    // wieder stehen, sonst baut die nächste Zustellung erneut
+                    // auf.
+                    lock (_lock)
+                        _outbound[remoteDomain] = slot;
+
+                    return stream;
+
+                }
+
+            }
+
+            DropOutbound(remoteDomain, slot);
+
+            return null;
+
+        }
+
+        /// <summary>
+        /// Die Zertifikatsprüfung für aufgelöste Gegenstellen.
+        /// </summary>
+        /// <remarks>
+        /// Null überlässt sie dem Betriebssystem - für den Betrieb die
+        /// richtige Vorgabe, weil ein fremder Server ein Zertifikat einer
+        /// bekannten CA vorlegen soll. Im Testaufbau wird sie gesetzt, weil
+        /// selbst signierte Zertifikate sonst nirgends durchkämen.
+        /// </remarks>
+        public RemoteCertificateValidationCallback? DefaultPeerValidator { get; init; }
 
         private async Task<S2SStream?> ConnectOutboundAsync(String             remoteDomain,
                                                             PeerConfig         peer,
