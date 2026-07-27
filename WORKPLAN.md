@@ -598,23 +598,36 @@ s2sout   debug  Not eligible for bouncing, discarding <iq ... type='result' ...>
 ```
 
 Genau so ist RFC 6120 §4.1 gemeint: ein XML-Stream ist **einseitig**, und eine
-S2S-Verbindung trägt nur eine Richtung. Unsere Föderation antwortet über denselben
-Stream. Zwischen zwei Instanzen dieses Servers fällt das nicht auf, weil beide
-Seiten es gleich falsch machen — und das ist der Grund, warum dieser Lauf nötig
-war. Gegen jede ausgewachsene Gegenstelle heisst es: senden ja, Antwort nie.
+S2S-Verbindung trägt nur eine Richtung.
 
-Der Fehler ist keiner, den mehr Tests gegen die eigene Gegenstelle je gefunden
-hätten. Er sass in der Annahme, nicht im Code.
+> **Korrektur (S9).** Hier stand zuerst, unsere Föderation antworte über denselben
+> Stream und mache es damit falsch. Das ist nachweislich nicht so.
+> `TcpServerLinks.DeliverAsync` und `WebSocketServerLinks.DeliverAsync` gehen
+> ausnahmslos über `GetOrCreateOutboundAsync`, und `S2SStream.ProcessStanzaAsync`
+> weist eine Stanza auf einem ausgehenden Stream ausdrücklich ab — mit genau
+> diesem Abschnitt als Begründung im Kommentar. Unsere Seite verhält sich also
+> wie Prosody.
+>
+> Was der Lauf wirklich zeigte: Prosody kam an `jabber.test` nicht heran. In WSL
+> gibt es kein DNS für `.test`, und die Hyper-V-Firewall verwirft den Weg von WSL
+> zum Windows-Host ohnehin. Beide Seiten haben sich richtig verhalten, die
+> Umgebung liess die Rückrichtung nicht zu.
+>
+> Der Lauf hat damit den **ausgehenden** Weg gegen eine fremde Gegenstelle
+> belegt und den **eingehenden** offen gelassen — nicht wegen eines Fehlers,
+> sondern weil die Gegenstelle keinen Weg zurück hatte. Der Fehler sass in
+> meiner Lesart des Logs, nicht im Code.
 
-**Zwei Wege hinaus, beide eigene Arbeitsschritte:**
+**Was daraus wirklich folgt — zwei Wege, beide eigene Arbeitsschritte:**
 
 - **XEP-0288 (Bidirectional Server-to-Server Streams).** Beide Richtungen über
   eine Verbindung, ausgehandelt über `urn:xmpp:features:bidi`. Prosody kündigt es
   an, sobald `mod_s2s_bidi` läuft — der Aufbau schaltet es ein, und die
-  Ankündigung ist geprüft. Das ist der Weg, den die XMPP-Welt genommen hat.
-- **Eingehende Verbindungen wirklich annehmen**, also die Gegenstelle uns
-  anwählen lassen. Der Weg ohne Erweiterung, und der, den ein echter Betrieb
-  ohnehin braucht.
+  Ankündigung ist geprüft. Kein Fehlerbehebung, sondern die Erweiterung, die den
+  Rückweg überflüssig macht: genau das, was hier fehlt. Erledigt in S9.
+- **Eingehende Verbindungen gegen eine fremde Gegenstelle prüfen**, also Prosody
+  uns anwählen lassen. Der Weg ohne Erweiterung. Der Code dafür steht, geprüft
+  ist er nur gegen die eigene Gegenstelle.
 
 **Was den zweiten Weg hier zusätzlich blockiert:** WSL2 läuft im NAT-Modus, und
 die Hyper-V-Firewall verwirft Verbindungen von WSL zum Windows-Host. Windows →
@@ -626,9 +639,84 @@ eine Entscheidung über die Maschine, nicht über dieses Projekt.
 
 **Testsammlung.** `ProsodyFederationTests` überspringt sich ohne Aufbau, sodass
 der gewöhnliche Lauf unberührt bleibt. `TheStreamToProsodyCarriesAStanza` besteht
-gegen die echte Gegenstelle. `APingReachesProsodyAndComesBack` ist mit dem Befund
-als Begründung stillgelegt statt gelöscht — ein Test, der eine bekannte Lücke
-benennt, ist mehr wert als eine Lücke ohne Test.
+gegen die echte Gegenstelle. `APingReachesProsodyAndComesBack` ist stillgelegt
+statt gelöscht — er hält fest, dass ohne XEP-0288 keine Antwort kommt, solange
+die Gegenstelle uns nicht erreichen kann.
+
+### S9. XEP-0288 — beide Richtungen über eine Verbindung ✅
+
+Die Erweiterung, die den Rückweg überflüssig macht. Der Initiator schickt nach
+TLS ein `<bidi xmlns='urn:xmpp:bidi'/>`, sobald die Gegenstelle
+`urn:xmpp:features:bidi` ankündigt; danach trägt dieselbe Verbindung beide
+Richtungen.
+
+**Beide Rollen, nicht nur die eine.** Angeboten auf eingehenden Verbindungen,
+erbeten auf ausgehenden — `UseBidirectionalStreams` schaltet beides zugleich.
+Nur die halbe Erweiterung hälfe nur der halben Föderation.
+
+**Die zwei Sicherungen aus Abschnitt 4, und beide sind keine Formalitäten:**
+
+- *"MUST NOT send stanzas to the peer before it has authenticated"* — wer nicht
+  belegt hat, wer er ist, bekommt nichts. Ohne diese Zeile liesse sich mit einer
+  blossen Behauptung im Stream-Kopf fremde Post abholen: Verbindung aufbauen,
+  sich `example.com` nennen, um die Rückrichtung bitten, warten.
+- *"MUST only send stanzas for which it has been authenticated … the value of
+  the stream's 'to' attribute"* — über die Rückrichtung geht nur die eigene
+  Domain hinaus. Dieselbe Prüfung, die wir der Gegenstelle auferlegen, gilt hier
+  für uns.
+
+Dazu ein unangekündigtes `<bidi/>` abzuweisen: sonst liesse sich eine
+Rückrichtung erzwingen, die dieser Server nie angeboten hat.
+
+**Die Reihenfolge hat etwas aufgedeckt.** Das `<bidi/>` muss vor SASL *und* vor
+Dialback hinaus. Unser Initiator schickte den unaufgeforderten `<db:result/>`
+aus XEP-0220 aber schon beim Stream-Kopf — also bevor die Features überhaupt da
+waren, aus denen sich das Bidi-Angebot ablesen lässt. Er wartet jetzt in beiden
+Fällen auf die Features. `BidiAlsoGoesOutBeforeDialback` hat das beim ersten
+Lauf gefunden.
+
+**Geprüft gegen Prosody.** `APingOverABidirectionalStream` besteht gegen die
+echte Gegenstelle, und ihr Log zeigt genau das Erwartete:
+
+```
+Received[s2sin_unauthed]: <bidi xmlns='urn:xmpp:bidi'>
+debug   Requested bidirectional stream
+Received[s2sin]:  <iq ... type='get' id='ping-1'>
+Sending[s2sin]:   <iq from='prosody.test' ... type='result'>
+```
+
+`Sending[s2sin]` statt `opening a new outgoing connection` — die Antwort nimmt
+die bestehende Verbindung. Damit ist auch der **eingehende** Weg unserer
+Protokollschicht erstmals gegen eine fremde Gegenstelle belegt, wenn auch über
+die Rückrichtung und nicht über eine echte eingehende Verbindung.
+
+**Der Aufbau der Tests ist absichtlich einseitig.** `links` kennt `rechts`,
+`rechts` kennt `links` nicht. Der übliche `TcpServerLinks.Connect` taugt dafür
+nicht — er trägt beide Seiten ein, und dann käme die Antwort über eine eigene
+Verbindung an, ohne dass Bidi je beteiligt gewesen wäre. Deshalb prüft der Test
+`BidirectionalDeliveryCount` und nicht nur die Ankunft, und deshalb gibt es
+`WithoutBidi_TheAnswerIsLost` als Gegenprobe.
+
+Nebenbei: in diesem Aufbau taugt Dialback nicht als Nachweis, denn seine
+Rückfrage ginge ausgerechnet in die Richtung, die es nicht gibt. SASL-EXTERNAL
+kommt ohne Rückweg aus — dieselbe Überlegung wie beim Prosody-Aufbau.
+
+11 Mutationen, 9 sofort tot. Die beiden Überlebenden:
+
+- *Auswahl ohne Domainabgleich*: unsichtbar, weil an jedem Test nur eine
+  Gegenstelle hing. Im Betrieb wäre es ein Leck zwischen zwei fremden Servern —
+  die Stanza ginge an die falsche Gegenstelle, die sie zwar verwirft, aber
+  vorher gelesen hat, und der eigentliche Empfänger bekäme nichts, ohne dass
+  irgendwo ein Fehler aufliefe. Festgehalten durch
+  `TheReturnPath_GoesToTheRightDomain` mit drei Servern.
+- *Schalter im Transport*: überlebt zu Recht. `BidiEnabled` wird nur gesetzt,
+  wenn der Stream mit `offerBidi` angelegt wurde, und das kommt aus demselben
+  Schalter — die Zeile ist eine Abkürzung, keine Sicherung. Sie steht mit
+  diesem Vermerk im Code.
+
+**Was offen bleibt:** WebSocket-S2S handelt Bidi nicht aus. Dort ist es
+folgenlos, weil beide Enden Instanzen dieses Servers sind und einander ohnehin
+eingetragen haben — aber es ist eine Ungleichheit zwischen den Transporten.
 
 ---
 

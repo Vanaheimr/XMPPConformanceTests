@@ -75,8 +75,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly Dictionary<String, OutboundSlot> _outbound   = new(StringComparer.OrdinalIgnoreCase);
         private readonly Lock                             _lock       = new();
 
+        /// <summary>
+        /// Die offenen eingehenden Streams - für XEP-0288 die einzige Stelle,
+        /// an der sich einer für die Rückrichtung finden lässt.
+        /// </summary>
+        /// <remarks>
+        /// Eine Liste und kein Wörterbuch nach Domain: die Domain steht beim
+        /// Anlegen noch nicht fest (sie kommt erst mit dem <c>&lt;open/&gt;</c>
+        /// der Gegenstelle), und mehrere Verbindungen derselben Domain sind
+        /// erlaubt. Bei den Zahlen, um die es hier geht, kostet das Durchsehen
+        /// nichts.
+        /// </remarks>
+        private readonly List<S2SStream>                  _inbound    = [];
+
         private Int32 _inboundCounter;
         private Int32 _dialbackVerifications;
+        private Int32 _bidiDeliveries;
 
         private sealed record PeerConfig(String                                Host,
                                          Int32                                 Port,
@@ -112,6 +126,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// einfach.
         /// </remarks>
         public Boolean UseSaslExternal { get; init; }
+
+        /// <summary>
+        /// XEP-0288: beide Richtungen über eine Verbindung führen.
+        /// </summary>
+        /// <remarks>
+        /// Ohne die Erweiterung antwortet jede Seite über eine <b>eigene</b>
+        /// ausgehende Verbindung (RFC 6120, Abschnitt 4.1). Das setzt voraus,
+        /// dass die Gegenstelle uns erreichen kann - hinter NAT, hinter einer
+        /// Firewall oder ohne DNS-Eintrag kann sie das nicht, und die Antwort
+        /// geht verloren, ohne dass jemand es merkt.
+        ///
+        /// Eingeschaltet wird beides zugleich: angeboten auf eingehenden
+        /// Verbindungen, erbeten auf ausgehenden. Das eine ohne das andere
+        /// hälfe nur der halben Föderation.
+        /// </remarks>
+        public Boolean UseBidirectionalStreams { get; init; }
+
+        /// <summary>
+        /// Wie viele Stanzas über die Rückrichtung eines eingehenden Streams
+        /// gingen, statt über eine eigene Verbindung.
+        /// </summary>
+        /// <remarks>
+        /// Der einzige von aussen sichtbare Unterschied. Ob eine Nachricht
+        /// ankommt, sagt darüber nichts - sie käme über beide Wege an, und
+        /// genau deshalb wäre ein Test ohne diese Zahl blind dafür, welchen
+        /// sie genommen hat.
+        /// </remarks>
+        public Int32 BidirectionalDeliveryCount => Volatile.Read(ref _bidiDeliveries);
 
         /// <summary>Das Dialback-Geheimnis dieses Servers (XEP-0220).</summary>
         public String DialbackSecret { get; } = DialbackKey.NewSecret();
@@ -262,10 +304,54 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                 CancellationToken  cancellationToken = default)
         {
 
+            // XEP-0288: liegt für diese Domain eine eingehende Verbindung mit
+            // freigeschalteter Rückrichtung, geht die Stanza dort hinaus.
+            //
+            // Vorrang vor dem Anwählen, und das ist der ganze Zweck: die
+            // Gegenstelle hat sich die Rückrichtung erbeten, weil sie damit
+            // rechnet, dass wir sie nicht erreichen. Erst anzuwählen und die
+            // bestehende Verbindung nur als Notnagel zu behandeln, hiesse
+            // genau dort zu scheitern, wo die Erweiterung hilft.
+            foreach (var eingehend in BidiKandidatenFuer(remoteDomain))
+            {
+
+                if (await eingehend.SendStanzaOverBidiAsync(stanza, cancellationToken))
+                {
+                    Interlocked.Increment(ref _bidiDeliveries);
+                    return true;
+                }
+
+            }
+
             var stream = await GetOrCreateOutboundAsync(remoteDomain, cancellationToken);
 
             return stream is not null &&
                    await stream.SendStanzaAsync(stanza, cancellationToken);
+
+        }
+
+        /// <summary>
+        /// Die eingehenden Streams dieser Domain, die die Rückrichtung tragen
+        /// dürfen.
+        /// </summary>
+        private IReadOnlyList<S2SStream> BidiKandidatenFuer(String remoteDomain)
+        {
+
+            // Abkürzung, keine Sicherung: ein Stream bekommt BidiEnabled nur,
+            // wenn er mit offerBidi angelegt wurde, und das kommt aus genau
+            // diesem Schalter. Die Zeile kann also nichts verhindern, was die
+            // Prüfung darunter nicht ohnehin verhindert - sie spart bei
+            // abgeschalteter Erweiterung nur die Sperre und den Durchlauf. Eine
+            // Mutation überlebt sie deshalb, und das zu Recht.
+            if (!UseBidirectionalStreams)
+                return [];
+
+            lock (_lock)
+                return [.. _inbound.Where(s => s.BidiEnabled &&
+                                               s.IsAuthenticated &&
+                                               !s.IsClosed &&
+                                               String.Equals(s.RemoteDomain, remoteDomain,
+                                                             StringComparison.OrdinalIgnoreCase))];
 
         }
 
@@ -495,9 +581,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  secret:            DialbackSecret,
                                  verifyKey:         VerifyDialbackKeyAsync,
                                  framing:           TcpStreamFraming.Instance,
-                                 externalIdentity:  IdentityCheckFor(peerCertificate));
+                                 externalIdentity:  IdentityCheckFor(peerCertificate),
+                                 offerBidi:         UseBidirectionalStreams);
 
-                await PumpAsync(netz, stream, null);
+                lock (_lock)
+                    _inbound.Add(stream);
+
+                try
+                {
+                    await PumpAsync(netz, stream, null);
+                }
+                finally
+                {
+                    lock (_lock)
+                        _inbound.Remove(stream);
+                }
 
             }
             catch (Exception)
@@ -650,7 +748,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  (frame, ct) => SendAsync(netz, frame, ct),
                                  secret:            DialbackSecret,
                                  framing:           TcpStreamFraming.Instance,
-                                 canOfferExternal:  UseSaslExternal && Certificate is not null);
+                                 canOfferExternal:  UseSaslExternal && Certificate is not null,
+
+                                 // XEP-0288: was über die Rückrichtung
+                                 // hereinkommt, geht denselben Weg wie auf
+                                 // einem eingehenden Stream - samt
+                                 // Absenderprüfung. Dass die Gegenstelle ist,
+                                 // wer sie zu sein behauptet, steht hier
+                                 // schon fest: wir haben sie angewählt und ihr
+                                 // Zertifikat geprüft.
+                                 deliverStanza:     (peerDomain, stanza)
+                                                        => _localServer.AcceptFromRemoteAsync(peerDomain, stanza),
+                                 useBidi:           UseBidirectionalStreams);
 
                 stream.OnClosed += _ => DropOutbound(remoteDomain, slot);
 

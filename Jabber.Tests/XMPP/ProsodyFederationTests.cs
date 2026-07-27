@@ -65,7 +65,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region SetUp / TearDown
+        #region Aufbau / Abbau
 
         /// <summary>
         /// Wo die Test-CA und unser Zertifikat liegen. Ohne sie oder ohne
@@ -74,8 +74,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private static String CertDirectory
             => Environment.GetEnvironmentVariable("JABBER_PROSODY_CERTS") ?? "";
 
-        [SetUp]
-        public void Aufbau()
+        /// <summary>
+        /// Baut Server und S2S-Zweig auf, oder überspringt den Test, wenn kein
+        /// Prosody bereitsteht.
+        /// </summary>
+        /// <param name="bidi">XEP-0288 aushandeln.</param>
+        private void Aufbau(Boolean bidi = false)
         {
 
             var verzeichnis = CertDirectory;
@@ -95,7 +99,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             _server.AddAccount("alice");
 
             _links = new TcpServerLinks(_server, mode: TcpTlsMode.StartTls) {
-                         UseSaslExternal = true
+                         UseSaslExternal          = true,
+                         UseBidirectionalStreams  = bidi
                      };
 
             _links.AddPeer(PeerDomain, "127.0.0.1", PeerPort, TcpTlsMode.StartTls, TrautDerTestCA);
@@ -210,6 +215,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task TheStreamToProsodyCarriesAStanza()
         {
 
+            Aufbau();
+
             var angekommen = await _links!.DeliverAsync(
                                  PeerDomain,
                                  $"<message from='alice@{LocalDomain}' to='{PeerDomain}' type='chat'>" +
@@ -229,43 +236,32 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Der ganze Weg: eine Stanza hinaus und die Antwort zurück.
         /// </summary>
         /// <remarks>
-        /// <b>Dieser Test schlägt fehl, und das ist der Befund des Laufs.</b>
-        ///
         /// Prosody nimmt den Ping an und erzeugt die Antwort - sie steht so im
         /// Log. Es schickt sie aber nicht über den Stream zurück, über den die
         /// Frage kam, sondern baut dafür eine <i>eigene</i> Verbindung zu
         /// <c>jabber.test</c> auf. Genau so ist RFC 6120, Abschnitt 4.1
-        /// gemeint: ein XML-Stream ist einseitig, und eine S2S-Verbindung
-        /// trägt nur eine Richtung. Scheitert der Aufbau, verwirft Prosody die
-        /// Antwort.
+        /// gemeint: ein XML-Stream ist einseitig. Unsere Seite tut dasselbe -
+        /// <c>DeliverAsync</c> geht ausnahmslos über eine ausgehende
+        /// Verbindung, und eine Stanza auf einem ausgehenden Stream wird
+        /// abgewiesen.
         ///
-        /// Unsere Föderation antwortet über denselben Stream. Zwischen zwei
-        /// Instanzen dieses Servers fällt das nicht auf, weil beide Seiten es
-        /// gleich falsch machen - der Grund, warum dieser Lauf überhaupt nötig
-        /// war. Gegen jede ausgewachsene Gegenstelle heisst es: senden ja,
-        /// Antwort nie.
+        /// Hier scheitert der Rückweg an der Umgebung und nicht am Protokoll:
+        /// in WSL gibt es kein DNS für <c>.test</c>, und die Hyper-V-Firewall
+        /// verwirft ohnehin jede Verbindung von WSL zum Windows-Host.
         ///
-        /// Zwei Wege hinaus, und beide sind eigene Arbeitsschritte:
-        /// <list type="bullet">
-        ///   <item>
-        ///     XEP-0288 (Bidirectional Server-to-Server Streams) aushandeln.
-        ///     Prosody kündigt es als <c>urn:xmpp:features:bidi</c> an, sobald
-        ///     <c>mod_s2s_bidi</c> läuft; der Aufbau in
-        ///     <c>tools/prosody/setup.sh</c> schaltet es ein.
-        ///   </item>
-        ///   <item>
-        ///     Eingehende Verbindungen wirklich annehmen, also die Gegenstelle
-        ///     uns anwählen lassen. Das ist der Weg ohne Erweiterung und
-        ///     zugleich der, den ein echter Betrieb ohnehin braucht.
-        ///   </item>
-        /// </list>
+        /// Genau dafür gibt es XEP-0288, und mit ausgehandelter Bidi läuft
+        /// dieser Weg über <see cref="APingOverABidirectionalStream"/>. Dieser
+        /// Test bleibt als Gegenprobe stehen: <b>ohne</b> Bidi kommt keine
+        /// Antwort, solange die Gegenstelle uns nicht erreichen kann.
         /// </remarks>
         [Test]
-        [Ignore("Befund des Prosody-Laufs: wir antworten über den eingehenden " +
-                "Stream, ein echter Server tut das nicht (RFC 6120 §4.1). " +
-                "Behoben durch XEP-0288 oder durch eingehende Verbindungen.")]
+        [Ignore("Ohne XEP-0288 braucht die Antwort eine eigene Verbindung von " +
+                "Prosody zu uns - die verwirft die Hyper-V-Firewall. Mit Bidi " +
+                "läuft derselbe Weg in APingOverABidirectionalStream.")]
         public async Task APingReachesProsodyAndComesBack()
         {
+
+            Aufbau();
 
             var alice = await AliceAsync();
 
@@ -273,6 +269,41 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(dauer, Is.Not.Null,
                         "Prosody hat den Ping nicht beantwortet.");
+
+        }
+
+        #endregion
+
+        #region APingOverABidirectionalStream()
+
+        /// <summary>
+        /// Dasselbe mit XEP-0288: die Antwort nimmt die Verbindung, über die
+        /// die Frage kam.
+        /// </summary>
+        /// <remarks>
+        /// Der Test, um dessentwillen der Prosody-Aufbau existiert. Die
+        /// Rückrichtung ist sonst nur gegen die eigene Gegenstelle geprüft -
+        /// und eine Aushandlung, bei der beide Seiten dieselbe Vorstellung von
+        /// der Erweiterung haben, beweist über die Erweiterung nichts.
+        ///
+        /// Prosody kündigt <c>urn:xmpp:features:bidi</c> an, sobald
+        /// <c>mod_s2s_bidi</c> läuft; <c>tools/prosody/setup.sh</c> schaltet es
+        /// ein. Kommt die Antwort an, stand unser <c>&lt;bidi/&gt;</c> in der
+        /// richtigen Form, im richtigen Namensraum und an der richtigen Stelle
+        /// des Handshakes.
+        /// </remarks>
+        [Test]
+        public async Task APingOverABidirectionalStream()
+        {
+
+            Aufbau(bidi: true);
+
+            var alice = await AliceAsync();
+
+            var dauer = await alice.PingAsync(PeerDomain);
+
+            Assert.That(dauer, Is.Not.Null,
+                        "Prosody hat den Ping nicht über die Rückrichtung beantwortet.");
 
         }
 

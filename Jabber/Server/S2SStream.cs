@@ -85,6 +85,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly Boolean canOfferExternal;
 
         /// <summary>
+        /// Soll XEP-0288 versucht (Initiator) beziehungsweise angeboten
+        /// (Empfänger) werden?
+        /// </summary>
+        private readonly Boolean bidi;
+
+        /// <summary>
         /// Lässt einen vorgelegten Dialback-Schlüssel beim autoritativen Server
         /// der Absenderdomain prüfen - Parameter sind Absenderdomain,
         /// Stream-ID und Schlüssel.
@@ -138,6 +144,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         /// <summary>Der Namensraum der Stream-Fehlerbedingungen (RFC 6120, Abschnitt 4.9.2).</summary>
         public const String StreamErrorNamespace = "urn:ietf:params:xml:ns:xmpp-streams";
+
+        /// <summary>XEP-0288: der Namensraum des <c>&lt;bidi/&gt;</c>-Elements.</summary>
+        public const String BidiNamespace = "urn:xmpp:bidi";
+
+        /// <summary>XEP-0288: der Namensraum der Ankündigung in den Features.</summary>
+        public const String BidiFeatureNamespace = "urn:xmpp:features:bidi";
+
+        /// <summary>
+        /// XEP-0288: trägt dieser Stream beide Richtungen?
+        /// </summary>
+        /// <remarks>
+        /// Ohne die Erweiterung ist eine S2S-Verbindung einseitig (RFC 6120,
+        /// Abschnitt 4.1): wer eine Stanza bekommt, beantwortet sie über eine
+        /// <b>eigene</b> Verbindung zur Absenderdomain. Das setzt voraus, dass
+        /// er die Gegenstelle erreichen kann - hinter NAT, hinter einer
+        /// Firewall oder ohne DNS-Eintrag kann er das nicht, und die Antwort
+        /// geht verloren. Genau daran scheiterte der Rückweg im Lauf gegen
+        /// Prosody.
+        ///
+        /// Ist Bidi ausgehandelt, trägt dieselbe Verbindung beide Richtungen.
+        /// </remarks>
+        public Boolean BidiEnabled { get; private set; }
 
         /// <summary>Die eigene Domain.</summary>
         public String LocalDomain { get; }
@@ -232,7 +260,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                           Boolean                                          requiresDialback,
                           IS2SFraming?                                     framing,
                           Func<String, Boolean>?                           externalIdentity,
-                          Boolean                                          canOfferExternal)
+                          Boolean                                          canOfferExternal,
+                          Boolean                                          bidi)
         {
 
             LocalDomain         = localDomain;
@@ -247,6 +276,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             this.framing            = framing ?? WebSocketFraming.Instance;
             this.externalIdentity   = externalIdentity;
             this.canOfferExternal   = canOfferExternal;
+            this.bidi               = bidi;
 
         }
 
@@ -266,24 +296,35 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Stream nach dem Handshake von sich aus mit
         /// <c>&lt;db:result/&gt;</c> aus und trägt erst danach Stanzas.
         /// </param>
-        public static S2SStream Initiate(String                                localDomain,
-                                         String                                remoteDomain,
-                                         Func<String, CancellationToken, Task> sendFrame,
-                                         String?                               secret            = null,
-                                         IS2SFraming?                          framing           = null,
-                                         Boolean                               canOfferExternal  = false)
+        /// <param name="deliverStanza">
+        /// Nur für XEP-0288: wohin eingehende Stanzas gehen, sobald Bidi
+        /// ausgehandelt ist. Ohne Bidi nimmt ein ausgehender Stream keine
+        /// entgegen, und diese Funktion wird nie gerufen.
+        /// </param>
+        /// <param name="useBidi">
+        /// XEP-0288 versuchen, wenn die Gegenstelle es ankündigt.
+        /// </param>
+        public static S2SStream Initiate(String                                           localDomain,
+                                         String                                           remoteDomain,
+                                         Func<String, CancellationToken, Task>            sendFrame,
+                                         String?                                          secret            = null,
+                                         IS2SFraming?                                     framing           = null,
+                                         Boolean                                          canOfferExternal  = false,
+                                         Func<String, String, Task<RemoteStanzaResult>>?  deliverStanza     = null,
+                                         Boolean                                          useBidi           = false)
 
             => new (localDomain,
                     remoteDomain,
                     isInitiator:        true,
                     sendFrame:          sendFrame,
-                    deliverStanza:      null,
+                    deliverStanza:      deliverStanza,
                     secret:             secret,
                     verifyKey:          null,
                     requiresDialback:   secret is not null,
                     framing:            framing,
                     externalIdentity:   null,
-                    canOfferExternal:   canOfferExternal);
+                    canOfferExternal:   canOfferExternal,
+                    bidi:               useBidi);
 
         #endregion
 
@@ -309,13 +350,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Absenderdomain prüfen. Ist sie gesetzt, verlangt dieser Stream
         /// Dialback, bevor er Stanzas annimmt.
         /// </param>
+        /// <param name="offerBidi">
+        /// XEP-0288 in den Features ankündigen und ein
+        /// <c>&lt;bidi/&gt;</c> der Gegenstelle annehmen.
+        /// </param>
         public static S2SStream Accept(String                                          localDomain,
                                        Func<String, CancellationToken, Task>           sendFrame,
                                        Func<String, String, Task<RemoteStanzaResult>>  deliverStanza,
                                        String?                                         secret      = null,
                                        Func<String, String, String, Task<Boolean>>?    verifyKey          = null,
                                        IS2SFraming?                                    framing            = null,
-                                       Func<String, Boolean>?                          externalIdentity   = null)
+                                       Func<String, Boolean>?                          externalIdentity   = null,
+                                       Boolean                                         offerBidi          = false)
 
             => new (localDomain,
                     remoteDomain:       null,
@@ -327,7 +373,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     requiresDialback:   verifyKey is not null,
                     framing:            framing,
                     externalIdentity:   externalIdentity,
-                    canOfferExternal:   false);
+                    canOfferExternal:   false,
+                    bidi:               offerBidi);
 
         #endregion
 
@@ -359,7 +406,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     requiresDialback:   false,
                     framing:            framing,
                     externalIdentity:   null,
-                    canOfferExternal:   false);
+                    canOfferExternal:   false,
+                    bidi:               false);
 
         #endregion
 
@@ -468,6 +516,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             {
                 return await ProcessFeaturesAsync(frame, cancellationToken);
             }
+
+            if (frame.StartsWith("<bidi", StringComparison.Ordinal))
+                return ProcessBidi(frame);
 
             if (frame.StartsWith("<auth",    StringComparison.Ordinal))
                 return await ProcessSaslAuthAsync(frame, cancellationToken);
@@ -673,7 +724,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // Kommt SASL-EXTERNAL in Frage, wird das Angebot der
                 // Gegenstelle abgewartet - es steht in den Features, die
                 // gleich folgen.
-                if (canOfferExternal)
+                //
+                // Für XEP-0288 gilt dasselbe, und zwar auch dann, wenn nur
+                // Dialback in Frage kommt: ob Bidi angeboten wird, steht
+                // ebenfalls erst in den Features, und das <bidi/> muss *vor*
+                // dem <db:result/> hinausgehen (XEP-0288, Abschnitt 4). Der
+                // unaufgeforderte Dialback aus XEP-0220 wandert deshalb nach
+                // ProcessFeaturesAsync.
+                if (canOfferExternal || bidi)
                     return true;
 
                 // XEP-0220, Schritt 1: sich unaufgefordert ausweisen. Der
@@ -738,6 +796,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                       (RequiresDialback && !IsAuthenticated
                            ? "<dialback xmlns='urn:xmpp:features:dialback'><required/></dialback>"
                            : "") +
+                      // XEP-0288, Abschnitt 3: angekündigt wird vor *und* nach
+                      // TLS. Ist Bidi bereits ausgehandelt, entfällt die
+                      // Ankündigung - ein zweites <bidi/> hätte nichts mehr zu
+                      // sagen.
+                      (bidi && !BidiEnabled
+                           ? $"<bidi xmlns='{BidiFeatureNamespace}'/>"
+                           : "") +
                       "</stream:features>",
                       cancellationToken);
 
@@ -764,6 +829,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             if (!IsInitiator || IsAuthenticated)
                 return true;
+
+            // XEP-0288, Abschnitt 4: das <bidi/> geht *vor* SASL oder
+            // Dialback hinaus. Danach wäre es zu spät - die Gegenstelle hat
+            // dann bereits entschieden, wie sie antwortet.
+            //
+            // Nach TLS ist hier ohnehin: diesen Stream gibt es erst, wenn der
+            // Transport die Verschlüsselung hinter sich hat (XEP-0288
+            // verlangt genau diese Reihenfolge).
+            if (bidi && !BidiEnabled &&
+                frame.Contains(BidiFeatureNamespace, StringComparison.Ordinal))
+            {
+                await sendFrame($"<bidi xmlns='{BidiNamespace}'/>", cancellationToken);
+                BidiEnabled = true;
+            }
 
             var bietetExternal = frame.Contains(SaslNamespace, StringComparison.Ordinal) &&
                                  frame.Contains("EXTERNAL",    StringComparison.Ordinal);
@@ -1207,6 +1286,118 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region (private) ProcessBidi(frame)
+
+        /// <summary>
+        /// XEP-0288, Abschnitt 4: die Gegenstelle schaltet die Rückrichtung
+        /// frei.
+        /// </summary>
+        /// <remarks>
+        /// Nur der Empfänger nimmt ein <c>&lt;bidi/&gt;</c> entgegen. Beim
+        /// Initiator wäre es verkehrt herum - er hat es selbst geschickt, und
+        /// eines zurück hiesse, die Gegenstelle wollte über <i>unseren</i>
+        /// ausgehenden Stream ihrerseits etwas freischalten, was der Abschnitt
+        /// nicht vorsieht.
+        ///
+        /// Angenommen wird es auch dann, wenn die Ankündigung gar nicht
+        /// erbeten war (<c>bidi</c> aus): dann wird es <b>nicht</b>
+        /// freigeschaltet. Ein Angreifer könnte sonst eine Rückrichtung
+        /// erzwingen, die dieser Server nie angeboten hat.
+        /// </remarks>
+        private Boolean ProcessBidi(String frame)
+        {
+
+            if (IsInitiator || !frame.Contains(BidiNamespace, StringComparison.Ordinal))
+                return false;
+
+            if (!bidi)
+            {
+                OnStanzaRefused?.Invoke("<bidi/> ohne Ankündigung");
+                return false;
+            }
+
+            BidiEnabled = true;
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region SendStanzaOverBidiAsync(stanza, CancellationToken)
+
+        /// <summary>
+        /// Schickt eine Stanza über die Rückrichtung eines eingehenden Streams
+        /// (XEP-0288).
+        /// </summary>
+        /// <returns>
+        /// false, wenn dieser Stream die Rückrichtung nicht tragen darf - dann
+        /// bleibt nur der gewöhnliche Weg über eine eigene Verbindung.
+        /// </returns>
+        /// <remarks>
+        /// Zwei Bedingungen aus Abschnitt 4, und beide sind Sicherungen, keine
+        /// Formalitäten:
+        /// <list type="bullet">
+        ///   <item>
+        ///     <i>"The receiving server MUST NOT send stanzas to the peer
+        ///     before it has authenticated via SASL, or the peer's identity has
+        ///     been verified via Server Dialback."</i> Wer noch nicht belegt
+        ///     hat, wer er ist, bekommt auch nichts - sonst liesse sich mit
+        ///     einer blossen Behauptung fremde Post abholen.
+        ///   </item>
+        ///   <item>
+        ///     <i>"The receiving server MUST only send stanzas for which it has
+        ///     been authenticated - in the case of TLS/SASL based
+        ///     authentication, this is the value of the stream's 'to'
+        ///     attribute."</i> Das <c>to</c> des eingehenden Stream-Kopfs ist
+        ///     unsere eigene Domain; für eine andere zu sprechen wäre hier
+        ///     genauso falsch wie umgekehrt.
+        ///   </item>
+        /// </list>
+        /// </remarks>
+        public async Task<Boolean> SendStanzaOverBidiAsync(String             stanza,
+                                                           CancellationToken  cancellationToken = default)
+        {
+
+            lock (dataLock)
+            {
+
+                if (IsInitiator || !BidiEnabled || !IsOpen || IsClosed || !IsAuthenticated)
+                    return false;
+
+            }
+
+            var from = Attr(stanza, "from");
+
+            if (from is not null && !GehoertZuLocalDomain(from))
+            {
+                OnStanzaRefused?.Invoke(
+                    $"'{from}' gehört nicht zu '{LocalDomain}' - nicht über die Rückrichtung");
+                return false;
+            }
+
+            await sendFrame(stanza, cancellationToken);
+
+            return true;
+
+        }
+
+        private Boolean GehoertZuLocalDomain(String jid)
+        {
+
+            var at      = jid.IndexOf('@');
+            var ohne    = at >= 0 ? jid[(at + 1)..] : jid;
+            var schraeg = ohne.IndexOf('/');
+
+            if (schraeg >= 0)
+                ohne = ohne[..schraeg];
+
+            return String.Equals(ohne, LocalDomain, StringComparison.OrdinalIgnoreCase);
+
+        }
+
+        #endregion
+
         #region (private) ProcessStanzaAsync(stanza, CancellationToken)
 
         private async Task<Boolean> ProcessStanzaAsync(String             stanza,
@@ -1223,11 +1414,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return false;
             }
 
+            // Ein ausgehender Stream trägt nur in eine Richtung (RFC 6120,
+            // Abschnitt 4.1) - es sei denn, XEP-0288 ist ausgehandelt. Dann
+            // haben *wir* die Rückrichtung erbeten, und was darüber kommt,
+            // gehört hierher.
+            if (IsInitiator && !BidiEnabled)
+            {
+                OnStanzaRefused?.Invoke("Stanza auf einem ausgehenden Stream");
+                return false;
+            }
+
             if (deliverStanza is null)
             {
-                // Ein ausgehender Stream trägt nur in eine Richtung
-                // (RFC 6120, Abschnitt 4.1).
-                OnStanzaRefused?.Invoke("Stanza auf einem ausgehenden Stream");
+                OnStanzaRefused?.Invoke("Kein Empfänger für eingehende Stanzas");
                 return false;
             }
 

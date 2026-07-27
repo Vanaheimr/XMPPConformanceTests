@@ -391,6 +391,13 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- XEP-0288 Bidirectional Server-to-Server Streams (`UseBidirectionalStreams`):
+  beide Richtungen über eine Verbindung. Ohne die Erweiterung antwortet jede
+  Seite über eine *eigene* ausgehende Verbindung (RFC 6120 §4.1) — hinter NAT,
+  hinter einer Firewall oder ohne DNS-Eintrag geht die Antwort dann verloren,
+  und zwar stillschweigend. Angeboten auf eingehenden Verbindungen, erbeten auf
+  ausgehenden; über die Rückrichtung geht nichts vor dem Ausweis der
+  Gegenstelle und nichts für eine fremde Domain. Gegen Prosody 13 geprüft
 - Aufbewahrte Subscription-Anfragen (RFC 6121 §3.1.3): wer nicht verbunden ist,
   bekommt seine Anfragen beim nächsten Anmelden — und bei jeder weiteren
   Resource wieder, bis er zustimmt oder ablehnt. Aufbewahrt wird die
@@ -502,15 +509,12 @@ Server-Implementierung:
   neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
   Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
   auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
-- **Wir antworten über den eingehenden Stream — ein echter Server tut das
-  nicht.** RFC 6120 §4.1: ein XML-Stream ist einseitig, eine S2S-Verbindung
-  trägt nur eine Richtung. Prosody beantwortet eine eingehende Stanza über eine
-  *eigene* ausgehende Verbindung zur Absenderdomain; kommt die nicht zustande,
-  verwirft es die Antwort. Zwischen zwei Instanzen dieses Servers fällt das
-  nicht auf, weil beide Seiten es gleich machen. Nach aussen heisst es: senden
-  ja, Antwort nie. Zu beheben über XEP-0288 oder dadurch, dass die Gegenstelle
-  uns anwählen kann. Gefunden im Lauf gegen Prosody, siehe
-  `tools/prosody/setup.sh` und `ProsodyFederationTests`.
+- **Der eingehende S2S-Weg ist nie gegen eine fremde Gegenstelle gelaufen.**
+  Der ausgehende ist es (Prosody 13: STARTTLS, SASL-EXTERNAL, Zustellung); der
+  eingehende und Dialback sind weiterhin nur gegen die eigene Gegenstelle
+  geprüft. Antworten nimmt jede Seite über eine *eigene* ausgehende Verbindung
+  (RFC 6120 §4.1) — dafür muss die Gegenstelle uns erreichen können. Wo sie das
+  nicht kann, hilft XEP-0288.
 - **Föderation.** Es gibt drei Wege über die Domain-Grenze:
   `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung),
   `WebSocketServerLinks` und `TcpServerLinks` (beide mit TLS und Dialback nach
