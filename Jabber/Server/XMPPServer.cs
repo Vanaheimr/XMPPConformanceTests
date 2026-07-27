@@ -72,6 +72,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #region Data
 
         private readonly XMPPWebSocketServer _webSocketServer;
+        private readonly IXMPPAccountStore _accountStore;
         private readonly CancellationTokenSource _cts = new();
         private readonly Dictionary<String, XMPPAccount> _accounts = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<XMPPSession> _sessions = [];
@@ -262,14 +263,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <c>ws://</c> - brauchbar für die Fehlersuche mit einem Mitschnitt,
         /// sonst nichts.
         /// </param>
-        public XMPPServer(String   domain   = "localhost",
-                          Int32    port     = 0,
-                          Boolean  useTLS   = true)
+        /// <param name="accountStore">
+        /// Wo die Konten liegen; null nimmt einen
+        /// <see cref="InMemoryAccountStore"/>, der beim Beenden verschwindet.
+        /// Vorhandene Konten werden sofort eingelesen.
+        /// </param>
+        public XMPPServer(String              domain         = "localhost",
+                          Int32               port           = 0,
+                          Boolean             useTLS         = true,
+                          IXMPPAccountStore?  accountStore   = null)
         {
 
             Domain       = domain;
             Port         = port > 0 ? port : FreeTcpPort();
             Certificate  = useTLS ? CreateSelfSignedCertificate(domain) : null;
+
+            _accountStore = accountStore ?? new InMemoryAccountStore();
+
+            foreach (var account in _accountStore.Load())
+            {
+                account.OnChanged        = _accountStore.Save;
+                _accounts[account.BareJid] = account;
+            }
 
             _webSocketServer = new XMPPWebSocketServer(this, IPPort.Parse(Port), Certificate);
 
@@ -290,10 +305,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public XMPPAccount AddAccount(String localPart, String password = "pw")
         {
 
-            var account = new XMPPAccount($"{localPart}@{Domain}", password);
+            var account = new XMPPAccount($"{localPart}@{Domain}", password) {
+                              OnChanged = _accountStore.Save
+                          };
 
             lock (_lock)
                 _accounts[account.BareJid] = account;
+
+            _accountStore.Save(account);
 
             return account;
 
@@ -304,6 +323,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         {
             lock (_lock)
                 return _accounts.TryGetValue(bareJid, out var a) ? a : null;
+        }
+
+        /// <summary>Alle Konten dieses Servers.</summary>
+        public IReadOnlyList<XMPPAccount> Accounts
+        {
+            get { lock (_lock) return _accounts.Values.ToList(); }
+        }
+
+        /// <summary>
+        /// Entfernt ein Konto, auch aus dem Kontenspeicher. Bestehende
+        /// Sitzungen bleiben davon unberührt.
+        /// </summary>
+        public void RemoveAccount(String bareJid)
+        {
+
+            lock (_lock)
+            {
+                if (_accounts.Remove(bareJid, out var account))
+                    account.OnChanged = null;
+            }
+
+            _accountStore.Delete(bareJid);
+
         }
 
         #endregion

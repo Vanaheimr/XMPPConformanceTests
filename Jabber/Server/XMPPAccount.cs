@@ -48,6 +48,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             get { lock (_lock) return _roster.ToList(); }
         }
 
+        /// <summary>
+        /// Wird nach jeder Roster-Änderung gerufen; der Server hängt daran
+        /// seinen Kontenspeicher.
+        /// </summary>
+        /// <remarks>
+        /// Hier und nicht an den Aufrufstellen im Server: der Roster lässt
+        /// sich auch direkt am Konto ändern - Testhilfen tun genau das -, und
+        /// eine Liste von Stellen, an denen man das Speichern nicht vergessen
+        /// darf, wird über kurz oder lang unvollständig.
+        /// </remarks>
+        internal Action<XMPPAccount>? OnChanged { get; set; }
+
         #endregion
 
         #region Constructor(s)
@@ -78,11 +90,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public void SetRosterEntry(RosterEntry entry)
         {
+
             lock (_lock)
             {
                 _roster.RemoveAll(e => String.Equals(e.Jid, entry.Jid, StringComparison.OrdinalIgnoreCase));
                 _roster.Add(entry);
             }
+
+            // Ausserhalb der Sperre: der Speicher schreibt womöglich eine
+            // Datei, und darauf soll niemand warten, der nur den Roster lesen
+            // will.
+            OnChanged?.Invoke(this);
+
         }
 
         /// <summary>
@@ -90,8 +109,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public void RemoveRosterEntry(String jid)
         {
+
             lock (_lock)
                 _roster.RemoveAll(e => String.Equals(e.Jid, jid, StringComparison.OrdinalIgnoreCase));
+
+            OnChanged?.Invoke(this);
+
         }
 
         /// <summary>

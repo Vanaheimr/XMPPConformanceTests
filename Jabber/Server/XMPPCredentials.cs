@@ -127,6 +127,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region FromStored(salt, iterationCount, keys)
+
+        /// <summary>
+        /// Setzt Zugangsdaten aus dem Gespeicherten wieder zusammen - der Weg
+        /// zurück für einen <see cref="IXMPPAccountStore"/>.
+        /// </summary>
+        /// <remarks>
+        /// Ohne Ableitung: die Schlüssel liegen ja bereits vor, und das
+        /// Passwort, aus dem sie stammen, gibt es nicht mehr.
+        /// </remarks>
+        public static XMPPCredentials FromStored(Byte[]                                          salt,
+                                                 Int32                                           iterationCount,
+                                                 IReadOnlyDictionary<SCRAMMechanism, SCRAMKeys>  keys)
+        {
+
+            ArgumentOutOfRangeException.ThrowIfLessThan(iterationCount, 1);
+
+            if (keys.Count == 0)
+                throw new ArgumentException("Ohne Schlüssel lässt sich keine Anmeldung prüfen.", nameof(keys));
+
+            return new XMPPCredentials([.. salt],
+                                       iterationCount,
+                                       keys.ToDictionary(k => k.Key, k => k.Value));
+
+        }
+
+        #endregion
+
         #region KeysOf(mechanism)
 
         /// <summary>
