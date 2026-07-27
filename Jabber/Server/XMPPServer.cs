@@ -165,6 +165,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </remarks>
         public Boolean OmitScramSignature { get; set; } = false;
 
+        /// <summary>
+        /// Der Weg zu anderen Servern, oder null - dann ist keine fremde
+        /// Domain erreichbar und jede Stanza dorthin wird mit
+        /// <c>&lt;remote-server-not-found/&gt;</c> beantwortet.
+        /// </summary>
+        public IServerLinks? ServerLinks { get; set; }
+
         /// <summary>Werden message/presence/iq zwischen Sitzungen zugestellt?</summary>
         public Boolean RouteStanzas { get; set; } = true;
 
@@ -975,8 +982,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 !String.Equals(to, Domain, StringComparison.OrdinalIgnoreCase) &&
                 !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
             {
-                await RouteToAsync(to, StampFrom(frame, session.FullJid));
+
+                if (!await RouteToAsync(to, StampFrom(frame, session.FullJid)) &&
+                    type != "error")
+                {
+                    await SendRemoteServerNotFoundAsync(session, "iq", id, to);
+                }
+
                 return;
+
             }
 
             // Resource Binding
@@ -1223,6 +1237,24 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var stamped = StampFrom(frame, session.FullJid);
 
+            // Fremde Domain: raus damit, und wenn das nicht geht, dem Absender
+            // Bescheid sagen. Die <sent>-Carbons unten gelten trotzdem - sie
+            // betreffen das Konto des Absenders und nicht das Ziel.
+            if (!IsLocal(to))
+            {
+
+                if (!await RouteToAsync(to, stamped) &&
+                    Attr(frame, "type") != "error")
+                {
+                    await SendRemoteServerNotFoundAsync(session, "message", Attr(frame, "id"), to);
+                }
+
+                await SendSentCarbonsAsync(session, stamped);
+
+                return;
+
+            }
+
             // Zustellung an den Empfänger
             var recipients = to.Contains('/')
                                  ? (SessionOf(to) is { } one ? [one] : Array.Empty<XMPPSession>())
@@ -1244,8 +1276,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             foreach (var other in recipients.Where(r => r != primary && r.CarbonsEnabled))
                 await other.SendAsync(CarbonEnvelope("received", other.BareJid!, other.FullJid!, stamped));
 
-            // XEP-0280 <sent>: die übrigen Resourcen des Absenders
-            foreach (var other in SessionsOf(session.BareJid!).Where(r => r != session && r.CarbonsEnabled))
+            await SendSentCarbonsAsync(session, stamped);
+
+        }
+
+        /// <summary>
+        /// XEP-0280 <c>&lt;sent&gt;</c>: die übrigen Resourcen des Absenders
+        /// erfahren, was er geschrieben hat.
+        /// </summary>
+        private async Task SendSentCarbonsAsync(XMPPSession sender, String stamped)
+        {
+
+            if (!DeliverCarbons || sender.BareJid is null)
+                return;
+
+            foreach (var other in SessionsOf(sender.BareJid).Where(r => r != sender && r.CarbonsEnabled))
                 await other.SendAsync(CarbonEnvelope("sent", other.BareJid!, other.FullJid!, stamped));
 
         }
@@ -1596,8 +1641,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         }
 
-        private async Task RouteToAsync(String to, String stanza)
+        /// <summary>
+        /// Die einzige Weiche zwischen "hier" und "woanders" (RFC 6120,
+        /// Abschnitt 10.4).
+        /// </summary>
+        /// <returns>
+        /// false nur dann, wenn die Stanza an eine fremde Domain ging und dort
+        /// nicht hinkam. Ein unbekanntes Konto auf der eigenen Domain gilt als
+        /// behandelt - was der Server damit tun sollte, ist eine andere Frage
+        /// (RFC 6121, Abschnitt 8.1) und hängt nicht am Routing.
+        /// </returns>
+        private async Task<Boolean> RouteToAsync(String to, String stanza)
         {
+
+            if (!IsLocal(to))
+                return ServerLinks is not null &&
+                       await ServerLinks.DeliverAsync(DomainOf(to), stanza, _cts.Token);
 
             var targets = to.Contains('/')
                               ? (SessionOf(to) is { } one ? [one] : Array.Empty<XMPPSession>())
@@ -1605,6 +1664,44 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             foreach (var t in targets)
                 await t.SendAsync(stanza);
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// Meldet dem Absender, dass die Domain des Empfängers nicht erreichbar
+        /// ist.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 10.4.3 verlangt einen Stanza-Fehler, legt die
+        /// Bedingung aber nicht fest; <c>&lt;remote-server-not-found/&gt;</c>
+        /// steht in Abschnitt 8.3.3.
+        ///
+        /// Der Fehler trägt den ursprünglichen Empfänger als Absender, nicht
+        /// diesen Server: für den Client ist die Frage "was ist aus meiner
+        /// Nachricht an bob@anderswo.example geworden" - und genau darauf
+        /// antwortet er.
+        ///
+        /// Auf eine Fehler-Stanza folgt nie ein Fehler (Abschnitt 8.3.1).
+        /// Sonst könnten zwei Server sich gegenseitig Meldungen zuschieben,
+        /// bis einer aufgibt. Diese Prüfung steht bei den Aufrufern, weil nur
+        /// dort der Typ der eingehenden Stanza bekannt ist.
+        /// </remarks>
+        private async Task SendRemoteServerNotFoundAsync(XMPPSession  session,
+                                                         String       kind,
+                                                         String?      id,
+                                                         String       intendedRecipient)
+        {
+
+            await session.SendAsync(
+                $"<{kind} type='error'" +
+                (id is not null ? $" id='{id}'" : "") +
+                $" from='{intendedRecipient}' to='{session.FullJid}'>" +
+                "<error type='cancel'>" +
+                "<remote-server-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                "</error>" +
+                $"</{kind}>");
 
         }
 
@@ -1697,6 +1794,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var slash = jid.IndexOf('/');
             return slash > 0 ? jid[..slash] : jid;
         }
+
+        /// <summary>
+        /// Der Domainteil eines JIDs - aus <c>alice@example.com/mobil</c> wird
+        /// <c>example.com</c>.
+        /// </summary>
+        /// <remarks>
+        /// Ein JID ohne <c>@</c> ist eine blosse Domain, wie sie in <c>to</c>
+        /// steht, wenn eine Stanza an den Server selbst geht.
+        /// </remarks>
+        internal static String DomainOf(String jid)
+        {
+
+            var bare  = BareOf(jid);
+            var at    = bare.IndexOf('@');
+
+            return at >= 0 ? bare[(at + 1)..] : bare;
+
+        }
+
+        /// <summary>Gehört dieser JID zu der Domain, die dieser Server bedient?</summary>
+        internal Boolean IsLocal(String jid)
+            => String.Equals(DomainOf(jid), Domain, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Erzeugt ein selbst signiertes Serverzertifikat für die Domain.
