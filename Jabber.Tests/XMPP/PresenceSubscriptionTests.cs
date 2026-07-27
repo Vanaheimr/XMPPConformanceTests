@@ -207,6 +207,46 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region NewlyOnlineClient_LearnsNothingAboutAnUnavailableResource()
+
+        /// <summary>
+        /// Eine bereits abgemeldete Resource darf einem sich anmeldenden
+        /// Kontakt nicht nachgeliefert werden.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 4.2.1: eine Resource, die sich abgemeldet hat,
+        /// hat keinen Zustand zu berichten. Der Server merkte sich die
+        /// Abmeldung aber als letzte Presence und lieferte sie jedem Kontakt
+        /// nach, der sich danach anmeldete.
+        ///
+        /// Das war zugleich die Ursache eines Fehlschlags, der etwa jeden
+        /// zweiten vollen Testlauf traf: verarbeitete der Server die erste
+        /// Presence eines Kontakts erst <b>nach</b> der Abmeldung, bekam
+        /// dieser Kontakt sie zweimal - einmal aus der Verteilung, einmal aus
+        /// dem Nachliefern. Welche Reihenfolge eintrat, hing an der Last.
+        /// </remarks>
+        [Test]
+        public async Task NewlyOnlineClient_LearnsNothingAboutAnUnavailableResource()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice = await ConnectClientAsync("alice");
+
+            await alice.SendRawAsync("<presence type='unavailable'/>");
+
+            await WaitFor(() => Server.SessionOf(alice.FullJid)?.IsAvailable == false,
+                          "die Abmeldung von Alice auf dem Server");
+
+            var (_, atBobs) = await WatcherAsync("bob");
+
+            await WaitAgainst(() => atBobs.Any(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
+                              "eine nachgelieferte Abmeldung der bereits abgemeldeten Alice");
+
+        }
+
+        #endregion
+
         #region Probe_FromASubscriber_IsAnswered()
 
         /// <summary>

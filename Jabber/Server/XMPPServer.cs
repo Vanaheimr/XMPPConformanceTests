@@ -671,11 +671,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         {
 
             // Hat der Client sich selbst abgemeldet, ist die Sache erledigt.
-            if (!session.IsAvailable || session.FullJid is null)
+            // Die Umschaltung muss atomar sein: sonst kommen ein abbrechender
+            // Socket und die eigene Abmeldung des Clients beide am Wächter
+            // vorbei, und die Kontakte bekommen sie zweimal.
+            if (session.FullJid is null || !session.TryMarkUnavailable())
                 return;
-
-            session.IsAvailable   = false;
-            session.LastPresence  = null;
 
             // Beim Herunterfahren des Servers geht es an niemanden mehr.
             if (!RouteStanzas || !BroadcastPresence || _cts.IsCancellationRequested)
@@ -1328,11 +1328,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            var initial = !session.HasSentInitialPresence;
-
-            session.LastPresence            = stamped;
-            session.HasSentInitialPresence  = true;
-            session.IsAvailable             = type is null;
+            var initial = session.RecordPresence(stamped, available: type is null);
 
             if (!BroadcastPresence)
                 return;

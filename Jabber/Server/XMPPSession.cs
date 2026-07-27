@@ -81,14 +81,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// etwa ein angenommenes <c>&lt;presence/&gt;</c>: auf eine Probe
         /// dieser Resource gibt es dann schlicht nichts zu antworten.
         /// </remarks>
-        public String? LastPresence { get; internal set; }
+        public String? LastPresence { get; private set; }
 
         /// <summary>
         /// Hat diese Resource ihre erste ungerichtete Presence geschickt?
         /// Genau daran hängt, wann der Server ihr den Zustand der Kontakte
         /// nachliefert (RFC 6121, Abschnitt 4.3.1).
         /// </summary>
-        public Boolean HasSentInitialPresence { get; internal set; }
+        public Boolean HasSentInitialPresence { get; private set; }
 
         /// <summary>
         /// Gilt diese Resource den Kontakten gegenüber gerade als verfügbar?
@@ -100,7 +100,65 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Abmeldung noch nachholen muss - hat der Client sie selbst geschickt,
         /// käme sie sonst ein zweites Mal.
         /// </remarks>
-        public Boolean IsAvailable { get; internal set; }
+        public Boolean IsAvailable { get; private set; }
+
+        /// <summary>
+        /// Übernimmt eine ungerichtete Presence des Clients.
+        /// </summary>
+        /// <returns>War es die erste dieser Sitzung?</returns>
+        internal Boolean RecordPresence(String stanza, Boolean available)
+        {
+
+            lock (_lock)
+            {
+
+                var erste = !HasSentInitialPresence;
+
+                // Eine abgemeldete Resource hat keinen Zustand zu berichten
+                // (RFC 6121, Abschnitt 4.2.1). Stand hier die Abmeldung selbst,
+                // lieferte der Server sie jedem Kontakt nach, der sich danach
+                // anmeldete - und dem gerade abgemeldeten Kontakt gegenüber ein
+                // zweites Mal, wenn dessen erste Presence erst nach der
+                // Abmeldung verarbeitet wurde.
+                LastPresence            = available ? stanza : null;
+                HasSentInitialPresence  = true;
+                IsAvailable             = available;
+
+                return erste;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Schaltet die Sitzung auf abgemeldet und meldet, ob <b>dieser</b>
+        /// Aufruf die Umschaltung vorgenommen hat.
+        /// </summary>
+        /// <remarks>
+        /// Die Abmeldung beim Verbindungsende darf genau einmal hinausgehen.
+        /// Zuvor stand hier ein Prüfen-dann-Handeln ohne Sperre: fiel die
+        /// Verbindung, während der Client seine eigene Abmeldung schickte,
+        /// kamen beide Wege am Wächter vorbei und die Kontakte bekamen
+        /// dieselbe Abmeldung zweimal. Im vollen Testlauf schlug das etwa in
+        /// jedem zweiten Durchgang zu.
+        /// </remarks>
+        internal Boolean TryMarkUnavailable()
+        {
+
+            lock (_lock)
+            {
+
+                if (!IsAvailable)
+                    return false;
+
+                IsAvailable   = false;
+                LastPresence  = null;
+
+                return true;
+
+            }
+
+        }
 
         /// <summary>XEP-0198: Ist Stream Management für diese Sitzung ausgehandelt?</summary>
         public Boolean StreamManagementEnabled { get; private set; }
