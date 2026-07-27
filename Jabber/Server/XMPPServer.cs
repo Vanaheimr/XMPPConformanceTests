@@ -125,6 +125,45 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public Boolean CompleteCloseHandshake { get; set; } = true;
 
+        /// <summary>
+        /// Welche SASL-Mechanismen der Server anbietet, in der Reihenfolge der
+        /// Ankündigung.
+        /// </summary>
+        /// <remarks>
+        /// Der Client wählt selbst, und zwar den stärksten, den er kennt. Die
+        /// Vorgabe entspricht dem, was verbreitete Server anbieten. PLAIN ist
+        /// dabei, weil es hinter TLS vertretbar ist und ältere Clients nichts
+        /// anderes können - für die Gegenprobe lässt sich die Liste
+        /// einschränken.
+        ///
+        /// Ein Mechanismus, der hier fehlt, wird auch dann abgelehnt, wenn ein
+        /// Client ihn trotzdem versucht.
+        /// </remarks>
+        public IList<String> OfferedSaslMechanisms { get; } =
+            ["SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN"];
+
+        /// <summary>
+        /// Schickt der Server eine falsche Serversignatur im
+        /// <c>&lt;success/&gt;</c>?
+        /// </summary>
+        /// <remarks>
+        /// Für die Gegenprobe zur zweiten Hälfte von SCRAM: ein Server, der
+        /// das Passwort nicht kennt, kann sie nicht erzeugen. Der Client muss
+        /// die Anmeldung dann verweigern (RFC 5802, Abschnitt 5).
+        /// </remarks>
+        public Boolean CorruptScramSignature { get; set; } = false;
+
+        /// <summary>
+        /// Lässt der Server die Serversignatur im <c>&lt;success/&gt;</c>
+        /// ganz weg?
+        /// </summary>
+        /// <remarks>
+        /// Der zweite Weg, an der gegenseitigen Authentifizierung vorbei zu
+        /// kommen - und der gefährlichere, weil ein Client leicht dazu neigt,
+        /// eine fehlende Signatur einfach nicht zu prüfen.
+        /// </remarks>
+        public Boolean OmitScramSignature { get; set; } = false;
+
         /// <summary>Werden message/presence/iq zwischen Sitzungen zugestellt?</summary>
         public Boolean RouteStanzas { get; set; } = true;
 
@@ -619,6 +658,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
+            // Steht vor der Stream-Management-Abfrage, aber die prüft ohnehin
+            // auf den Namensraum - sonst hielte sie ein <response/> für ein
+            // <r/>, weil beide mit "<r" beginnen.
+            if (frame.StartsWith("<response", StringComparison.Ordinal))
+            {
+                await HandleSaslResponseAsync(session, frame);
+                return;
+            }
+
             if (frame.StartsWith("<iq", StringComparison.Ordinal))
             {
                 await HandleIqAsync(session, frame);
@@ -710,7 +758,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await session.SendAsync(
                     "<stream:features xmlns:stream='http://etherx.jabber.org/streams'>" +
                     "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>" +
-                    "<mechanism>PLAIN</mechanism>" +
+                    String.Concat(OfferedSaslMechanisms.Select(m => $"<mechanism>{m}</mechanism>")) +
                     "</mechanisms></stream:features>");
             else
                 await session.SendAsync(
@@ -730,8 +778,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task HandleAuthAsync(XMPPSession session, String frame)
         {
 
-            // SASL PLAIN: base64( \0 benutzer \0 passwort )
-            var payload = Regex.Match(frame, @"<auth[^>]*>([^<]*)</auth>").Groups[1].Value;
+            var payload    = Regex.Match(frame, @"<auth[^>]*>([^<]*)</auth>").Groups[1].Value;
+            var mechanism  = Attr(frame, "mechanism") ?? "PLAIN";
+
+            // Ein Mechanismus, den der Server gar nicht angeboten hat, ist
+            // abzulehnen - sonst liesse sich die Aushandlung umgehen.
+            if (!OfferedSaslMechanisms.Contains(mechanism, StringComparer.Ordinal))
+            {
+                await session.SendAsync(
+                    "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><invalid-mechanism/></failure>");
+                return;
+            }
+
+            if (ScramMechanismOf(mechanism) is SCRAMMechanism scram)
+            {
+                await BeginScramAsync(session, payload, scram);
+                return;
+            }
+
+            await HandlePlainAsync(session, payload);
+
+        }
+
+        /// <summary>
+        /// SASL PLAIN (RFC 4616): base64( \0 benutzer \0 passwort ).
+        /// </summary>
+        private async Task HandlePlainAsync(XMPPSession session, String payload)
+        {
 
             String user = "", password = "";
 
@@ -759,6 +832,93 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             await session.SendAsync("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>");
 
         }
+
+        /// <summary>
+        /// SCRAM, erste Hälfte: client-first-message rein,
+        /// server-first-message raus (RFC 5802, Abschnitt 5).
+        /// </summary>
+        private async Task BeginScramAsync(XMPPSession     session,
+                                           String          payload,
+                                           SCRAMMechanism  mechanism)
+        {
+
+            var exchange = SCRAMExchange.Begin(payload,
+                                               mechanism,
+                                               user => GetAccount($"{user}@{Domain}"));
+
+            if (exchange is null)
+            {
+                session.Scram = null;
+                await session.SendAsync(
+                    "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><not-authorized/></failure>");
+                return;
+            }
+
+            session.Scram = exchange;
+
+            await session.SendAsync(
+                $"<challenge xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{exchange.Challenge}</challenge>");
+
+        }
+
+        /// <summary>
+        /// SCRAM, zweite Hälfte: client-final-message rein, bei Erfolg
+        /// <c>&lt;success/&gt;</c> samt Serversignatur raus.
+        /// </summary>
+        private async Task HandleSaslResponseAsync(XMPPSession session, String frame)
+        {
+
+            var exchange = session.Scram;
+
+            // Ein <response/> ohne vorangegangenes <auth/> gehört zu keinem
+            // Austausch.
+            if (exchange is null)
+            {
+                await session.SendAsync(
+                    "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><not-authorized/></failure>");
+                return;
+            }
+
+            session.Scram = null;
+
+            var payload      = Regex.Match(frame, @"<response[^>]*>([^<]*)</response>").Groups[1].Value;
+            var serverFinal  = exchange.Complete(payload);
+
+            if (serverFinal is null)
+            {
+                await session.SendAsync(
+                    "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><not-authorized/></failure>");
+                return;
+            }
+
+            session.Account = exchange.Account;
+
+            if (OmitScramSignature)
+                serverFinal = "";
+
+            else if (CorruptScramSignature)
+                serverFinal = Convert.ToBase64String(
+                                  Encoding.UTF8.GetBytes(
+                                      $"v={Convert.ToBase64String(new Byte[32])}"));
+
+            // RFC 5802, Abschnitt 3: die Serversignatur gehört mitgeschickt.
+            // Ohne sie kann der Client nicht prüfen, dass die Gegenstelle das
+            // Passwort ebenfalls kennt.
+            await session.SendAsync(
+                $"<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{serverFinal}</success>");
+
+        }
+
+        /// <summary>
+        /// Der SCRAM-Mechanismus hinter einem Namen, oder null bei PLAIN und
+        /// allem Unbekannten.
+        /// </summary>
+        internal static SCRAMMechanism? ScramMechanismOf(String mechanism)
+            => mechanism switch {
+                   "SCRAM-SHA-1"    => SCRAMMechanism.ScramSha1,
+                   "SCRAM-SHA-256"  => SCRAMMechanism.ScramSha256,
+                   _                => null
+               };
 
         private async Task HandleIqAsync(XMPPSession session, String frame)
         {

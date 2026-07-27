@@ -50,6 +50,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Konto, sobald die Authentifizierung erfolgreich war.</summary>
         public XMPPAccount? Account { get; internal set; }
 
+        /// <summary>
+        /// Der laufende SCRAM-Austausch zwischen <c>&lt;auth/&gt;</c> und
+        /// <c>&lt;response/&gt;</c>, sonst null.
+        /// </summary>
+        internal SCRAMExchange? Scram { get; set; }
+
         /// <summary>Zugewiesene Resource, sobald das Binding erfolgt ist.</summary>
         public String? Resource { get; internal set; }
 
