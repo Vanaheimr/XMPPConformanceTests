@@ -45,11 +45,12 @@ Stand: 2026-07-27
 | S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | `f4a9c80` |
 | S4b-7: SASL-EXTERNAL (XEP-0178) über das TLS-Zertifikat | `031f8ca` |
 | S4b-8: SRV-Auflösung (RFC 6120 §3.2, RFC 2782) | `0d1391f` |
-| S5: Domainübergreifende Subscriptions (RFC 6121 §3) | *(dieser Commit)* |
+| S5: Domainübergreifende Subscriptions (RFC 6121 §3) | `a94b416` |
+| S6: Subscription-Pre-Approval (RFC 6121 §3.4) | *(dieser Commit)* |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **388 Tests, 0 Fehler, 1 übersprungen** in gut
+Aktueller Stand der Suite: **395 Tests, 0 Fehler, 1 übersprungen** in gut
 eineinhalb Minuten (der übersprungene prüft eine Eigenschaft, die es nur im
 STARTTLS-Betrieb gibt, und läuft daher nur in einer der beiden Fassungen). Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
@@ -153,7 +154,7 @@ einem Entzug ein `unavailable` (§3.2.2). Ein Roster-Set fasst den
 Subscription-Zustand nicht mehr an (§2.3).
 
 Was daran offen blieb:
-- **Pre-Approval** (§3.4) fehlt.
+- ~~Pre-Approval (§3.4) fehlt~~ ✅ erledigt in S6.
 - Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
   (§3.1.3) — sie geht verloren statt beim nächsten Anmelden zuzustellen.
 
@@ -450,11 +451,45 @@ alles, was die Gegenstelle hat.
 
 **Was offen bleibt:**
 
-- **Pre-Approval** (§3.4) fehlt weiterhin, lokal wie über die Grenze.
 - **Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt**
   (§3.1.3) — auch das gilt für beide Fälle gleichermassen.
 - Die zentrale Adressierung in `RouteToAsync` ist durch keinen Test
   festgehalten; siehe den Vermerk im Code.
+
+### S6. Subscription-Pre-Approval ✅
+
+RFC 6121 §3.4: einen Kontakt zulassen, bevor er fragt. Der Abschnitt
+unterscheidet vier Fälle, und alle hängen an derselben Frage — liegt eine
+Anfrage vor oder nicht. Dasselbe `<presence type='subscribed'/>` ist einmal eine
+Zustimmung und einmal eine Vormerkung; die Stanza sieht in beiden Fällen gleich
+aus, der Unterschied steckt allein im Roster des Absenders.
+
+Dafür musste der Server erst lernen, offene Anfragen zu vermerken. `RosterEntry`
+hat jetzt `PendingIn` neben `Ask` — die beiden Richtungen derselben Frage: die
+eine hält fest, dass *wir* gefragt haben, die andere, dass *gefragt wurde*. Ohne
+beide liesse sich §3.4 gar nicht umsetzen. Dazu kommt `Approved`, das als
+`approved='true'` in Roster-Ergebnis und -Push erscheint.
+
+Die leicht zu übersehende Hälfte: bei einer Vormerkung darf das `subscribed`
+**nicht** hinausgehen (Fälle 3 und 4). Ginge es doch, bekäme der Kontakt eine
+Zustimmung zu einer Frage, die er nie gestellt hat, und sein Server baute daraus
+eine Subscription, von der sein Nutzer nichts weiss. Umgekehrt darf eine
+vorgemerkte Anfrage dem Nutzer gar nicht erst zugestellt werden — der Server
+antwortet für ihn.
+
+Der eingehende `subscribe` läuft jetzt für lokale und fremde Herkunft durch
+dieselbe Stelle. Die Entscheidung hängt nicht daran, woher die Anfrage kam,
+sondern allein am Roster des Empfängers; sie zweimal zu treffen hiesse, zwei
+Gelegenheiten zu schaffen, sie verschieden zu treffen.
+
+**Der Client hat eine eigene Hälfte bekommen.** `AcceptSubscriptionAsync` bricht
+ohne offene Anfrage ab und stellt eine Gegenanfrage — beides ist für eine
+Vormerkung falsch. `PreApproveContactAsync` tut weder das eine noch das andere
+und verweigert von sich aus, wenn der Server das Feature nicht angekündigt hat
+(§3.4.1 verlangt genau das).
+
+**Was offen bleibt:** eine Anfrage an ein gerade nicht verbundenes Konto wird
+weiterhin nicht aufbewahrt (§3.1.3).
 
 ---
 

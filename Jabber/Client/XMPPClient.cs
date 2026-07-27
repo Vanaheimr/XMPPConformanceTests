@@ -480,6 +480,46 @@ public sealed class XMPPClient : IAsyncDisposable
     }
 
     /// <summary>
+    /// Lässt einen Kontakt im Voraus zu: stellt er künftig eine Anfrage,
+    /// beantwortet der Server sie selbst (RFC 6121, Abschnitt 3.4).
+    /// </summary>
+    /// <param name="jid">Der Kontakt, der zugelassen werden soll.</param>
+    /// <returns>
+    /// false, wenn der Server Pre-Approval nicht angekündigt hat - dann
+    /// <b>darf</b> es nach Abschnitt 3.4.1 gar nicht erst versucht werden.
+    /// </returns>
+    /// <remarks>
+    /// Bewusst nicht über <see cref="AcceptSubscriptionAsync"/>: das nimmt
+    /// eine <i>offene</i> Anfrage an und stellt eine Gegenanfrage, damit die
+    /// Sichtbarkeit beidseitig wird. Eine Vormerkung tut beides nicht - es
+    /// gibt nichts anzunehmen, und wer im Voraus zulässt, hat damit noch nicht
+    /// gesagt, dass er den anderen auch selbst sehen will.
+    /// </remarks>
+    public async Task<bool> PreApproveContactAsync(string jid)
+    {
+
+        if (!ServerSupportsPreApproval)
+        {
+            _logger.LogWarning("Der Server kündigt kein Pre-Approval an - {Jid} wird nicht vorgemerkt", jid);
+            return false;
+        }
+
+        await _connection.AcceptSubscriptionAsync(jid);
+
+        _logger.LogInformation("Kontakt {Jid} im Voraus zugelassen", jid);
+
+        return true;
+
+    }
+
+    /// <summary>
+    /// Hat der Server Subscription-Pre-Approval angekündigt (RFC 6121,
+    /// Abschnitt 3.4)?
+    /// </summary>
+    public bool ServerSupportsPreApproval
+        => _connection.ServerFeatures.Contains("urn:xmpp:features:pre-approval");
+
+    /// <summary>
     /// Lehnt eine Kontaktanfrage ab.
     /// </summary>
     /// <param name="jid">Der Antragsteller; ohne Angabe die älteste offene Anfrage.</param>

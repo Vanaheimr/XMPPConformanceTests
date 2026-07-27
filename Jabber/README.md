@@ -391,6 +391,10 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
+- Subscription-Pre-Approval (RFC 6121 §3.4): ein Kontakt lässt sich zulassen,
+  bevor er fragt; seine spätere Anfrage beantwortet der Server selbst und stellt
+  sie dem Nutzer gar nicht erst zu. Angekündigt als
+  `urn:xmpp:features:pre-approval`, clientseitig `PreApproveContactAsync`
 - Subscription-Handshake über die Domain-Grenze (RFC 6121 §3): jede Seite
   pflegt ihre eigene Roster-Hälfte, und ein Antragsteller, der den Kontakt
   ohnehin schon sehen darf, wird vom Server des Kontakts direkt beschieden
@@ -487,9 +491,9 @@ Server-Implementierung:
 - **Der Kontenspeicher ist unverschlüsselt.** `FileAccountStore` legt eine
   JSON-Datei ohne gesetzte Zugriffsrechte an. Passwörter stehen nicht darin,
   aber die abgelegten Schlüssel erlauben, eine Anmeldung zu prüfen.
-- **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
-  offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
-  gerade nicht verbundenes Konto wird nicht aufbewahrt.
+- **Keine Zustellung offener Anfragen an später anmeldende Kontakte**
+  (RFC 6121 §3.1.3): eine Anfrage an ein gerade nicht verbundenes Konto wird
+  nicht aufbewahrt. Pre-Approval (§3.4) gibt es dagegen.
 - **Föderation ohne SRV und ohne STARTTLS, und nie gegen einen fremden Server
   gelaufen.** Es gibt drei Wege über die Domain-Grenze: `DirectServerLinks`
   (in-process, für Tests, ohne jede Authentifizierung), `WebSocketServerLinks`

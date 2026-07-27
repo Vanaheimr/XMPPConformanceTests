@@ -127,6 +127,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean CompleteCloseHandshake { get; set; } = true;
 
         /// <summary>
+        /// Unterstützt der Server Subscription-Pre-Approval (RFC 6121,
+        /// Abschnitt 3.4)?
+        /// </summary>
+        /// <remarks>
+        /// Optional für Server <b>und</b> Clients. Der Abschnitt verlangt, dass
+        /// ein Server, der es beherrscht, es auch ankündigt - und dass ein
+        /// Client es ohne Ankündigung gar nicht erst versucht. Der Schalter
+        /// steuert beides gemeinsam: ohne ihn fehlt die Ankündigung, und ein
+        /// <c>&lt;presence type='subscribed'/&gt;</c> ohne offene Anfrage
+        /// bleibt folgenlos statt vorzumerken.
+        /// </remarks>
+        public Boolean OfferSubscriptionPreApproval { get; set; } = true;
+
+        /// <summary>
         /// Welche SASL-Mechanismen der Server anbietet, in der Reihenfolge der
         /// Ankündigung.
         /// </summary>
@@ -829,6 +843,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     // <optional/> gehört zum <sm/> und sagt nichts über die
                     // Legacy-Session aus.
                     "<sm xmlns='urn:xmpp:sm:3'><optional/></sm>" +
+
+                    // RFC 6121, Abschnitt 3.4: rein informativ, nie
+                    // auszuhandeln - aber ohne die Ankündigung darf ein Client
+                    // Pre-Approval nicht benutzen.
+                    (OfferSubscriptionPreApproval
+                         ? "<sub xmlns='urn:xmpp:features:pre-approval'/>"
+                         : "") +
                     "</stream:features>");
 
         }
@@ -1159,6 +1180,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     items.Append($"<item jid='{e.Jid}'");
                     if (e.Name is not null)
                         items.Append($" name='{e.Name}'");
+                    if (e.Ask is not null)
+                        items.Append($" ask='{e.Ask}'");
+                    if (e.Approved)
+                        items.Append(" approved='true'");
                     items.Append($" subscription='{e.Subscription}'/>");
                 }
 
@@ -1405,9 +1430,42 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // Abschnitt 3.1.5 und 3.1.6: Der Zustimmende erlaubt dem
                 // Gegenüber, ihn zu sehen; beim Gegenüber ist damit die Anfrage
                 // erledigt und die Gegenrichtung gesetzt.
+                //
+                // Abschnitt 3.4.2 unterscheidet hier vier Fälle, und der
+                // Unterschied hängt allein daran, ob eine Anfrage offen ist.
                 case "subscribed":
+                {
+
+                    var eintrag  = RosterEntryOf(senderAccount, peerBareJid);
+                    var bisher   = eintrag?.Subscription ?? "none";
+
+                    // Fall 1: der Kontakt darf uns ohnehin schon sehen -
+                    // stillschweigend übergehen.
+                    if (bisher is "from" or "both")
+                        return;
+
+                    // Fall 3 und 4: keine offene Anfrage. Dann ist das eine
+                    // Vormerkung, und die Stanza geht ausdrücklich *nicht*
+                    // hinaus - der Kontakt hat nichts gefragt und soll keine
+                    // Antwort bekommen.
+                    if (eintrag?.PendingIn != true)
+                    {
+
+                        if (!OfferSubscriptionPreApproval)
+                            return;
+
+                        UpdateRosterEntry(senderAccount, peerBareJid, approved: true);
+                        await PushRosterEntryAsync(senderAccount, peerBareJid);
+
+                        return;
+
+                    }
+
+                    // Fall 2: es liegt eine Anfrage vor - die gewöhnliche
+                    // Zustimmung.
                     UpdateRosterEntry(senderAccount, peerBareJid,
-                                      GrantFrom(senderAccount.SubscriptionOf(peerBareJid)));
+                                      GrantFrom(bisher),
+                                      pendingIn: false);
                     await PushRosterEntryAsync(senderAccount, peerBareJid);
 
                     if (peerAccount is not null)
@@ -1417,12 +1475,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                           ask: AskChange.Clear);
                         await PushRosterEntryAsync(peerAccount, senderAccount.BareJid);
                     }
+
                     break;
 
+                }
+
                 // Abschnitt 3.2.2 und 3.2.3: der Entzug, spiegelbildlich.
+                // Abschnitt 3.4.2, Anmerkung: ein 'unsubscribed' nimmt auch
+                // eine Vormerkung zurück.
                 case "unsubscribed":
                     UpdateRosterEntry(senderAccount, peerBareJid,
-                                      RevokeFrom(senderAccount.SubscriptionOf(peerBareJid)));
+                                      RevokeFrom(senderAccount.SubscriptionOf(peerBareJid)),
+                                      approved:  false,
+                                      pendingIn: false);
                     await PushRosterEntryAsync(senderAccount, peerBareJid);
 
                     if (peerAccount is not null)
@@ -1454,7 +1519,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             // Die Stanza selbst geht an die Gegenseite: der Kontakt soll die
             // Anfrage sehen, der Antragsteller die Antwort.
-            await RouteToAsync(peerBareJid, stanza);
+            //
+            // Eine Anfrage an ein hiesiges Konto nimmt dabei denselben Weg wie
+            // eine von aussen: dort entscheidet sich, ob sie zugestellt oder
+            // selbst beantwortet wird. Über die Grenze trifft diese
+            // Entscheidung der Server der Gegenseite.
+            if (type == "subscribe" && IsLocal(peerBareJid))
+                await DeliverSubscribeAsync(senderAccount.BareJid, peerBareJid, stanza);
+            else
+                await RouteToAsync(peerBareJid, stanza);
 
             // Abschnitt 3.1.5: "The contact's server MUST then also send current
             // presence to the user from each of the contact's available
@@ -1500,7 +1573,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private static void UpdateRosterEntry(XMPPAccount  account,
                                               String       contactBareJid,
                                               String?      subscription  = null,
-                                              AskChange    ask           = AskChange.Keep)
+                                              AskChange    ask           = AskChange.Keep,
+                                              Boolean?     approved      = null,
+                                              Boolean?     pendingIn     = null)
         {
 
             var vorher = account.Roster.FirstOrDefault(
@@ -1513,9 +1588,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                        AskChange.Set    => "subscribe",
                                                        AskChange.Clear  => null,
                                                        _                => vorher?.Ask
-                                                   }));
+                                                   },
+                                                   approved   ?? vorher?.Approved  ?? false,
+                                                   pendingIn  ?? vorher?.PendingIn ?? false));
 
         }
+
+        /// <summary>Der Roster-Eintrag zu einem Kontakt, oder null.</summary>
+        private static RosterEntry? RosterEntryOf(XMPPAccount account, String contactBareJid)
+            => account.Roster.FirstOrDefault(
+                   e => String.Equals(e.Jid, contactBareJid, StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
         /// Schickt einen Roster-Push für genau einen Eintrag an alle Resourcen
@@ -1533,6 +1615,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var item = $"<item jid='{entry.Jid}'" +
                        (entry.Name is not null ? $" name='{entry.Name}'" : "") +
                        (entry.Ask  is not null ? $" ask='{entry.Ask}'"   : "") +
+                       (entry.Approved         ? " approved='true'"      : "") +
                        $" subscription='{entry.Subscription}'/>";
 
             foreach (var s in SessionsOf(account.BareJid))
@@ -1816,6 +1899,91 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// Stellt eine Anfrage an ein hiesiges Konto zu - oder beantwortet sie
+        /// selbst.
+        /// </summary>
+        /// <remarks>
+        /// Eine Stelle für beide Herkünfte, lokal wie über die Grenze. Die
+        /// Entscheidung hängt nicht daran, woher die Anfrage kam, sondern
+        /// allein am Roster des Empfängers; sie zweimal zu treffen hiesse,
+        /// zwei Gelegenheiten zu schaffen, sie verschieden zu treffen.
+        ///
+        /// Zwei Gründe, selbst zu antworten:
+        /// <list type="bullet">
+        ///   <item>
+        ///     Der Antragsteller darf uns ohnehin schon sehen (Abschnitt
+        ///     3.1.4) - die Frage ist beantwortet, bevor sie gestellt wurde.
+        ///   </item>
+        ///   <item>
+        ///     Er ist vorgemerkt (Abschnitt 3.4.2) - dann <b>darf</b> die
+        ///     Anfrage dem Nutzer gar nicht erst zugestellt werden.
+        ///   </item>
+        /// </list>
+        /// </remarks>
+        private async Task DeliverSubscribeAsync(String fromBareJid,
+                                                 String toBareJid,
+                                                 String stanza)
+        {
+
+            var account = GetAccount(toBareJid);
+
+            // RFC 6121, Abschnitt 8.1: für ein Konto, das es hier nicht gibt,
+            // ist nichts zu tun.
+            if (account is null)
+                return;
+
+            var eintrag = RosterEntryOf(account, fromBareJid);
+
+            if (eintrag?.Approved == true ||
+                account.SubscriptionOf(fromBareJid) is "from" or "both")
+            {
+                await AutoApproveAsync(account, fromBareJid);
+                return;
+            }
+
+            // Abschnitt 3.1.4: die offene Anfrage wird vermerkt, damit eine
+            // spätere Zustimmung sie als solche erkennt - und nicht als
+            // Vormerkung missversteht.
+            UpdateRosterEntry(account, fromBareJid, pendingIn: true);
+
+            await RouteToAsync(toBareJid, stanza);
+
+        }
+
+        /// <summary>
+        /// Beantwortet eine Anfrage im Namen des Nutzers.
+        /// </summary>
+        /// <remarks>
+        /// Die Antwort geht denselben Weg wie eine von Hand gegebene: der
+        /// Antragsteller soll nicht unterscheiden können, ob ein Mensch oder
+        /// der Server zugestimmt hat. Liegt er auf dieser Domain, wird auch
+        /// seine Roster-Hälfte gepflegt - über die Grenze erledigt das sein
+        /// eigener Server, sobald das <c>subscribed</c> dort ankommt.
+        /// </remarks>
+        private async Task AutoApproveAsync(XMPPAccount account, String requesterBareJid)
+        {
+
+            UpdateRosterEntry(account, requesterBareJid,
+                              GrantFrom(account.SubscriptionOf(requesterBareJid)),
+                              approved:  false,
+                              pendingIn: false);
+
+            await PushRosterEntryAsync(account, requesterBareJid);
+
+            if (GetAccount(requesterBareJid) is { } requester)
+            {
+                UpdateRosterEntry(requester, account.BareJid,
+                                  GrantTo(requester.SubscriptionOf(account.BareJid)),
+                                  ask: AskChange.Clear);
+                await PushRosterEntryAsync(requester, account.BareJid);
+            }
+
+            await RouteToAsync(requesterBareJid,
+                               $"<presence from='{account.BareJid}' to='{requesterBareJid}' type='subscribed'/>");
+
+        }
+
+        /// <summary>
         /// Der Typ einer Subscription-Presence, oder null wenn es keine ist.
         /// </summary>
         private static String? SubscriptionTypeOf(String stanza)
@@ -1863,23 +2031,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             switch (type)
             {
 
-                // Abschnitt 3.1.4: darf der Antragsteller uns ohnehin schon
-                // sehen, beantwortet der Server die Anfrage selbst, statt den
-                // Nutzer mit einer Frage zu behelligen, die schon beantwortet
-                // ist.
+                // Zustellen oder selbst beantworten - dieselbe Entscheidung
+                // wie bei einer Anfrage von nebenan.
                 case "subscribe":
-
-                    if (account.SubscriptionOf(remoteBareJid) is "from" or "both")
-                    {
-
-                        await RouteToAsync(remoteBareJid,
-                                           $"<presence from='{account.BareJid}' to='{remoteBareJid}' type='subscribed'/>");
-
-                        return;
-
-                    }
-
-                    break;
+                    await DeliverSubscribeAsync(remoteBareJid, localBareJid, stanza);
+                    return;
 
                 // Abschnitt 3.1.6: die Zustimmung der Gegenseite setzt unsere
                 // 'to'-Hälfte und erledigt die offene Anfrage.
