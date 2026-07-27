@@ -71,6 +71,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly IS2SFraming framing;
 
         /// <summary>
+        /// Prüft, ob das im TLS-Handshake vorgelegte Zertifikat der
+        /// Gegenstelle für die genannte Domain sprechen darf. Null, wenn
+        /// SASL-EXTERNAL für diesen Stream nicht in Frage kommt - etwa weil
+        /// es gar kein Zertifikat gibt.
+        /// </summary>
+        private readonly Func<String, Boolean>? externalIdentity;
+
+        /// <summary>
+        /// Darf dieser Stream sich per SASL-EXTERNAL ausweisen? Nur wenn ein
+        /// eigenes Zertifikat vorgelegt wurde.
+        /// </summary>
+        private readonly Boolean canOfferExternal;
+
+        /// <summary>
         /// Lässt einen vorgelegten Dialback-Schlüssel beim autoritativen Server
         /// der Absenderdomain prüfen - Parameter sind Absenderdomain,
         /// Stream-ID und Schlüssel.
@@ -89,6 +103,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Stream vorher endet.
         /// </summary>
         private readonly TaskCompletionSource dialbackDone =
+            new (TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>
+        /// Wird erfüllt, sobald der Stream offen <b>und</b> ausgewiesen ist.
+        /// </summary>
+        /// <remarks>
+        /// Beides einzeln abzuwarten reicht nicht. Nach erfolgreichem SASL
+        /// fängt der Stream von vorn an (RFC 6120, Abschnitt 6.4.6): einen
+        /// Augenblick lang ist er ausgewiesen und trotzdem nicht offen. Wer
+        /// dann sendet, verliert die Stanza - und zwar lautlos, weil der
+        /// Stream weder geschlossen noch fehlerhaft ist.
+        /// </remarks>
+        private readonly TaskCompletionSource ready =
             new (TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>
@@ -160,6 +187,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public Boolean IsAuthenticated { get; private set; }
 
+        /// <summary>
+        /// Womit die Domain der Gegenstelle belegt wurde, oder null solange
+        /// sie es nicht ist.
+        /// </summary>
+        public String? AuthenticatedBy { get; private set; }
+
         #endregion
 
         #region Events
@@ -175,6 +208,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         public event Action<String?>? OnClosed;
 
+        /// <summary>
+        /// Der Stream fängt von vorn an (RFC 6120, Abschnitt 6.4.6).
+        /// </summary>
+        /// <remarks>
+        /// Der Transport muss darauf reagieren: was den Strom in Elemente
+        /// zerlegt, hat den bisherigen Stream-Kopf gesehen und würde den
+        /// neuen sonst für ein Kindelement halten.
+        /// </remarks>
+        public event Action? OnRestart;
+
         #endregion
 
         #region Constructor(s)
@@ -187,7 +230,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                           String?                                          secret,
                           Func<String, String, String, Task<Boolean>>?     verifyKey,
                           Boolean                                          requiresDialback,
-                          IS2SFraming?                                     framing)
+                          IS2SFraming?                                     framing,
+                          Func<String, Boolean>?                           externalIdentity,
+                          Boolean                                          canOfferExternal)
         {
 
             LocalDomain         = localDomain;
@@ -199,7 +244,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             this.deliverStanza  = deliverStanza;
             this.secret         = secret;
             this.verifyKey      = verifyKey;
-            this.framing        = framing ?? WebSocketFraming.Instance;
+            this.framing            = framing ?? WebSocketFraming.Instance;
+            this.externalIdentity   = externalIdentity;
+            this.canOfferExternal   = canOfferExternal;
 
         }
 
@@ -222,18 +269,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public static S2SStream Initiate(String                                localDomain,
                                          String                                remoteDomain,
                                          Func<String, CancellationToken, Task> sendFrame,
-                                         String?                               secret    = null,
-                                         IS2SFraming?                          framing   = null)
+                                         String?                               secret            = null,
+                                         IS2SFraming?                          framing           = null,
+                                         Boolean                               canOfferExternal  = false)
 
             => new (localDomain,
                     remoteDomain,
-                    isInitiator:       true,
-                    sendFrame:         sendFrame,
-                    deliverStanza:     null,
-                    secret:            secret,
-                    verifyKey:         null,
-                    requiresDialback:  secret is not null,
-                    framing:           framing);
+                    isInitiator:        true,
+                    sendFrame:          sendFrame,
+                    deliverStanza:      null,
+                    secret:             secret,
+                    verifyKey:          null,
+                    requiresDialback:   secret is not null,
+                    framing:            framing,
+                    externalIdentity:   null,
+                    canOfferExternal:   canOfferExternal);
 
         #endregion
 
@@ -263,18 +313,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                        Func<String, CancellationToken, Task>           sendFrame,
                                        Func<String, String, Task<RemoteStanzaResult>>  deliverStanza,
                                        String?                                         secret      = null,
-                                       Func<String, String, String, Task<Boolean>>?    verifyKey   = null,
-                                       IS2SFraming?                                    framing     = null)
+                                       Func<String, String, String, Task<Boolean>>?    verifyKey          = null,
+                                       IS2SFraming?                                    framing            = null,
+                                       Func<String, Boolean>?                          externalIdentity   = null)
 
             => new (localDomain,
-                    remoteDomain:      null,
-                    isInitiator:       false,
-                    sendFrame:         sendFrame,
-                    deliverStanza:     deliverStanza,
-                    secret:            secret,
-                    verifyKey:         verifyKey,
-                    requiresDialback:  verifyKey is not null,
-                    framing:           framing);
+                    remoteDomain:       null,
+                    isInitiator:        false,
+                    sendFrame:          sendFrame,
+                    deliverStanza:      deliverStanza,
+                    secret:             secret,
+                    verifyKey:          verifyKey,
+                    requiresDialback:   verifyKey is not null,
+                    framing:            framing,
+                    externalIdentity:   externalIdentity,
+                    canOfferExternal:   false);
 
         #endregion
 
@@ -303,8 +356,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     deliverStanza:     null,
                     secret:            null,
                     verifyKey:         null,
-                    requiresDialback:  false,
-                    framing:           framing);
+                    requiresDialback:   false,
+                    framing:            framing,
+                    externalIdentity:   null,
+                    canOfferExternal:   false);
 
         #endregion
 
@@ -352,6 +407,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region WaitUntilReadyAsync(Timeout, CancellationToken)
+
+        /// <summary>
+        /// Wartet, bis über den Stream tatsächlich gesendet werden darf -
+        /// offen und, falls verlangt, ausgewiesen.
+        /// </summary>
+        public async Task<Boolean> WaitUntilReadyAsync(TimeSpan           Timeout,
+                                                       CancellationToken  cancellationToken = default)
+        {
+
+            try
+            {
+                await ready.Task.WaitAsync(Timeout, cancellationToken);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
+        }
+
+        #endregion
+
         #region ProcessFrameAsync(frame, CancellationToken)
 
         /// <summary>
@@ -361,6 +440,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public async Task<Boolean> ProcessFrameAsync(String             frame,
                                                      CancellationToken  cancellationToken = default)
         {
+
 
             if (framing.IsStreamOpen(frame))
                 return await ProcessOpenAsync(frame, cancellationToken);
@@ -386,7 +466,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (frame.StartsWith("<stream:features", StringComparison.Ordinal) ||
                 frame.StartsWith("<features",        StringComparison.Ordinal))
             {
-                return true;
+                return await ProcessFeaturesAsync(frame, cancellationToken);
+            }
+
+            if (frame.StartsWith("<auth",    StringComparison.Ordinal))
+                return await ProcessSaslAuthAsync(frame, cancellationToken);
+
+            if (frame.StartsWith("<success", StringComparison.Ordinal))
+                return await ProcessSaslSuccessAsync(cancellationToken);
+
+            if (frame.StartsWith("<failure", StringComparison.Ordinal) &&
+                frame.Contains(SaslNamespace, StringComparison.Ordinal))
+            {
+                return await ProcessSaslFailureAsync(cancellationToken);
             }
 
             if (IsDialback(frame, "result"))
@@ -572,6 +664,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 MarkOpen(id);
 
+                // Nach einem SASL-Neustart ist der Stream schon ausgewiesen;
+                // dann steht der zweite Stream-Kopf nur noch für den
+                // Neuanfang und es ist nichts mehr auszuhandeln.
+                if (IsAuthenticated)
+                    return true;
+
+                // Kommt SASL-EXTERNAL in Frage, wird das Angebot der
+                // Gegenstelle abgewartet - es steht in den Features, die
+                // gleich folgen.
+                if (canOfferExternal)
+                    return true;
+
                 // XEP-0220, Schritt 1: sich unaufgefordert ausweisen. Der
                 // Schlüssel bindet an die Stream-ID, die die Gegenstelle
                 // gerade vergeben hat.
@@ -621,15 +725,205 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Dialback aber unabhängig davon, ob es hier angekündigt steht -
             // eine Ankündigung, auf die man sich verlässt, könnte ein
             // Angreifer einfach weglassen.
+            // SASL-EXTERNAL nur anbieten, wenn ein Zertifikat der Gegenstelle
+            // vorliegt, das überhaupt geprüft werden könnte - sonst wäre das
+            // Angebot eine Einladung in eine Sackgasse.
+            var bietetExternal = externalIdentity is not null && !IsAuthenticated;
+
             await sendFrame(
                       $"<stream:features xmlns:stream='{StreamNamespace}'>" +
-                      (RequiresDialback
-                           ? $"<dialback xmlns='urn:xmpp:features:dialback'><required/></dialback>"
+                      (bietetExternal
+                           ? $"<mechanisms xmlns='{SaslNamespace}'><mechanism>EXTERNAL</mechanism></mechanisms>"
+                           : "") +
+                      (RequiresDialback && !IsAuthenticated
+                           ? "<dialback xmlns='urn:xmpp:features:dialback'><required/></dialback>"
                            : "") +
                       "</stream:features>",
                       cancellationToken);
 
             MarkOpen(streamId);
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region SASL-EXTERNAL (RFC 6120, Abschnitt 6; XEP-0178)
+
+        /// <summary>Der Namensraum der SASL-Aushandlung.</summary>
+        public const String SaslNamespace = "urn:ietf:params:xml:ns:xmpp-sasl";
+
+        /// <summary>
+        /// Die Features der Gegenstelle - hier entscheidet der aufbauende
+        /// Server, ob er SASL-EXTERNAL versucht oder auf Dialback zurückfällt.
+        /// </summary>
+        private async Task<Boolean> ProcessFeaturesAsync(String             frame,
+                                                         CancellationToken  cancellationToken)
+        {
+
+            if (!IsInitiator || IsAuthenticated)
+                return true;
+
+            var bietetExternal = frame.Contains(SaslNamespace, StringComparison.Ordinal) &&
+                                 frame.Contains("EXTERNAL",    StringComparison.Ordinal);
+
+            if (canOfferExternal && bietetExternal)
+            {
+
+                // RFC 6120, Abschnitt 6.4.2: die authzid ist die Identität, für
+                // die gesprochen werden soll - Base64, wie jede SASL-Nutzlast.
+                var authzid = Convert.ToBase64String(
+                                  System.Text.Encoding.UTF8.GetBytes(LocalDomain));
+
+                await sendFrame(
+                          $"<auth xmlns='{SaslNamespace}' mechanism='EXTERNAL'>{authzid}</auth>",
+                          cancellationToken);
+
+                return true;
+
+            }
+
+            // Kein EXTERNAL - dann der andere Weg, sofern vorgesehen.
+            if (RequiresDialback && secret is not null && StreamId is not null)
+                await sendFrame(
+                          $"<db:result xmlns:db='{DialbackKey.Namespace}' " +
+                          $"from='{XmlEscaping.Escape(LocalDomain)}' " +
+                          $"to='{XmlEscaping.Escape(RemoteDomain!)}'>" +
+                          DialbackKey.Generate(secret, RemoteDomain!, LocalDomain, StreamId) +
+                          "</db:result>",
+                          cancellationToken);
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// <c>&lt;auth mechanism='EXTERNAL'/&gt;</c> auf der annehmenden
+        /// Seite: das Zertifikat muss die behauptete Domain decken.
+        /// </summary>
+        /// <remarks>
+        /// Hier liegt der ganze Unterschied zu Dialback. Dort wird die Domain
+        /// belegt, indem bei einer hinterlegten Adresse nachgefragt wird; hier,
+        /// indem das im TLS-Handshake vorgelegte Zertifikat gelesen wird. Kein
+        /// zweiter Verbindungsaufbau - dafür hängt alles an
+        /// <see cref="CertificateIdentity"/>.
+        ///
+        /// Eine leere authzid (<c>=</c>) ist zulässig und heisst: nimm die
+        /// Identität aus dem Zertifikat. Weil ein Zertifikat für mehrere
+        /// Domains gelten kann, wird sie hier auf das <c>from</c> des
+        /// Stream-Kopfs bezogen - eine andere Wahl gäbe es nicht, ohne zu
+        /// raten.
+        /// </remarks>
+        private async Task<Boolean> ProcessSaslAuthAsync(String             frame,
+                                                         CancellationToken  cancellationToken)
+        {
+
+            if (IsInitiator)
+                return false;
+
+            var mechanismus = Attr(frame, "mechanism");
+
+            if (externalIdentity is null || mechanismus != "EXTERNAL")
+            {
+
+                await sendFrame(
+                          $"<failure xmlns='{SaslNamespace}'><invalid-mechanism/></failure>",
+                          cancellationToken);
+
+                return true;
+
+            }
+
+            var behauptet = RemoteDomain;
+            var nutzlast  = Body(frame);
+
+            if (nutzlast is not null && nutzlast != "=")
+            {
+
+                try
+                {
+                    behauptet = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(nutzlast));
+                }
+                catch (FormatException)
+                {
+
+                    await sendFrame(
+                              $"<failure xmlns='{SaslNamespace}'><incorrect-encoding/></failure>",
+                              cancellationToken);
+
+                    return true;
+
+                }
+
+            }
+
+            // Wer sich für eine andere Domain ausweist, als der Stream-Kopf
+            // nennt, bekommt nichts - sonst liesse sich der Stream nachträglich
+            // auf eine zweite Identität umschreiben.
+            if (behauptet is null ||
+                !String.Equals(behauptet, RemoteDomain, StringComparison.OrdinalIgnoreCase) ||
+                !externalIdentity(behauptet))
+            {
+
+                await sendFrame(
+                          $"<failure xmlns='{SaslNamespace}'><not-authorized/></failure>",
+                          cancellationToken);
+
+                OnStanzaRefused?.Invoke($"SASL-EXTERNAL für '{behauptet ?? "(ohne)"}' abgelehnt");
+
+                return true;
+
+            }
+
+            // Reihenfolge zählt: erst den Neustart vormerken, dann den
+            // Ausweis. Andersherum meldete sich der Stream für einen
+            // Augenblick als benutzbar, obwohl sein neuer Kopf noch aussteht.
+            ReopenForRestart();
+            MarkAuthenticated("SASL-EXTERNAL");
+
+            await sendFrame($"<success xmlns='{SaslNamespace}'/>", cancellationToken);
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// <c>&lt;success/&gt;</c> auf der aufbauenden Seite: Stream neu
+        /// öffnen (RFC 6120, Abschnitt 6.4.6).
+        /// </summary>
+        private async Task<Boolean> ProcessSaslSuccessAsync(CancellationToken cancellationToken)
+        {
+
+            if (!IsInitiator)
+                return false;
+
+            ReopenForRestart();
+            MarkAuthenticated("SASL-EXTERNAL");
+
+            await sendFrame(framing.StreamOpen(LocalDomain, RemoteDomain, null), cancellationToken);
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// <c>&lt;failure/&gt;</c>: SASL ist gescheitert. Ein Rückfall auf
+        /// Dialback findet <b>nicht</b> statt.
+        /// </summary>
+        /// <remarks>
+        /// Das ist eine Festlegung und keine Auslassung. Wer sich per
+        /// Zertifikat ausweisen wollte und abgelehnt wurde, hat ein Problem,
+        /// das ein zweiter Anlauf mit einem schwächeren Verfahren nicht löst -
+        /// er verdeckt es nur. RFC 6120, Abschnitt 6.4.5 erlaubt zwar weitere
+        /// Versuche; hier endet der Stream.
+        /// </remarks>
+        private async Task<Boolean> ProcessSaslFailureAsync(CancellationToken cancellationToken)
+        {
+
+            await SendStreamErrorAsync("not-authorized",
+                                       "SASL-EXTERNAL wurde abgelehnt.",
+                                       cancellationToken);
 
             return true;
 
@@ -994,6 +1288,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (IsOpen || IsClosed)
                     return;
 
+
                 StreamId  = streamId;
                 IsOpen    = true;
 
@@ -1001,9 +1296,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             openHandshake.TrySetResult();
 
+            if (IsAuthenticated || !RequiresDialback)
+                ready.TrySetResult();
+
         }
 
-        private void MarkAuthenticated()
+        private void MarkAuthenticated(String wodurch = "Dialback")
         {
 
             lock (dataLock)
@@ -1012,11 +1310,47 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (IsAuthenticated || IsClosed)
                     return;
 
-                IsAuthenticated = true;
+                IsAuthenticated  = true;
+                AuthenticatedBy  = wodurch;
 
             }
 
             dialbackDone.TrySetResult();
+
+            // Nur wenn der Stream nicht gerade neu anfängt - sonst meldet er
+            // sich benutzbar, während sein Kopf noch aussteht.
+            if (IsOpen)
+                ready.TrySetResult();
+
+        }
+
+        /// <summary>
+        /// Setzt den Stream auf "noch nicht geöffnet" zurück, ohne das
+        /// Erreichte preiszugeben.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 6.4.6: nach erfolgreichem SASL beginnt der
+        /// Stream von vorn - neuer Stream-Kopf, neue Stream-ID. Was
+        /// <b>nicht</b> zurückgesetzt wird, ist die Feststellung, wer die
+        /// Gegenstelle ist: die stammt aus dem Zertifikat und nicht aus dem
+        /// Stream, und sie noch einmal zu erfragen hiesse, sie noch einmal
+        /// erraten zu lassen.
+        /// </remarks>
+        private void ReopenForRestart()
+        {
+
+            lock (dataLock)
+            {
+
+                if (IsClosed)
+                    return;
+
+                IsOpen    = false;
+                StreamId  = null;
+
+            }
+
+            OnRestart?.Invoke();
 
         }
 
@@ -1039,6 +1373,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // für Dialback und für eine offene Verifikationsanfrage.
             openHandshake.TrySetCanceled();
             dialbackDone.TrySetCanceled();
+            ready.TrySetCanceled();
             verificationAnswer?.TrySetResult(false);
 
             OnClosed?.Invoke(reason);

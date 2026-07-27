@@ -76,6 +76,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly Lock                             _lock       = new();
 
         private Int32 _inboundCounter;
+        private Int32 _dialbackVerifications;
 
         private sealed record PeerConfig(String                                Host,
                                          Int32                                 Port,
@@ -100,11 +101,36 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Wie eingehende Verbindungen zu TLS kommen.</summary>
         public TcpTlsMode Mode { get; }
 
+        /// <summary>
+        /// Soll die Domain der Gegenstelle ueber ihr TLS-Zertifikat belegt
+        /// werden (SASL-EXTERNAL, XEP-0178) statt ueber Dialback?
+        /// </summary>
+        /// <remarks>
+        /// Setzt gegenseitiges TLS voraus - ohne Klientzertifikat gibt es
+        /// nichts zu pruefen. Ist es eingeschaltet und legt die Gegenstelle
+        /// keines vor, bleibt Dialback der Weg; das Angebot unterbleibt dann
+        /// einfach.
+        /// </remarks>
+        public Boolean UseSaslExternal { get; init; }
+
         /// <summary>Das Dialback-Geheimnis dieses Servers (XEP-0220).</summary>
         public String DialbackSecret { get; } = DialbackKey.NewSecret();
 
         /// <summary>Anzahl der jemals angenommenen eingehenden Verbindungen.</summary>
         public Int32 InboundConnectionCount => Volatile.Read(ref _inboundCounter);
+
+        /// <summary>
+        /// Wie oft dieser Server einen Dialback-Schlüssel beim autoritativen
+        /// Server nachgefragt hat.
+        /// </summary>
+        /// <remarks>
+        /// Der einzige von aussen sichtbare Unterschied zwischen Dialback und
+        /// SASL-EXTERNAL: das eine ruft zurück, das andere liest das
+        /// Zertifikat. Die Zahl der Verbindungen taugt dafür nicht - über die
+        /// Grenze läuft noch anderes, etwa die automatische
+        /// Empfangsbestätigung des Clients.
+        /// </remarks>
+        public Int32 DialbackVerificationCount => Volatile.Read(ref _dialbackVerifications);
 
         #endregion
 
@@ -178,7 +204,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>
         /// Verbindet zwei Server über TCP in beide Richtungen.
         /// </summary>
-        public static void Connect(XMPPServer a, XMPPServer b, TcpTlsMode mode = TcpTlsMode.StartTls)
+        public static void Connect(XMPPServer  a,
+                                   XMPPServer  b,
+                                   TcpTlsMode  mode              = TcpTlsMode.StartTls,
+                                   Boolean     useSaslExternal   = false)
         {
 
             if (String.Equals(a.Domain, b.Domain, StringComparison.OrdinalIgnoreCase))
@@ -186,8 +215,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                           $"Beide Server bedienen '{a.Domain}' - eine Föderation mit sich selbst ergibt nichts.",
                           nameof(b));
 
-            var linksA = LinksOf(a, mode);
-            var linksB = LinksOf(b, mode);
+            var linksA = LinksOf(a, mode, useSaslExternal);
+            var linksB = LinksOf(b, mode, useSaslExternal);
 
             // Ausdrücklich die Adresse und nicht "localhost": der Listener
             // bindet IPv4-Loopback, und ein Name, der zuerst nach IPv6
@@ -199,10 +228,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         }
 
-        private static TcpServerLinks LinksOf(XMPPServer server, TcpTlsMode mode)
+        private static TcpServerLinks LinksOf(XMPPServer server, TcpTlsMode mode, Boolean useSaslExternal)
 
             => server.ServerLinks as TcpServerLinks
-               ?? new TcpServerLinks(server, mode: mode);
+               ?? new TcpServerLinks(server, mode: mode) { UseSaslExternal = useSaslExternal };
 
         #endregion
 
@@ -237,6 +266,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                             String streamId,
                                                             String key)
         {
+
+            Interlocked.Increment(ref _dialbackVerifications);
 
             PeerConfig? peer;
 
@@ -335,7 +366,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task HandleInboundAsync(TcpClient client)
         {
 
-            Stream? netz = null;
+            Stream?             netz             = null;
+            X509Certificate?    peerCertificate  = null;
 
             try
             {
@@ -348,13 +380,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     var tls = new SslStream(netz, leaveInnerStreamOpen: false);
 
                     await tls.AuthenticateAsServerAsync(
-                              new SslServerAuthenticationOptions {
-                                  ServerCertificate         = Certificate,
-                                  ClientCertificateRequired = false
-                              },
+                              ServerOptions(),
                               _cts.Token);
 
                     netz = tls;
+                    peerCertificate = tls.RemoteCertificate;
 
                 }
 
@@ -374,7 +404,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     if (tls is null)
                         return;
 
-                    netz = tls;
+                    netz             = tls;
+                    peerCertificate  = tls.RemoteCertificate;
 
                 }
 
@@ -382,9 +413,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  _localServer.Domain,
                                  (frame, ct) => SendAsync(netz, frame, ct),
                                  (peerDomain, stanza) => _localServer.AcceptFromRemoteAsync(peerDomain, stanza),
-                                 secret:     DialbackSecret,
-                                 verifyKey:  VerifyDialbackKeyAsync,
-                                 framing:    TcpStreamFraming.Instance);
+                                 secret:            DialbackSecret,
+                                 verifyKey:         VerifyDialbackKeyAsync,
+                                 framing:           TcpStreamFraming.Instance,
+                                 externalIdentity:  IdentityCheckFor(peerCertificate));
 
                 await PumpAsync(netz, stream, null);
 
@@ -456,8 +488,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  _localServer.Domain,
                                  remoteDomain,
                                  (frame, ct) => SendAsync(netz, frame, ct),
-                                 secret:   DialbackSecret,
-                                 framing:  TcpStreamFraming.Instance);
+                                 secret:            DialbackSecret,
+                                 framing:           TcpStreamFraming.Instance,
+                                 canOfferExternal:  UseSaslExternal && Certificate is not null);
 
                 stream.OnClosed += _ => DropOutbound(remoteDomain, slot);
 
@@ -469,8 +502,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 await stream.OpenAsync(cancellationToken);
 
-                if (!await stream.WaitUntilOpenAsync(HandshakeTimeout, cancellationToken) ||
-                    !await stream.WaitUntilAuthenticatedAsync(HandshakeTimeout, cancellationToken))
+                if (!await stream.WaitUntilReadyAsync(HandshakeTimeout, cancellationToken))
                 {
                     stream.Abort("Aufbau nicht abgeschlossen");
                     DropOutbound(remoteDomain, slot);
@@ -565,8 +597,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// STARTTLS auf der annehmenden Seite.
         /// </summary>
         /// <returns>Der verschlüsselte Strom, oder null wenn nichts daraus wurde.</returns>
-        private async Task<Stream?> StartTlsAsServerAsync(Stream             netz,
-                                                          CancellationToken  cancellationToken)
+        private async Task<SslStream?> StartTlsAsServerAsync(Stream             netz,
+                                                             CancellationToken  cancellationToken)
         {
 
             var leser = new FrameReader(netz);
@@ -617,12 +649,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var tls = new SslStream(netz, leaveInnerStreamOpen: false);
 
-            await tls.AuthenticateAsServerAsync(
-                      new SslServerAuthenticationOptions {
-                          ServerCertificate         = Certificate,
-                          ClientCertificateRequired = false
-                      },
-                      cancellationToken);
+            await tls.AuthenticateAsServerAsync(ServerOptions(), cancellationToken);
 
             return tls;
 
@@ -639,10 +666,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Schicht bekommt den Strom erst, wenn er verschlüsselt ist, und
         /// muss von der Aushandlung nichts wissen.
         /// </remarks>
-        private async Task<Stream?> StartTlsAsClientAsync(Stream             netz,
-                                                          PeerConfig         peer,
-                                                          String             remoteDomain,
-                                                          CancellationToken  cancellationToken)
+        private async Task<SslStream?> StartTlsAsClientAsync(Stream             netz,
+                                                             PeerConfig         peer,
+                                                             String             remoteDomain,
+                                                             CancellationToken  cancellationToken)
         {
 
             var leser = new FrameReader(netz);
@@ -684,13 +711,79 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                     leaveInnerStreamOpen: false,
                                     userCertificateValidationCallback: peer.Validator);
 
-            await tls.AuthenticateAsClientAsync(
-                      new SslClientAuthenticationOptions {
-                          TargetHost = remoteDomain
-                      },
-                      cancellationToken);
+            await tls.AuthenticateAsClientAsync(ClientOptions(remoteDomain), cancellationToken);
 
             return tls;
+
+        }
+
+        #endregion
+
+        #region (private) SASL-EXTERNAL
+
+        /// <summary>
+        /// Die TLS-Einstellungen des annehmenden Servers.
+        /// </summary>
+        /// <remarks>
+        /// Fuer SASL-EXTERNAL muss das Klientzertifikat <b>angefordert</b>
+        /// werden - ohne diese Zeile gibt es keines, und die Pruefung haette
+        /// nichts zu lesen. Angefordert heisst nicht verlangt: bleibt es aus,
+        /// kommt die Verbindung trotzdem zustande und die Gegenstelle weist
+        /// sich per Dialback aus.
+        /// </remarks>
+        private SslServerAuthenticationOptions ServerOptions()
+
+            => new () {
+                   ServerCertificate                   = Certificate,
+                   ClientCertificateRequired           = UseSaslExternal,
+                   RemoteCertificateValidationCallback = UseSaslExternal
+                                                             ? (_, _, _, _) => true
+                                                             : null
+               };
+
+        /// <summary>
+        /// Die TLS-Einstellungen des aufbauenden Servers.
+        /// </summary>
+        /// <remarks>
+        /// Das eigene Zertifikat geht nur mit, wenn SASL-EXTERNAL vorgesehen
+        /// ist. Die Gegenstelle prueft es; ob es <i>ihr</i> genuegt, entscheidet
+        /// sie.
+        /// </remarks>
+        private SslClientAuthenticationOptions ClientOptions(String remoteDomain)
+
+            => new () {
+                   TargetHost              = remoteDomain,
+                   ClientCertificates      = UseSaslExternal && Certificate is not null
+                                                 ? [Certificate]
+                                                 : null
+               };
+
+        /// <summary>
+        /// Macht aus dem vorgelegten Zertifikat die Pruefung, die
+        /// <see cref="S2SStream"/> braucht - oder null, wenn es keines gibt.
+        /// </summary>
+        /// <remarks>
+        /// Null ist hier die richtige Antwort und keine Notloesung: ohne
+        /// Zertifikat darf SASL-EXTERNAL gar nicht erst angeboten werden.
+        ///
+        /// <b>Was diese Pruefung nicht leistet:</b> sie sagt, fuer welche
+        /// Domains das Zertifikat ausgestellt ist - nicht, ob ihm zu trauen
+        /// ist. Die Kette gegen eine bekannte CA zu pruefen ist Sache des
+        /// TLS-Handshakes und damit der hinterlegten Pruefung; im Testaufbau
+        /// ist das ein angehefteter Fingerabdruck. Wer hier eine Pruefung
+        /// einsetzt, die alles durchlaesst, hat SASL-EXTERNAL auf eine
+        /// Selbstauskunft reduziert.
+        /// </remarks>
+        private Func<String, Boolean>? IdentityCheckFor(X509Certificate? peerCertificate)
+        {
+
+            if (!UseSaslExternal || peerCertificate is null)
+                return null;
+
+            var zertifikat = peerCertificate as X509Certificate2
+                                 ?? X509CertificateLoader.LoadCertificate(peerCertificate.GetRawCertData());
+
+            return domain => CertificateIdentity.Authorises(zertifikat, domain);
 
         }
 
@@ -723,11 +816,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                           leaveInnerStreamOpen: false,
                           userCertificateValidationCallback: peer.Validator);
 
-            await tls.AuthenticateAsClientAsync(
-                      new SslClientAuthenticationOptions {
-                          TargetHost = remoteDomain
-                      },
-                      cancellationToken);
+            await tls.AuthenticateAsClientAsync(ClientOptions(remoteDomain), cancellationToken);
 
             return tls;
 
@@ -757,6 +846,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var puffer    = new Byte[8192];
             var zerleger  = new XmlStreamSplitter();
+
+            // Nach einem SASL-Neustart beginnt der Strom als neues Dokument.
+            s2s.OnRestart += zerleger.Reset;
 
             try
             {

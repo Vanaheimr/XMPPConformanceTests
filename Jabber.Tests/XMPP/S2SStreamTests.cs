@@ -17,6 +17,8 @@
 
 #region Usings
 
+using System.Text;
+
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.XMPP.Server;
@@ -627,6 +629,355 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                       "<db:result from='rechts.example' to='links.example' type='valid'/>");
 
             Assert.That(stream.IsAuthenticated, Is.True);
+
+        }
+
+        #endregion
+
+        #region ExternalIsOfferedOnlyWhenACertificateCanBeChecked()
+
+        /// <summary>
+        /// SASL-EXTERNAL wird nur angeboten, wenn es auch etwas zu pruefen
+        /// gibt.
+        /// </summary>
+        /// <remarks>
+        /// Ein Angebot ohne pruefbares Zertifikat waere eine Einladung in eine
+        /// Sackgasse: die Gegenstelle schickte ihr <c>&lt;auth/&gt;</c> und
+        /// bekaeme unweigerlich ein <c>&lt;failure/&gt;</c>.
+        /// </remarks>
+        [Test]
+        public async Task ExternalIsOfferedOnlyWhenACertificateCanBeChecked()
+        {
+
+            var ohne = Eingehend();
+            await ohne.ProcessFrameAsync(OpenVon("links.example"));
+
+            Assert.That(Gesendet("EXTERNAL"), Is.False,
+                        "Ohne Zertifikat darf EXTERNAL nicht angeboten werden.");
+
+            _gesendet.Clear();
+
+            var mit = S2SStream.Accept("rechts.example", Senden,
+                                       (_, _) => Task.FromResult(RemoteStanzaResult.Accepted),
+                                       externalIdentity: _ => true);
+
+            await mit.ProcessFrameAsync(OpenVon("links.example"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("EXTERNAL"), Is.True);
+                Assert.That(Gesendet("urn:ietf:params:xml:ns:xmpp-sasl"), Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region AMatchingCertificate_AuthenticatesTheStream()
+
+        /// <summary>
+        /// Der Normalfall: das Zertifikat deckt die Domain, der Stream ist
+        /// ausgewiesen - ohne Dialback und ohne zweite Verbindung.
+        /// </summary>
+        [Test]
+        public async Task AMatchingCertificate_AuthenticatesTheStream()
+        {
+
+            var geprueft = new List<String>();
+
+            var stream = S2SStream.Accept("rechts.example", Senden,
+                                          (_, _) => Task.FromResult(RemoteStanzaResult.Accepted),
+                                          externalIdentity: d => { geprueft.Add(d); return true; });
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            var authzid = Convert.ToBase64String(Encoding.UTF8.GetBytes("links.example"));
+
+            await stream.ProcessFrameAsync(
+                      $"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='EXTERNAL'>{authzid}</auth>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(geprueft,                 Is.EquivalentTo(new[] { "links.example" }));
+                Assert.That(Gesendet("<success"),     Is.True);
+                Assert.That(stream.IsAuthenticated,   Is.True);
+                Assert.That(stream.AuthenticatedBy,   Is.EqualTo("SASL-EXTERNAL"));
+
+                // RFC 6120, Abschnitt 6.4.6: der Stream faengt von vorn an.
+                Assert.That(stream.IsOpen, Is.False, "Nach <success/> wird der Stream neu geoeffnet.");
+            });
+
+        }
+
+        #endregion
+
+        #region ACertificateThatDoesNotCoverTheDomain_IsRefused()
+
+        /// <summary>
+        /// Deckt das Zertifikat die Domain nicht, gibt es
+        /// <c>&lt;not-authorized/&gt;</c> - und keinen ausgewiesenen Stream.
+        /// </summary>
+        /// <remarks>
+        /// Die eine Zeile, an der SASL-EXTERNAL haengt. Fiele sie weg, waere
+        /// das Verfahren nur eine hoefliche Bitte um Selbstauskunft.
+        /// </remarks>
+        [Test]
+        public async Task ACertificateThatDoesNotCoverTheDomain_IsRefused()
+        {
+
+            var stream = S2SStream.Accept("rechts.example", Senden,
+                                          (_, _) => Task.FromResult(RemoteStanzaResult.Accepted),
+                                          externalIdentity: _ => false);
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            var authzid = Convert.ToBase64String(Encoding.UTF8.GetBytes("links.example"));
+
+            await stream.ProcessFrameAsync(
+                      $"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='EXTERNAL'>{authzid}</auth>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("not-authorized"), Is.True);
+                Assert.That(Gesendet("<success"),       Is.False);
+                Assert.That(stream.IsAuthenticated,     Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region ClaimingADifferentDomainThanTheStreamHeader_IsRefused()
+
+        /// <summary>
+        /// Die authzid muss zu dem passen, was der Stream-Kopf genannt hat.
+        /// </summary>
+        /// <remarks>
+        /// Ohne diese Pruefung liesse sich ein Stream nachtraeglich auf eine
+        /// zweite Identitaet umschreiben: Kopf fuer die eine Domain, Ausweis
+        /// fuer die andere. Der Test gibt bewusst ein Zertifikat mit, das
+        /// <b>alles</b> deckt - abgelehnt wird hier nicht wegen des
+        /// Zertifikats, sondern wegen des Widerspruchs.
+        /// </remarks>
+        [Test]
+        public async Task ClaimingADifferentDomainThanTheStreamHeader_IsRefused()
+        {
+
+            var stream = S2SStream.Accept("rechts.example", Senden,
+                                          (_, _) => Task.FromResult(RemoteStanzaResult.Accepted),
+                                          externalIdentity: _ => true);
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            var authzid = Convert.ToBase64String(Encoding.UTF8.GetBytes("bank.example"));
+
+            await stream.ProcessFrameAsync(
+                      $"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='EXTERNAL'>{authzid}</auth>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("not-authorized"), Is.True);
+                Assert.That(stream.IsAuthenticated,     Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region AnEmptyAuthzid_MeansTheStreamHeaderDomain()
+
+        /// <summary>
+        /// Eine leere authzid (<c>=</c>) heisst "nimm die Identitaet aus dem
+        /// Zertifikat" (RFC 6120, Abschnitt 6.4.2).
+        /// </summary>
+        [Test]
+        public async Task AnEmptyAuthzid_MeansTheStreamHeaderDomain()
+        {
+
+            var geprueft = new List<String>();
+
+            var stream = S2SStream.Accept("rechts.example", Senden,
+                                          (_, _) => Task.FromResult(RemoteStanzaResult.Accepted),
+                                          externalIdentity: d => { geprueft.Add(d); return true; });
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            await stream.ProcessFrameAsync(
+                      "<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='EXTERNAL'>=</auth>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(geprueft,               Is.EquivalentTo(new[] { "links.example" }));
+                Assert.That(stream.IsAuthenticated, Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region AnUnofferedMechanism_IsRefused()
+
+        /// <summary>
+        /// Ein anderer Mechanismus als EXTERNAL wird abgelehnt.
+        /// </summary>
+        [Test]
+        public async Task AnUnofferedMechanism_IsRefused()
+        {
+
+            var stream = S2SStream.Accept("rechts.example", Senden,
+                                          (_, _) => Task.FromResult(RemoteStanzaResult.Accepted),
+                                          externalIdentity: _ => true);
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            await stream.ProcessFrameAsync(
+                      "<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>eA==</auth>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("invalid-mechanism"), Is.True);
+                Assert.That(stream.IsAuthenticated,        Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region NoStanzasBeforeExternalHasSucceeded()
+
+        /// <summary>
+        /// Auch mit SASL-EXTERNAL gilt: vor dem Ausweis keine Stanza.
+        /// </summary>
+        [Test]
+        public async Task NoStanzasBeforeExternalHasSucceeded()
+        {
+
+            var zugestellt = new List<String>();
+
+            var stream = S2SStream.Accept("rechts.example", Senden,
+                                          (_, stanza) =>
+                                          {
+                                              zugestellt.Add(stanza);
+                                              return Task.FromResult(RemoteStanzaResult.Accepted);
+                                          },
+                                          verifyKey: (_, _, _) => Task.FromResult(false),
+                                          externalIdentity: _ => true);
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            await stream.ProcessFrameAsync(
+                      "<message from='alice@links.example' to='bob@rechts.example'><body>Hallo</body></message>");
+
+            Assert.That(zugestellt, Is.Empty);
+
+        }
+
+        #endregion
+
+        #region TheInitiatorRestartsTheStreamAfterSuccess()
+
+        /// <summary>
+        /// Auf der aufbauenden Seite: nach <c>&lt;success/&gt;</c> geht ein
+        /// neuer Stream-Kopf hinaus (RFC 6120, Abschnitt 6.4.6).
+        /// </summary>
+        [Test]
+        public async Task TheInitiatorRestartsTheStreamAfterSuccess()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden,
+                                            canOfferExternal: true);
+
+            await stream.OpenAsync();
+            await stream.ProcessFrameAsync(OpenVon("rechts.example", to: "links.example", id: "s-1"));
+
+            await stream.ProcessFrameAsync(
+                      "<stream:features xmlns:stream='http://etherx.jabber.org/streams'>" +
+                      "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>" +
+                      "<mechanism>EXTERNAL</mechanism></mechanisms></stream:features>");
+
+            Assert.That(Gesendet("mechanism='EXTERNAL'"), Is.True,
+                        "Auf das Angebot muss ein <auth/> folgen.");
+
+            var vorher = _gesendet.Count;
+
+            await stream.ProcessFrameAsync("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stream.IsAuthenticated, Is.True);
+                Assert.That(_gesendet, Has.Count.GreaterThan(vorher));
+                Assert.That(_gesendet[^1], Does.StartWith("<open"),
+                            "Nach dem Erfolg faengt der Stream von vorn an.");
+            });
+
+        }
+
+        #endregion
+
+        #region ARefusedExternal_DoesNotFallBackToDialback()
+
+        /// <summary>
+        /// Nach <c>&lt;failure/&gt;</c> gibt es keinen zweiten Anlauf mit dem
+        /// schwaecheren Verfahren.
+        /// </summary>
+        /// <remarks>
+        /// Eine Festlegung, keine Auslassung: wer sich per Zertifikat
+        /// ausweisen wollte und abgelehnt wurde, hat ein Problem, das Dialback
+        /// nicht loest, sondern verdeckt.
+        /// </remarks>
+        [Test]
+        public async Task ARefusedExternal_DoesNotFallBackToDialback()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden,
+                                            secret: "s3cr3tf0rd14lb4ck",
+                                            canOfferExternal: true);
+
+            await stream.OpenAsync();
+            await stream.ProcessFrameAsync(OpenVon("rechts.example", to: "links.example", id: "s-1"));
+            await stream.ProcessFrameAsync(
+                      "<stream:features xmlns:stream='http://etherx.jabber.org/streams'>" +
+                      "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>" +
+                      "<mechanism>EXTERNAL</mechanism></mechanisms></stream:features>");
+
+            await stream.ProcessFrameAsync(
+                      "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><not-authorized/></failure>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("<db:result"),   Is.False, "Kein Rueckfall auf Dialback.");
+                Assert.That(stream.IsAuthenticated,   Is.False);
+                Assert.That(stream.IsClosed,          Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region WithoutExternalOnOffer_TheInitiatorUsesDialback()
+
+        /// <summary>
+        /// Bietet die Gegenstelle kein EXTERNAL an, geht es mit Dialback
+        /// weiter.
+        /// </summary>
+        [Test]
+        public async Task WithoutExternalOnOffer_TheInitiatorUsesDialback()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden,
+                                            secret: "s3cr3tf0rd14lb4ck",
+                                            canOfferExternal: true);
+
+            await stream.OpenAsync();
+            await stream.ProcessFrameAsync(OpenVon("rechts.example", to: "links.example", id: "s-1"));
+            await stream.ProcessFrameAsync(
+                      "<stream:features xmlns:stream='http://etherx.jabber.org/streams'/>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("<db:result"),           Is.True);
+                Assert.That(Gesendet("mechanism='EXTERNAL'"), Is.False);
+            });
 
         }
 

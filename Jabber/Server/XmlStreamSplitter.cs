@@ -105,6 +105,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region Reset()
+
+        /// <summary>
+        /// Fängt von vorn an - der nächste Rahmen ist wieder ein Stream-Kopf.
+        /// </summary>
+        /// <remarks>
+        /// Nach erfolgreichem SASL beginnt der Stream neu (RFC 6120,
+        /// Abschnitt 6.4.6), und zwar als frisches XML-Dokument. Ohne diesen
+        /// Schnitt hielte der Zerleger den zweiten
+        /// <c>&lt;stream:stream&gt;</c> für ein Kindelement des ersten und
+        /// wartete bis in alle Ewigkeit auf dessen schliessendes Tag - der
+        /// Neustart käme oben nie an, und die Verbindung stünde still, ohne
+        /// dass etwas kaputt aussähe.
+        ///
+        /// Angefangene Reste werden dabei verworfen. Das ist Absicht: nach
+        /// dem Neustart gilt der alte Zustand ohnehin nicht mehr, und eine
+        /// Gegenstelle, die noch etwas Halbes im Puffer hinterlassen hat,
+        /// hält sich nicht an die Reihenfolge.
+        /// </remarks>
+        public void Reset()
+        {
+            rest      = "";
+            rootSeen  = false;
+        }
+
+        #endregion
+
         #region (private static) SkipProlog(s)
 
         /// <summary>

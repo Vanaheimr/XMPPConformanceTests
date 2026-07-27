@@ -1988,8 +1988,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             // Ohne Server Authentication weist die Prüfung des Betriebssystems
             // das Zertifikat auch dann ab, wenn man ihm sonst vertraute.
+            // Client Authentication kommt für SASL-EXTERNAL dazu: dort legt
+            // der aufbauende Server sein Zertifikat als Client vor, und ein
+            // Zertifikat ohne diese Verwendung würde dabei abgelehnt.
             request.CertificateExtensions.Add(
-                new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], true));
+                new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1"),
+                                                   new Oid("1.3.6.1.5.5.7.3.2")], true));
 
             var alternativeNames = new SubjectAlternativeNameBuilder();
             alternativeNames.AddDnsName(domain);

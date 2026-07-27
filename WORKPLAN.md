@@ -42,11 +42,12 @@ Stand: 2026-07-27
 | S4b-2: WebSocket-S2S über echte Sockets samt TLS | `8e0aec3` |
 | S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d`, `a60631c` |
 | S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, `e0d88f4` |
-| S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | *(dieser Commit)* |
+| S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | `f4a9c80` |
+| S4b-7: SASL-EXTERNAL (XEP-0178) über das TLS-Zertifikat | *(dieser Commit)* |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **333 Tests, 0 Fehler, 1 übersprungen** in gut
+Aktueller Stand der Suite: **355 Tests, 0 Fehler, 1 übersprungen** in gut
 eineinhalb Minuten (der übersprungene prüft eine Eigenschaft, die es nur im
 STARTTLS-Betrieb gibt, und läuft daher nur in einer der beiden Fassungen). Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
@@ -243,11 +244,12 @@ jeweils anderen Mechanismus verlangt — nur die Testschärfe dafür fehlt noch.
 
 **Was jetzt WebSocket-S2S kann und was nicht:** verbinden, TLS, Stanza hin und
 zurück, Absenderprüfung mit Konsequenz (Stream *und* Verbindung enden), und
-seit S4b-3 eine belegte Gegenstellendomain. Was weiterhin fehlt: SASL-EXTERNAL
-als Alternative zu Dialback, die Auflösung über SRV statt über eine
-Konfigurationsliste, das Verhalten, wenn zwei Server einander gleichzeitig
-anwählen (doppelte Verbindungen), und welcher Transport gewählt wird, wenn eine
-Domain über beide erreichbar wäre.
+seit S4b-3 eine belegte Gegenstellendomain. Was weiterhin fehlt: die Auflösung
+über SRV statt über eine Konfigurationsliste, das Verhalten, wenn zwei Server
+einander gleichzeitig anwählen (doppelte Verbindungen), und welcher Transport
+gewählt wird, wenn eine Domain über beide erreichbar wäre. SASL-EXTERNAL gibt
+es seit S4b-7, aber nur auf der TCP-Strecke — über WebSocket bleibt Dialback
+der einzige Weg.
 
 **S4b-3 ✅ Dialback (XEP-0220).** Die Domain der Gegenstelle wird jetzt belegt
 statt geglaubt. `DialbackKey` rechnet den Schlüssel nach XEP-0220 §2.1.1
@@ -327,6 +329,44 @@ funktionierte, nur langsam; kein Test wäre je rot geworden.
   geprüft ist sie bisher nur gegen die eigene Gegenstelle — genau die Lücke, die
   bei XEP-0198 schon einmal auffiel.
 - **Keine SRV-Auflösung**, Gegenstellen werden von Hand eingetragen.
+
+**S4b-7 ✅ SASL-EXTERNAL (XEP-0178).** Die Domain der Gegenstelle wird über ihr
+TLS-Zertifikat belegt statt über eine Rückfrage. `TcpServerLinks.UseSaslExternal`
+fordert dafür ein Klientzertifikat an; `CertificateIdentity` sagt, für welche
+Domains es gilt. Der Unterschied ist von aussen messbar und wird auch so
+geprüft: mit SASL-EXTERNAL bleibt `DialbackVerificationCount` auf null, ohne es
+steigt er. Die Zahl der Verbindungen taugt dafür nicht — über die Grenze läuft
+noch anderes, unter anderem die automatische Empfangsbestätigung des Clients,
+und genau daran ist die erste Fassung dieses Tests gescheitert.
+
+Absichtlich streng: gibt es eine SAN-Erweiterung, zählt der Common Name nicht
+mehr (RFC 6125 §6.4.4) — sonst genügte ein Zertifikat mit passendem CN und
+harmlosen SANs. Platzhalter gelten nicht. Nach einem `<failure/>` gibt es
+keinen Rückfall auf Dialback: wer sich per Zertifikat ausweisen wollte und
+abgelehnt wurde, hat ein Problem, das ein schwächeres Verfahren verdeckt statt
+löst.
+
+Was dabei aufflog: der Stream-Neustart nach erfolgreichem SASL (RFC 6120 §6.4.6)
+braucht **zwei** Dinge, die beide zuerst fehlten. Der XML-Zerleger muss
+zurückgesetzt werden, sonst hält er den zweiten `<stream:stream>` für ein
+Kindelement des ersten und wartet ewig auf dessen schliessendes Tag — die
+Verbindung stünde still, ohne dass etwas kaputt aussähe. Und „ausgewiesen"
+allein reicht als Startsignal nicht: einen Augenblick lang ist der Stream
+ausgewiesen und trotzdem nicht offen, und wer da sendet, verliert die Stanza
+lautlos. Dafür gibt es jetzt `WaitUntilReadyAsync`.
+
+**Was an S4b-7 offen bleibt:**
+
+- **`id-on-xmppAddr` wird nicht gelesen** (OID 1.3.6.1.5.5.7.8.5), obwohl
+  XEP-0178 es als die vorgesehene Form nennt. Es steckt als `otherName` in der
+  SAN, und die Bibliothek zählt nur dNSName und IP-Adressen auf. Eine
+  Gegenstelle, die sich *nur* darüber ausweist, wird abgelehnt, obwohl sie im
+  Recht ist.
+- **Nur auf der TCP-Strecke.** Über WebSocket bleibt Dialback der einzige Weg.
+- **Die Kette wird nicht gegen eine CA geprüft.** `CertificateIdentity` sagt,
+  *wofür* ein Zertifikat ausgestellt ist, nicht, ob ihm zu trauen ist — das
+  entscheidet die hinterlegte Prüfung im TLS-Handshake, im Testaufbau ein
+  angehefteter Fingerabdruck.
 
 **Zwei Dinge, die dabei nicht untergehen dürfen:**
 
