@@ -17,6 +17,9 @@
 
 #region Usings
 
+using System.Net.WebSockets;
+using System.Text;
+
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.XMPP;
@@ -129,6 +132,81 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                         Is.True, $"Zeitüberschreitung beim Warten auf: {was}");
         }
 
+        /// <summary>
+        /// Ein Hochstapler: verbindet sich von Hand mit dem S2S-Eingang eines
+        /// Servers und behauptet, für eine fremde Domain zu sprechen.
+        /// </summary>
+        /// <remarks>
+        /// Bewusst zu Fuss über einen rohen <see cref="ClientWebSocket"/> und
+        /// nicht über <see cref="WebSocketServerLinks"/>: dessen ausgehender
+        /// Zweig würde brav einen richtigen Schlüssel erzeugen. Ein Angreifer
+        /// hat das Geheimnis der Domain aber gerade nicht - genau das soll
+        /// geprüft werden.
+        /// </remarks>
+        private sealed class Hochstapler : IAsyncDisposable
+        {
+
+            private readonly ClientWebSocket _socket = new();
+
+            public List<String> Empfangen { get; } = [];
+
+            public async Task VerbindeAsync(WebSocketServerLinks ziel, XMPPServer zielServer)
+            {
+
+                _socket.Options.AddSubProtocol("xmpp-server");
+                _socket.Options.RemoteCertificateValidationCallback = zielServer.IsOwnCertificate;
+
+                await _socket.ConnectAsync(new Uri(ziel.Uri), CancellationToken.None);
+
+                _ = LiesAsync();
+
+            }
+
+            public async Task SendeAsync(String rahmen)
+                => await _socket.SendAsync(Encoding.UTF8.GetBytes(rahmen),
+                                           WebSocketMessageType.Text, true, CancellationToken.None);
+
+            private async Task LiesAsync()
+            {
+
+                var puffer = new Byte[8192];
+
+                try
+                {
+                    while (_socket.State == WebSocketState.Open)
+                    {
+
+                        var ergebnis = await _socket.ReceiveAsync(puffer, CancellationToken.None);
+
+                        if (ergebnis.MessageType == WebSocketMessageType.Close)
+                            break;
+
+                        lock (Empfangen)
+                            Empfangen.Add(Encoding.UTF8.GetString(puffer, 0, ergebnis.Count));
+
+                    }
+                }
+                catch (Exception)
+                {
+                    // Verbindung zu - im Test der erwartete Ausgang.
+                }
+
+            }
+
+            public Boolean Sah(String text)
+            {
+                lock (Empfangen)
+                    return Empfangen.Any(f => f.Contains(text, StringComparison.Ordinal));
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                try { _socket.Dispose(); } catch { /* egal */ }
+                return ValueTask.CompletedTask;
+            }
+
+        }
+
         #endregion
 
 
@@ -199,6 +277,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Zweite und dritte Nachricht bauen keine neue Verbindung mehr auf -
         /// der Verbindungs-Cache greift.
         /// </summary>
+        /// <remarks>
+        /// Geprüft wird, dass die Zahl der Verbindungen nicht <b>wächst</b>,
+        /// nicht dass sie einen bestimmten Wert hat. Wie viele der erste
+        /// Austausch braucht, hängt daran, was sonst noch über die Grenze geht:
+        /// mit Dialback kommt je Richtung eine Verifikationsverbindung dazu,
+        /// und Bobs automatische Empfangsbestätigung (XEP-0184/0333) baut die
+        /// Gegenrichtung gleich mit auf. Eine feste Zahl hier festzuschreiben
+        /// hiesse, den Test bei jeder solchen Änderung nachzuziehen, ohne dass
+        /// er dadurch mehr über die Wiederverwendung aussagte.
+        /// </remarks>
         [Test]
         public async Task SeveralMessagesReuseTheSameConnection()
         {
@@ -212,12 +300,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await alice.SendMessageAsync(bob.BareJid, "eins");
             await WarteAuf(() => empfangen.Count == 1, "die erste Nachricht");
 
+            // Der Gegenrichtung Zeit lassen, sich ebenfalls aufzubauen -
+            // sonst zählte der Vergleich unten eine Verbindung mit, die
+            // ohnehin gerade erst entstand.
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            var nachDemAufbau = _rechtsLinks.InboundConnectionCount;
+
             await alice.SendMessageAsync(bob.BareJid, "zwei");
             await alice.SendMessageAsync(bob.BareJid, "drei");
             await WarteAuf(() => empfangen.Count == 3, "alle drei Nachrichten");
 
-            Assert.That(_rechtsLinks.InboundConnectionCount, Is.EqualTo(1),
-                        "Auf der Empfängerseite darf nur eine S2S-Verbindung angekommen sein.");
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(nachDemAufbau, Is.GreaterThan(0),
+                            "Der erste Austausch muss überhaupt eine Verbindung gebraucht haben.");
+                Assert.That(_rechtsLinks.InboundConnectionCount, Is.EqualTo(nachDemAufbau),
+                            "Weitere Nachrichten dürfen keine neue S2S-Verbindung aufbauen.");
+            });
 
         }
 
@@ -243,6 +345,124 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await WarteAuf(() => fehler.Count > 0, "den Fehler zur unbekannten Domain");
 
             Assert.That(fehler[0].Condition, Is.EqualTo("remote-server-not-found"));
+
+        }
+
+        #endregion
+
+        #region AnImpostorWithoutTheSecret_FailsDialback()
+
+        /// <summary>
+        /// Der Punkt von Dialback: wer die Domain nur behauptet, kommt nicht
+        /// durch (XEP-0220).
+        /// </summary>
+        /// <remarks>
+        /// Der Hochstapler baut regulär auf und legt einen selbst erfundenen
+        /// Schlüssel für <c>links.example</c> vor. Der annehmende Server fragt
+        /// daraufhin nicht ihn, sondern die Adresse, die <b>er selbst</b> für
+        /// <c>links.example</c> hinterlegt hat - und der echte
+        /// <c>links.example</c> kennt den Schlüssel nicht. Genau darauf beruht
+        /// das Verfahren: die Prüfung fragt nie den, der geprüft wird.
+        /// </remarks>
+        [Test]
+        public async Task AnImpostorWithoutTheSecret_FailsDialback()
+        {
+
+            var bob = await ConnectAsync(_rechts, "bob");
+
+            var empfangen = new List<XMPPMessage>();
+            bob.OnMessage += m => empfangen.Add(m);
+
+            await using var boese = new Hochstapler();
+            await boese.VerbindeAsync(_rechtsLinks, _rechts);
+
+            await boese.SendeAsync(
+                "<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' " +
+                "from='links.example' to='rechts.example' version='1.0'/>");
+
+            await WarteAuf(() => boese.Sah("<open"), "den Stream-Kopf der Gegenstelle");
+
+            // Ein frei erfundener Schlüssel - das Geheimnis von links.example
+            // hat der Angreifer nicht.
+            await boese.SendeAsync(
+                "<db:result xmlns:db='jabber:server:dialback' " +
+                "from='links.example' to='rechts.example'>" +
+                "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff" +
+                "</db:result>");
+
+            await WarteAuf(() => boese.Sah("db:result") && boese.Sah("type="),
+                           "die Dialback-Antwort");
+
+            // Und der Versuch, trotzdem zuzustellen.
+            await boese.SendeAsync(
+                $"<message from='alice@links.example' to='{bob.BareJid}' type='chat'>" +
+                "<body>Durchgerutscht?</body></message>");
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(boese.Sah("type='invalid'"), Is.True,
+                            "Der erfundene Schlüssel muss als ungültig zurückkommen.");
+                Assert.That(boese.Sah("type='valid'"),   Is.False);
+                Assert.That(empfangen, Is.Empty,
+                            "Ohne bestandenes Dialback darf keine Stanza zugestellt werden.");
+            });
+
+        }
+
+        #endregion
+
+        #region AnImpostorForAnUnknownDomain_CannotBeVerifiedAtAll()
+
+        /// <summary>
+        /// Für eine Domain, zu der es keine hinterlegte Adresse gibt, kann
+        /// niemand gefragt werden - also wird auch nichts angenommen.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenprobe zum vorigen Test: dort scheiterte der Schlüssel,
+        /// hier scheitert schon die Möglichkeit zu prüfen. Beides muss zur
+        /// Ablehnung führen, sonst wäre die unbekannte Domain der bequemere
+        /// Weg hinein.
+        /// </remarks>
+        [Test]
+        public async Task AnImpostorForAnUnknownDomain_CannotBeVerifiedAtAll()
+        {
+
+            var bob = await ConnectAsync(_rechts, "bob");
+
+            var empfangen = new List<XMPPMessage>();
+            bob.OnMessage += m => empfangen.Add(m);
+
+            await using var boese = new Hochstapler();
+            await boese.VerbindeAsync(_rechtsLinks, _rechts);
+
+            await boese.SendeAsync(
+                "<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' " +
+                "from='niemand.example' to='rechts.example' version='1.0'/>");
+
+            await WarteAuf(() => boese.Sah("<open"), "den Stream-Kopf der Gegenstelle");
+
+            await boese.SendeAsync(
+                "<db:result xmlns:db='jabber:server:dialback' " +
+                "from='niemand.example' to='rechts.example'>" +
+                "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff" +
+                "</db:result>");
+
+            await WarteAuf(() => boese.Sah("db:result") && boese.Sah("type="),
+                           "die Dialback-Antwort");
+
+            await boese.SendeAsync(
+                $"<message from='wer@niemand.example' to='{bob.BareJid}' type='chat'>" +
+                "<body>Und so?</body></message>");
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(boese.Sah("type='invalid'"), Is.True);
+                Assert.That(empfangen, Is.Empty);
+            });
 
         }
 
@@ -291,6 +511,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(empfangen, Is.Empty, "Die gefälschte Nachricht darf den Client nicht erreichen.");
 
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            var vorDerEchten = _rechtsLinks.InboundConnectionCount;
+
             // Der Stream von vorhin ist zu. Eine echte Nachricht muss trotzdem
             // ankommen - über eine neu aufgebaute Verbindung.
             await alice.SendMessageAsync(bob.BareJid, "Trotzdem da.");
@@ -299,7 +523,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.Multiple(() =>
             {
                 Assert.That(empfangen[0].FromBareJid, Is.EqualTo("alice@links.example"));
-                Assert.That(_rechtsLinks.InboundConnectionCount, Is.EqualTo(2),
+                Assert.That(_rechtsLinks.InboundConnectionCount, Is.GreaterThan(vorDerEchten),
                             "Nach dem Stream-Fehler muss die nächste Zustellung eine neue Verbindung aufbauen.");
             });
 

@@ -39,13 +39,17 @@ Stand: 2026-07-27
 | Abmeldung wurde als letzte Presence gemerkt und nachgeliefert — Ursache des sporadischen Fehlschlags | `bccf648` |
 | S4: Domain-Weiche, Fehlerpfad, Föderation zweier Server (ohne echten Transport) | `d9c4333`, `323795f` |
 | S4b-1: S2S-Protokollschicht ohne Transport (`S2SStream`) | `f0a4bbd` |
+| S4b-2: WebSocket-S2S über echte Sockets samt TLS | `8e0aec3` |
+| S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d` |
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **286 Tests, 0 Fehler, 0 übersprungen** in gut einer
-Minute. Ausnahme siehe S4b: zwei Zeilen im WebSocket-Verbindungsabbau, deren
-Mutation im aktuellen Testaufbau nicht zuverlässig isoliert auf sich selbst
-zeigt.
+Aktueller Stand der Suite: **298 Tests, 0 Fehler, 0 übersprungen** in gut einer
+Minute. Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
+`DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
+funktional nicht beobachtbar) und die Slot-Identität im Verbindungs-Cache
+(siehe S4b-3).
 
 ---
 
@@ -235,17 +239,49 @@ zeigt. Beide bleiben, weil RFC 6120 §4.9 den Verbindungsabbau unabhängig vom
 jeweils anderen Mechanismus verlangt — nur die Testschärfe dafür fehlt noch.
 
 **Was jetzt WebSocket-S2S kann und was nicht:** verbinden, TLS, Stanza hin und
-zurück, Absenderprüfung mit Konsequenz (Stream *und* Verbindung enden). Was
-weiterhin fehlt: Dialback oder SASL-EXTERNAL — `AddPeer`/`Connect` *behaupten*
-die Domain der Gegenstelle immer noch, wie `DirectServerLinks` es tat, nur über
-ein Netz statt in-process. Ausserdem: was passiert, wenn zwei Server einander
-gleichzeitig anwählen (doppelte Verbindungen), und welcher Transport gewählt
-wird, wenn eine Domain über beide erreichbar wäre.
+zurück, Absenderprüfung mit Konsequenz (Stream *und* Verbindung enden), und
+seit S4b-3 eine belegte Gegenstellendomain. Was weiterhin fehlt: SASL-EXTERNAL
+als Alternative zu Dialback, die Auflösung über SRV statt über eine
+Konfigurationsliste, das Verhalten, wenn zwei Server einander gleichzeitig
+anwählen (doppelte Verbindungen), und welcher Transport gewählt wird, wenn eine
+Domain über beide erreichbar wäre.
 
-**S4b-3 (offen): Dialback (XEP-0220).** Die Domain der Gegenstelle belegen
-statt sie zu glauben — über die Stream-ID aus S4b-1, damit dieselbe Prüfung
-später auch über TCP trägt. Erst danach ist ein WebSocket-Link mehr wert als
-`DirectServerLinks`.
+**S4b-3 ✅ Dialback (XEP-0220).** Die Domain der Gegenstelle wird jetzt belegt
+statt geglaubt. `DialbackKey` rechnet den Schlüssel nach XEP-0220 §2.1.1
+(Verfahren aus XEP-0185), geprüft gegen den veröffentlichten Vektor —
+`SHA256(Secret)` geht dabei als **Hex-Zeichenkette** in den HMAC, nicht als
+Rohbytes, und die Reihenfolge ist Ziel- vor Absenderdomain. Beide Lesarten
+liefern sonst einen stimmigen, aber falschen Schlüssel.
+
+`S2SStream` beherrscht alle drei Rollen: der aufbauende Server weist sich
+unaufgefordert mit `<db:result/>` aus, der annehmende lässt den Schlüssel
+prüfen und antwortet `valid`/`invalid`, der autoritative rechnet einen fremden
+`<db:verify/>` nach. Vor bestandenem Dialback trägt der Stream keine Stanza —
+das ist die Zeile, die aus dem Austausch überhaupt eine Sicherung macht
+(XEP-0220 §1).
+
+**Wo der Wert steckt:** `WebSocketServerLinks.VerifyDialbackKeyAsync` fragt
+nicht den, der sich gerade ausweisen will, sondern die Adresse, die *dieser*
+Server für die Absenderdomain hinterlegt hat — über eine eigene, kurzlebige
+Verbindung. Wer sich fälschlich für `links.example` ausgibt, wird deshalb nie
+selbst gefragt; gefragt wird der echte `links.example`, und der kennt den
+Schlüssel nicht. An die Stelle der DNS-Auflösung des XEP tritt dabei die
+Gegenstellenliste des Betreibers. Für den Zweck ist das eher strenger als DNS
+(das unauthentifiziert ist), aber es füllt sich nicht selbst: eine Domain ohne
+hinterlegte Adresse lässt sich nicht prüfen und wird deshalb abgelehnt.
+
+Zwei Fehler kamen dabei ans Licht, beide älter als dieser Schritt:
+
+- **Hermods `WebSocketServerConnection` vergleicht sich über `LocalSocket`** —
+  und der ist bei einem Listener für jede angenommene Verbindung derselbe. Ein
+  gewöhnliches `Dictionary` hält damit *alle* eingehenden Verbindungen für ein
+  und dieselbe: die zweite bekam den Stream der ersten samt deren Sendefunktion
+  auf einen längst geschlossenen Socket. `XMPPServer` geht dem seit jeher mit
+  `ReferenceEquals` aus dem Weg; der S2S-Eingang tut es jetzt auch.
+- **Der Verbindungs-Cache räumte nur auf, wenn der Aufbau bereits erfolgreich
+  abgeschlossen war.** Starb der Stream noch im Aufbau — mit Dialback der
+  Normalfall, weil der Aufbau mehrere Umläufe dauert —, blieb der Eintrag für
+  immer stehen. Jetzt wird über die Identität des Platzes aufgeräumt.
 
 **S4b-4 (offen): TCP 5269 als zweite Rahmung.** `S2SStream` sollte dafür
 unverändert bleiben — wenn nicht, war die Trennung in S4b-1 nicht sauber genug.
@@ -254,14 +290,15 @@ Voraussetzung für Föderation mit ejabberd oder Prosody.
 **Zwei Dinge, die dabei nicht untergehen dürfen:**
 
 - **Der schwächere Weg bestimmt das Niveau.** Beide Transporte müssen die
-  Domain der Gegenstelle gleich gut belegen. Ein WebSocket-Link, der Dialback
-  überspringt, weil „das ist ja unser eigenes Protokoll", wäre genau das Loch,
-  gegen das die Absenderprüfung in `AcceptFromRemoteAsync` existiert.
+  Domain der Gegenstelle gleich gut belegen. `S2SStream` lässt sich weiterhin
+  ohne Dialback bauen (`RequiresDialback == false`) — das ist für
+  `DirectServerLinks` und für einen späteren SASL-EXTERNAL-Weg gedacht, nicht
+  als Abkürzung. Der WebSocket-Transport schaltet es nirgends ab.
 - **Dialback klebt am Stream.** XEP-0220 ist über XML-Streams definiert und
   hängt an der Stream-ID. Über WebSocket gibt es kein `<stream:stream>`,
-  sondern `<open/>` mit `id` (RFC 7395 §3.4) — `S2SStream.StreamId` trägt sie
-  schon. Das lässt sich abbilden, ist aber eine eigene Festlegung, die ausser
-  uns niemand kennt.
+  sondern `<open/>` mit `id` (RFC 7395 §3.4) — `S2SStream.StreamId` trägt sie.
+  Das funktioniert, ist aber eine eigene Festlegung, die ausser uns niemand
+  kennt; ob TCP dieselbe Schicht unverändert trägt, entscheidet sich in S4b-4.
 
 ---
 

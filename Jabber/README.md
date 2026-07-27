@@ -385,6 +385,11 @@ miteinander sprechen:
   Subprotokoll `xmpp-server`): eine Absenderfälschung beendet dort nicht nur
   die Zustellung, sondern den Stream und die Verbindung (RFC 6120 §8.1.1.1,
   §4.9)
+- Dialback (XEP-0220) auf dem WebSocket-S2S-Weg: die Domain der Gegenstelle
+  wird belegt, nicht geglaubt. Der annehmende Server fragt dazu **nicht** den,
+  der sich ausweisen will, sondern die für diese Domain hinterlegte Adresse —
+  über eine eigene, kurzlebige Verbindung. Vor bestandenem Dialback trägt der
+  Stream keine Stanza
 - Resource Binding mit eindeutiger Resource je Verbindung
 - Routing von `message`, `presence` und `iq` zwischen den Sitzungen
 - Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
@@ -462,17 +467,18 @@ Server-Implementierung:
 - **Keine Subscription-Pre-Approval** (RFC 6121 §3.4) und keine Zustellung
   offener Anfragen an später anmeldende Kontakte (§3.1.3): eine Anfrage an ein
   gerade nicht verbundenes Konto wird nicht aufbewahrt.
-- **Föderation ohne belegte Domain.** Routing, Adressierung und Zustellung über
-  die Grenze gibt es, jetzt über zwei Wege: `DirectServerLinks` (in-process,
-  für Tests) und `WebSocketServerLinks` (echter Stream über RFC-7395-Rahmen mit
-  eigenem S2S-Subprotokoll `xmpp-server`, nur zwischen Instanzen dieses
-  Servers gedacht). Beide *behaupten* nur die Domain der Gegenstelle, keiner
-  *belegt* sie — Dialback (XEP-0220) oder SASL-EXTERNAL fehlt noch. Bis dahin
-  ist ein WebSocket-S2S-Link so vertrauenswürdig wie `DirectServerLinks`, nur
-  über ein Netz. Die TCP-Rahmung (Port 5269, `jabber:server`-Streams) für die
-  Föderation mit vorhandenen Servern wie ejabberd oder Prosody steht noch aus.
-  Ebenso fehlen domainübergreifende Subscriptions und die Auflösung über
-  SRV-Records (RFC 6120 §3.2).
+- **Föderation nur über WebSocket, und nur mit sich selbst.** Routing,
+  Adressierung und Zustellung über die Grenze gibt es über zwei Wege:
+  `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung) und
+  `WebSocketServerLinks` (echter Stream, TLS, Dialback nach XEP-0220). Der
+  zweite belegt die Domain der Gegenstelle inzwischen; was ihm fehlt, ist die
+  Auflösung über SRV-Records (RFC 6120 §3.2) — Gegenstellen werden von Hand
+  eingetragen, und genau diese Liste tritt bei der Dialback-Prüfung an die
+  Stelle des DNS. Eine Domain ohne hinterlegte Adresse lässt sich deshalb nicht
+  prüfen und wird abgelehnt. Die TCP-Rahmung (Port 5269, `jabber:server`-Streams)
+  für die Föderation mit ejabberd oder Prosody steht noch aus, ebenso
+  SASL-EXTERNAL als Alternative zu Dialback und domainübergreifende
+  Subscriptions.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
@@ -489,9 +495,17 @@ nicht gegen sich selbst:
 | RFC 5802 §5 | SCRAM-SHA-1: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
 | RFC 7677 §3 | SCRAM-SHA-256: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
 | XEP-0115 §5.2 | Verification String `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ exakt reproduziert |
+| XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 
 Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
 die XOR-Verknüpfung und die Server-Signaturprüfung gemeinsam abgedeckt.
+
+Der Dialback-Vektor hat sich dabei besonders gelohnt: `SHA256(Secret)` geht als
+**Hex-Zeichenkette** in den HMAC, nicht als Rohbytes, und die Domains stehen in
+der Reihenfolge Ziel vor Absender. Beide naheliegenden Gegenlesarten liefern
+einen in sich stimmigen, aber falschen Schlüssel — zwei Server, die sich
+verschieden entscheiden, kämen nie zusammen, ohne dass einer von beiden einen
+Fehler machte, den er selbst sehen könnte.
 
 Die Vektorarbeit hat zwei Defekte aufgedeckt, die inzwischen behoben sind. Die
 beiden Tests bleiben als Regressionstests stehen — dass sie greifen, ist per

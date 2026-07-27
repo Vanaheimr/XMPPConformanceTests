@@ -68,15 +68,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>Das WebSocket-Subprotokoll, über das S2S sich vom Client-Zugang unterscheidet.</summary>
         internal const String S2SSubprotocol = "xmpp-server";
 
-        private readonly XMPPServer                              _localServer;
-        private readonly S2SWebSocketListener                    _listener;
-        private readonly Dictionary<String, PeerConfig>          _peers      = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<String, Task<OutboundLink?>>  _outbound   = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Lock                                    _lock       = new();
+        private readonly XMPPServer                          _localServer;
+        private readonly S2SWebSocketListener                _listener;
+        private readonly Dictionary<String, PeerConfig>      _peers      = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<String, OutboundSlot>    _outbound   = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Lock                                _lock       = new();
 
         private sealed record PeerConfig(String Uri, RemoteCertificateValidationCallback? Validator);
 
         private sealed record OutboundLink(ClientWebSocket Socket, S2SStream Stream);
+
+        /// <summary>
+        /// Ein Platz im Verbindungs-Cache. Nicht der <c>Task</c> selbst, weil
+        /// aufgeräumt werden muss, <b>während</b> der Aufbau noch läuft.
+        /// </summary>
+        /// <remarks>
+        /// Zuvor stand hier der Task, und entfernt wurde nur, wenn er bereits
+        /// erfolgreich abgeschlossen war. Stirbt der Stream aber noch im
+        /// Aufbau - was mit Dialback der Normalfall wurde, weil der Aufbau nun
+        /// mehrere Umläufe dauert -, blieb der Eintrag für immer stehen und
+        /// jede weitere Zustellung an diese Domain bekam die tote Verbindung
+        /// zurück. Über die Identität des Platzes lässt sich sicher
+        /// aufräumen, ohne versehentlich einen inzwischen neu angelegten
+        /// Eintrag zu treffen.
+        /// </remarks>
+        private sealed class OutboundSlot
+        {
+            public Task<OutboundLink?>? Connecting;
+        }
 
         #endregion
 
@@ -84,6 +103,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         /// <summary>Der Port, auf dem eingehende S2S-Verbindungen erwartet werden.</summary>
         public Int32 Port { get; }
+
+        /// <summary>
+        /// Das Dialback-Geheimnis dieses Servers (XEP-0220). Es entsteht beim
+        /// Anlegen und verlässt den Prozess nie.
+        /// </summary>
+        public String DialbackSecret { get; } = DialbackKey.NewSecret();
 
         /// <summary>Das Zertifikat, mit dem der eingehende Zweig TLS spricht, oder null.</summary>
         public X509Certificate2? Certificate { get; }
@@ -206,6 +231,152 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #endregion
 
 
+        #region (internal) VerifyDialbackKeyAsync(senderDomain, streamId, key)
+
+        /// <summary>
+        /// XEP-0220, Schritt 2 und 3: fragt den autoritativen Server der
+        /// Absenderdomain, ob er diesen Schlüssel ausgestellt hat.
+        /// </summary>
+        /// <remarks>
+        /// <b>Hier steckt der ganze Wert von Dialback.</b> Die Adresse, an die
+        /// gefragt wird, stammt aus der Gegenstellenliste dieses Servers -
+        /// also aus der Konfiguration des Betreibers - und <b>nicht</b> von
+        /// dem, der sich gerade ausweisen will. Wer sich fälschlich für eine
+        /// Domain ausgibt, wird deshalb nie selbst gefragt: die Frage geht an
+        /// den echten Server dieser Domain, der den Schlüssel nicht
+        /// wiedererkennt und ihn ablehnt.
+        ///
+        /// Das ist zugleich der Unterschied zum Dialback des XEP: dort ersetzt
+        /// eine DNS-Auflösung (SRV auf die Absenderdomain) diese Liste. DNS
+        /// fehlt hier noch - die Liste ist der Ersatz, und für den Zweck ein
+        /// strengerer, weil sie signiert ist durch die Hand, die sie gepflegt
+        /// hat, statt durch ein unauthentifiziertes Protokoll. Was sie nicht
+        /// leistet: sich selbst zu füllen. Eine unbekannte Domain kann nicht
+        /// geprüft und deshalb nicht angenommen werden.
+        ///
+        /// Die Verbindung dafür ist eigen und kurzlebig. Sie darf nicht die
+        /// zwischengespeicherte Stanza-Verbindung sein - die will sich
+        /// ihrerseits gerade erst ausweisen, und beide aufeinander warten zu
+        /// lassen wäre eine Verklemmung.
+        /// </remarks>
+        internal async Task<Boolean> VerifyDialbackKeyAsync(String senderDomain,
+                                                            String streamId,
+                                                            String key)
+        {
+
+            PeerConfig? peer;
+
+            lock (_lock)
+                _peers.TryGetValue(senderDomain, out peer);
+
+            // Keine hinterlegte Adresse - dann gibt es niemanden, den man
+            // fragen könnte, und Glauben ist keine Prüfung.
+            if (peer is null)
+                return false;
+
+            ClientWebSocket? socket = null;
+
+            try
+            {
+
+                socket = new ClientWebSocket();
+                socket.Options.AddSubProtocol(S2SSubprotocol);
+
+                if (peer.Validator is not null)
+                    socket.Options.RemoteCertificateValidationCallback = peer.Validator;
+
+                using var cts = new CancellationTokenSource(VerificationTimeout);
+
+                await socket.ConnectAsync(new Uri(peer.Uri), cts.Token);
+
+                var stream = S2SStream.InitiateVerification(
+                                 _localServer.Domain,
+                                 senderDomain,
+                                 (frame, ct) => SendFrameAsync(socket, frame, ct));
+
+                var pumping = PumpVerificationFramesAsync(socket, stream);
+
+                await stream.OpenAsync(cts.Token);
+
+                if (!await stream.WaitUntilOpenAsync(VerificationTimeout, cts.Token))
+                    return false;
+
+                return await stream.RequestVerificationAsync(
+                           targetDomain:  _localServer.Domain,
+                           streamId:      streamId,
+                           key:           key,
+                           Timeout:       VerificationTimeout,
+                           cancellationToken: cts.Token);
+
+            }
+            catch (Exception)
+            {
+                // XEP-0220, Abschnitt 2.4 kennt dafür <remote-server-timeout/>;
+                // für den Aufrufer ist das Ergebnis dasselbe: nicht belegt.
+                return false;
+            }
+            finally
+            {
+                try { socket?.Dispose(); }
+                catch { /* egal */ }
+            }
+
+        }
+
+        /// <summary>Wie lange die Nachfrage beim autoritativen Server dauern darf.</summary>
+        private static readonly TimeSpan VerificationTimeout = TimeSpan.FromSeconds(10);
+
+        /// <summary>
+        /// Liest die Antwort des autoritativen Servers, bis der
+        /// Verifikationsstream endet.
+        /// </summary>
+        private static async Task PumpVerificationFramesAsync(ClientWebSocket socket, S2SStream stream)
+        {
+
+            var buffer = new Byte[8192];
+
+            try
+            {
+
+                while (socket.State == WebSocketState.Open && !stream.IsClosed)
+                {
+
+                    var sb = new StringBuilder();
+                    WebSocketReceiveResult result;
+
+                    do
+                    {
+
+                        result = await socket.ReceiveAsync(buffer, CancellationToken.None);
+
+                        if (result.MessageType == WebSocketMessageType.Close)
+                            break;
+
+                        sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+
+                    }
+                    while (!result.EndOfMessage);
+
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        break;
+
+                    if (sb.Length > 0)
+                        await stream.ProcessFrameAsync(sb.ToString());
+
+                }
+
+            }
+            catch (Exception)
+            {
+                // Verbindung weg - Abort unten weckt einen etwaigen Wartenden.
+            }
+
+            stream.Abort("Verifikationsverbindung beendet");
+
+        }
+
+        #endregion
+
         #region (private) GetOrCreateOutboundAsync(remoteDomain, cancellationToken)
 
         /// <summary>
@@ -225,15 +396,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             {
 
                 if (_outbound.TryGetValue(remoteDomain, out var existing))
-                    return existing;
+                    return existing.Connecting!;
 
                 if (!_peers.TryGetValue(remoteDomain, out var peer))
                     return Task.FromResult<OutboundLink?>(null);
 
-                var connecting = ConnectOutboundAsync(remoteDomain, peer, cancellationToken);
-                _outbound[remoteDomain] = connecting;
+                var slot = new OutboundSlot();
+                _outbound[remoteDomain] = slot;
 
-                return connecting;
+                slot.Connecting = ConnectOutboundAsync(remoteDomain, peer, slot, cancellationToken);
+
+                return slot.Connecting;
 
             }
 
@@ -245,6 +418,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         private async Task<OutboundLink?> ConnectOutboundAsync(String              remoteDomain,
                                                                PeerConfig          peer,
+                                                               OutboundSlot        slot,
                                                                CancellationToken   cancellationToken)
         {
 
@@ -262,30 +436,38 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var stream = S2SStream.Initiate(
                                  _localServer.Domain,
                                  remoteDomain,
-                                 (frame, ct) => SendFrameAsync(socket, frame, ct));
+                                 (frame, ct) => SendFrameAsync(socket, frame, ct),
+                                 secret: DialbackSecret);
 
-                var link = new OutboundLink(socket, stream);
+                stream.OnClosed += _ => DropOutbound(remoteDomain, slot);
 
-                stream.OnClosed += _ => RemoveOutbound(remoteDomain, link);
-
-                _ = PumpIncomingFramesAsync(socket, stream, remoteDomain, link);
+                _ = PumpIncomingFramesAsync(socket, stream, remoteDomain, slot);
 
                 await stream.OpenAsync(cancellationToken);
 
                 if (!await stream.WaitUntilOpenAsync(OutboundHandshakeTimeout, cancellationToken))
                 {
-                    RemoveOutbound(remoteDomain, link);
+                    DropOutbound(remoteDomain, slot);
                     return null;
                 }
 
-                return link;
+                // XEP-0220: erst wenn die Gegenstelle unsere Domain bestätigt
+                // hat, ist der Stream brauchbar. Vorher zugestellte Stanzas
+                // würde sie ohnehin verwerfen.
+                if (!await stream.WaitUntilAuthenticatedAsync(OutboundHandshakeTimeout, cancellationToken))
+                {
+                    stream.Abort("Dialback nicht abgeschlossen");
+                    DropOutbound(remoteDomain, slot);
+                    return null;
+                }
+
+                return new OutboundLink(socket, stream);
 
             }
             catch (Exception)
             {
 
-                lock (_lock)
-                    _outbound.Remove(remoteDomain);
+                DropOutbound(remoteDomain, slot);
 
                 return null;
 
@@ -307,7 +489,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task PumpIncomingFramesAsync(ClientWebSocket  socket,
                                                    S2SStream        stream,
                                                    String           remoteDomain,
-                                                   OutboundLink     link)
+                                                   OutboundSlot     slot)
         {
 
             var buffer = new Byte[8192];
@@ -359,7 +541,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             }
 
             stream.Abort("Ausgehende WebSocket-Verbindung beendet");
-            RemoveOutbound(remoteDomain, link);
+            DropOutbound(remoteDomain, slot);
 
             try { socket.Dispose(); }
             catch { /* egal */ }
@@ -378,15 +560,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         }
 
-        private void RemoveOutbound(String remoteDomain, OutboundLink link)
+        /// <summary>
+        /// Räumt einen Platz aus dem Verbindungs-Cache, wenn er noch derselbe
+        /// ist - unabhängig davon, ob der Aufbau schon fertig war.
+        /// </summary>
+        private void DropOutbound(String remoteDomain, OutboundSlot slot)
         {
 
             lock (_lock)
             {
 
                 if (_outbound.TryGetValue(remoteDomain, out var current) &&
-                    current.IsCompletedSuccessfully &&
-                    ReferenceEquals(current.Result, link))
+                    ReferenceEquals(current, slot))
                 {
                     _outbound.Remove(remoteDomain);
                 }
@@ -410,9 +595,41 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             #region Data
 
-            private readonly WebSocketServerLinks                          _links;
-            private readonly Dictionary<WebSocketServerConnection, S2SStream>  _streams = new();
-            private readonly Lock                                          _lock = new();
+            private readonly WebSocketServerLinks  _links;
+            private readonly Lock                  _lock = new();
+
+            /// <summary>
+            /// Die Streams je Verbindung - <b>ausdrücklich</b> nach
+            /// Referenzgleichheit.
+            /// </summary>
+            /// <remarks>
+            /// Hermods <c>WebSocketServerConnection</c> vergleicht sich über
+            /// <c>LocalSocket</c>, und der ist bei einem Listener für jede
+            /// angenommene Verbindung derselbe: aus Sicht eines gewöhnlichen
+            /// Dictionary sind damit <b>alle</b> eingehenden Verbindungen ein
+            /// und dieselbe. Ohne diesen Vergleicher bekam die zweite
+            /// eingehende Verbindung den Stream der ersten zurück - samt deren
+            /// Sendefunktion, die auf einen längst geschlossenen Socket
+            /// schrieb. Die Antwort ging dann ins Leere und die Gegenstelle
+            /// wartete bis ins Zeitlimit.
+            ///
+            /// <see cref="XMPPServer"/> geht demselben Problem seit jeher mit
+            /// einem <c>ReferenceEquals</c> über eine Liste aus dem Weg.
+            /// </remarks>
+            private readonly Dictionary<WebSocketServerConnection, S2SStream> _streams = new(ByReference.Instance);
+
+            private sealed class ByReference : IEqualityComparer<WebSocketServerConnection>
+            {
+
+                public static readonly ByReference Instance = new();
+
+                public Boolean Equals(WebSocketServerConnection? a, WebSocketServerConnection? b)
+                    => ReferenceEquals(a, b);
+
+                public Int32 GetHashCode(WebSocketServerConnection connection)
+                    => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(connection);
+
+            }
 
             private Int32 _connectionCounter;
 
@@ -436,7 +653,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                        AutoStart:                    false)
 
             {
+
                 _links = links;
+
+                // Ohne das bliebe je beendeter Verbindung ein Stream in der
+                // Tabelle stehen - unauffällig, aber unbegrenzt.
+                OnTCPConnectionClosed += (timestamp, server, connection, eventTrackingId, reason, ct) =>
+                {
+
+                    S2SStream? stream;
+
+                    lock (_lock)
+                    {
+                        _streams.Remove(connection, out stream);
+                    }
+
+                    stream?.Abort("Eingehende WebSocket-Verbindung beendet");
+
+                    return Task.CompletedTask;
+
+                };
+
             }
 
             #endregion
@@ -455,7 +692,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     var stream = S2SStream.Accept(
                                      _links._localServer.Domain,
                                      (frame, ct) => SendTextMessage(connection, frame),
-                                     (peerDomain, stanza) => _links._localServer.AcceptFromRemoteAsync(peerDomain, stanza));
+                                     (peerDomain, stanza) => _links._localServer.AcceptFromRemoteAsync(peerDomain, stanza),
+                                     secret:     _links.DialbackSecret,
+                                     verifyKey:  _links.VerifyDialbackKeyAsync);
 
                     stream.OnClosed += reason =>
                     {
@@ -535,7 +774,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             List<Task<OutboundLink?>> outbound;
 
             lock (_lock)
-                outbound = [.. _outbound.Values];
+                outbound = [.. _outbound.Values
+                                        .Select(slot => slot.Connecting)
+                                        .Where(task => task is not null)
+                                        .Cast<Task<OutboundLink?>>()];
 
             foreach (var task in outbound)
             {
