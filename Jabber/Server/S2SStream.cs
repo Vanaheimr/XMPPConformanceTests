@@ -18,8 +18,6 @@
 #region Usings
 
 using System.Text.RegularExpressions;
-using System.Xml;
-using System.Xml.Linq;
 
 #endregion
 
@@ -69,6 +67,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </summary>
         private readonly String? secret;
 
+        /// <summary>Wie dieser Stream eingepackt ist.</summary>
+        private readonly IS2SFraming framing;
+
         /// <summary>
         /// Lässt einen vorgelegten Dialback-Schlüssel beim autoritativen Server
         /// der Absenderdomain prüfen - Parameter sind Absenderdomain,
@@ -102,8 +103,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Properties
 
-        /// <summary>Der Namensraum der Rahmung (RFC 7395, Abschnitt 3.1).</summary>
-        public const String FramingNamespace = "urn:ietf:params:xml:ns:xmpp-framing";
+        /// <summary>Der Namensraum der WebSocket-Rahmung (RFC 7395, Abschnitt 3.1).</summary>
+        public const String FramingNamespace = WebSocketFraming.Namespace;
 
         /// <summary>Der Namensraum der Stream-Ebene (RFC 6120, Abschnitt 4.8.2).</summary>
         public const String StreamNamespace = "http://etherx.jabber.org/streams";
@@ -185,7 +186,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                           Func<String, String, Task<RemoteStanzaResult>>?  deliverStanza,
                           String?                                          secret,
                           Func<String, String, String, Task<Boolean>>?     verifyKey,
-                          Boolean                                          requiresDialback)
+                          Boolean                                          requiresDialback,
+                          IS2SFraming?                                     framing)
         {
 
             LocalDomain         = localDomain;
@@ -197,6 +199,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             this.deliverStanza  = deliverStanza;
             this.secret         = secret;
             this.verifyKey      = verifyKey;
+            this.framing        = framing ?? WebSocketFraming.Instance;
 
         }
 
@@ -219,7 +222,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public static S2SStream Initiate(String                                localDomain,
                                          String                                remoteDomain,
                                          Func<String, CancellationToken, Task> sendFrame,
-                                         String?                               secret   = null)
+                                         String?                               secret    = null,
+                                         IS2SFraming?                          framing   = null)
 
             => new (localDomain,
                     remoteDomain,
@@ -228,7 +232,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     deliverStanza:     null,
                     secret:            secret,
                     verifyKey:         null,
-                    requiresDialback:  secret is not null);
+                    requiresDialback:  secret is not null,
+                    framing:           framing);
 
         #endregion
 
@@ -258,7 +263,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                        Func<String, CancellationToken, Task>           sendFrame,
                                        Func<String, String, Task<RemoteStanzaResult>>  deliverStanza,
                                        String?                                         secret      = null,
-                                       Func<String, String, String, Task<Boolean>>?    verifyKey   = null)
+                                       Func<String, String, String, Task<Boolean>>?    verifyKey   = null,
+                                       IS2SFraming?                                    framing     = null)
 
             => new (localDomain,
                     remoteDomain:      null,
@@ -267,7 +273,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     deliverStanza:     deliverStanza,
                     secret:            secret,
                     verifyKey:         verifyKey,
-                    requiresDialback:  verifyKey is not null);
+                    requiresDialback:  verifyKey is not null,
+                    framing:           framing);
 
         #endregion
 
@@ -286,7 +293,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </remarks>
         public static S2SStream InitiateVerification(String                                localDomain,
                                                      String                                remoteDomain,
-                                                     Func<String, CancellationToken, Task> sendFrame)
+                                                     Func<String, CancellationToken, Task> sendFrame,
+                                                     IS2SFraming?                          framing = null)
 
             => new (localDomain,
                     remoteDomain,
@@ -295,7 +303,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     deliverStanza:     null,
                     secret:            null,
                     verifyKey:         null,
-                    requiresDialback:  false);
+                    requiresDialback:  false,
+                    framing:           framing);
 
         #endregion
 
@@ -312,12 +321,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 throw new InvalidOperationException(
                           "Nur der Initiator öffnet den Stream; der Empfänger antwortet auf das <open/>.");
 
-            return sendFrame(
-                       $"<open xmlns='{FramingNamespace}' " +
-                       $"from='{XmlEscaping.Escape(LocalDomain)}' " +
-                       $"to='{XmlEscaping.Escape(RemoteDomain!)}' " +
-                       "version='1.0'/>",
-                       cancellationToken);
+            return sendFrame(framing.StreamOpen(LocalDomain, RemoteDomain, null),
+                             cancellationToken);
 
         }
 
@@ -357,10 +362,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                      CancellationToken  cancellationToken = default)
         {
 
-            if (frame.StartsWith("<open", StringComparison.Ordinal))
+            if (framing.IsStreamOpen(frame))
                 return await ProcessOpenAsync(frame, cancellationToken);
 
-            if (frame.StartsWith("<close", StringComparison.Ordinal))
+            if (framing.IsStreamClose(frame))
             {
                 MarkClosed(null);
                 return true;
@@ -480,7 +485,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             try
             {
-                await sendFrame($"<close xmlns='{FramingNamespace}'/>", cancellationToken);
+                await sendFrame(framing.StreamClose(), cancellationToken);
             }
             catch (Exception)
             {
@@ -531,29 +536,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #region (private) ProcessOpenAsync(frame, CancellationToken)
 
         /// <summary>
-        /// Der Stream-Kopf der Gegenstelle (RFC 7395, Abschnitt 3.4).
+        /// Der Stream-Kopf der Gegenstelle (RFC 7395, Abschnitt 3.4 bzw.
+        /// RFC 6120, Abschnitt 4.7).
         /// </summary>
+        /// <remarks>
+        /// Die Attribute werden gelesen, nicht geparst. Über TCP ist der
+        /// Stream-Kopf ein <b>offenes</b> Tag und damit für sich genommen kein
+        /// wohlgeformtes XML - <see cref="XElement.Parse(String)"/> stand hier
+        /// zuerst und hätte jede TCP-Verbindung mit
+        /// <c>&lt;bad-format/&gt;</c> abgewiesen.
+        /// </remarks>
         private async Task<Boolean> ProcessOpenAsync(String             frame,
                                                      CancellationToken  cancellationToken)
         {
 
-            XElement element;
-
-            try
-            {
-                element = XElement.Parse(frame, LoadOptions.PreserveWhitespace);
-            }
-            catch (XmlException)
-            {
-                await SendStreamErrorAsync("bad-format",
-                                           "Der Stream-Kopf ist kein wohlgeformtes XML.",
-                                           cancellationToken);
-                return false;
-            }
-
-            var from  = element.Attribute("from")?.Value;
-            var to    = element.Attribute("to")?.Value;
-            var id    = element.Attribute("id")?.Value;
+            var from  = Attr(frame, "from");
+            var to    = Attr(frame, "to");
+            var id    = Attr(frame, "id");
 
             if (IsInitiator)
             {
@@ -615,13 +614,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var streamId  = Guid.NewGuid().ToString("N");
 
-            await sendFrame(
-                      $"<open xmlns='{FramingNamespace}' " +
-                      $"from='{XmlEscaping.Escape(LocalDomain)}' " +
-                      $"to='{XmlEscaping.Escape(from)}' " +
-                      $"id='{streamId}' " +
-                      "version='1.0'/>",
-                      cancellationToken);
+            await sendFrame(framing.StreamOpen(LocalDomain, from, streamId),
+                            cancellationToken);
 
             // RFC 6120, Abschnitt 4.3.2 verlangt die Features. Verlangt wird
             // Dialback aber unabhängig davon, ob es hier angekündigt steht -

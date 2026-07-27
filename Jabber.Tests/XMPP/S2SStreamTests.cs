@@ -492,6 +492,146 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheSameLayerAlsoSpeaksTcpFraming()
+
+        /// <summary>
+        /// Dieselbe Protokollschicht, andere Rahmung: über TCP heisst der
+        /// Stream-Kopf <c>&lt;stream:stream&gt;</c> und ist ein offenes Tag
+        /// (RFC 6120, Abschnitt 4.7).
+        /// </summary>
+        /// <remarks>
+        /// Der Nachweis zu S4b-1. Was sich unterscheidet, ist ausschliesslich
+        /// die Rahmung; Handshake-Ablauf, Stream-ID, Absenderprüfung und
+        /// Zustellung laufen unverändert. Genau deshalb steht dieser Test hier
+        /// bei der Protokollschicht und nicht beim Transport - er kommt ohne
+        /// Socket aus.
+        /// </remarks>
+        [Test]
+        public async Task TheSameLayerAlsoSpeaksTcpFraming()
+        {
+
+            var zugestellt = new List<String>();
+
+            var stream = S2SStream.Accept(
+                             "rechts.example",
+                             Senden,
+                             (peer, stanza) =>
+                             {
+                                 zugestellt.Add(stanza);
+                                 return Task.FromResult(RemoteStanzaResult.Accepted);
+                             },
+                             framing: TcpStreamFraming.Instance);
+
+            await stream.ProcessFrameAsync(
+                      "<stream:stream xmlns='jabber:server' " +
+                      "xmlns:stream='http://etherx.jabber.org/streams' " +
+                      "from='links.example' to='rechts.example' version='1.0'>");
+
+            await stream.ProcessFrameAsync(
+                      "<message from='alice@links.example' to='bob@rechts.example'><body>Hallo</body></message>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stream.IsOpen,        Is.True);
+                Assert.That(stream.RemoteDomain,  Is.EqualTo("links.example"));
+                Assert.That(stream.StreamId,      Is.Not.Null.And.Not.Empty);
+                Assert.That(zugestellt,           Has.Count.EqualTo(1));
+
+                // Die Antwort trägt die TCP-Rahmung, nicht die von RFC 7395.
+                Assert.That(Gesendet("<stream:stream"), Is.True);
+                Assert.That(Gesendet("jabber:server"),  Is.True);
+                Assert.That(Gesendet("<open "),         Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region TcpFramingClosesWithTheRootElement()
+
+        /// <summary>
+        /// Über TCP endet der Stream mit <c>&lt;/stream:stream&gt;</c>, nicht
+        /// mit <c>&lt;close/&gt;</c>.
+        /// </summary>
+        [Test]
+        public async Task TcpFramingClosesWithTheRootElement()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden,
+                                            framing: TcpStreamFraming.Instance);
+
+            await stream.OpenAsync();
+            await stream.ProcessFrameAsync(
+                      "<stream:stream xmlns='jabber:server' " +
+                      "xmlns:stream='http://etherx.jabber.org/streams' " +
+                      "from='rechts.example' to='links.example' id='s-9' version='1.0'>");
+
+            Assert.That(stream.StreamId, Is.EqualTo("s-9"));
+
+            await stream.CloseAsync();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(_gesendet[0], Does.StartWith("<stream:stream"));
+                Assert.That(_gesendet[0], Does.Not.Contain("/>"),
+                            "Der Stream-Kopf ist ein offenes Tag.");
+                Assert.That(_gesendet[^1], Is.EqualTo("</stream:stream>"));
+                Assert.That(stream.IsClosed, Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region TcpFramingCarriesDialbackThroughUnchanged()
+
+        /// <summary>
+        /// Auch Dialback läuft über die TCP-Rahmung unverändert - der
+        /// Schlüssel hängt an der Stream-ID, und die gibt es in beiden
+        /// Rahmungen.
+        /// </summary>
+        /// <remarks>
+        /// Das war die offene Frage aus dem Arbeitsplan: Dialback ist über
+        /// XML-Streams definiert, und die WebSocket-Abbildung war eine eigene
+        /// Festlegung. Hier zeigt sich, dass die Schicht darüber davon nichts
+        /// mitbekommt.
+        /// </remarks>
+        [Test]
+        public async Task TcpFramingCarriesDialbackThroughUnchanged()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden,
+                                            secret:  "s3cr3tf0rd14lb4ck",
+                                            framing: TcpStreamFraming.Instance);
+
+            await stream.OpenAsync();
+            await stream.ProcessFrameAsync(
+                      "<stream:stream xmlns='jabber:server' " +
+                      "xmlns:stream='http://etherx.jabber.org/streams' " +
+                      "xmlns:db='jabber:server:dialback' " +
+                      "from='rechts.example' to='links.example' id='D60000229F' version='1.0'>");
+
+            // Derselbe Vektor wie in DialbackKeyTests, nur mit vertauschten
+            // Beispiel-Domains: Ziel ist hier rechts.example.
+            var erwartet = DialbackKey.Generate("s3cr3tf0rd14lb4ck",
+                                                "rechts.example", "links.example", "D60000229F");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("<db:result"), Is.True);
+                Assert.That(Gesendet(erwartet),     Is.True);
+                Assert.That(stream.IsAuthenticated, Is.False, "Noch fehlt die Bestätigung.");
+            });
+
+            await stream.ProcessFrameAsync(
+                      "<db:result from='rechts.example' to='links.example' type='valid'/>");
+
+            Assert.That(stream.IsAuthenticated, Is.True);
+
+        }
+
+        #endregion
+
         #region WaitingForAStreamThatNeverOpens_GivesUp()
 
         /// <summary>
