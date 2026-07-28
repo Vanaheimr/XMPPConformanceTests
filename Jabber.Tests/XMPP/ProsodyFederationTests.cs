@@ -53,9 +53,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #region Data
 
-        private const String PeerDomain   = "prosody.test";
-        private const String LocalDomain  = "jabber.test";
-        private const Int32  PeerPort     = 5269;
+        private const String PeerDomain     = "prosody.test";
+        private const Int32  PeerPort       = 15269;
+
+        /// <summary>Unsere Domain im ausgehenden Lauf.</summary>
+        private const String LocalDomain    = "jabber.test";
+
+        /// <summary>
+        /// Unsere Domain im eingehenden Lauf - und der Grund, warum es zwei
+        /// gibt.
+        /// </summary>
+        /// <remarks>
+        /// Damit <b>Prosody</b> uns anwählen kann, muss es unsere Domain
+        /// auflösen können. Ein Eintrag in <c>/etc/hosts</c> bräuchte root;
+        /// <c>localhost</c> steht dort ohnehin und zeigt auf die
+        /// Rückschleife. Deshalb bedient der Testserver in diesem Fall diese
+        /// Domain - und horcht auf 5269, dem Port, auf den Prosody ohne
+        /// SRV-Eintrag zurückfällt. Prosody selbst weicht dafür auf 15269 aus.
+        /// </remarks>
+        private const String InboundDomain  = "localhost";
+        private const Int32  InboundPort    = 5269;
 
         private XMPPServer?       _server;
         private XMPPClient?       _client;
@@ -79,7 +96,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Prosody bereitsteht.
         /// </summary>
         /// <param name="bidi">XEP-0288 aushandeln.</param>
-        private void Aufbau(Boolean bidi = false)
+        /// <param name="erreichbar">
+        /// Unter einer Domain und einem Port aufbauen, unter denen Prosody uns
+        /// von sich aus anwählen kann.
+        /// </param>
+        private void Aufbau(Boolean bidi = false, Boolean erreichbar = false)
         {
 
             var verzeichnis = CertDirectory;
@@ -90,15 +111,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             if (!PortAntwortet())
                 Assert.Ignore($"Auf 127.0.0.1:{PeerPort} antwortet kein Prosody.");
 
+            var domain = erreichbar ? InboundDomain : LocalDomain;
+
             _ca       = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(verzeichnis, "ca.crt"));
             _ourCert  = X509CertificateLoader.LoadPkcs12FromFile(
-                            Path.Combine(verzeichnis, $"{LocalDomain}.pfx"), null);
+                            Path.Combine(verzeichnis, $"{domain}.pfx"), null);
 
-            _server   = new XMPPServer(LocalDomain, certificate: _ourCert);
+            _server   = new XMPPServer(domain, certificate: _ourCert);
             _server.Start();
             _server.AddAccount("alice");
 
-            _links = new TcpServerLinks(_server, mode: TcpTlsMode.StartTls) {
+            _links = new TcpServerLinks(_server,
+                                        port: erreichbar ? InboundPort : 0,
+                                        mode: TcpTlsMode.StartTls) {
                          UseSaslExternal          = true,
                          UseBidirectionalStreams  = bidi
                      };
@@ -177,7 +202,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private async Task<XMPPClient> AliceAsync()
         {
 
-            var connection = new XMPPConnection($"alice@{LocalDomain}", "pw", _server!.Uri) {
+            var connection = new XMPPConnection($"alice@{_server!.Domain}", "pw", _server.Uri) {
                                  KeepaliveEnabled            = false,
                                  MaxReconnectAttempts        = 0,
                                  ServerCertificateValidator  = (_, c, _, _) =>
@@ -230,50 +255,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region APingReachesProsodyAndComesBack()
-
-        /// <summary>
-        /// Der ganze Weg: eine Stanza hinaus und die Antwort zurück.
-        /// </summary>
-        /// <remarks>
-        /// Prosody nimmt den Ping an und erzeugt die Antwort - sie steht so im
-        /// Log. Es schickt sie aber nicht über den Stream zurück, über den die
-        /// Frage kam, sondern baut dafür eine <i>eigene</i> Verbindung zu
-        /// <c>jabber.test</c> auf. Genau so ist RFC 6120, Abschnitt 4.1
-        /// gemeint: ein XML-Stream ist einseitig. Unsere Seite tut dasselbe -
-        /// <c>DeliverAsync</c> geht ausnahmslos über eine ausgehende
-        /// Verbindung, und eine Stanza auf einem ausgehenden Stream wird
-        /// abgewiesen.
-        ///
-        /// Hier scheitert der Rückweg an der Umgebung und nicht am Protokoll:
-        /// in WSL gibt es kein DNS für <c>.test</c>, und die Hyper-V-Firewall
-        /// verwirft ohnehin jede Verbindung von WSL zum Windows-Host.
-        ///
-        /// Genau dafür gibt es XEP-0288, und mit ausgehandelter Bidi läuft
-        /// dieser Weg über <see cref="APingOverABidirectionalStream"/>. Dieser
-        /// Test bleibt als Gegenprobe stehen: <b>ohne</b> Bidi kommt keine
-        /// Antwort, solange die Gegenstelle uns nicht erreichen kann.
-        /// </remarks>
-        [Test]
-        [Ignore("Ohne XEP-0288 braucht die Antwort eine eigene Verbindung von " +
-                "Prosody zu uns - die verwirft die Hyper-V-Firewall. Mit Bidi " +
-                "läuft derselbe Weg in APingOverABidirectionalStream.")]
-        public async Task APingReachesProsodyAndComesBack()
-        {
-
-            Aufbau();
-
-            var alice = await AliceAsync();
-
-            var dauer = await alice.PingAsync(PeerDomain);
-
-            Assert.That(dauer, Is.Not.Null,
-                        "Prosody hat den Ping nicht beantwortet.");
-
-        }
-
-        #endregion
-
         #region APingOverABidirectionalStream()
 
         /// <summary>
@@ -304,6 +285,62 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(dauer, Is.Not.Null,
                         "Prosody hat den Ping nicht über die Rückrichtung beantwortet.");
+
+        }
+
+        #endregion
+
+        #region ProsodyDialsUsAndTheAnswerArrives()
+
+        /// <summary>
+        /// Der eingehende Weg: Prosody baut die Verbindung auf, wir nehmen an.
+        /// </summary>
+        /// <remarks>
+        /// Bis hierher stand unsere annehmende Seite nie vor einer fremden
+        /// Gegenstelle. Was hier zum ersten Mal geprüft wird, ist unser
+        /// Stream-Kopf als Antwortender, unsere Feature-Ankündigung, unsere
+        /// Annahme eines fremden <c>&lt;auth mechanism='EXTERNAL'/&gt;</c> und
+        /// die Identitätsprüfung aus dem vorgelegten Zertifikat. Der Rückweg
+        /// aus S9 lief zwar in eingehender Richtung, aber über einen Stream,
+        /// den <i>wir</i> aufgebaut hatten.
+        ///
+        /// Ohne XEP-0288, und das ist Absicht: genau dann beantwortet Prosody
+        /// den Ping über eine eigene Verbindung zu uns, und die muss unser
+        /// Listener annehmen. Mit Bidi käme die Antwort über den bestehenden
+        /// Stream, und der eingehende Weg bliebe wieder ungeprüft.
+        ///
+        /// <b>Dieser Test läuft nur innerhalb von WSL.</b> Von Windows aus
+        /// erreicht Prosody uns nicht - die Hyper-V-Firewall verwirft jede
+        /// Verbindung von WSL zum Host, und das zu ändern hiesse, eine
+        /// Firewall-Regel zu setzen. Im selben Netz ist alles Rückschleife.
+        /// </remarks>
+        [Test]
+        public async Task ProsodyDialsUsAndTheAnswerArrives()
+        {
+
+            if (!OperatingSystem.IsLinux())
+                Assert.Ignore("Nur innerhalb von WSL: von Windows aus erreicht Prosody diesen Server nicht.");
+
+            Aufbau(erreichbar: true);
+
+            var alice = await AliceAsync();
+
+            var dauer = await alice.PingAsync(PeerDomain);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(dauer, Is.Not.Null,
+                            "Prosody hat den Ping nicht beantwortet.");
+
+                Assert.That(_links!.InboundConnectionCount, Is.GreaterThan(0),
+                            "Die Antwort kam, aber nicht über eine eingehende Verbindung - " +
+                            "dann prüft dieser Test nicht, was er prüfen soll.");
+
+                Assert.That(_links.BidirectionalDeliveryCount, Is.Zero,
+                            "Aufbau des Tests: hier soll gerade keine Rückrichtung im Spiel sein.");
+
+            });
 
         }
 

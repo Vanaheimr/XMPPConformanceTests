@@ -510,12 +510,11 @@ Server-Implementierung:
   neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
   Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
   auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
-- **Der eingehende S2S-Weg ist nie gegen eine fremde Gegenstelle gelaufen.**
-  Der ausgehende ist es (Prosody 13: STARTTLS, SASL-EXTERNAL, Zustellung); der
-  eingehende und Dialback sind weiterhin nur gegen die eigene Gegenstelle
-  geprüft. Antworten nimmt jede Seite über eine *eigene* ausgehende Verbindung
-  (RFC 6120 §4.1) — dafür muss die Gegenstelle uns erreichen können. Wo sie das
-  nicht kann, hilft XEP-0288.
+- **Dialback ist nie gegen eine fremde Gegenstelle gelaufen.** Beide
+  S2S-Richtungen sind es inzwischen (Prosody 13: STARTTLS, SASL-EXTERNAL,
+  Zustellung, und Prosody wählt uns auch von sich aus an) — aber ausgewiesen
+  wird sich dabei stets über das Zertifikat. Die Dialback-Rückfrage nach
+  XEP-0220 ist weiterhin nur gegen die eigene Gegenstelle geprüft.
 - **Föderation.** Es gibt drei Wege über die Domain-Grenze:
   `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung),
   `WebSocketServerLinks` und `TcpServerLinks` (beide mit TLS und Dialback nach

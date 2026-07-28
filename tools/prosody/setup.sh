@@ -21,7 +21,24 @@ ROOT="$PREFIX/root"
 ARCH_DIR="x86_64-linux-gnu"
 
 PEER_DOMAIN="prosody.test"
+
+# Zwei Namen fuer unsere Seite, und der Unterschied ist der Kern von P4:
+#
+#   jabber.test  - fuer den ausgehenden Lauf. Wir waehlen Prosody an, die
+#                  Adresse steht bei uns von Hand, es braucht kein DNS.
+#
+#   localhost    - fuer den eingehenden Lauf. Damit *Prosody* uns anwaehlen
+#                  kann, muss es unsere Domain aufloesen koennen. Ein Eintrag
+#                  in /etc/hosts braeuchte root; "localhost" steht dort
+#                  ohnehin und zeigt auf 127.0.0.1. Der Testserver bedient
+#                  dann diese Domain und horcht auf dem Standardport 5269,
+#                  auf den Prosody ohne SRV-Eintrag zurueckfaellt.
 LOCAL_DOMAIN="jabber.test"
+INBOUND_DOMAIN="localhost"
+
+# Deshalb weicht Prosody auf einen anderen S2S-Port aus: 5269 gehoert im
+# eingehenden Fall uns.
+PEER_S2S_PORT=15269
 
 mkdir -p "$PREFIX"/{debs,etc,var/lib,certs,run} "$ROOT"
 
@@ -73,7 +90,7 @@ if [ ! -f ca.crt ]; then
         -addext "basicConstraints=critical,CA:TRUE" \
         -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
 
-    for d in "$PEER_DOMAIN" "$LOCAL_DOMAIN"; do
+    for d in "$PEER_DOMAIN" "$LOCAL_DOMAIN" "$INBOUND_DOMAIN"; do
 
         openssl req -newkey rsa:2048 -keyout "$d.key" -out "$d.csr" -nodes \
                 -subj "/CN=$d" 2>/dev/null
@@ -94,8 +111,9 @@ EXT
     done
 
     # Unsere Seite laedt PKCS#12.
-    openssl pkcs12 -export -out "$LOCAL_DOMAIN.pfx" \
-            -inkey "$LOCAL_DOMAIN.key" -in "$LOCAL_DOMAIN.crt" -passout pass:
+    for d in "$LOCAL_DOMAIN" "$INBOUND_DOMAIN"; do
+        openssl pkcs12 -export -out "$d.pfx" -inkey "$d.key" -in "$d.crt" -passout pass:
+    done
 
 fi
 
@@ -136,6 +154,11 @@ s2s_secure_auth        = true
 s2s_require_encryption = true
 c2s_require_encryption = true
 s2s_connect_timeout    = 10
+
+-- 5269 bleibt frei: im eingehenden Lauf horcht dort unser Testserver, und
+-- Prosody faellt ohne SRV-Eintrag genau auf diesen Port zurueck.
+s2s_ports  = { $PEER_S2S_PORT }
+interfaces = { "127.0.0.1" }
 
 certificates = "$PREFIX/certs"
 
@@ -188,9 +211,22 @@ fi
 
 cat <<DONE
 
-Fertig. Fuer den Testlauf unter Windows:
+Fertig. Prosody bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT.
 
-    JABBER_PROSODY_CERTS=\\\\wsl.localhost\\Debian$PREFIX/certs
+Ausgehender Lauf, von Windows aus:
+
+    \$env:JABBER_PROSODY_CERTS = '\\\\wsl.localhost\\Debian$PREFIX/certs'
+    dotnet test Jabber.Tests\\Jabber.Tests.csproj --filter FullyQualifiedName~ProsodyFederationTests
+
+Eingehender Lauf (P4) - der muss *in* WSL laufen, weil Prosody uns sonst
+nicht erreicht: die Hyper-V-Firewall verwirft jede Verbindung von WSL zum
+Windows-Host, und daran ist nichts zu deuteln, ohne eine Firewall-Regel zu
+setzen. Innerhalb von WSL ist alles Loopback:
+
+    JABBER_PROSODY_CERTS=$PREFIX/certs \\
+    dotnet test /mnt/c/.../Jabber.Tests/Jabber.Tests.csproj \\
+        --artifacts-path /tmp/jabber-artifacts \\
+        --filter FullyQualifiedName~ProsodyFederationTests
 
 Log:      $PREFIX/prosody.log
 Beenden:  pkill -f "lua5.4 $ROOT/usr/bin/prosody"

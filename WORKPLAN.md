@@ -753,6 +753,59 @@ Test ist ersetzt, die Beobachtung steht als Kommentar am verbliebenen.
 
 5 Mutationen, alle tot.
 
+### P4. Prosody wählt uns an ✅
+
+Der eingehende Weg gegen eine fremde Gegenstelle — die letzte Richtung, die
+nur gegen die eigene geprüft war. Was hier zum ersten Mal vor einem echten
+Server stand: unser Stream-Kopf als Antwortender, unsere Feature-Ankündigung,
+unsere Annahme eines fremden `<auth mechanism='EXTERNAL'/>` und die
+Identitätsprüfung aus dem vorgelegten Zertifikat. Der Rückweg aus S9 lief zwar
+in eingehender Richtung, aber über einen Stream, den *wir* aufgebaut hatten.
+
+Prosodys Log sagt es genau:
+
+```
+prosody.test:saslauth  Initiating SASL EXTERNAL with localhost
+prosody.test:saslauth  SASL EXTERNAL with localhost succeeded
+s2sout   Outgoing s2s connection prosody.test->localhost complete
+s2sout   Sending[s2sout]: <iq to='alice@localhost/...' type='result' from='prosody.test'>
+```
+
+**Kein Eingriff in die Firewall.** Der Blocker war die ganze Zeit, dass die
+Hyper-V-Firewall (`DefaultInboundAction = Block` auf dem WSL-vSwitch) jede
+Verbindung von WSL zum Windows-Host verwirft. Eine Regel dafür zu setzen wäre
+eine Änderung an den Sicherheitseinstellungen der Maschine. Es geht auch ohne:
+in WSL liegt ein .NET-10-SDK, also läuft der Test **dort**, im selben Netz wie
+Prosody — alles Rückschleife, keine Firewall dazwischen.
+
+    JABBER_PROSODY_CERTS=~/prosody-test/certs \
+    dotnet test /mnt/c/.../Jabber.Tests/Jabber.Tests.csproj \
+        --artifacts-path /tmp/jabber-artifacts \
+        --filter FullyQualifiedName~ProsodyFederationTests
+
+Das `--artifacts-path` hält die Linux-Bauartefakte aus dem Windows-Baum heraus;
+ohne das schreiben sich beide Läufe gegenseitig die `obj`-Verzeichnisse um.
+
+**Zwei Namen für unsere Seite, und der Unterschied ist der Kern.** Damit Prosody
+uns anwählen kann, muss es unsere Domain auflösen. Ein Eintrag in `/etc/hosts`
+bräuchte root; `localhost` steht dort ohnehin. Der Testserver bedient im
+eingehenden Fall also diese Domain und horcht auf 5269 — dem Port, auf den
+Prosody ohne SRV-Eintrag zurückfällt. Prosody weicht dafür auf 15269 aus und
+bindet nur 127.0.0.1. Für den ausgehenden Fall bleibt es bei `jabber.test`, wo
+die Adresse von Hand steht und kein DNS nötig ist.
+
+**Ausdrücklich ohne XEP-0288.** Mit Bidi käme die Antwort über den bestehenden
+Stream, und der eingehende Weg bliebe wieder ungeprüft. Der Test hält das mit
+zwei Nebenbedingungen fest: `InboundConnectionCount > 0` und
+`BidirectionalDeliveryCount == 0`. Ohne sie bestünde er auch dann, wenn die
+Antwort einen ganz anderen Weg genommen hätte.
+
+**Keine Mutationen für diesen Schritt** — es gibt keinen neuen Produktivcode.
+P4 ändert nur den Aufbau und die Testsammlung; sein Ertrag ist, dass
+vorhandener Code erstmals vor einer fremden Gegenstelle bestanden hat.
+`APingReachesProsodyAndComesBack` ist entfallen: der stillgelegte Test sagte
+nichts mehr, was die beiden laufenden nicht sagen.
+
 ---
 
 ## Als Nächstes (Client)
