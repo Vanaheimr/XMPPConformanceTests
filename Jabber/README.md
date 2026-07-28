@@ -621,12 +621,11 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Kennung unbekannt —, bindet er neu. Geprüft gegen Prosody 13
   (`mod_smacks`) und ejabberd 24.12 (`mod_stream_mgmt`) - beide verhalten sich
   hier gleich.
-- **Der Content-Namensraum wandert nur in einer Richtung mit.** Was ein
-  lokaler Client über die Domain-Grenze schickt, wird von `jabber:client` auf
-  `jabber:server` umgestellt; was von einem fremden Server hereinkommt, geht in
-  `jabber:server` an den lokalen Client weiter. Unser Client stört sich nicht
-  daran, weil er Stanzas am lokalen Namen erkennt — ein fremder dürfte
-  strenger sein.
+- ~~Der Content-Namensraum wandert nur in einer Richtung mit.~~ Behoben: jede
+  Stanza an einen Client trägt jetzt `jabber:client`, jede über die
+  Domain-Grenze `jabber:server` (RFC 6120 §4.8.1, RFC 7395 §3.3.3). Vorher
+  schickte der Server seinen Clients **gar keinen** Namensraum und reichte
+  Fremdes unverändert als `jabber:server` durch.
 
 ### Funktionsumfang
 - Kein Multi-User Chat (XEP-0045)

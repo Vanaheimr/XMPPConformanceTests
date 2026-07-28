@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **471 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **473 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -988,13 +988,8 @@ sind gleich. Geprüft wird Gleichheit und nicht nur eine leergelaufene
 Warteschlange: ein zu grosses `h` räumte sie ebenfalls, und ein Client, der zu
 wenig zählt, käme damit durch. Dafür gibt es `LastAcknowledged` überhaupt.
 
-**Offen geblieben — die Gegenrichtung an der Domain-Grenze.** Was von einem
-fremden Server hereinkommt, steht in `jabber:server` und wird unverändert an
-den lokalen Client zugestellt. Unser Client stört sich nicht daran, weil er
-Stanzas am lokalen Namen erkennt — genau die Nachsicht, die den ersten Fehler
-verdeckt hat. Ein fremder Client dürfte strenger sein. Nicht mitgemacht, weil
-kein Lauf es zeigt und ein Eingriff ohne Beleg nur Rauschen wäre; die Stelle
-ist `RouteToAsync`, lokaler Zweig.
+**Die Gegenrichtung an der Domain-Grenze** blieb hier zunächst offen und ist
+inzwischen erledigt — siehe unten.
 
 ### Default-Umstieg ✅ — und ein Test, der aufgehört hat zu prüfen, ohne es zu sagen
 
@@ -1212,6 +1207,37 @@ zur Falle geworden:
 - `ejabberdctl register` geht über einen RPC-Aufruf in den laufenden Knoten
   und braucht ihn gestartet; `prosodyctl register` fasst die Dateien direkt an
   und will ihn *angehalten*. Genau verkehrt herum.
+
+### R5. Der Namensraum in der Gegenrichtung ✅ — und er fehlte überall
+
+Notiert war eine schmale Sache: was von einem fremden Server hereinkommt, steht
+in `jabber:server` und wird unverändert an den lokalen Client weitergereicht.
+Der zweite Test dazu hat gezeigt, dass es breiter liegt — **der Server hat
+seinen Clients überhaupt nie einen Namensraum geschickt.** Bind-Antwort,
+Carbons-Bestätigung, Roster, Presence: alles ohne.
+
+Das ist derselbe Fehler wie der, den Prosody am Bind-IQ des Clients abgewiesen
+hat, nur spiegelverkehrt. Über WebSocket gibt es kein umschliessendes
+`<stream:stream>`, von dem eine Stanza ihren Namensraum erben könnte
+(RFC 7395, Abschnitt 3.3.3); über die Domain-Grenze wechselt er von
+`jabber:server` auf `jabber:client` (RFC 6120, Abschnitt 4.8.1).
+
+Aufgefallen ist beides nie, und aus demselben Grund: unser Client erkennt
+Stanzas am lokalen Namen und sieht den Namensraum gar nicht an. Diese
+Nachsicht hat den Fehler auf der Client-Seite jahrelang verdeckt und hier
+gleich noch einmal. Ein fremder Client wäre vermutlich strenger — und wir
+erführen es erst von ihm.
+
+Behoben in `XMPPSession.SendAsync`: die eine Stelle, durch die jeder Rahmen an
+einen Client läuft, und aus demselben Grund gewählt wie beim Zählen. Nonzas
+bleiben aussen vor; `<enabled/>` geht ohnehin an dieser Stelle vorbei, ist aber
+auch keine Stanza.
+
+Zwei Mutationen, beide von genau den zwei neuen Tests erschlagen: gar keinen
+Namensraum setzen, und `jabber:server` statt `jabber:client`.
+
+Der Lauf gegen Prosody und ejabberd blieb danach unverändert grün — die
+Änderung betrifft nur, was unsere Clients von unserem Server bekommen.
 
 ---
 

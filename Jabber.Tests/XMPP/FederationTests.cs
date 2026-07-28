@@ -377,6 +377,125 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AStanzaFromAbroad_ReachesTheClientAsJabberClient()
+
+        /// <summary>
+        /// Was von einem fremden Server hereinkommt, geht dem lokalen Client
+        /// als <c>jabber:client</c> zu - nicht als <c>jabber:server</c>.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 4.8.1 gibt jedem Stream seinen
+        /// Content-Namensraum: <c>jabber:server</c> zwischen Servern,
+        /// <c>jabber:client</c> auf der Client-Verbindung. Beim Übergang muss
+        /// er mitwechseln. Die ausgehende Richtung war schon behoben, die
+        /// eingehende blieb liegen - unser eigener Client stört sich nicht
+        /// daran, weil er Stanzas am lokalen Namen erkennt und den Namensraum
+        /// gar nicht ansieht.
+        ///
+        /// Genau diese Nachsicht hat den Fehler auf der anderen Seite
+        /// jahrelang verdeckt: der Client schickte seine Stanzas ohne jeden
+        /// Namensraum hinaus, und niemand hat es bemerkt, bis Prosody das
+        /// Bind-IQ abwies.
+        ///
+        /// Geprüft wird auf dem Draht, nicht am Ereignis: was der Client daraus
+        /// macht, ist eine andere Frage als das, was er bekommt.
+        /// </remarks>
+        [Test]
+        public async Task AStanzaFromAbroad_ReachesTheClientAsJabberClient()
+        {
+
+            var alice = await ConnectAsync(_links,  "alice");
+            var bob   = await ConnectAsync(_rechts, "bob");
+
+            MacheKontakte(alice, bob);
+
+            await alice.SendMessageAsync(bob.BareJid, "Über die Grenze");
+
+            var bobsSitzung = _rechts.SessionOf(bob.FullJid!)!;
+
+            await WarteAuf(() => bobsSitzung.Sent.Any(f => f.Contains("Über die Grenze",
+                                                                     StringComparison.Ordinal)),
+                           "die zugestellte Nachricht");
+
+            var zugestellt = bobsSitzung.Sent.First(f => f.Contains("Über die Grenze",
+                                                                   StringComparison.Ordinal));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zugestellt, Does.Contain("xmlns='jabber:client'"),
+                            "Die Stanza kam ohne den Namensraum der Client-Verbindung an.");
+
+                Assert.That(zugestellt, Does.Not.Contain("jabber:server"),
+                            "Der Namensraum der Serververbindung ist mit durchgereicht worden.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region EverythingTheServerSendsCarriesTheClientNamespace()
+
+        /// <summary>
+        /// Auch was der Server selbst erzeugt, trägt den Namensraum.
+        /// </summary>
+        /// <remarks>
+        /// Über TCP stünde er einmal am <c>&lt;stream:stream&gt;</c> und gälte
+        /// für alles darin. Über WebSocket gibt es dieses Element nicht: jeder
+        /// Rahmen muss für sich lesbar sein, „complete with all relevant
+        /// namespace and language declarations" (RFC 7395, Abschnitt 3.3.3).
+        ///
+        /// Der Server hat bis hierher gar keinen geschickt - Presence,
+        /// Roster-Pushes, Fehler-IQs, alles ohne. Aufgefallen ist es nie, weil
+        /// unser Client sie am lokalen Namen erkennt. Ein fremder Client dürfte
+        /// strenger sein, und wir wüssten erst dann davon.
+        ///
+        /// Nonzas bleiben aussen vor: sie bringen ihren eigenen Namensraum mit,
+        /// und ein <c>&lt;enabled/&gt;</c> nach <c>jabber:client</c> umzuhängen
+        /// machte es unlesbar.
+        /// </remarks>
+        [Test]
+        public async Task EverythingTheServerSendsCarriesTheClientNamespace()
+        {
+
+            var alice = await ConnectAsync(_links, "alice");
+
+            var sitzung = _links.SessionOf(alice.FullJid!)!;
+
+            await WarteAuf(() => sitzung.Sent.Any(f => f.StartsWith("<iq", StringComparison.Ordinal)),
+                           "irgendeine Stanza vom Server");
+
+            var stanzas = sitzung.Sent.Where(f => f.StartsWith("<message",  StringComparison.Ordinal) ||
+                                                  f.StartsWith("<presence", StringComparison.Ordinal) ||
+                                                  f.StartsWith("<iq",       StringComparison.Ordinal))
+                                      .ToList();
+
+            var nonzas  = sitzung.Sent.Where(f => f.StartsWith("<open",     StringComparison.Ordinal) ||
+                                                  f.StartsWith("<features", StringComparison.Ordinal) ||
+                                                  f.StartsWith("<success",  StringComparison.Ordinal) ||
+                                                  f.StartsWith("<enabled",  StringComparison.Ordinal))
+                                      .ToList();
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(stanzas, Is.Not.Empty);
+
+                foreach (var s in stanzas)
+                    Assert.That(s, Does.Contain("xmlns='jabber:client'"),
+                                $"Ohne Namensraum hinausgegangen: {s}");
+
+                foreach (var n in nonzas)
+                    Assert.That(n, Does.Not.Contain("jabber:client"),
+                                $"Einer Nonza den Stanza-Namensraum aufgesetzt: {n}");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

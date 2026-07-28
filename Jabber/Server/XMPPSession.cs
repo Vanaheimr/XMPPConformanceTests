@@ -507,6 +507,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public async Task SendAsync(String xml)
         {
 
+            // RFC 6120, Abschnitt 4.8.1 und RFC 7395, Abschnitt 3.3.3: auf der
+            // Client-Verbindung steht jede Stanza in jabber:client, und über
+            // WebSocket muss sie ihn selbst tragen - es gibt kein
+            // umschliessendes <stream:stream>, von dem sie ihn erben könnte.
+            //
+            // Zwei Fälle laufen hier zusammen. Was der Server selbst erzeugt,
+            // trug bisher gar keinen Namensraum; was von einem fremden Server
+            // hereinkam, trug jabber:server und wurde damit unverändert
+            // weitergereicht. Beides ist auf diesem Stream falsch, und beides
+            // ist nie aufgefallen, weil unser eigener Client Stanzas am
+            // lokalen Namen erkennt und den Namensraum gar nicht ansieht -
+            // dieselbe Nachsicht, die den umgekehrten Fehler auf der
+            // Client-Seite jahrelang verdeckt hat.
+            //
+            // Hier und nicht an den Aufrufern, aus demselben Grund, aus dem
+            // hier auch gezählt wird: das ist die einzige Stelle, durch die
+            // jeder Rahmen an einen Client läuft.
+            xml = StanzaNamespace.Apply(xml, StanzaNamespace.Client);
+
             await _sendLock.WaitAsync();
 
             try
