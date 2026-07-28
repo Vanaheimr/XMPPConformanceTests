@@ -298,6 +298,47 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region StreamManagement_IsNegotiatedByDefault()
+
+        /// <summary>
+        /// Ein Client, der nichts einstellt, handelt Stream Management aus.
+        /// </summary>
+        /// <remarks>
+        /// Der Vorgabewert stand jahrelang auf <c>false</c>, weil die Zählung
+        /// einmal falsch war. Sie ist es nicht mehr und ist gegen Prosody 13
+        /// belegt (<c>ProsodyStreamManagementTests</c>) - deshalb steht er
+        /// jetzt auf <c>true</c>.
+        ///
+        /// Geprüft wird beides: der Wert selbst und dass er bis auf die
+        /// Leitung durchschlägt. Ein Test nur auf die Eigenschaft bestünde
+        /// auch dann, wenn der Aufbau sie danach ignorierte; ein Test nur auf
+        /// die Aushandlung liesse offen, ob sie am Vorgabewert hängt oder an
+        /// etwas anderem.
+        ///
+        /// Dass die übrige Sammlung diesen Weg überhaupt geht, hängt daran,
+        /// dass <c>CreateClient</c> den Schalter <i>nicht</i> setzt, solange
+        /// niemand ihn verlangt - siehe <see cref="AXMPPTests"/>.
+        /// </remarks>
+        [Test]
+        public async Task StreamManagement_IsNegotiatedByDefault()
+        {
+
+            Assert.That(new XMPPConnection("alice@example.com", "pw").StreamManagementEnabled,
+                        Is.True,
+                        "Der Vorgabewert von XMPPConnection.StreamManagementEnabled.");
+
+            var client = await ConnectClientAsync();
+
+            await WaitFor(() => Server.Sessions.Count(s => s.StreamManagementEnabled) == 1,
+                          "ausgehandeltes Stream Management ohne Zutun des Aufrufers");
+
+            Assert.That(client.StreamManagement?.IsEnabled, Is.True,
+                        "Der Client hält Stream Management nicht für aktiv.");
+
+        }
+
+        #endregion
+
     }
 
 }

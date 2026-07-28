@@ -648,10 +648,13 @@ class Program
 
         switch (args.ToLower())
         {
+            // Hier stand eine Warnung, SM führe "bei einigen Servern
+            // (ejabberd) zu Disconnects". Ursache war die eigene fehlerhafte
+            // Zählung, nicht der Server; sie ist behoben und gegen Prosody 13
+            // belegt. SM ist inzwischen der Vorgabewert.
             case "on":
                 client.StreamManagementEnabled = true;
                 Console.WriteLine("[*] SM aktiviert (wirkt nach Reconnect)");
-                Console.WriteLine("[!] WARNUNG: SM kann bei einigen Servern (ejabberd) zu Disconnects führen!");
                 break;
 
             case "off":

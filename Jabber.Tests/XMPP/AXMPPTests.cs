@@ -79,12 +79,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <param name="createAccount">Konto anlegen, falls es noch nicht existiert.</param>
         /// <param name="keepalive">Keepalive-Intervall; null schaltet Keepalive ab.</param>
         /// <param name="reconnectDelay">Wartezeit vor dem ersten Reconnect-Versuch.</param>
-        /// <param name="streamManagement">XEP-0198 Stream Management aushandeln?</param>
+        /// <param name="streamManagement">
+        /// XEP-0198 Stream Management aushandeln? <c>null</c> lässt den
+        /// Vorgabewert stehen.
+        /// </param>
         protected async Task<XMPPClient> ConnectClientAsync(String     localPart         = "alice",
                                                             Boolean    createAccount     = true,
                                                             TimeSpan?  keepalive         = null,
                                                             TimeSpan?  reconnectDelay    = null,
-                                                            Boolean    streamManagement  = false)
+                                                            Boolean?   streamManagement  = null)
         {
 
             if (createAccount && Server.GetAccount($"{localPart}@{Server.Domain}") is null)
@@ -102,11 +105,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <summary>
         /// Erstellt einen noch nicht verbundenen Client gegen den Testserver.
         /// </summary>
+        /// <remarks>
+        /// <paramref name="streamManagement"/> ist absichtlich
+        /// <see cref="Nullable{T}"/> und nicht <c>false</c>: <c>null</c> lässt
+        /// den Vorgabewert von <see cref="XMPPConnection"/> stehen, und damit
+        /// läuft die ganze Sammlung mit dem, was ein Aufrufer ohne eigene
+        /// Meinung bekommt. Stünde hier ein hartes <c>false</c>, prüfte kein
+        /// einziger Test den Vorgabewert - eine Umstellung ginge geräuschlos
+        /// durch.
+        /// </remarks>
         protected XMPPClient CreateClient(String     localPart         = "alice",
                                           TimeSpan?  keepalive         = null,
                                           TimeSpan?  reconnectDelay    = null,
                                           String     password          = "pw",
-                                          Boolean    streamManagement  = false)
+                                          Boolean?   streamManagement  = null)
         {
 
             var connection = new XMPPConnection($"{localPart}@{Server.Domain}",
@@ -117,7 +129,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 KeepaliveInterval        = keepalive ?? TimeSpan.FromSeconds(25),
                 InitialReconnectDelay    = reconnectDelay ?? TimeSpan.FromMilliseconds(200),
                 MaxReconnectAttempts     = 20,
-                StreamManagementEnabled  = streamManagement,
 
                 // Der Testserver signiert sein Zertifikat selbst; kein Rechner
                 // vertraut ihm. Angeheftet wird der Fingerabdruck genau dieses
@@ -125,6 +136,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 // auch gegen eine fremde Gegenstelle bestehen.
                 ServerCertificateValidator = Server.IsOwnCertificate
             };
+
+            if (streamManagement.HasValue)
+                connection.StreamManagementEnabled = streamManagement.Value;
 
             var client = new XMPPClient(connection);
             _clients.Add(client);

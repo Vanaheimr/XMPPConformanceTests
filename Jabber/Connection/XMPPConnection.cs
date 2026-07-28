@@ -150,10 +150,15 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     // XEP-0198: Stream Management. Die frühere Abschaltung wegen
     // "ejabberd-Kompatibilitätsproblemen" ging auf die fehlerhafte Zählung
-    // zurück; die ist behoben und gegen XMPPServer getestet. Der Default
-    // bleibt aus, bis es einen Lauf gegen einen echten Server gab.
-    // Zur Laufzeit umschaltbar mit /sm on.
-    public bool StreamManagementEnabled { get; set; } = false;
+    // zurück. Die ist behoben, gegen XMPPServer getestet und inzwischen gegen
+    // Prosody 13 belegt: nach einem vollständigen Sitzungsaufbau melden beide
+    // Seiten denselben Stand, auf den Zähler genau.
+    //
+    // Damit ist der Grund für den ausgeschalteten Default weggefallen. Wer
+    // ihn nicht will, schaltet ihn ab - zur Laufzeit mit /sm off. Angefordert
+    // wird er ohnehin nur, wenn der Server ihn ankündigt; ein Server ohne
+    // XEP-0198 merkt von dieser Zeile nichts.
+    public bool StreamManagementEnabled { get; set; } = true;
 
     /// <summary>
     /// Die beim Resource Binding gewünschte Resource; null überlässt die Wahl
@@ -475,11 +480,10 @@ public sealed class XMPPConnection : IAsyncDisposable
             if (StreamNegotiation.RequiresSession(features))
                 await PerformSessionAsync(ct);
 
-            // XEP-0198: Stream Management. Der Grund für die frühere Abschaltung
-            // ("ejabberd-Probleme") war die fehlerhafte Zählung; die ist behoben
-            // und durch Tests gegen den XMPPServer abgedeckt. Der Schalter
-            // bleibt vorerst standardmässig aus, weil noch kein Lauf gegen einen
-            // echten Server stattgefunden hat.
+            // XEP-0198: Stream Management, standardmässig an. Die Zählung ist
+            // gegen Prosody 13 belegt (ProsodyStreamManagementTests); der
+            // Grund für die frühere Abschaltung - eine fehlerhafte Zählung -
+            // besteht nicht mehr.
             if (StreamManagementEnabled && StreamNegotiation.OffersStreamManagement(features))
             {
                 _logger.LogInformation("Aktiviere Stream Management ...");

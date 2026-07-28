@@ -50,10 +50,11 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **447 Tests, 0 Fehler** in gut zwei Minuten.
-Übersprungen wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht
-Föderationstests gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody —
-sowie einer, der eine Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt.
+Aktueller Stand der Suite: **450 Tests, 0 Fehler** in gut zwei Minuten, und
+seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
+wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
+gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
+der eine Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt.
 Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
@@ -937,7 +938,7 @@ ausgehende Verbindung Bidi nutzt, wählt ejabberd uns gar nicht erst an.
 
 ---
 
-## Als Nächstes (Client)
+## Client
 
 ### XEP-0198 gegen einen echten Server ✅ — und der Client konnte sich gar nicht anmelden
 
@@ -995,13 +996,58 @@ verdeckt hat. Ein fremder Client dürfte strenger sein. Nicht mitgemacht, weil
 kein Lauf es zeigt und ein Eingriff ohne Beleg nur Rauschen wäre; die Stelle
 ist `RouteToAsync`, lokaler Zweig.
 
-**Noch nicht: `StreamManagementEnabled` auf `true`.** Der Schalter wird von
-rund 440 Tests mitgenommen, das ist ein eigener Schnitt.
+### Default-Umstieg ✅ — und ein Test, der aufgehört hat zu prüfen, ohne es zu sagen
 
-Anschließend Stream-Resume: `ResumeAsync` und `GetUnackedStanzas` existieren,
-werden aber nirgends aufgerufen — nach einem Reconnect baut der Client neu auf
-und die unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht
-`<resume/>` ebenfalls noch nicht, das wäre gleich mitzumachen.
+`StreamManagementEnabled` steht auf `true`. Der Grund für den ausgeschalteten
+Vorgabewert — eine einmal fehlerhafte Zählung — ist seit dem Prosody-Lauf
+weg.
+
+**Der Schalter allein hätte gar nichts bewirkt.** `AXMPPTests.CreateClient`
+setzte ihn hart auf `false` und überschrieb damit den Vorgabewert; die ganze
+Sammlung wäre weiter ohne XEP-0198 gelaufen, und die Umstellung wäre
+ungeprüft durchgegangen. Der Parameter ist deshalb jetzt `Boolean?`: `null`
+heisst „den Vorgabewert stehen lassen". Erst damit läuft die Sammlung mit dem,
+was ein Aufrufer ohne eigene Meinung bekommt.
+
+Zwei Tests hingen daran, und der zweite ist der lehrreichere:
+
+- `Disconnect_StopsKeepalive` wurde **rot**. Die Keepalive-Schleife wählt ihr
+  Mittel nach Lage: mit XEP-0198 schickt sie ein `<r/>`, sonst einen
+  XEP-0199-Ping. Der Test zählte Pings, und die kamen nicht mehr.
+- `Reconnect_DoesNotAccumulateKeepaliveLoops` blieb **grün**. Es prüft eine
+  Obergrenze, und „null Pings sind höchstens sieben Pings" trifft zu. Der Test
+  hat aufgehört zu messen und nichts davon gesagt.
+
+Beide laufen jetzt über beide Verfahren (`[TestCase(true/false)]`) und zählen,
+was die Schleife tatsächlich schickt. Und der Obergrenze steht eine Untergrenze
+gegenüber — ohne sie bestünde der Test auch dann, wenn gar kein Keepalive mehr
+feuert, und genau das war er eine Zeitlang.
+
+Der Vorgabewert selbst hat jetzt einen Test
+(`StreamManagement_IsNegotiatedByDefault`), der beides prüft: den Wert und dass
+er bis auf die Leitung durchschlägt. Ein Test nur auf die Eigenschaft bestünde
+auch dann, wenn der Aufbau sie danach ignorierte.
+
+Drei Mutationen, alle von genau den zuständigen Tests erschlagen: Vorgabewert
+zurück auf `false`, Keepalive schickt unter XEP-0198 nichts mehr (tötet beide
+Keepalive-Tests im SM-Fall — den zweiten nur wegen der neuen Untergrenze), und
+`CreateClient` nagelt den Schalter wieder fest.
+
+---
+
+## Als Nächstes (Client)
+
+### Stream-Resume
+
+`ResumeAsync` und `GetUnackedStanzas` existieren, werden aber nirgends
+aufgerufen — nach einem Reconnect baut der Client neu auf und die
+unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht `<resume/>`
+ebenfalls noch nicht, das wäre gleich mitzumachen.
+
+Jetzt fällt das mehr ins Gewicht als vorher: Stream Management ist der
+Vorgabewert, also handelt jeder Client es aus, und jeder Client sammelt damit
+unbestätigte Stanzas an, die ein Reconnect wegwirft. Vorher betraf das nur, wer
+den Schalter selbst umgelegt hatte.
 
 ---
 

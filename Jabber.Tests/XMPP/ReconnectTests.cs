@@ -21,6 +21,8 @@ using System.Diagnostics;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod.XMPP.Server;
+
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
@@ -39,6 +41,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region Data
 
         private static readonly TimeSpan Keepalive = TimeSpan.FromMilliseconds(500);
+
+        #endregion
+
+        #region Hilfsfunktionen
+
+        /// <summary>
+        /// Zählt, was die Keepalive-Schleife tatsächlich verschickt.
+        /// </summary>
+        /// <remarks>
+        /// Die Schleife wählt ihr Mittel nach Lage: ist XEP-0198 ausgehandelt,
+        /// schickt sie ein <c>&lt;r/&gt;</c>, sonst einen XEP-0199-Ping. Diese
+        /// beiden Tests zählten bis zuletzt nur Pings - und als Stream
+        /// Management zum Vorgabewert wurde, zählten sie nichts mehr.
+        ///
+        /// Der eine Test wurde davon rot, der andere <b>grün</b>: „null Pings
+        /// sind höchstens sieben Pings" trifft zu, und ein Test, der nichts
+        /// mehr misst, sagt das nicht von selbst. Deshalb hier beide Verfahren
+        /// und beide Tests über beide.
+        /// </remarks>
+        private static Int32 KeepaliveCount(XMPPSession session, Boolean streamManagement)
+
+            => streamManagement
+                   ? session.CountReceived("<r xmlns='urn:xmpp:sm:3'/>")
+                   : session.CountReceived("urn:xmpp:ping");
 
         #endregion
 
@@ -85,11 +111,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Schleifen parallel - gemessen 17 statt 6 Pings in drei Sekunden.
         /// </summary>
         [Test]
-        public async Task Reconnect_DoesNotAccumulateKeepaliveLoops()
+        [TestCase(true,  TestName = "Reconnect_DoesNotAccumulateKeepaliveLoops(Stream Management)")]
+        [TestCase(false, TestName = "Reconnect_DoesNotAccumulateKeepaliveLoops(Ping)")]
+        public async Task Reconnect_DoesNotAccumulateKeepaliveLoops(Boolean streamManagement)
         {
 
             var client = await ConnectClientAsync(keepalive: Keepalive,
-                                                  reconnectDelay: TimeSpan.FromMilliseconds(200));
+                                                  reconnectDelay: TimeSpan.FromMilliseconds(200),
+                                                  streamManagement: streamManagement);
 
             const Int32 kills = 3;
 
@@ -109,18 +138,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var session = Server.SessionOf(client.FullJid)!;
             await Task.Delay(300);
 
-            var before2  = session.CountReceived("urn:xmpp:ping");
+            var before2  = KeepaliveCount(session, streamManagement);
             var window   = TimeSpan.FromSeconds(3);
 
             await Task.Delay(window);
 
-            var pings     = session.CountReceived("urn:xmpp:ping") - before2;
+            var gezaehlt  = KeepaliveCount(session, streamManagement) - before2;
             var expected  = (Int32) (window.TotalMilliseconds / Keepalive.TotalMilliseconds);
             var limit     = expected + 2;
 
-            Assert.That(pings, Is.LessThanOrEqualTo(limit),
-                        $"{pings} Pings in {window.TotalSeconds}s, erwartet höchstens {limit}. " +
-                        $"Das deutet auf {Math.Round((Double) pings / expected, 1)} parallele Keepalive-Schleifen hin.");
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gezaehlt, Is.LessThanOrEqualTo(limit),
+                            $"{gezaehlt} Keepalives in {window.TotalSeconds}s, erwartet höchstens {limit}. " +
+                            $"Das deutet auf {Math.Round((Double) gezaehlt / expected, 1)} parallele Keepalive-Schleifen hin.");
+
+                // Die Untergrenze ist der eigentliche Zugewinn: ohne sie besteht
+                // dieser Test auch dann, wenn gar kein Keepalive mehr feuert -
+                // und genau das war er eine Zeitlang.
+                Assert.That(gezaehlt, Is.GreaterThan(0),
+                            "Kein einziges Keepalive im Messfenster - dann prüft dieser Test nichts.");
+
+            });
 
         }
 
@@ -132,24 +172,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Nach dem Trennen darf kein Keepalive mehr feuern.
         /// </summary>
         [Test]
-        public async Task Disconnect_StopsKeepalive()
+        [TestCase(true,  TestName = "Disconnect_StopsKeepalive(Stream Management)")]
+        [TestCase(false, TestName = "Disconnect_StopsKeepalive(Ping)")]
+        public async Task Disconnect_StopsKeepalive(Boolean streamManagement)
         {
 
-            var client   = await ConnectClientAsync(keepalive: Keepalive);
+            var client   = await ConnectClientAsync(keepalive: Keepalive,
+                                                    streamManagement: streamManagement);
             var session  = Server.SessionOf(client.FullJid)!;
 
-            await WaitFor(() => session.CountReceived("urn:xmpp:ping") > 0,
+            await WaitFor(() => KeepaliveCount(session, streamManagement) > 0,
                           "erstes Keepalive");
 
             await client.DisconnectAsync();
             await Task.Delay(300);
 
-            var afterDisconnect = session.CountReceived("urn:xmpp:ping");
+            var nachTrennung = KeepaliveCount(session, streamManagement);
 
             await Task.Delay(TimeSpan.FromSeconds(2));
 
-            Assert.That(session.CountReceived("urn:xmpp:ping"), Is.EqualTo(afterDisconnect),
-                        "Nach dem Trennen kamen weitere Pings an.");
+            Assert.That(KeepaliveCount(session, streamManagement), Is.EqualTo(nachTrennung),
+                        "Nach dem Trennen kamen weitere Keepalives an.");
 
         }
 
