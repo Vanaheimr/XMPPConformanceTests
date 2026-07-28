@@ -462,7 +462,10 @@ miteinander sprechen:
   `session.SendStreamErrorAsync(condition)`
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
-  `OfferStreamManagement`, `AnswerAckRequests`, `FailPings`, `FailDiscoInfo`,
+  `OfferStreamManagement`, `AnswerAckRequests`, `SwallowClientStanzas`
+  (verwirft eingehende Stanzas, bevor sie gezählt werden — der einzige Weg zu
+  einer Stanza, die die Leitung verlässt und trotzdem nicht ankommt),
+  `FailPings`, `FailDiscoInfo`,
   `FailBind`, `SessionRequired`, `ConflictOnUsedResource`,
   `CorruptScramSignature`, `OmitScramSignature` — die letzten beiden für die
   Gegenprobe zur zweiten Hälfte von SCRAM: ein Server, der das Passwort nicht

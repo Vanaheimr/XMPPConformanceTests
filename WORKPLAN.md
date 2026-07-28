@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **475 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
+Aktueller Stand der Suite: **476 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1138,11 +1138,9 @@ Zusicherung, die mehr verlangt als der Test meint:
   etwa jedem dritten vollen Lauf falsch, allein ausgeführt nie. Gemeint war:
   was bestätigt wurde, liegt nicht mehr drin.
 
-**Nicht abgedeckt:** eine Stanza, die der Client erfolgreich abschickt und die
-den Server nie erreicht. Im selben Prozess gibt es diesen Fall nicht — ein
-abgerissener Socket lässt das Senden sofort scheitern, und eine nicht gesendete
-Stanza wird gar nicht erst mitgezählt. Der Code dafür (`ResendUnackedAsync`,
-ohne erneutes Mitzählen) ist da und ungeprüft.
+**Nicht abgedeckt** blieb hier zunächst eine Stanza, die der Client
+erfolgreich abschickt und die den Server nie erreicht — inzwischen erledigt,
+siehe R7.
 
 ### R3. Wiederaufnahme gegen Prosody ✅
 
@@ -1277,6 +1275,34 @@ voraussetzt.
 Zwei Mutationen, beide von `ThePeerTakesTheReturnPathWeOffered` erschlagen: nur
 die XEP-Form ankündigen (ejabberd fällt aus), und das Anbieten wieder an den
 Schalter für die ausgehende Seite hängen (beide fallen aus).
+
+### R7. Die verlorene Stanza ✅ — ein Fall, den es im Prozess nicht gab
+
+`ResendUnackedAsync` war seit R2 implementiert und ungeprüft, und der Grund war
+kein Versäumnis, sondern ein Aufbauproblem: es gab keinen Weg, eine Stanza zu
+erzeugen, die die Leitung erfolgreich verlässt und trotzdem nicht ankommt. Ein
+abgerissener Socket lässt das Senden sofort und lautstark scheitern, und eine
+nicht gesendete Stanza wird gar nicht erst mitgezählt — die Warteschlange
+blieb also immer leer, und der ganze Zweig lief nie.
+
+`XMPPServer.SwallowClientStanzas` stellt den Fall her: der Server nimmt den
+Rahmen entgegen und wirft ihn weg, **bevor** er ihn aufzeichnet, zählt oder
+weiterreicht. Für den Client sieht es aus wie ein geglücktes Senden, für den
+Server, als sei nie etwas gekommen. Nonzas bleiben unangetastet — ohne sie
+wären in diesem Zustand weder `<r/>` noch `<resume/>` möglich, und der Fall
+wäre wieder nicht zu erreichen.
+
+Der Schalter reiht sich in die bestehenden Fehlerfall-Schalter ein
+(`CompleteCloseHandshake`, `RouteStanzas`, `AnswerAckRequests`,
+`BroadcastPresence`) und ist derselbe Gedanke: manche Wege sind nur begehbar,
+wenn der Server sich absichtlich schlecht benimmt.
+
+Zwei Mutationen, beide von `StanzasLostInFlight_GoOutAgainAfterResumption`
+erschlagen: gar nichts nachsenden, und beim Nachsenden erneut mitzählen. Die
+zweite ist die, die in R2 ausdrücklich unerschlagen blieb — dort stand
+vermerkt, dass für sie kein Testweg existiert. Jetzt gibt es einen.
+
+Damit hat der ganze XEP-0198-Strang keine ungeprüfte Zeile mehr.
 
 ---
 

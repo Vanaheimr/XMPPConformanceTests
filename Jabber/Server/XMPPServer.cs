@@ -239,6 +239,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean AnswerAckRequests { get; set; } = true;
 
         /// <summary>
+        /// Verwirft eingehende Stanzas des Clients, ohne sie zu zählen oder
+        /// weiterzureichen.
+        /// </summary>
+        /// <remarks>
+        /// Stellt den einen Fall her, für den der Puffer der unbestätigten
+        /// Stanzas auf der Client-Seite überhaupt existiert: die Stanza
+        /// verlässt die Leitung erfolgreich und kommt trotzdem nicht an. Im
+        /// selben Prozess gibt es ihn sonst nicht - ein abgerissener Socket
+        /// lässt das Senden sofort scheitern, und eine nicht gesendete Stanza
+        /// wird gar nicht erst mitgezählt.
+        ///
+        /// Nonzas bleiben unangetastet: ohne sie wären in diesem Zustand weder
+        /// <c>&lt;r/&gt;</c> noch <c>&lt;resume/&gt;</c> möglich.
+        /// </remarks>
+        public Boolean SwallowClientStanzas { get; set; }
+
+        /// <summary>
         /// XEP-0198, Abschnitt 5: Sagt der Server die Wiederaufnahme eines
         /// abgerissenen Streams zu?
         /// </summary>
@@ -683,6 +700,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         {
 
             var session = SessionOf(connection);
+
+            // Schalter für den Fehlerfall: die Stanza hat die Leitung verlassen
+            // und kommt trotzdem nicht an. Vor dem Aufzeichnen und vor dem
+            // Zählen, damit für den Server aussieht, als sei nie etwas
+            // gekommen - genau das Bild, das eine Verbindung hinterlässt, die
+            // zwischen Absenden und Verarbeiten zerfällt.
+            //
+            // Nur Stanzas: Nonzas müssen weiter durchkommen, sonst liesse sich
+            // in diesem Zustand weder ein <r/> noch ein <resume/> schicken, und
+            // der Fall wäre wieder nicht zu erreichen.
+            if (SwallowClientStanzas && XMPPSession.IsStanza(frame))
+                return;
 
             session.RecordReceived(frame);
             OnStanzaReceived?.Invoke(session, frame);

@@ -654,6 +654,96 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region StanzasLostInFlight_GoOutAgainAfterResumption()
+
+        /// <summary>
+        /// Was der Client erfolgreich abgeschickt hat und der Server nie
+        /// verarbeitet hat, geht nach der Wiederaufnahme erneut hinaus.
+        /// </summary>
+        /// <remarks>
+        /// Der Fall, für den der Puffer auf der Client-Seite überhaupt
+        /// existiert - und der bis hierher ungeprüft blieb, weil er sich im
+        /// selben Prozess nicht herstellen liess: ein abgerissener Socket
+        /// lässt das Senden sofort und lautstark scheitern, und eine nicht
+        /// gesendete Stanza wird gar nicht erst mitgezählt. Was fehlte, war
+        /// eine Stanza, die die Leitung verlässt und trotzdem nicht ankommt.
+        ///
+        /// <c>SwallowClientStanzas</c> stellt genau das her: der Server nimmt
+        /// den Rahmen entgegen und wirft ihn weg, bevor er ihn zählt oder
+        /// weiterreicht. Für den Client sieht es aus wie ein geglücktes
+        /// Senden, für den Server, als sei nie etwas gekommen - dasselbe Bild
+        /// wie bei einer Verbindung, die zwischen Absenden und Verarbeiten
+        /// zerfällt.
+        ///
+        /// Dass die Nachricht am Ende ankommt, hängt allein am Nachsenden:
+        /// ohne es ist sie fort, und weder Absender noch Empfänger erführen
+        /// davon.
+        /// </remarks>
+        [Test]
+        public async Task StanzasLostInFlight_GoOutAgainAfterResumption()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice   = await ConnectClientAsync(reconnectDelay: TimeSpan.FromMilliseconds(200));
+            var bob     = await ConnectClientAsync("bob", createAccount: false);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var angekommen = new List<String>();
+            bob.OnMessage += m => { lock (angekommen) angekommen.Add(m.Body); };
+
+            var offenVorher = alice.StreamManagement!.UnackedCount;
+
+            // Ab hier verschluckt der Server, was Alice schickt.
+            Server.SwallowClientStanzas = true;
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}", "Unterwegs verloren");
+
+            await WaitFor(() => alice.StreamManagement.UnackedCount > offenVorher,
+                          "die abgeschickte, aber unbestätigte Nachricht");
+
+            await WaitAgainst(() => { lock (angekommen) return angekommen.Count > 0; },
+                              "eine Zustellung, obwohl der Server verschluckt");
+
+            Server.SwallowClientStanzas = false;
+
+            var wiederVerbunden = 0;
+            alice.OnStateChanged += (_, neu) =>
+            {
+                if (neu == ConnectionState.Connected)
+                    Interlocked.Increment(ref wiederVerbunden);
+            };
+
+            sitzung.Kill();
+
+            await WaitFor(() => wiederVerbunden > 0,
+                          "die wiederaufgenommene Sitzung",
+                          TimeSpan.FromSeconds(20));
+
+            await WaitFor(() => { lock (angekommen) return angekommen.Contains("Unterwegs verloren"); },
+                          "die nachgesendete Nachricht",
+                          TimeSpan.FromSeconds(20));
+
+            // Nachgesendet wird ohne erneutes Mitzählen: die Stanza trägt ihre
+            // Sequenznummer bereits. Zählte der Client sie ein zweites Mal,
+            // liefe sein Ausgangszähler dem Empfangszähler des Servers davon,
+            // und ab da bestätigte jedes <a h='…'/> die falschen Stanzas.
+            await alice.StreamManagement.RequestAckAsync();
+
+            await WaitFor(() => alice.StreamManagement.LastAcknowledged ==
+                                alice.StreamManagement.OutboundCount,
+                          "einen Ack über genau den eigenen Stand");
+
+            Assert.That(angekommen.Count(b => b == "Unterwegs verloren"), Is.EqualTo(1),
+                        "Die nachgesendete Nachricht kam mehrfach an.");
+
+        }
+
+        #endregion
+
     }
 
 }
