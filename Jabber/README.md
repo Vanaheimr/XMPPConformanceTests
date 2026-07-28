@@ -1,4 +1,4 @@
-# XMPP Console Client (.NET 10)
+﻿# XMPP Console Client (.NET 10)
 
 Ein XMPP-Client für die Kommandozeile mit WebSocket-Transport (RFC 7395) und
 SCRAM-Authentifizierung.
@@ -8,9 +8,9 @@ SCRAM-Authentifizierung.
 > kurzem stand hier dasselbe über ejabberd, und tatsächlich hätte sich der
 > Client an *keinem* RFC-7395-konformen Server anmelden können, weil seine
 > Stanzas ohne Namensraum hinausgingen. Verbindungsmanagement und
-> Fehlerbehandlung sind unvollständig, und Stream Management kann noch nicht
-> resumen (siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)). Nicht
-> für den Produktivbetrieb.
+> Fehlerbehandlung sind unvollständig (siehe
+> [Bekannte Einschränkungen](#bekannte-einschränkungen)). Nicht für den
+> Produktivbetrieb.
 
 ## Authentifizierung
 
@@ -35,7 +35,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0198 | Stream Management | ⚠️ | Zählung gegen Prosody 13 geprüft, an per Default; kein Resume |
+| XEP-0198 | Stream Management | ✅ | Zählung gegen Prosody 13 geprüft, an per Default, mit Wiederaufnahme |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
@@ -532,12 +532,16 @@ Server-Implementierung:
   über TCP, nicht über WebSocket, und `id-on-xmppAddr` im Zertifikat wird nicht
   gelesen. Der TCP-Weg ist in beiden Richtungen gegen zwei fremde Server
   geprüft; der WebSocket-Weg bleibt auf Instanzen dieses Servers beschränkt.
-- **Stream-Resume: die Hälfte steht.** Der Server sagt die Wiederaufnahme zu
-  (`<enabled id='…' resume='true'/>`, Kennung aus dem Zufallsgenerator), hebt
-  einen abgerissenen Stream samt Zähler und ungesendeten Stanzas auf und schiebt
-  dessen `unavailable`-Presence auf, bis die Frist (`ResumptionTimeout`,
-  Vorgabe 60 s) abläuft. Was fehlt, ist das `<resume/>` selbst — und der Client,
-  der es schickt.
+- **Stream-Resume steht** (XEP-0198 Abschnitt 5). Der Server sagt die
+  Wiederaufnahme zu (`<enabled id='…' resume='true'/>`, Kennung aus dem
+  Zufallsgenerator), hebt einen abgerissenen Stream samt Zählern und
+  ungesendeten Stanzas auf, stellt ihm weiter zu und schiebt seine
+  `unavailable`-Presence auf, bis die Frist (`ResumptionTimeout`, Vorgabe 60 s)
+  abläuft. Ein `<resume/>` wird nur von einem Stream angenommen, der auf
+  dasselbe Konto angemeldet ist — die Kennung allein weist niemanden aus. Eine
+  ordentliche Abmeldung (`<close/>`) wird nicht aufgehoben.
+  Nicht abgedeckt: eine Stanza, die der Client erfolgreich abschickt und die
+  den Server nie erreicht — im Testaufbau gibt es diesen Fall nicht.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
   Server keine Stanza-Fehler; unbekannte IQs bekommen pauschal
   `<service-unavailable/>`.
@@ -607,16 +611,15 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
   eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
   wäre die saubere Lösung.
-- **XEP-0198 kann nicht resumen — und ist jetzt per Default an.** Die Zählung
-  ist gegen Prosody 13 geprüft: nach einem vollständigen Sitzungsaufbau melden
-  beide Seiten denselben Stand, und zwar auf den Zähler genau — nicht nur „die
-  Warteschlange lief leer", was auch ein zu grosses `h` bewirkte. Damit steht
-  `StreamManagementEnabled` auf `true`, und die ganze Testsammlung läuft
-  darüber. `ResumeAsync` und `GetUnackedStanzas` existieren aber weiterhin
-  ungenutzt: nach einem Reconnect baut der Client den Stream neu auf, statt ihn
-  fortzusetzen, und die unbestätigten Stanzas gehen verloren. Das wiegt seit
-  dem Umstieg schwerer, weil es nun jeden Client betrifft und nicht nur den,
-  der den Schalter selbst umgelegt hat.
+- **XEP-0198 ist per Default an, samt Wiederaufnahme.** Die Zählung ist gegen
+  Prosody 13 geprüft: nach einem vollständigen Sitzungsaufbau melden beide
+  Seiten denselben Stand, und zwar auf den Zähler genau — nicht nur „die
+  Warteschlange lief leer", was auch ein zu grosses `h` bewirkte. Nach einem
+  Abriss knüpft der Client vor dem Resource Binding an den alten Stream an: die
+  Full-JID bleibt, was während der Störung ankam, wird nachgeliefert, und die
+  Kontakte sehen kein Verschwinden. Gelingt es nicht — Frist abgelaufen,
+  Kennung unbekannt —, bindet er neu. Gegen einen fremden Server ist die
+  Wiederaufnahme noch nicht geprüft; sie läuft bisher nur gegen `XMPPServer`.
 - **Der Content-Namensraum wandert nur in einer Richtung mit.** Was ein
   lokaler Client über die Domain-Grenze schickt, wird von `jabber:client` auf
   `jabber:server` umgestellt; was von einem fremden Server hereinkommt, geht in

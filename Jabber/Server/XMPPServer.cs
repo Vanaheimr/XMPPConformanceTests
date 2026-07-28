@@ -444,22 +444,41 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Sitzungen
 
-        /// <summary>Alle offenen Sitzungen eines Kontos, älteste zuerst.</summary>
+        /// <summary>
+        /// Alle zustellbaren Sitzungen eines Kontos, älteste zuerst.
+        /// </summary>
+        /// <remarks>
+        /// Zustellbar heisst nicht offen: ein aufgehobener Stream (XEP-0198,
+        /// Abschnitt 5) hat keine Verbindung mehr, wartet aber auf seinen
+        /// Rückkehrer und nimmt entgegen, was in der Zwischenzeit für ihn
+        /// eintrifft. Bliebe er hier draussen, käme während einer Störung
+        /// nichts mehr an, und die Wiederaufnahme rettete nur die letzten
+        /// Stanzas vor dem Abriss.
+        /// </remarks>
         public IReadOnlyList<XMPPSession> SessionsOf(String bareJid)
         {
             lock (_lock)
                 return _sessions
-                       .Where(s => s.IsOpen &&
+                       .Where(s => (s.IsOpen || s.ResumptionId is not null) &&
                                    String.Equals(s.BareJid, BareOf(bareJid), StringComparison.OrdinalIgnoreCase))
                        .ToList();
         }
 
-        /// <summary>Die Sitzung zu einem Full-JID oder null.</summary>
+        /// <summary>
+        /// Die zustellbare Sitzung zu einem Full-JID oder null - offen oder
+        /// aufgehoben, wie bei <see cref="SessionsOf"/>.
+        /// </summary>
+        /// <remarks>
+        /// Die offene zuerst: nach einer Wiederaufnahme tragen die alte und
+        /// die neue Sitzung dieselbe Full-JID, und die alte bleibt als totes
+        /// Objekt in der Liste stehen.
+        /// </remarks>
         public XMPPSession? SessionOf(String fullJid)
         {
             lock (_lock)
-                return _sessions.FirstOrDefault(s => s.IsOpen &&
-                                                     String.Equals(s.FullJid, fullJid, StringComparison.OrdinalIgnoreCase));
+                return _sessions.Where(s => String.Equals(s.FullJid, fullJid, StringComparison.OrdinalIgnoreCase))
+                                .OrderByDescending(s => s.IsOpen)
+                                .FirstOrDefault(s => s.IsOpen || s.ResumptionId is not null);
         }
 
         /// <summary>Reisst alle offenen Sitzungen ab.</summary>
@@ -927,6 +946,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
+            // RFC 7395, Abschnitt 3.6: der Client verabschiedet sich.
+            //
+            // Damit ist der Stream zu Ende, und nicht abgerissen - eine
+            // Wiederaufnahme kommt nicht mehr in Frage (XEP-0198, Abschnitt
+            // 5.3). Ohne diese Unterscheidung hielte der Server jede
+            // ordentliche Abmeldung eine Minute lang für eine Störung: die
+            // Kontakte sähen den Abgemeldeten so lange als anwesend, und ein
+            // erneutes Anmelden knüpfte an einen Stream an, den der Nutzer
+            // selbst beendet hat.
+            if (frame.StartsWith("<close", StringComparison.Ordinal))
+            {
+                session.EndResumption();
+                return;
+            }
+
         }
 
         /// <summary>
@@ -953,18 +987,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var resume = OfferStreamResumption &&
                              Regex.IsMatch(frame, @"resume=['""](true|1)['""]");
 
-                // Zähler zuerst zurücksetzen: das <enabled/> selbst ist eine
-                // Nonza und zählt nicht mit.
-                session.EnableStreamManagement(resume);
-
-                await session.SendAsync(
-                    resume
-                        ? $"<enabled xmlns='urn:xmpp:sm:3' id='{session.ResumptionId}' " +
-                          $"resume='true' max='{(Int32) ResumptionTimeout.TotalSeconds}'/>"
-                        : $"<enabled xmlns='urn:xmpp:sm:3' id='sm-{session.ConnectionNumber}'/>");
+                // Zähler zurücksetzen und bestätigen in einem Zug - das
+                // <enabled/> selbst ist eine Nonza und zählt nicht mit, aber
+                // eine Stanza dazwischen zählte nur bei einer der beiden
+                // Seiten. Siehe EnableStreamManagementAsync.
+                await session.EnableStreamManagementAsync(
+                          resume,
+                          s => resume
+                                   ? $"<enabled xmlns='urn:xmpp:sm:3' id='{s.ResumptionId}' " +
+                                     $"resume='true' max='{(Int32) ResumptionTimeout.TotalSeconds}'/>"
+                                   : $"<enabled xmlns='urn:xmpp:sm:3' id='sm-{s.ConnectionNumber}'/>");
 
                 return;
 
+            }
+
+            // XEP-0198, Abschnitt 5: der Client will an einen früheren Stream
+            // anknüpfen. Das kommt vor dem Resource Binding - eine gebundene
+            // Resource gibt es hier noch nicht, sie wird gerade übernommen.
+            if (frame.StartsWith("<resume", StringComparison.Ordinal))
+            {
+                await HandleResumeAsync(session, frame);
+                return;
             }
 
             // Der Client fragt unseren Empfangszähler ab.
@@ -991,6 +1035,73 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
 
             }
+
+        }
+
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: <c>&lt;resume/&gt;</c> - jemand knüpft an
+        /// einen aufgehobenen Stream an.
+        /// </summary>
+        /// <remarks>
+        /// Die Kennung allein reicht nicht. Sie wandert über die Leitung, und
+        /// wer sie in die Finger bekommt, hätte sonst eine fremde Sitzung
+        /// samt Full-JID, Roster und laufenden Gesprächen - ohne je das
+        /// Passwort gesehen zu haben. Deshalb muss der Stream, auf dem das
+        /// <c>&lt;resume/&gt;</c> ankommt, bereits auf <b>dasselbe Konto</b>
+        /// angemeldet sein; die Kennung wählt dann nur noch aus, welcher der
+        /// Streams dieses Kontos gemeint ist.
+        ///
+        /// Scheitert es, ist das kein Fehlerfall, sondern der Normalfall nach
+        /// einer längeren Störung: der Client bekommt <c>&lt;failed/&gt;</c>
+        /// und bindet eine neue Resource.
+        /// </remarks>
+        private async Task HandleResumeAsync(XMPPSession session, String frame)
+        {
+
+            var previd = Regex.Match(frame, @"previd=['""]([^'""]+)['""]");
+
+            ParkedStream? geparkt = null;
+
+            if (previd.Success)
+                lock (_lock)
+                    if (_resumable.TryGetValue(previd.Groups[1].Value, out var gefunden) &&
+                        gefunden.Deadline > DateTimeOffset.UtcNow &&
+                        session.Account is not null &&
+                        String.Equals(gefunden.Session.BareJid, session.BareJid,
+                                      StringComparison.OrdinalIgnoreCase))
+                    {
+                        geparkt = gefunden;
+                        _resumable.Remove(previd.Groups[1].Value);
+                    }
+
+            if (geparkt is null)
+            {
+                await session.SendAsync(
+                    "<failed xmlns='urn:xmpp:sm:3' h='0'>" +
+                    "<item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></failed>");
+                return;
+            }
+
+            // Der neue Stream übernimmt den alten. Erst danach das <resumed/>:
+            // es meldet den Empfangszähler, und der gehört zum übernommenen
+            // Zustand.
+            var offen = session.AdoptResumed(geparkt.Session);
+
+            await session.SendAsync(
+                $"<resumed xmlns='urn:xmpp:sm:3' h='{session.StanzasReceivedFromClient}' " +
+                $"previd='{XmlEscaping.Escape(previd.Groups[1].Value)}'/>");
+
+            // Was der alte Stream nicht mehr loswurde, geht jetzt nach. Der
+            // Zähler läuft dabei weiter - diese Stanzas hat der Client noch
+            // nicht gesehen, sie zählen wie jede andere auch.
+            var h = Regex.Match(frame, @"h=['""](\d+)['""]");
+            var bestaetigt = h.Success && UInt32.TryParse(h.Groups[1].Value, out var wert)
+                                 ? wert
+                                 : 0u;
+
+            foreach (var (seq, stanza) in offen)
+                if (unchecked(bestaetigt - seq) >= 0x8000_0000u)
+                    await session.SendAsync(stanza);
 
         }
 

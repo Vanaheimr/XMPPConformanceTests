@@ -334,9 +334,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Derselbe Fall, aber unsanft: die Sitzung wird abgerissen, ohne dass
         /// der Client etwas dazu sagen kann. Genau dafür gibt es die Regel.
         /// </summary>
+        /// <remarks>
+        /// Seit XEP-0198 Abschnitt 5 kommt die Abmeldung nicht mehr im selben
+        /// Atemzug: ein abgerissener Stream wird zunächst aufgehoben, weil
+        /// sein Client wiederkommen darf, und erst wenn er ausbleibt, wird die
+        /// Abmeldung nachgeholt. Die Regel aus RFC 6121 gilt unverändert - nur
+        /// nach Ablauf der Frist.
+        ///
+        /// Deshalb hier eine kurze Frist. Die Vorgabe von einer Minute ist für
+        /// den Betrieb richtig und für einen Test unbrauchbar.
+        /// </remarks>
         [Test]
         public async Task LostConnection_MakesTheResourceUnavailable()
         {
+
+            Server.ResumptionTimeout = TimeSpan.FromMilliseconds(1);
 
             MakeContacts("alice", "bob");
 
@@ -346,7 +358,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Server.SessionOf(alice.FullJid)!.Kill();
 
             await WaitFor(() => atBobs.Any(p => p.EndsWith("|unavailable", StringComparison.Ordinal)),
-                          "unavailable für die abgerissene Resource");
+                          "unavailable für die abgerissene Resource",
+                          TimeSpan.FromSeconds(20));
 
         }
 

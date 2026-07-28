@@ -457,7 +457,14 @@ public sealed class XMPPConnection : IAsyncDisposable
             ServerFeatures.Clear();
             ServerFeatures.AddRange(StreamNegotiation.FeatureNamespaces(features));
 
-            if (StreamNegotiation.OffersBind(features))
+            // XEP-0198, Abschnitt 5: der Versuch, an den früheren Stream
+            // anzuknüpfen, gehört genau hierhin - nach der Anmeldung, vor dem
+            // Binding. Gelingt er, gibt es keine neue Resource: die alte
+            // Full-JID gilt weiter, und alles, was seit dem Abriss an sie
+            // adressiert war, kommt nach.
+            var wiederaufgenommen = await TryResumeAsync(features, ct);
+
+            if (!wiederaufgenommen && StreamNegotiation.OffersBind(features))
             {
                 _logger.LogDebug("Resource Binding ...");
                 FullJid = await PerformBindAsync(ct);
@@ -476,32 +483,50 @@ public sealed class XMPPConnection : IAsyncDisposable
             // nach einem Reconnect nicht am neuen Socket hängt.
             _receiveTask = ReceiveLoopAsync(webSocket, _cts.Token);
 
-            // Session (falls nötig - in RFC 6121 entfallen)
-            if (StreamNegotiation.RequiresSession(features))
-                await PerformSessionAsync(ct);
-
-            // XEP-0198: Stream Management, standardmässig an. Die Zählung ist
-            // gegen Prosody 13 belegt (ProsodyStreamManagementTests); der
-            // Grund für die frühere Abschaltung - eine fehlerhafte Zählung -
-            // besteht nicht mehr.
-            if (StreamManagementEnabled && StreamNegotiation.OffersStreamManagement(features))
+            // Ein wiederaufgenommener Stream ist keine neue Sitzung: Session,
+            // Stream Management, Carbons, Roster und Presence stehen alle
+            // schon. Sie noch einmal zu durchlaufen wäre nicht bloss
+            // überflüssig - eine zweite Presence meldete die Resource neu an,
+            // und den Kontakten sähe es aus wie das Wiederkommen, das die
+            // Wiederaufnahme gerade vermeiden soll.
+            if (!wiederaufgenommen)
             {
-                _logger.LogInformation("Aktiviere Stream Management ...");
 
-                if (!await StreamManagement!.NegotiateAsync(requestResume: false, SetupTimeout, ct))
-                    _logger.LogWarning("Stream Management vom Server abgelehnt");
+                // Session (falls nötig - in RFC 6121 entfallen)
+                if (StreamNegotiation.RequiresSession(features))
+                    await PerformSessionAsync(ct);
+
+                // XEP-0198: Stream Management, standardmässig an. Die Zählung ist
+                // gegen Prosody 13 belegt (ProsodyStreamManagementTests); der
+                // Grund für die frühere Abschaltung - eine fehlerhafte Zählung -
+                // besteht nicht mehr.
+                //
+                // Mit Wiederaufnahme: sie kostet nichts, solange sie nicht
+                // gebraucht wird, und ohne sie wirft jeder Abriss die
+                // unbestätigten Stanzas weg.
+                if (StreamManagementEnabled && StreamNegotiation.OffersStreamManagement(features))
+                {
+                    _logger.LogInformation("Aktiviere Stream Management ...");
+
+                    if (!await StreamManagement!.NegotiateAsync(requestResume: true, SetupTimeout, ct))
+                        _logger.LogWarning("Stream Management vom Server abgelehnt");
+                }
+
+                // Carbons aktivieren
+                _logger.LogDebug("Aktiviere Message Carbons ...");
+                await EnableCarbonsAsync(ct);
+
+                // Roster laden
+                _logger.LogDebug("Lade Roster ...");
+                await RequestRosterAsync(ct);
+
+                // Online gehen
+                await SendPresenceAsync();
+
             }
 
-            // Carbons aktivieren
-            _logger.LogDebug("Aktiviere Message Carbons ...");
-            await EnableCarbonsAsync(ct);
-
-            // Roster laden
-            _logger.LogDebug("Lade Roster ...");
-            await RequestRosterAsync(ct);
-
-            // Online gehen
-            await SendPresenceAsync();
+            else
+                await ResendUnackedAsync();
 
             SetState(ConnectionState.Connected);
             _reconnectAttempts = 0;
@@ -582,6 +607,55 @@ public sealed class XMPPConnection : IAsyncDisposable
     }
 
     /// <summary>
+    /// XEP-0198, Abschnitt 5: Versucht, an den früheren Stream anzuknüpfen.
+    /// </summary>
+    /// <remarks>
+    /// Gelesen wird hier noch direkt vom Socket, wie im ganzen Abschnitt der
+    /// Aushandlung: die Empfangsschleife läuft erst, wenn die Sitzung steht.
+    /// Ein Umweg über sie wäre auch inhaltlich falsch - solange nicht
+    /// feststeht, ob dieser Stream der alte ist, gibt es niemanden, an den
+    /// eine Stanza zuzustellen wäre.
+    ///
+    /// Ein <c>&lt;failed/&gt;</c> ist kein Fehler, sondern der Normalfall nach
+    /// einer längeren Störung. Der Aufrufer bindet dann eine neue Resource.
+    /// </remarks>
+    /// <returns>true, wenn der alte Stream weitergeht.</returns>
+    private async Task<bool> TryResumeAsync(XElement features, CancellationToken ct)
+    {
+
+        if (!StreamManagementEnabled ||
+            StreamManagement?.CanResume != true ||
+            !StreamNegotiation.OffersStreamManagement(features))
+            return false;
+
+        _logger.LogInformation("Versuche, den Stream wieder aufzunehmen ...");
+
+        await StreamManagement.ResumeAsync();
+
+        var antwort = await ReceiveElementAsync(ct);
+        var name    = antwort.Name.LocalName;
+
+        if (name == "resumed")
+        {
+            StreamManagement.ProcessResumed(antwort.ToString());
+            _logger.LogInformation("Stream wieder aufgenommen als {FullJid}", FullJid);
+            return true;
+        }
+
+        // Alles andere als ein <resumed/> heisst: der alte Stream ist fort.
+        // ProcessFailed räumt die Kennung ab und meldet, was dabei verloren
+        // ging - ohne das versuchte der nächste Reconnect es wieder mit einer
+        // Kennung, die der Server längst vergessen hat.
+        if (name != "failed")
+            _logger.LogWarning("Unerwartete Antwort auf <resume/>: <{Name}/>", name);
+
+        StreamManagement.ProcessFailed();
+
+        return false;
+
+    }
+
+    /// <summary>
     /// Erzeugt die XEP-Manager für diese Verbindung.
     /// </summary>
     /// <remarks>
@@ -592,9 +666,18 @@ public sealed class XMPPConnection : IAsyncDisposable
     private void InitialiseManagers()
     {
 
-        StreamManagement = new StreamManagementManager(SendAsync, CreateLogger<StreamManagementManager>());
-        StreamManagement.OnAckReceived += count =>
-            _logger.LogTrace("Stream Management: {Count} Stanzas bestätigt", count);
+        // XEP-0198, Abschnitt 5: dieser eine Manager überlebt den Reconnect.
+        // An ihm hängen die Kennung des aufgehobenen Streams und die noch
+        // unbestätigten Stanzas - würde er hier wie die übrigen neu erzeugt,
+        // wäre nach einem Abriss beides fort, und die Wiederaufnahme hätte
+        // nichts, woran sie anknüpfen könnte. Seinen Sitzungszustand setzt er
+        // selbst zurück, sobald ein <enabled/> kommt.
+        if (StreamManagement is null)
+        {
+            StreamManagement = new StreamManagementManager(xml => SendAsync(xml), CreateLogger<StreamManagementManager>());
+            StreamManagement.OnAckReceived += count =>
+                _logger.LogTrace("Stream Management: {Count} Stanzas bestätigt", count);
+        }
 
         Carbons = new CarbonManager(BareJid);
         Carbons.OnCarbonReceived += c => OnCarbonMessage?.Invoke(c);
@@ -604,11 +687,11 @@ public sealed class XMPPConnection : IAsyncDisposable
         PubSub.OnEvent += e => OnPubSubEvent?.Invoke(e);
 
         // XEP-0199: Ping Manager
-        Ping = new PingManager(SendAsync);
+        Ping = new PingManager(xml => SendAsync(xml));
         Ping.OnPingTimeout += target => OnError?.Invoke($"Ping Timeout: {target}");
 
         // XEP-0030: Service Discovery
-        Disco = new DiscoManager(SendAsync);
+        Disco = new DiscoManager(xml => SendAsync(xml));
 
         // XEP-0115: Entity Capabilities
         EntityCaps = new EntityCapsManager(Disco);
@@ -670,7 +753,33 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     // ===== WEBSOCKET I/O =====
 
-    private async Task SendAsync(string xml)
+    /// <summary>
+    /// XEP-0198, Abschnitt 5: Schickt nach einer Wiederaufnahme nach, was der
+    /// alte Stream nicht mehr bestätigt bekommen hat.
+    /// </summary>
+    /// <remarks>
+    /// Ohne Mitzählen: diese Stanzas tragen ihre Sequenznummer bereits und
+    /// stehen weiter in der Warteschlange, bis der Server sie bestätigt. Wer
+    /// sie beim Nachsenden erneut zählte, verschöbe seinen Ausgangszähler
+    /// gegen den Empfangszähler der Gegenstelle - und ab da bestätigte jedes
+    /// <c>&lt;a h='…'/&gt;</c> die falschen Stanzas.
+    /// </remarks>
+    private async Task ResendUnackedAsync()
+    {
+
+        var offen = StreamManagement?.GetUnackedStanzas() ?? [];
+
+        if (offen.Count == 0)
+            return;
+
+        _logger.LogInformation("Sende {Count} unbestätigte Stanzas nach", offen.Count);
+
+        foreach (var stanza in offen)
+            await SendAsync(stanza, track: false);
+
+    }
+
+    private async Task SendAsync(string xml, bool track = true)
     {
 
         // RFC 7395, Abschnitt 3.3.3: über WebSocket gibt es kein umschliessendes
@@ -708,7 +817,8 @@ public sealed class XMPPConnection : IAsyncDisposable
             // fehlgeschlagene Stanza den Zähler nicht dauerhaft verschiebt,
             // und noch unter dem Sende-Lock, damit die Sequenznummern der
             // Reihenfolge auf der Leitung entsprechen.
-            StreamManagement?.TrackOutgoing(xml);
+            if (track)
+                StreamManagement?.TrackOutgoing(xml);
 
         }
         finally

@@ -346,13 +346,309 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.That(aliceSession.UnacknowledgedToClient, Is.GreaterThanOrEqualTo(3),
                         "Nichts gepuffert - dann gäbe es nach einer Wiederaufnahme nichts nachzusenden.");
 
+            // Auf den Stand *zum Zeitpunkt der Nachfrage* beziehen, nicht auf
+            // einen leeren Puffer: es läuft weiter Verkehr. Bobs Client
+            // quittiert die drei Nachrichten mit XEP-0184-Empfangsbestätigungen,
+            // und die sind ihrerseits Stanzas an Alice - trifft eine davon
+            // zwischen dem <r/> und dem <a/> ein, ist der Puffer nie leer.
+            //
+            // "Der Puffer ist leer" war in etwa jedem dritten vollen Lauf
+            // falsch, allein ausgeführt nie. Was der Test meint, ist: was
+            // bestätigt wurde, liegt nicht mehr drin.
+            var standBeiderNachfrage = aliceSession.StanzasSentToClient;
+
             await aliceSession.RequestAckAsync();
 
-            await WaitFor(() => aliceSession.UnacknowledgedToClient == 0,
-                          "das Leeren des Puffers nach dem <a/> des Clients");
+            await WaitFor(() => aliceSession.LastAckFromClient >= standBeiderNachfrage,
+                          "das <a/> des Clients über den Stand zum Zeitpunkt der Nachfrage");
 
-            Assert.That(aliceSession.LastAckFromClient, Is.EqualTo(aliceSession.StanzasSentToClient),
-                        "Der Client hat einen anderen Stand bestätigt, als der Server gesendet hat.");
+            Assert.That(aliceSession.PendingToClient.Any(e => e.Seq <= standBeiderNachfrage), Is.False,
+                        "Bestätigte Stanzas liegen noch im Puffer.");
+
+        }
+
+        #endregion
+
+        #region TheClientResumesInsteadOfBindingAnew()
+
+        /// <summary>
+        /// Nach einem Abriss nimmt der Client den Stream wieder auf, statt
+        /// eine neue Resource zu binden.
+        /// </summary>
+        /// <remarks>
+        /// Die Full-JID ist der sichtbare Beleg. Bei einem gewöhnlichen
+        /// Neuaufbau vergibt der Server eine neue Resource, und für die
+        /// Kontakte ist der Rückkehrer ein anderer als der Verschwundene -
+        /// laufende Gespräche, die auf die volle Adresse zeigen, laufen ins
+        /// Leere. Nach einer Wiederaufnahme ist es dieselbe Adresse, weil es
+        /// derselbe Stream ist.
+        /// </remarks>
+        [Test]
+        public async Task TheClientResumesInsteadOfBindingAnew()
+        {
+
+            var alice    = await ConnectClientAsync(reconnectDelay: TimeSpan.FromMilliseconds(200));
+            var vorher   = alice.FullJid;
+            var sitzung  = Server.SessionOf(vorher!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var kennung = alice.StreamManagement!.ResumeId;
+
+            // Auf den *abgeschlossenen* Aufbau warten, nicht auf das
+            // Abholen des Streams: der Server raeumt ihn mitten in der
+            // Aufbauphase des Clients aus seiner Liste, und wer nur darauf
+            // wartet, prueft den Client in einem Zustand, den er gleich
+            // wieder verlaesst. Genau daran ist die Mutation, die den
+            // Manager bei jedem Aufbau neu erzeugt, zunaechst vorbeigekommen.
+            var wiederVerbunden = 0;
+            alice.OnStateChanged += (_, neu) =>
+            {
+                if (neu == ConnectionState.Connected)
+                    Interlocked.Increment(ref wiederVerbunden);
+            };
+
+            sitzung.Kill();
+
+            await WaitFor(() => wiederVerbunden > 0,
+                          "die wiederaufgenommene Sitzung",
+                          TimeSpan.FromSeconds(20));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(alice.FullJid, Is.EqualTo(vorher),
+                            "Der Client hat eine neue Resource gebunden statt wiederaufzunehmen.");
+
+                // Die Full-JID allein reicht als Beleg nicht: die Resource ist
+                // prozessfest, ein neuer Bind ergäbe dieselbe Adresse. Eine
+                // unveränderte Kennung gibt es nur ohne neues <enabled/>.
+                Assert.That(alice.StreamManagement.ResumeId, Is.EqualTo(kennung),
+                            "Der Stream wurde neu ausgehandelt statt wieder aufgenommen.");
+
+                Assert.That(Server.SessionOf(vorher!), Is.Not.Null);
+
+            });
+
+        }
+
+        #endregion
+
+        #region WhatArrivedDuringTheOutage_IsDeliveredAfterwards()
+
+        /// <summary>
+        /// Was während des Abrisses zugestellt wurde, kommt nach der
+        /// Wiederaufnahme nach.
+        /// </summary>
+        /// <remarks>
+        /// Der eigentliche Gewinn der ganzen Erweiterung, und der Grund für
+        /// den Puffer aus R1. Ohne ihn wäre die Wiederaufnahme nur Kosmetik an
+        /// der Full-JID: die Nachrichten, die der Server in eine tote
+        /// Verbindung geschrieben hat, wären weg, und niemand erführe davon -
+        /// weder der Absender noch der Empfänger.
+        /// </remarks>
+        [Test]
+        public async Task WhatArrivedDuringTheOutage_IsDeliveredAfterwards()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice   = await ConnectClientAsync(reconnectDelay: TimeSpan.FromMilliseconds(500));
+            var bob     = await ConnectClientAsync("bob", createAccount: false);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var angekommen = new List<String>();
+            alice.OnMessage += m => { lock (angekommen) angekommen.Add(m.Body); };
+
+            // Die Verbindung ist tot, der Server weiss es noch nicht: was er
+            // jetzt schickt, geht in den Puffer.
+            sitzung.Kill();
+
+            await bob.SendMessageAsync($"alice@{Server.Domain}", "Im Dunkeln geschickt");
+
+            await WaitFor(() => { lock (angekommen) return angekommen.Contains("Im Dunkeln geschickt"); },
+                          "die nachgesendete Nachricht",
+                          TimeSpan.FromSeconds(20));
+
+        }
+
+        #endregion
+
+        #region AStolenId_DoesNotHandOverTheStream()
+
+        /// <summary>
+        /// Die Kennung allein reicht nicht - der Rückkehrer muss auf demselben
+        /// Konto angemeldet sein.
+        /// </summary>
+        /// <remarks>
+        /// Die schwerwiegendste Stelle der ganzen Erweiterung. Die Kennung
+        /// wandert über die Leitung; wer sie in die Finger bekommt, hätte
+        /// ohne diese Prüfung eine fremde Sitzung samt Full-JID, Roster und
+        /// laufenden Gesprächen - ohne je das Passwort gesehen zu haben.
+        ///
+        /// Sie ist damit kein Ausweis, sondern nur eine Auswahl: <i>welcher</i>
+        /// der aufgehobenen Streams dieses Kontos gemeint ist. Ausgewiesen hat
+        /// sich der Client vorher, über SASL.
+        /// </remarks>
+        [Test]
+        public async Task AStolenId_DoesNotHandOverTheStream()
+        {
+
+            var alice   = await ConnectClientAsync("alice", maxReconnectAttempts: 0);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var aliceKennung = alice.StreamManagement!.ResumeId;
+            var aliceJid     = alice.FullJid;
+
+            sitzung.Kill();
+            await WaitFor(() => Server.ResumableStreamCount == 1, "den aufgehobenen Stream");
+
+            // Mallory ist ordentlich angemeldet - nur eben als Mallory - und
+            // legt Alices Kennung vor.
+            var mallory = await ConnectClientAsync("mallory", maxReconnectAttempts: 0);
+
+            await mallory.SendRawAsync(
+                      $"<resume xmlns='urn:xmpp:sm:3' h='0' previd='{aliceKennung}'/>");
+
+            var mallorySitzung = Server.SessionOf(mallory.FullJid!)!;
+
+            await WaitFor(() => mallorySitzung.Sent.Any(f => f.StartsWith("<failed", StringComparison.Ordinal)),
+                          "die Abweisung");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(mallory.FullJid, Is.Not.EqualTo(aliceJid),
+                            "Mallory hat Alices Adresse übernommen.");
+
+                Assert.That(Server.ResumableStreamCount, Is.EqualTo(1),
+                            "Alices Stream wurde herausgegeben.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheResumedCountPreventsADoubleDelivery()
+
+        /// <summary>
+        /// Was der Server schon hatte, schickt der Client nach der
+        /// Wiederaufnahme nicht noch einmal.
+        /// </summary>
+        /// <remarks>
+        /// Der Client hält jede gesendete Stanza fest, bis ein <c>h</c> sie
+        /// bestätigt. Nach einem Abriss hat er deshalb eine Warteschlange voll
+        /// Stanzas, die der Server längst verarbeitet hat - er hatte nur nie
+        /// Anlass, sie zu bestätigen. Sendete er sie stumpf alle nach, bekäme
+        /// jeder Empfänger sie doppelt.
+        ///
+        /// Genau dagegen trägt das <c>h</c> im <c>&lt;resumed/&gt;</c>: es
+        /// meldet, wie weit der Server gekommen ist, und räumt die
+        /// Warteschlange bis dorthin ab. Erst was danach kommt, geht erneut
+        /// hinaus.
+        ///
+        /// <b>Nicht abgedeckt</b> bleibt der umgekehrte Fall - eine Stanza,
+        /// die der Client erfolgreich abschickt und die den Server nie
+        /// erreicht. Im selben Prozess gibt es ihn nicht: ein abgerissener
+        /// Socket lässt das Senden sofort und lautstark scheitern, und eine
+        /// nicht gesendete Stanza wird gar nicht erst mitgezählt.
+        /// </remarks>
+        [Test]
+        public async Task TheResumedCountPreventsADoubleDelivery()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice   = await ConnectClientAsync(reconnectDelay: TimeSpan.FromMilliseconds(200));
+            var bob     = await ConnectClientAsync("bob", createAccount: false);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var angekommen = new List<String>();
+            bob.OnMessage += m => { lock (angekommen) angekommen.Add(m.Body); };
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}", "Nur einmal");
+
+            await WaitFor(() => { lock (angekommen) return angekommen.Count == 1; },
+                          "die Nachricht bei Bob");
+
+            Assert.That(alice.StreamManagement!.UnackedCount, Is.GreaterThan(0),
+                        "Nichts offen - dann gäbe es beim Wiederaufnehmen auch nichts falsch zu machen.");
+
+            var wiederVerbunden = 0;
+            alice.OnStateChanged += (_, neu) =>
+            {
+                if (neu == ConnectionState.Connected)
+                    Interlocked.Increment(ref wiederVerbunden);
+            };
+
+            sitzung.Kill();
+
+            await WaitFor(() => wiederVerbunden > 0,
+                          "die wiederaufgenommene Sitzung",
+                          TimeSpan.FromSeconds(20));
+
+            await WaitFor(() => alice.StreamManagement.UnackedCount == 0,
+                          "das Leeren der Warteschlange durch das h im <resumed/>");
+
+            await WaitAgainst(() => { lock (angekommen) return angekommen.Count > 1; },
+                              "eine zweite Zustellung derselben Nachricht");
+
+        }
+
+        #endregion
+
+        #region AnExpiredStream_FallsBackToAFreshBind()
+
+        /// <summary>
+        /// Ist die Frist abgelaufen, baut der Client normal auf.
+        /// </summary>
+        /// <remarks>
+        /// Der Fehlerpfad, und ohne ihn wäre die Erweiterung gefährlicher als
+        /// ihr Nutzen: ein Client, der auf ein <c>&lt;failed/&gt;</c> nicht
+        /// zurückfallen kann, käme nach einer längeren Störung überhaupt nicht
+        /// mehr online. Die neue Resource ist hier das Richtige - der alte
+        /// Stream ist endgültig fort.
+        /// </remarks>
+        [Test]
+        public async Task AnExpiredStream_FallsBackToAFreshBind()
+        {
+
+            Server.ResumptionTimeout = TimeSpan.FromMilliseconds(1);
+
+            var alice   = await ConnectClientAsync(reconnectDelay: TimeSpan.FromSeconds(3));
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            // Die Kennung unterscheidet die beiden Fälle, nicht die Full-JID:
+            // die Resource ist prozessfest (console-{ProcessId}), ein neuer
+            // Bind ergibt also dieselbe Adresse. Eine Wiederaufnahme behält
+            // ihre Kennung, ein neues <enabled/> bringt eine neue.
+            var alteKennung = alice.StreamManagement!.ResumeId;
+
+            sitzung.Kill();
+
+            // Der Abräumer läuft im Sekundentakt, der Reconnect erst danach.
+            await WaitFor(() => alice.IsConnected &&
+                                alice.StreamManagement.ResumeId is not null &&
+                                alice.StreamManagement.ResumeId != alteKennung,
+                          "einen neuen Aufbau nach abgelaufener Frist",
+                          TimeSpan.FromSeconds(30));
+
+            Assert.That(Server.SessionOf(alice.FullJid!), Is.Not.Null,
+                        "Der Client hält sich für verbunden, der Server kennt ihn nicht.");
 
         }
 

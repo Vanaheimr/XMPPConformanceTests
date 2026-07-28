@@ -332,6 +332,60 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// XEP-0198, Abschnitt 5: Übernimmt einen aufgehobenen Stream.
+        /// </summary>
+        /// <remarks>
+        /// Übernommen wird alles, woran der Stream für seine Umgebung hängt:
+        /// die Resource - und damit die Full-JID, unter der Kontakte ihn
+        /// adressieren -, beide Zähler, die Kennung, der Presence-Zustand und
+        /// die Carbons-Einstellung. Was hier vergessen würde, fiele nicht dem
+        /// Rückkehrer auf, sondern seinen Gesprächspartnern.
+        ///
+        /// Der alte Sitzungsobjekt bleibt zurück; seine Verbindung ist tot und
+        /// <see cref="IsOpen"/> filtert es aus allem heraus.
+        /// </remarks>
+        /// <returns>
+        /// Die noch offenen Stanzas des alten Streams, damit der Aufrufer sie
+        /// nachsenden kann.
+        /// </returns>
+        internal IReadOnlyList<(UInt32 Seq, String Stanza)> AdoptResumed(XMPPSession vorher)
+        {
+
+            var offen = vorher.PendingToClient;
+
+            lock (_lock)
+            {
+
+                Resource                   = vorher.Resource;
+                CarbonsEnabled             = vorher.CarbonsEnabled;
+
+                StreamManagementEnabled    = true;
+                ResumptionId               = vorher.ResumptionId;
+                StanzasSentToClient        = vorher.StanzasSentToClient;
+                StanzasReceivedFromClient  = vorher.StanzasReceivedFromClient;
+                _lastAckFromClient         = vorher.LastAckFromClient;
+
+                _unackedToClient.Clear();
+                foreach (var e in offen)
+                    _unackedToClient.Enqueue(e);
+
+                // Ohne diese beiden gälte die Resource als frisch gebunden und
+                // damit als nicht verfügbar (RFC 6121, 4.2.1) - der Server
+                // hätte sie den Kontakten gegenüber nie abgemeldet und würde
+                // sie ihnen jetzt trotzdem nicht mehr als anwesend melden.
+                HasSentInitialPresence     = vorher.HasSentInitialPresence;
+                IsAvailable                = vorher.IsAvailable;
+                LastPresence               = vorher.LastPresence;
+
+            }
+
+            vorher.EndResumption();
+
+            return offen;
+
+        }
+
+        /// <summary>
         /// XEP-0198, Abschnitt 5: Nimmt die Zusage der Wiederaufnahme zurück.
         /// </summary>
         /// <remarks>
@@ -376,6 +430,57 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// XEP-0198, Abschnitt 4: Schaltet Stream Management ein und bestätigt
+        /// es in einem Zug.
+        /// </summary>
+        /// <remarks>
+        /// Beides unter der Sperre, die auch das Senden hält. Sonst kann
+        /// zwischen dem Nullsetzen der Zähler und dem <c>&lt;enabled/&gt;</c>
+        /// eine Stanza hinausgehen: der Server zählt sie, der Client nicht -
+        /// denn der setzt seinen Zähler erst beim <c>&lt;enabled/&gt;</c>
+        /// zurück -, und die beiden Stände bleiben für den Rest der Sitzung um
+        /// genau diese eine auseinander. Danach bestätigt jedes
+        /// <c>&lt;a h='…'/&gt;</c> eine Stanza zu wenig, und der Puffer der
+        /// unbestätigten läuft nie mehr leer.
+        ///
+        /// Das Fenster ist schmal und trifft nur, wer <c>&lt;enable/&gt;</c>
+        /// nicht in der Aufbauphase schickt - im vollen Testlauf reichte es.
+        /// </remarks>
+        /// <param name="resumable">Hat der Client <c>resume='true'</c> verlangt?</param>
+        /// <param name="antwort">Baut das <c>&lt;enabled/&gt;</c> aus der frisch gesetzten Kennung.</param>
+        internal async Task EnableStreamManagementAsync(Boolean                    resumable,
+                                                        Func<XMPPSession, String>  antwort)
+        {
+
+            await _sendLock.WaitAsync();
+
+            try
+            {
+
+                EnableStreamManagement(resumable);
+
+                if (_connection.IsClosed)
+                    return;
+
+                var xml = antwort(this);
+
+                if (await _server.SendTextMessage(_connection, xml) == SentStatus.Success)
+                    lock (_lock)
+                        _sent.Add(xml);
+
+            }
+            catch (Exception)
+            {
+                // Verbindung wurde zwischenzeitlich abgerissen
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+
+        }
+
+        /// <summary>
         /// XEP-0198: Fordert den Client auf, seinen Empfangszähler zu melden.
         /// Die Antwort landet in <see cref="LastAckFromClient"/>.
         /// </summary>
@@ -408,7 +513,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             {
 
                 if (_connection.IsClosed)
+                {
+
+                    // XEP-0198, Abschnitt 5: einem aufgehobenen Stream geht
+                    // trotzdem etwas zu - er wartet ja gerade auf seinen
+                    // Rückkehrer, und dann bekommt er es nachgeliefert.
+                    //
+                    // Ohne das wäre die Wiederaufnahme fast wertlos: gerettet
+                    // würde nur, was in der letzten Zehntelsekunde vor dem
+                    // Abriss unterwegs war. Alles, was während der Störung
+                    // ankommt - und das ist der Fall, um den es geht -, wäre
+                    // verworfen, ohne dass Absender oder Empfänger davon
+                    // erführen.
+                    if (ResumptionId is not null && IsStanza(xml))
+                        lock (_lock)
+                        {
+                            StanzasSentToClient++;
+                            _unackedToClient.Enqueue((StanzasSentToClient, xml));
+                        }
+
                     return;
+
+                }
 
                 var status = await _server.SendTextMessage(_connection, xml);
 

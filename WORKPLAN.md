@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **456 Tests, 0 Fehler** in gut zwei Minuten, und
+Aktueller Stand der Suite: **461 Tests, 0 Fehler** in gut zwei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1085,17 +1085,71 @@ Fünf Mutationen, jede von genau dem zuständigen Test erschlagen: nie parken,
 Verfall ohne `EndResumption`, ungefragt zusagen, Kennung aus der
 Verbindungsnummer, Puffer leert sich nicht.
 
-### R2. Der Client kommt zurück
+### R2. Der Client kommt zurück ✅
 
-Offen. `ResumeAsync` und `GetUnackedStanzas` existieren, werden aber nirgends
-aufgerufen; der Client fordert `resume='true'` gar nicht erst an und baut nach
-einem Abriss neu auf. Serverseitig fehlt das Gegenstück: `<resume/>` →
-`<resumed h='…'/>` samt Nachsenden, oder `<failed><item-not-found/></failed>`.
+Der Versuch sitzt genau zwischen Anmeldung und Binding. Gelingt er, gibt es
+keine neue Resource — und keine zweite Presence, keinen zweiten Roster-Abruf,
+keine erneute Aushandlung: eine wiederaufgenommene Sitzung ist keine neue.
 
-Das wiegt seit dem Default-Umstieg mehr als vorher: Stream Management handelt
-jetzt jeder Client aus, also sammelt auch jeder unbestätigte Stanzas an, die
-ein Reconnect wegwirft. Vorher betraf das nur, wer den Schalter selbst umgelegt
-hatte.
+**Der Manager muss den Reconnect überleben.** `InitialiseManagers()` erzeugte
+ihn bei jedem Aufbau neu; an ihm hängen aber Kennung und unbestätigte Stanzas.
+Er ist jetzt der einzige, der stehenbleibt — seinen Sitzungszustand setzt er
+selbst zurück, sobald ein `<enabled/>` kommt.
+
+**Die Kennung ist kein Ausweis, sondern eine Auswahl.** Sie wandert über die
+Leitung; wer sie abfängt, hätte sonst eine fremde Sitzung samt Full-JID und
+Roster, ohne je ein Passwort gesehen zu haben. Der Stream, auf dem das
+`<resume/>` ankommt, muss deshalb bereits auf **dasselbe Konto** angemeldet
+sein — ausgewiesen hat sich der Client vorher, über SASL.
+`AStolenId_DoesNotHandOverTheStream` hält das fest.
+
+**Drei Dinge, die erst der Lauf zeigte:**
+
+1. *Ein sauberes `<close/>` darf nicht geparkt werden.* Fünf bestehende Tests
+   fielen durch, und sie hatten recht: der Server hielt jede ordentliche
+   Abmeldung für eine Störung, hob sie eine Minute lang auf und verschwieg sie
+   den Kontakten so lange. XEP-0198 Abschnitt 5.3 gilt abgerissenen Streams,
+   nicht verabschiedeten.
+
+2. *Ein geparkter Stream muss weiter zustellbar sein.* `SessionsOf` filterte
+   auf offene Verbindungen — was während der Störung ankam, wurde verworfen,
+   statt in den Puffer zu gehen. Ohne diese Änderung rettete die Wiederaufnahme
+   nur, was in der letzten Zehntelsekunde vor dem Abriss unterwegs war, und der
+   eigentliche Fall — Verbindung weg, Nachrichten kommen trotzdem — fiele
+   durch.
+
+3. *`<enable/>` und `<enabled/>` gehören unter dieselbe Sperre.* Geht dazwischen
+   eine Stanza hinaus, zählt der Server sie und der Client nicht — der setzt
+   seinen Zähler erst beim `<enabled/>` zurück. Die Stände bleiben dann um
+   genau eine auseinander, und der Puffer läuft nie mehr leer.
+
+Und die Gegenprobe zum Nachsenden: das `h` im `<resumed/>` räumt die
+Warteschlange des Clients bis zum Stand des Servers ab. Ohne das bekäme jeder
+Empfänger nach jedem Abriss alles doppelt, was der Server längst hatte.
+
+Sechs Mutationen, alle von genau den zuständigen Tests erschlagen: Kontoprüfung
+weg, Manager bei jedem Aufbau neu, geparkter Stream nimmt nichts entgegen,
+sauberes Verabschieden wird geparkt, Client nimmt nie wieder auf, und nach der
+Wiederaufnahme läuft trotzdem der volle Aufbau.
+
+**Zwei eigene Testfehler auf dem Weg**, beide von derselben Sorte — eine
+Zusicherung, die mehr verlangt als der Test meint:
+
+- Die Wartebedingung `IsConnected && ResumableStreamCount == 0` war schon
+  erfüllt, während der Client noch mitten im Aufbau stand. Die Mutation
+  „Manager bei jedem Aufbau neu" kam daran vorbei, weil die Zusicherungen den
+  alten Manager lasen, bevor er ersetzt wurde. Jetzt wird auf den
+  *abgeschlossenen* Aufbau gewartet.
+- `AcknowledgedStanzas_LeaveTheBuffer` verlangte einen **leeren** Puffer,
+  während Bobs XEP-0184-Empfangsbestätigungen weiter Einträge nachlegten. In
+  etwa jedem dritten vollen Lauf falsch, allein ausgeführt nie. Gemeint war:
+  was bestätigt wurde, liegt nicht mehr drin.
+
+**Nicht abgedeckt:** eine Stanza, die der Client erfolgreich abschickt und die
+den Server nie erreicht. Im selben Prozess gibt es diesen Fall nicht — ein
+abgerissener Socket lässt das Senden sofort scheitern, und eine nicht gesendete
+Stanza wird gar nicht erst mitgezählt. Der Code dafür (`ResendUnackedAsync`,
+ohne erneutes Mitzählen) ist da und ungeprüft.
 
 ---
 
