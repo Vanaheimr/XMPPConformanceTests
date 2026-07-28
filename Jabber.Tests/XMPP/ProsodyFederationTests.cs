@@ -56,6 +56,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private const String PeerDomain     = "prosody.test";
         private const Int32  PeerPort       = 15269;
 
+
         /// <summary>Unsere Domain im ausgehenden Lauf.</summary>
         private const String LocalDomain    = "jabber.test";
 
@@ -100,7 +101,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Unter einer Domain und einem Port aufbauen, unter denen Prosody uns
         /// von sich aus anwählen kann.
         /// </param>
-        private void Aufbau(Boolean bidi = false, Boolean erreichbar = false)
+        /// <param name="dialback">
+        /// Ohne SASL-EXTERNAL aufbauen, sodass beide Seiten auf die
+        /// Dialback-Rückfrage zurückfallen.
+        /// </param>
+        private void Aufbau(Boolean bidi        = false,
+                            Boolean erreichbar  = false,
+                            Boolean dialback    = false)
         {
 
             var verzeichnis = CertDirectory;
@@ -124,7 +131,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             _links = new TcpServerLinks(_server,
                                         port: erreichbar ? InboundPort : 0,
                                         mode: TcpTlsMode.StartTls) {
-                         UseSaslExternal          = true,
+
+                         // Ohne SASL-EXTERNAL legen wir kein Klientzertifikat
+                         // vor. Prosody hat dann nichts zu prüfen und bietet
+                         // EXTERNAL gar nicht erst an - der Weg fällt damit
+                         // von selbst auf Dialback zurück, ohne dass eine
+                         // Seite es erzwingen müsste.
+                         UseSaslExternal          = !dialback,
                          UseBidirectionalStreams  = bidi
                      };
 
@@ -140,6 +153,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             {
                 try { await _client.DisposeAsync(); } catch { /* im Teardown egal */ }
                 _client = null;
+            }
+
+            // Ausdrücklich vor dem Server: der S2S-Zweig hält im erreichbaren
+            // Aufbau den festen Port 5269, und den bekommt der nächste Test
+            // sonst nicht mehr. Das kostete hier zwei Testläufe, weil ein
+            // gescheiterter Bind wie ein Protokollfehler aussieht.
+            if (_links is not null)
+            {
+                try { await _links.DisposeAsync(); } catch { /* im Teardown egal */ }
+                _links = null;
             }
 
             if (_server is not null)
@@ -339,6 +362,77 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
                 Assert.That(_links.BidirectionalDeliveryCount, Is.Zero,
                             "Aufbau des Tests: hier soll gerade keine Rückrichtung im Spiel sein.");
+
+                // Und der Nachweis, dass Prosody sich über sein Zertifikat
+                // ausgewiesen hat und nicht über Dialback: sonst hätten *wir*
+                // zurückfragen müssen.
+                Assert.That(_links.DialbackVerificationCount, Is.Zero,
+                            "Hier soll SASL-EXTERNAL tragen, nicht Dialback.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region DialbackCarriesBothDirections()
+
+        /// <summary>
+        /// XEP-0220 gegen eine fremde Gegenstelle - in beiden Rollen.
+        /// </summary>
+        /// <remarks>
+        /// Dialback war zuletzt das einzige Verfahren, das nur gegen die eigene
+        /// Gegenstelle geprüft war. Ein Ping-Rundlauf übt beide Rollen auf
+        /// einmal, weil jede Richtung ihre eigene Verbindung aufbaut und jede
+        /// aufbauende Seite sich ausweisen muss:
+        ///
+        /// <list type="number">
+        ///   <item>
+        ///     Wir wählen an und schicken <c>&lt;db:result/&gt;</c>. Prosody
+        ///     fragt daraufhin beim autoritativen Server unserer Domain nach -
+        ///     das sind wieder wir, auf 5269. Hier antwortet unsere
+        ///     <b>autoritative</b> Rolle einer fremden Gegenstelle.
+        ///   </item>
+        ///   <item>
+        ///     Prosody wählt an, um die Antwort zuzustellen, und schickt
+        ///     seinerseits <c>&lt;db:result/&gt;</c>. Wir fragen bei
+        ///     <c>prosody.test</c> nach. Hier arbeitet unsere <b>prüfende</b>
+        ///     Rolle gegen eine fremde Gegenstelle.
+        ///   </item>
+        /// </list>
+        ///
+        /// Dass der Ping ankommt, belegt beide: scheiterte Prosodys Rückfrage
+        /// an uns, nähme es unsere Stanza nicht an; scheiterte unsere Rückfrage
+        /// an Prosody, nähmen wir seine Antwort nicht an.
+        /// <c>DialbackVerificationCount</c> hält die zweite Rolle zusätzlich
+        /// fest - ohne sie bestünde der Test auch dann, wenn wir jemanden
+        /// ungeprüft durchgelassen hätten.
+        /// </remarks>
+        [Test]
+        public async Task DialbackCarriesBothDirections()
+        {
+
+            if (!OperatingSystem.IsLinux())
+                Assert.Ignore("Nur innerhalb von WSL: Prosodys Rückfrage erreicht diesen Server sonst nicht.");
+
+            Aufbau(erreichbar: true, dialback: true);
+
+            var alice = await AliceAsync();
+
+            var dauer = await alice.PingAsync(PeerDomain);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(dauer, Is.Not.Null,
+                            "Prosody hat den Ping nicht beantwortet - eine der beiden " +
+                            "Rückfragen ist gescheitert.");
+
+                Assert.That(_links!.DialbackVerificationCount, Is.GreaterThan(0),
+                            "Wir haben Prosodys Schlüssel nie nachgefragt.");
+
+                Assert.That(_links.InboundConnectionCount, Is.GreaterThan(0),
+                            "Ohne eingehende Verbindung gab es auch nichts zu prüfen.");
 
             });
 

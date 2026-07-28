@@ -22,6 +22,7 @@ ARCH_DIR="x86_64-linux-gnu"
 
 PEER_DOMAIN="prosody.test"
 
+
 # Zwei Namen fuer unsere Seite, und der Unterschied ist der Kern von P4:
 #
 #   jabber.test  - fuer den ausgehenden Lauf. Wir waehlen Prosody an, die
@@ -151,6 +152,23 @@ modules_enabled = {
 -- was hier auch gut ist, weil die Dialback-Rueckfrage eine Verbindung von
 -- WSL zum Windows-Host braucht, und die blockiert die Hyper-V-Firewall.
 s2s_secure_auth        = true
+
+-- Ausnahme fuer unsere Domain, damit auch Dialback (XEP-0220) pruefbar ist.
+-- Ohne sie verlangt Prosody eine gueltige Zertifikatskette und weist eine
+-- Verbindung, die sich nur ueber Dialback ausweisen will, mit
+-- <not-authorized/> ab.
+--
+-- Als Ausnahmeliste und nicht als "s2s_secure_auth = false" auf einem eigenen
+-- VirtualHost: mod_s2s ist ein globales Modul und liest den Schalter *einmal*
+-- beim Laden (mod_s2s.lua, Zeile 40). Pro VirtualHost gesetzt tut er
+-- stillschweigend nichts - der Aufbau sah eine Weile richtig aus und war es
+-- nicht.
+--
+-- Welches Verfahren tatsaechlich zum Zug kommt, entscheidet damit unsere
+-- Seite: legen wir ein Klientzertifikat vor, bietet Prosody EXTERNAL an und
+-- wir nehmen es; legen wir keines vor, bleibt nur Dialback.
+s2s_insecure_domains   = { "$INBOUND_DOMAIN" }
+
 s2s_require_encryption = true
 c2s_require_encryption = true
 s2s_connect_timeout    = 10
@@ -181,6 +199,7 @@ VirtualHost "$PEER_DOMAIN"
         key         = "$PREFIX/certs/$PEER_DOMAIN.key";
         cafile      = "$PREFIX/certs/ca.crt";
     }
+
 CFG
 
 # ------------------------------------------------------------------ Start ---

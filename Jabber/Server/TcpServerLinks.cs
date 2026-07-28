@@ -86,7 +86,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// erlaubt. Bei den Zahlen, um die es hier geht, kostet das Durchsehen
         /// nichts.
         /// </remarks>
-        private readonly List<S2SStream>                  _inbound    = [];
+        private readonly List<InboundLink>                _inbound    = [];
+
+        /// <summary>
+        /// Ein angenommener Stream samt der Verbindung, auf der er liegt.
+        /// </summary>
+        /// <remarks>
+        /// Die Verbindung gehört dazu, weil das Herunterfahren sie schliessen
+        /// muss. Ein <see cref="S2SStream"/> allein lässt sich zwar abbrechen,
+        /// aber der Socket bliebe offen - und die Gegenstelle hielte ihn für
+        /// benutzbar.
+        /// </remarks>
+        private sealed record InboundLink(S2SStream Stream, TcpClient Client);
 
         private Int32 _inboundCounter;
         private Int32 _dialbackVerifications;
@@ -341,7 +352,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private IReadOnlyList<S2SStream> EingehendeStreams()
         {
             lock (_lock)
-                return [.. _inbound];
+                return [.. _inbound.Select(l => l.Stream)];
         }
 
         #endregion
@@ -573,8 +584,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  externalIdentity:  IdentityCheckFor(peerCertificate),
                                  offerBidi:         UseBidirectionalStreams);
 
+                var link = new InboundLink(stream, client);
+
                 lock (_lock)
-                    _inbound.Add(stream);
+                    _inbound.Add(link);
 
                 try
                 {
@@ -583,7 +596,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 finally
                 {
                     lock (_lock)
-                        _inbound.Remove(stream);
+                        _inbound.Remove(link);
                 }
 
             }
@@ -1155,6 +1168,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             try { _listener.Stop(); }
             catch { /* egal */ }
+
+            // Angenommene Verbindungen ausdrücklich schliessen. Das Abbrechen
+            // des Tokens allein genügt nicht: der Lesevorgang auf einem Socket
+            // bricht damit nicht zuverlässig ab, die Schleife bleibt stehen,
+            // bis die Gegenstelle auflegt - und bis dahin hält *sie* die
+            // Verbindung für benutzbar und schickt darüber weiter.
+            //
+            // Gefunden im Lauf gegen Prosody: nach dem Ende eines Testservers
+            // beantwortete Prosody die nächste Anfrage noch dreissig Sekunden
+            // lang über den längst toten Socket. Zwischen zwei Instanzen dieses
+            // Servers fiel das nie auf, weil dort beide Seiten gleichzeitig
+            // verschwinden.
+            List<InboundLink> eingehend;
+
+            lock (_lock)
+            {
+                eingehend = [.. _inbound];
+                _inbound.Clear();
+            }
+
+            foreach (var link in eingehend)
+            {
+                link.Stream.Abort("Server wird beendet");
+                try { link.Client.Dispose(); } catch { /* egal */ }
+            }
 
             List<Task<S2SStream?>> ausgehend;
 

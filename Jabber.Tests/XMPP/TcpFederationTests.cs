@@ -561,6 +561,57 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region DisposingTheLinks_ClosesEstablishedInboundConnections()
+
+        /// <summary>
+        /// Ein beendeter S2S-Zweig lässt keine angenommene Verbindung offen.
+        /// </summary>
+        /// <remarks>
+        /// Das Abbrechen des Tokens genügt dafür nicht: der Lesevorgang auf
+        /// einem Socket bricht damit nicht zuverlässig ab, die Schleife bleibt
+        /// stehen, bis die Gegenstelle auflegt. Bis dahin hält <b>sie</b> die
+        /// Verbindung für benutzbar und schickt darüber weiter - alles davon
+        /// ist verloren, und niemand erfährt es.
+        ///
+        /// Gefunden im Lauf gegen Prosody: nach dem Ende eines Testservers
+        /// beantwortete Prosody die nächste Anfrage noch dreissig Sekunden lang
+        /// über den längst toten Socket. Zwischen zwei Instanzen dieses Servers
+        /// fiel das nie auf, weil dort beide Seiten gleichzeitig verschwinden.
+        ///
+        /// Ohne TLS, weil es hier um den Socket geht und nicht um den
+        /// Handshake darüber.
+        /// </remarks>
+        [Test]
+        public async Task DisposingTheLinks_ClosesEstablishedInboundConnections()
+        {
+
+            await using var server = new XMPPServer("allein.example", useTLS: false);
+            server.Start();
+
+            var links = new TcpServerLinks(server, mode: TcpTlsMode.None);
+
+            using var gegenstelle = new TcpClient();
+            await gegenstelle.ConnectAsync(System.Net.IPAddress.Loopback, links.Port);
+
+            await WarteAuf(() => links.InboundConnectionCount > 0,
+                           "die angenommene Verbindung");
+
+            await links.DisposeAsync();
+
+            // Ein geschlossener Socket liefert beim Lesen 0 Bytes. Bleibt er
+            // offen, läuft das Zeitlimit ab und der Test scheitert genau daran.
+            var puffer = new Byte[1];
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+            var gelesen = await gegenstelle.GetStream().ReadAsync(puffer, cts.Token);
+
+            Assert.That(gelesen, Is.Zero,
+                        "Die Gegenstelle hält die Verbindung weiter für offen.");
+
+        }
+
+        #endregion
+
     }
 
 }

@@ -806,6 +806,55 @@ vorhandener Code erstmals vor einer fremden Gegenstelle bestanden hat.
 `APingReachesProsodyAndComesBack` ist entfallen: der stillgelegte Test sagte
 nichts mehr, was die beiden laufenden nicht sagen.
 
+### P5. Dialback gegen Prosody ✅ — und ein Fehler, den der Lauf herausholte
+
+XEP-0220 war zuletzt das einzige Verfahren, das nur gegen die eigene
+Gegenstelle geprüft war. Ein Ping-Rundlauf übt beide Rollen auf einmal, weil
+jede Richtung ihre eigene Verbindung aufbaut und jede aufbauende Seite sich
+ausweisen muss: wir wählen an und schicken `<db:result/>`, Prosody fragt beim
+autoritativen Server unserer Domain nach — das sind wieder wir. Dann wählt
+Prosody an, um die Antwort zuzustellen, schickt seinerseits `<db:result/>`, und
+wir fragen bei `prosody.test` nach. Beide Rollen, ein Test.
+
+Welches Verfahren zum Zug kommt, entscheidet dabei **unsere** Seite: legen wir
+ein Klientzertifikat vor, bietet Prosody `EXTERNAL` an; legen wir keines vor,
+bleibt nur Dialback. `UseSaslExternal` ist der ganze Unterschied zwischen den
+beiden Tests, und `DialbackVerificationCount` trennt sie sauber — im
+EXTERNAL-Fall muss er null sein, im Dialback-Fall grösser null. Ohne diese
+beiden Zusicherungen bestünde jeder Test auch im jeweils anderen Regime.
+
+**Ein Prosody-Schalter, der stillschweigend nichts tut.** Zuerst stand hier ein
+zweiter VirtualHost mit `s2s_secure_auth = false`. Er sah richtig aus und wirkte
+nicht: `mod_s2s` ist ein **globales** Modul und liest den Schalter *einmal* beim
+Laden (`mod_s2s.lua`, Zeile 40). Pro VirtualHost gesetzt geht er ins Leere.
+Prosody wies uns weiter mit `<not-authorized/>` ab — „Your server's certificate
+could not be validated". Der vorgesehene Weg ist die Ausnahmeliste
+`s2s_insecure_domains`, und die ist jetzt drin; der zweite VirtualHost ist
+wieder weg, weil eine Konfigurationszeile ohne Wirkung schlimmer ist als keine.
+
+**Und dann der eigentliche Fund: `TcpServerLinks.DisposeAsync` liess angenommene
+Verbindungen offen.** Es brach den Token ab, beendete den Listener und räumte
+die *ausgehenden* Streams ab — die eingehenden nicht. Das Abbrechen des Tokens
+genügt dafür nicht: der Lesevorgang auf einem Socket bricht damit nicht
+zuverlässig ab, die Schleife bleibt stehen, bis die Gegenstelle auflegt.
+
+Sichtbar wurde es daran, dass Prosody die nächste Anfrage noch dreissig Sekunden
+lang über den längst toten Socket beantwortete — der Testserver war weg, die
+Verbindung aus Prosodys Sicht nicht. Zwischen zwei Instanzen dieses Servers
+fällt das nie auf, weil dort beide Seiten gleichzeitig verschwinden. Im Betrieb
+heisst es: wer den Server beendet, lässt jede Gegenstelle im Glauben, sie könne
+weiter zustellen, und alles Zugestellte ist verloren.
+
+Festgehalten durch `DisposingTheLinks_ClosesEstablishedInboundConnections` —
+ohne TLS, weil es um den Socket geht und nicht um den Handshake darüber. Die
+Mutation, die das `Dispose` der Verbindung wieder herausnimmt, stirbt an genau
+diesem Test.
+
+Nebenbei fiel im Fixture dasselbe Versäumnis auf: der Teardown räumte `_links`
+nicht ab, und der festgehaltene Port 5269 fehlte dem nächsten Test. Ein
+gescheiterter Bind sieht dabei aus wie ein Protokollfehler — das kostete zwei
+Testläufe.
+
 ---
 
 ## Als Nächstes (Client)
