@@ -618,8 +618,8 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Abriss knüpft der Client vor dem Resource Binding an den alten Stream an: die
   Full-JID bleibt, was während der Störung ankam, wird nachgeliefert, und die
   Kontakte sehen kein Verschwinden. Gelingt es nicht — Frist abgelaufen,
-  Kennung unbekannt —, bindet er neu. Gegen einen fremden Server ist die
-  Wiederaufnahme noch nicht geprüft; sie läuft bisher nur gegen `XMPPServer`.
+  Kennung unbekannt —, bindet er neu. Gegen Prosody 13 (`mod_smacks`) ist das
+  geprüft, gegen ejabberd noch nicht.
 - **Der Content-Namensraum wandert nur in einer Richtung mit.** Was ein
   lokaler Client über die Domain-Grenze schickt, wird von `jabber:client` auf
   `jabber:server` umgestellt; was von einem fremden Server hereinkommt, geht in

@@ -45,8 +45,11 @@ PEER_S2S_PORT=15269
 # Vorgabe fuer HTTPS.
 HTTPS_PORT=5281
 
-# Ein Konto auf Prosody, mit dem sich unser Client dort anmeldet.
+# Zwei Konten auf Prosody: eines fuer den Client selbst, eines als Absender.
+# Ohne den zweiten laesst sich nicht pruefen, ob eine waehrend der Stoerung
+# zugestellte Nachricht nach der Wiederaufnahme nachkommt.
 TEST_USER="alice"
+TEST_USER2="bob"
 TEST_PASSWORD="geheim"
 
 mkdir -p "$PREFIX"/{debs,etc,var/lib,certs,run} "$ROOT"
@@ -241,8 +244,10 @@ sleep 1
 # scheitert ohne Terminal - lautlos, wenn man seine Ausgabe wegwirft. register
 # nimmt es als Argument. Ein zweiter Aufruf setzt das Passwort neu, das ist
 # hier gerade richtig.
-"$ROOT/usr/bin/prosodyctl" register "$TEST_USER" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
-    | grep -i "User account\|error" || true
+for u in "$TEST_USER" "$TEST_USER2"; do
+    "$ROOT/usr/bin/prosodyctl" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
+        | grep -i "User account\|error" || true
+done
 
 cd "$PREFIX"
 nohup "$ROOT/usr/bin/prosody" > "$PREFIX/prosody.out" 2>&1 &
@@ -264,7 +269,7 @@ cat <<DONE
 
 Fertig. Prosody bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT (S2S) und
 wss://127.0.0.1:$HTTPS_PORT/xmpp-websocket (Client), Konto
-$TEST_USER@$PEER_DOMAIN / $TEST_PASSWORD.
+$TEST_USER@$PEER_DOMAIN und $TEST_USER2@$PEER_DOMAIN, Passwort $TEST_PASSWORD.
 
 Ausgehender Lauf, von Windows aus:
 

@@ -292,6 +292,13 @@ public sealed class XMPPClient : IAsyncDisposable
     public Task ConnectAsync(CancellationToken ct = default)
         => _connection.ConnectAsync(ct);
 
+    /// <summary>
+    /// Reisst die Verbindung ohne Close-Handshake ab - simuliert einen
+    /// Netzwerkausfall und löst den Reconnect aus.
+    /// </summary>
+    public void KillConnection()
+        => _connection.KillConnection();
+
     public Task DisconnectAsync()
         => _connection.DisconnectAsync();
 

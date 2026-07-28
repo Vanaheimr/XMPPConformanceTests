@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **461 Tests, 0 Fehler** in gut zwei Minuten, und
+Aktueller Stand der Suite: **464 Tests, 0 Fehler** in knapp drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1150,6 +1150,41 @@ den Server nie erreicht. Im selben Prozess gibt es diesen Fall nicht — ein
 abgerissener Socket lässt das Senden sofort scheitern, und eine nicht gesendete
 Stanza wird gar nicht erst mitgezählt. Der Code dafür (`ResendUnackedAsync`,
 ohne erneutes Mitzählen) ist da und ungeprüft.
+
+### R3. Wiederaufnahme gegen Prosody ✅
+
+Bis hierher war die Wiederaufnahme nur gegen den eigenen Server geprüft — beide
+Seiten mit derselben Auffassung davon, wann ein `<resume/>` geschickt werden
+darf, was hineingehört und was zurückkommt. Prosody hat diese Auffassung nicht
+von uns.
+
+Nötig war dafür zweierlei: ein **Abriss von unserer Seite** (`KillConnection()`,
+das Gegenstück zu `XMPPSession.Kill()` — gegen eine fremde Gegenstelle lässt
+sich die Sitzung nicht von drüben kappen, und ein ordentliches Abmelden ist
+gerade das Gegenteil dessen, was zu prüfen ist) und ein **zweites Konto** auf
+Prosody, sonst gibt es keinen Absender für eine Nachricht während der Störung.
+
+Es lief auf Anhieb, und weil das verdächtig glatt war, erst ins Prosody-Log
+statt es zu glauben. Dort steht der ganze Ablauf: `Session going into
+hibernation (not being destroyed)`, unser `<resume previd='…' h='2'/>`,
+`mod_smacks resuming existing session`, `<resumed previd='…' h='3'/>` und
+`resending all unacked stanzas that are still queued after resume`.
+
+**Zwei Mutationen, zwei zu schwache Tests — und beide Male dieselbe Ursache:**
+die Zusicherung war auch ohne Wiederaufnahme erfüllt.
+
+- *„Nie wiederaufnehmen"* liess `ProsodyHoldsBackWhatArrivedDuringTheOutage`
+  bestehen. Prosody stellt die Nachricht auch dann zu, wenn der Client eine
+  neue Resource bindet — sie geht dann eben dorthin. Dass sie ankommt, belegt
+  die Wiederaufnahme nicht. Jetzt wird zusätzlich geprüft, dass es derselbe
+  Stream war.
+- *„resume='true' weglassen"* liess beide neuen Tests bestehen. Ohne Zusage ist
+  die Kennung auf beiden Seiten `null`, und `null == null` heisst „unverändert".
+  Beide prüfen jetzt zuerst, dass überhaupt zugesagt wurde.
+
+Der Vergleich „vorher gleich nachher" ist nur dann ein Beleg, wenn *vorher*
+etwas dastand. Das ist in dieser Sitzung der dritte Test, der grün war und
+nichts gemessen hat.
 
 ---
 

@@ -2044,6 +2044,24 @@ public sealed class XMPPConnection : IAsyncDisposable
         _ => SubscriptionState.None
     };
 
+    /// <summary>
+    /// Reisst die Verbindung ohne Close-Handshake ab - simuliert einen
+    /// Netzwerkausfall und löst den Reconnect aus.
+    /// </summary>
+    /// <remarks>
+    /// Das Gegenstück zu <c>XMPPSession.Kill()</c> auf der Serverseite. Für
+    /// einen Lauf gegen eine <b>fremde</b> Gegenstelle gibt es keinen anderen
+    /// Weg: dort lässt sich die Sitzung nicht von der anderen Seite kappen,
+    /// und ein ordentliches <see cref="DisconnectAsync"/> ist gerade nicht,
+    /// was geprüft werden soll - ein verabschiedeter Stream wird nicht wieder
+    /// aufgenommen.
+    ///
+    /// <c>Abort</c> und nicht <c>CloseAsync</c>: nur das legt den Socket
+    /// nieder, ohne ein Close-Frame zu schicken.
+    /// </remarks>
+    public void KillConnection()
+        => _webSocket?.Abort();
+
     public async Task DisconnectAsync()
     {
 

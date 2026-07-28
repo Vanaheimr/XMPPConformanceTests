@@ -66,10 +66,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private const String Endpoint    = "wss://127.0.0.1:5281/xmpp-websocket";
         private const Int32  HttpsPort   = 5281;
         private const String User        = "alice";
+        private const String User2       = "bob";
         private const String Password    = "geheim";
 
-        private XMPPClient?       _client;
-        private X509Certificate2  _ca = null!;
+        private readonly List<XMPPClient>  _clients = [];
+        private X509Certificate2           _ca = null!;
 
         #endregion
 
@@ -81,7 +82,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <summary>
         /// Meldet einen Client bei Prosody an, oder überspringt den Test.
         /// </summary>
-        private async Task<XMPPClient> VerbindeAsync()
+        /// <param name="localPart">Welches der beiden Testkonten.</param>
+        /// <param name="reconnect">
+        /// Wie oft der Client nach einem Abriss wiederkommen darf. Null für
+        /// alles, was den Reconnect nicht braucht - dann steht am Testende
+        /// nichts mehr im Hintergrund.
+        /// </param>
+        private async Task<XMPPClient> VerbindeAsync(String  localPart  = User,
+                                                     Int32   reconnect  = 0)
         {
 
             var verzeichnis = CertDirectory;
@@ -94,20 +102,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             _ca = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(verzeichnis, "ca.crt"));
 
-            var connection = new XMPPConnection($"{User}@{PeerDomain}", Password, Endpoint) {
+            var connection = new XMPPConnection($"{localPart}@{PeerDomain}", Password, Endpoint) {
                                  KeepaliveEnabled            = false,
-                                 MaxReconnectAttempts        = 0,
+                                 MaxReconnectAttempts        = reconnect,
+                                 InitialReconnectDelay       = TimeSpan.FromMilliseconds(300),
                                  StreamManagementEnabled     = true,
                                  ServerCertificateValidator  = TrautDerTestCA
                              };
 
-            _client = new XMPPClient(connection);
-            await _client.ConnectAsync();
+            var client = new XMPPClient(connection);
+            _clients.Add(client);
 
-            Assert.That(_client.StreamManagement, Is.Not.Null,
+            await client.ConnectAsync();
+
+            Assert.That(client.StreamManagement, Is.Not.Null,
                         "Ohne Stream-Management-Manager hat dieser Test nichts zu prüfen.");
 
-            return _client;
+            return client;
 
         }
 
@@ -115,11 +126,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task Abbau()
         {
 
-            if (_client is not null)
+            foreach (var client in _clients)
             {
-                try { await _client.DisposeAsync(); } catch { /* im Teardown egal */ }
-                _client = null;
+                try { await client.DisposeAsync(); } catch { /* im Teardown egal */ }
             }
+
+            _clients.Clear();
 
         }
 
@@ -337,6 +349,171 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.That(dauer, Is.Not.Null,
                         $"Prosody hat nach unserem <a h='{sm.InboundCount}'/> nicht mehr geantwortet - " +
                         "vermutlich haben wir mehr gezählt, als es geschickt hat.");
+
+        }
+
+        #endregion
+
+        #region ProsodyPromisesToKeepTheStream()
+
+        /// <summary>
+        /// Prosody sagt die Wiederaufnahme zu.
+        /// </summary>
+        /// <remarks>
+        /// Bis hierher war die Zusage nur gegen den eigenen Server geprüft -
+        /// also gegen unsere eigene Auffassung davon, wie ein
+        /// <c>&lt;enable resume='true'/&gt;</c> auszusehen hat und was in der
+        /// Antwort stehen muss. Kommt hier eine Kennung an, hat Prosody unser
+        /// Ansinnen verstanden.
+        /// </remarks>
+        [Test]
+        public async Task ProsodyPromisesToKeepTheStream()
+        {
+
+            var alice = await VerbindeAsync();
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(alice.StreamManagement!.CanResume, Is.True,
+                            "Prosody hat die Wiederaufnahme nicht zugesagt.");
+
+                Assert.That(alice.StreamManagement.ResumeId, Is.Not.Null.And.Not.Empty);
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheStreamSurvivesABrokenConnection()
+
+        /// <summary>
+        /// Nach einem Abriss knüpft der Client bei Prosody an denselben Stream
+        /// an, statt eine neue Resource zu binden.
+        /// </summary>
+        /// <remarks>
+        /// Der Test, um dessentwillen dieser Lauf existiert. Gegen den eigenen
+        /// Server prüft die Wiederaufnahme beide Seiten mit derselben Auffassung
+        /// davon, wann ein <c>&lt;resume/&gt;</c> geschickt werden darf, was
+        /// hineingehört und was zurückkommt. Prosody hat diese Auffassung nicht
+        /// von uns.
+        ///
+        /// Die Verbindung wird von <b>unserer</b> Seite abgerissen - gegen eine
+        /// fremde Gegenstelle gibt es keinen anderen Weg, und ein ordentliches
+        /// Abmelden wäre gerade das Gegenteil dessen, was hier zu prüfen ist.
+        ///
+        /// Die unveränderte Kennung ist der Beleg: eine neue Aushandlung
+        /// brächte eine neue.
+        /// </remarks>
+        [Test]
+        public async Task TheStreamSurvivesABrokenConnection()
+        {
+
+            var alice = await VerbindeAsync(reconnect: 5);
+
+            var vorher   = alice.FullJid;
+            var kennung  = alice.StreamManagement!.ResumeId;
+
+            // Ohne zugesagte Wiederaufnahme ist die Kennung auf beiden Seiten
+            // null - und damit "unveraendert". Der Vergleich unten sagte dann
+            // nichts. Die Mutation, die resume='true' weglaesst, kam genau
+            // hier durch.
+            Assert.That(alice.StreamManagement.CanResume, Is.True,
+                        "Prosody hat die Wiederaufnahme gar nicht zugesagt.");
+
+            var wiederVerbunden = 0;
+            alice.OnStateChanged += (_, neu) =>
+            {
+                if (neu == ConnectionState.Connected)
+                    Interlocked.Increment(ref wiederVerbunden);
+            };
+
+            alice.KillConnection();
+
+            await WarteAuf(() => wiederVerbunden > 0, "den wiederaufgenommenen Stream");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(alice.FullJid, Is.EqualTo(vorher),
+                            "Prosody hat eine neue Resource vergeben - dann wurde neu gebunden.");
+
+                Assert.That(alice.StreamManagement.ResumeId, Is.EqualTo(kennung),
+                            "Neue Kennung, also neu ausgehandelt statt wieder aufgenommen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ProsodyHoldsBackWhatArrivedDuringTheOutage()
+
+        /// <summary>
+        /// Was während des Abrisses ankam, liefert Prosody nach.
+        /// </summary>
+        /// <remarks>
+        /// Der eigentliche Gewinn, und die Stelle, an der eine fremde
+        /// Gegenstelle mehr sagt als die eigene: unser Server puffert, weil wir
+        /// ihm das beigebracht haben. Dass Prosody es auch tut und dass wir das
+        /// Nachgelieferte richtig entgegennehmen, steht auf einem anderen Blatt.
+        ///
+        /// Bob und Alice brauchen dafür keine Subscription - eine Nachricht
+        /// geht auch ohne, nur Presence nicht.
+        ///
+        /// <b>Dass die Nachricht ankommt, genügt als Beleg nicht.</b> Prosody
+        /// stellt sie auch dann zu, wenn die Wiederaufnahme gar nicht versucht
+        /// wird und der Client eine neue Resource bindet - sie geht dann eben
+        /// dorthin, und der Test bestünde, ohne von der Wiederaufnahme etwas
+        /// zu wissen. Genau das ist ihm bei der Mutation „nie wiederaufnehmen"
+        /// passiert. Geprüft wird deshalb beides: dass sie ankommt <i>und</i>
+        /// dass es derselbe Stream war.
+        /// </remarks>
+        [Test]
+        public async Task ProsodyHoldsBackWhatArrivedDuringTheOutage()
+        {
+
+            var alice = await VerbindeAsync(reconnect: 5);
+            var bob   = await VerbindeAsync(User2);
+
+            var vorher  = alice.FullJid;
+            var kennung = alice.StreamManagement!.ResumeId;
+
+            Assert.That(alice.StreamManagement.CanResume, Is.True,
+                        "Prosody hat die Wiederaufnahme gar nicht zugesagt.");
+
+            var angekommen = new List<String>();
+            alice.OnMessage += m => { lock (angekommen) angekommen.Add(m.Body); };
+
+            var wiederVerbunden = 0;
+            alice.OnStateChanged += (_, neu) =>
+            {
+                if (neu == ConnectionState.Connected)
+                    Interlocked.Increment(ref wiederVerbunden);
+            };
+
+            // Prosody weiss noch nichts vom Abriss: was Bob jetzt schickt, geht
+            // in den aufgehobenen Stream.
+            alice.KillConnection();
+
+            await bob.SendMessageAsync($"{User}@{PeerDomain}", "Im Dunkeln geschickt");
+
+            await WarteAuf(() => wiederVerbunden > 0, "den wiederaufgenommenen Stream");
+
+            await WarteAuf(() => { lock (angekommen) return angekommen.Contains("Im Dunkeln geschickt"); },
+                           "die nachgelieferte Nachricht");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(alice.FullJid, Is.EqualTo(vorher),
+                            "Die Nachricht kam an, aber an einer neu gebundenen Resource - " +
+                            "dann prüft dieser Test nicht die Wiederaufnahme.");
+
+                Assert.That(alice.StreamManagement.ResumeId, Is.EqualTo(kennung));
+
+            });
 
         }
 
