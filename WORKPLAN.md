@@ -50,16 +50,16 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **476 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
+Aktueller Stand der Suite: **488 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
 der eine Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt.
-Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Vier benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
-funktional nicht beobachtbar) und die Slot-Identität im Verbindungs-Cache
-(siehe S4b-3).
+funktional nicht beobachtbar), die Slot-Identität im Verbindungs-Cache
+(siehe S4b-3) und der Zeitpunkt der SASL-Anheftung (siehe D1).
 
 ---
 
@@ -1304,6 +1304,74 @@ vermerkt, dass für sie kein Testweg existiert. Jetzt gibt es einen.
 
 Damit hat der ganze XEP-0198-Strang keine ungeprüfte Zeile mehr.
 
+### D1. Der SASL-Downgrade ✅ — nie schwächer als beim letzten Mal
+
+Der Client nahm den stärksten angebotenen Mechanismus. Das ist richtig, solange
+die Ankündigung von dem kommt, der sie zu machen hat — nur ist sie nicht
+authentifiziert. Sie kommt zwar über TLS, aber TLS belegt nur, dass die
+Gegenstelle ein Zertifikat einer vertrauten CA hat, und der klassische
+Zwischenmann hat eines. Wer allein der Ankündigung folgt, folgt damit auch dem,
+der sie gefälscht hat: Aus den Features verschwinden die SCRAM-Angebote, übrig
+bleibt PLAIN, und der Client schickt bereitwillig das Passwort selbst statt
+eines Beweises, dass er es kennt. Dieselbe Bewegung wie beim STARTTLS-Downgrade
+aus S4b-6, eine Schicht höher.
+
+`SaslMechanismPolicy` hält zwei Untergrenzen, die dieselbe Prüfung durchlaufen:
+`Minimum`, was der Aufrufer verlangt, und `Pinned`, womit die letzte Anmeldung
+gelang. Die erste wirkt vom ersten Rahmen an und muss gesetzt werden, die
+zweite wirkt von selbst und erst ab der zweiten Verbindung.
+
+Zwei Stellen entscheiden über den Wert des Ganzen, und beide sind
+Reihenfolgefragen:
+
+- **Geprüft wird vor dem `<auth/>`, nicht nach der Antwort.** Bei PLAIN steht
+  das Passwort in genau diesem Rahmen. Wer das Downgrade erst an der Antwort
+  bemerkt, hat es dem Zwischenmann schon gegeben, und die Anmeldung danach
+  abzubrechen nimmt es ihm nicht wieder ab.
+- **Angeheftet wird nach der Anmeldung, nicht davor.** Ein Fehlschlag sagt
+  nichts darüber, was dieser Server kann.
+
+Dass die Anheftung ein Trust-On-First-Use ist, bleibt: Steht der Zwischenmann
+schon beim allerersten Aufbau dazwischen, heftet sie sein Downgrade an. Nur ist
+das nicht der Angriff, der sich lohnt. Der Client kommt nach jedem Abriss von
+allein wieder, und ein Abriss lässt sich erzwingen — es genügt also, die
+Verbindung zu stören und die *zweite* Anmeldung abzufangen. Genau die ist jetzt
+gedeckt, ohne dass irgendwer irgendetwas konfiguriert.
+
+Der Testserver spielt den Zwischenmann, indem er `OfferedSaslMechanisms`
+zwischen den beiden Verbindungen ändert.
+
+Sieben Mutationen, alle erschlagen:
+
+| Mutation | Erschlagen von |
+|---|---|
+| `Minimum` nicht prüfen | `TheMinimumHoldsOnTheVeryFirstConnect`, `Minimum_HoldsWithoutAnyPreviousLogin` |
+| `Pinned` nicht prüfen | `AWeakerServerOnTheSecondConnect_IsRefused`, `TheRefusalHappensBeforeThePasswordGoesOut`, `Pinned_RefusesTheWeakerAndAllowsTheStronger` |
+| gar nichts anheften | sechs Tests |
+| `Strongest` nimmt den ersten bekannten statt den stärksten | `Strongest_ReadsTheRankingAndNotTheOrder`, `AStrongerServerOnTheSecondConnect_IsAccepted` |
+| Anheftung auf Gleichheit statt auf Stärke prüfen | `AStrongerServerOnTheSecondConnect_IsAccepted`, `Pinned_RefusesTheWeakerAndAllowsTheStronger` |
+| Prüfung hinter den SASL-Austausch schieben | `TheRefusalHappensBeforeThePasswordGoesOut` und zwei weitere |
+| Setzer nimmt einen unbekannten Mechanismusnamen an | `AnUnknownMinimum_IsRefusedAtTheSetter`, `Minimum_RefusesAnUnknownName` |
+
+Die vierte ist die, die kein Integrationstest hätte finden können: Der
+Testserver kündigt vom stärksten zum schwächsten an, und dort sieht „nimm den
+ersten" genauso aus wie „nimm den stärksten". Sichtbar wird der Unterschied
+erst, wenn ein Server nachrüstet und den neuen Mechanismus hinten anhängt —
+was `AStrongerServerOnTheSecondConnect_IsAccepted` nachstellt, aber erst,
+nachdem der Unit-Test danach gefragt hatte.
+
+Die letzte ist die stillste: Ein unbekannter Name hat die Stärke 0, und eine
+Untergrenze von 0 verlangt gar nichts. Ein Tippfehler in
+`MinimumSaslMechanism` hätte lautlos das Gegenteil dessen bewirkt, was der
+Aufrufer hinschrieb — deshalb weist der Setzer ihn ab, statt ihn zu nehmen.
+
+Nicht erschlagen, und zwar nachweislich unerreichbar: das Anheften *vor* die
+Anmeldung zu ziehen. Es bräuchte eine gescheiterte Anmeldung, der eine weitere
+folgt — aber jeder Authentifizierungsfehler unterdrückt den Reconnect, und das
+Passwort lässt sich nach dem Erzeugen der Verbindung nicht mehr ändern. Der
+angeheftete Wert wäre ohnehin derselbe, den `EnsureAcceptable` gerade
+durchgelassen hat.
+
 ---
 
 ## Später
@@ -1311,7 +1379,6 @@ Damit hat der ganze XEP-0198-Strang keine ungeprüfte Zeile mehr.
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
 - Roster-Versionierung nutzen (`Roster.Version` und `RosterStanzaBuilder.GetRoster` liegen ungenutzt herum)
-- SASL-Downgrade-Schutz: gewählten Mechanismus pinnen statt blind der Server-Ankündigung folgen
 - RFC 7622: kein PRECIS, und der Resourcepart wird beim Vergleich fälschlich kleingeschrieben
 - SASLprep ist auf NFKC reduziert — für Nicht-ASCII-Passwörter falsch
 

@@ -118,6 +118,13 @@ public sealed class XMPPConnection : IAsyncDisposable
     private readonly Dictionary<string, TaskCompletionSource<XElement>> _pendingIqs = new();
     private readonly object _iqLock = new();
 
+    /// <summary>
+    /// Die Untergrenze für die SASL-Aushandlung. Gehört an die Verbindung und
+    /// nicht an den einzelnen Verbindungsaufbau: Ihr Wert entsteht gerade
+    /// dadurch, dass sie den Reconnect überlebt.
+    /// </summary>
+    private readonly SaslMechanismPolicy _saslPolicy = new();
+
     private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _cts;
     private Task? _receiveTask;
@@ -159,6 +166,36 @@ public sealed class XMPPConnection : IAsyncDisposable
     // wird er ohnehin nur, wenn der Server ihn ankündigt; ein Server ohne
     // XEP-0198 merkt von dieser Zeile nichts.
     public bool StreamManagementEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Der schwächste SASL-Mechanismus, der noch benutzt werden darf - null
+    /// verlangt nichts und überlässt die Wahl allein der Ankündigung des
+    /// Servers.
+    /// </summary>
+    /// <remarks>
+    /// Zulässig sind PLAIN, SCRAM-SHA-1 und SCRAM-SHA-256; ein anderer Name
+    /// wird abgewiesen, statt lautlos gar nichts zu verlangen. Wer weiss, dass
+    /// sein Server SCRAM kann, setzt das hier: Dann greift die Untergrenze
+    /// schon beim allerersten Verbindungsaufbau, den
+    /// <see cref="PinnedSaslMechanism"/> naturgemäss noch nicht schützen kann.
+    /// </remarks>
+    public string? MinimumSaslMechanism
+    {
+        get => _saslPolicy.Minimum;
+        set => _saslPolicy.Minimum = value;
+    }
+
+    /// <summary>
+    /// Der Mechanismus, über den die letzte Anmeldung gelang - und damit die
+    /// Untergrenze für die nächste. Null vor der ersten.
+    /// </summary>
+    /// <remarks>
+    /// Bietet der Server danach weniger an, kommt keine Verbindung mehr
+    /// zustande. Das ist beabsichtigt: Ein Server, der SCRAM konnte und
+    /// plötzlich nur noch PLAIN anbietet, ist entweder umkonfiguriert worden
+    /// oder gar nicht mehr derselbe.
+    /// </remarks>
+    public string? PinnedSaslMechanism => _saslPolicy.Pinned;
 
     /// <summary>
     /// Die beim Resource Binding gewünschte Resource; null überlässt die Wahl
@@ -421,34 +458,52 @@ public sealed class XMPPConnection : IAsyncDisposable
             }
 
             // SASL Auth - Präferenz: SCRAM-SHA-256 > SCRAM-SHA-1 > PLAIN
-            if (mechanisms.Contains("SCRAM-SHA-256"))
-            {
-                _logger.LogInformation("SCRAM-SHA-256 Authentifizierung ...");
-                await PerformScramAsync(SCRAMMechanism.ScramSha256, ct);
-            }
-            else if (mechanisms.Contains("SCRAM-SHA-1"))
-            {
-                _logger.LogInformation("SCRAM-SHA-1 Authentifizierung ...");
-                await PerformScramAsync(SCRAMMechanism.ScramSha1, ct);
-            }
-            else if (mechanisms.Contains("PLAIN"))
-            {
-                // PLAIN überträgt das Passwort im Klartext (nur durch TLS geschützt)
-                // und ist der schwächste hier unterstützte Mechanismus.
-                _logger.LogWarning("SASL PLAIN Authentifizierung - Server bietet kein SCRAM an");
-                await PerformSaslPlainAsync(ct);
-            }
-            else if (mechanisms.Count > 0)
-            {
+            var chosen = SaslMechanismPolicy.Strongest(mechanisms);
+
+            if (chosen is null)
                 throw new AuthenticationException(
-                    $"Keine unterstützten SASL-Mechanismen. Verfügbar: {string.Join(", ", mechanisms)}");
-            }
-            else
+                          mechanisms.Count > 0
+                              ? $"Keine unterstützten SASL-Mechanismen. Verfügbar: {string.Join(", ", mechanisms)}"
+                              : "Server bietet keine SASL-Mechanismen an. Features: " +
+                                Shorten(features.ToString(), 200));
+
+            // Die Untergrenze wird geprüft, bevor der erste Rahmen hinausgeht,
+            // nicht danach: Bei PLAIN steht das Passwort in genau diesem
+            // <auth/>. Wer das Downgrade erst an der Antwort bemerkt, hat es
+            // dem Zwischenmann schon gegeben.
+            _saslPolicy.EnsureAcceptable(chosen);
+
+            _logger.LogInformation("{Mechanism} Authentifizierung ...", chosen);
+
+            switch (chosen)
             {
-                throw new AuthenticationException(
-                    "Server bietet keine SASL-Mechanismen an. Features: " +
-                    Shorten(features.ToString(), 200));
+
+                case SaslMechanismPolicy.ScramSha256:
+                    await PerformScramAsync(SCRAMMechanism.ScramSha256, ct);
+                    break;
+
+                case SaslMechanismPolicy.ScramSha1:
+                    await PerformScramAsync(SCRAMMechanism.ScramSha1, ct);
+                    break;
+
+                case SaslMechanismPolicy.Plain:
+                    // PLAIN überträgt das Passwort im Klartext (nur durch TLS geschützt)
+                    // und ist der schwächste hier unterstützte Mechanismus.
+                    _logger.LogWarning("SASL PLAIN Authentifizierung - Server bietet kein SCRAM an");
+                    await PerformSaslPlainAsync(ct);
+                    break;
+
+                // Ein Mechanismus, der in der Rangfolge steht, aber hier kein
+                // Verfahren hat, ist ein Fehler in dieser Datei - und keiner,
+                // der auf PLAIN zurückfallen darf.
+                default:
+                    throw new AuthenticationException(
+                              $"Für den gewählten Mechanismus {chosen} ist kein Verfahren hinterlegt.");
+
             }
+
+            // Erst jetzt, nach der gelungenen Anmeldung.
+            _saslPolicy.Remember(chosen);
 
             // Neuen Stream öffnen nach Auth (RFC 6120, Abschnitt 6.4.6)
             await SendAsync(OpenStream());

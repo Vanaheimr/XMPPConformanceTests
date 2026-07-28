@@ -18,11 +18,29 @@ SCRAM-Authentifizierung.
 |---------|--------|
 | SCRAM-SHA-256 | ✅ Bevorzugt |
 | SCRAM-SHA-1 | ✅ Fallback |
-| SASL PLAIN | ⚠️ Letzter Fallback, ohne Downgrade-Schutz |
+| SASL PLAIN | ⚠️ Letzter Fallback |
 | SCRAM-*-PLUS (Channel Binding) | ❌ Nicht implementiert |
 
-Der Mechanismus wird allein aus der Server-Ankündigung gewählt und nicht
-gepinnt: Ein aktiver MITM, der die SCRAM-Angebote entfernt, bekommt PLAIN.
+Gewählt wird der stärkste angebotene Mechanismus — nach der Rangfolge, nicht
+nach der Reihenfolge der Ankündigung. Gegen den Downgrade halten zwei
+Untergrenzen, beide auf `XMPPConnection`:
+
+| Eigenschaft | Wirkung |
+|---|---|
+| `PinnedSaslMechanism` | Womit die letzte Anmeldung gelang. Wirkt von selbst, aber erst ab der zweiten Verbindung. |
+| `MinimumSaslMechanism` | Was der Aufrufer verlangt. Wirkt vom ersten Rahmen an, muss aber gesetzt werden. |
+
+Beide werden geprüft, *bevor* das `<auth/>` hinausgeht — bei PLAIN stünde das
+Passwort in genau diesem Rahmen. Bietet der Server weniger an als eine der
+Untergrenzen verlangt, kommt keine Verbindung zustande und es wird kein
+Reconnect versucht.
+
+Die Anheftung ist ein Trust-On-First-Use: Steht der Zwischenmann schon beim
+allerersten Verbindungsaufbau dazwischen, heftet sie sein Downgrade an, statt
+es abzuwehren. Wer weiß, was sein Server kann, setzt deshalb zusätzlich
+`MinimumSaslMechanism`. Was sie ohne Zutun abwehrt, ist der Angriff, der sich
+lohnt: Der Client kommt nach jedem Abriss von allein wieder, und ein Abriss
+lässt sich erzwingen.
 
 ## XEP-Unterstützung
 
@@ -47,7 +65,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Bereich | Status |
 |---------|--------|
 | TLS (§5) | ⚠️ `wss://` über den WebSocket-Transport; `XMPPConnection.ServerCertificateValidator` erlaubt eine eigene Zertifikatsprüfung, `null` überlässt sie dem Betriebssystem. Kein STARTTLS (§5.4) — WebSocket bringt TLS unter sich mit, ein Klartext-`ws://` wird aber nicht verweigert |
-| SASL-Aushandlung und -Durchführung (§6) | ✅ Client und Server; der Client nimmt den stärksten angebotenen Mechanismus, der Server lehnt einen nicht angebotenen ab |
+| SASL-Aushandlung und -Durchführung (§6) | ✅ Client und Server; der Client nimmt den stärksten angebotenen Mechanismus und nie einen schwächeren als beim letzten Mal, der Server lehnt einen nicht angebotenen ab |
 | Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
@@ -516,6 +534,10 @@ Server-Implementierung:
   und PLAIN; die `-PLUS`-Varianten fehlen. Ein unbekanntes Konto wird
   abgelehnt, bevor der Austausch beginnt — damit verrät der Server, ob es ein
   Konto gibt, statt nach RFC 5802 §7 mit einem erfundenen Salt weiterzumachen.
+- **Der Downgrade-Schutz ist ein Trust-On-First-Use.** `PinnedSaslMechanism`
+  deckt jede Verbindung ab der zweiten; die allererste deckt nur, wer
+  `MinimumSaslMechanism` selbst setzt. Und die Anheftung lebt im Objekt: Ein
+  neuer Prozess fängt wieder ohne sie an.
 - **Kein Anlegen von Konten über XMPP** (XEP-0077) und keine
   Passwortänderung — Konten entstehen nur über `AddAccount`.
 - **Der Kontenspeicher ist unverschlüsselt.** `FileAccountStore` legt eine
