@@ -120,6 +120,41 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region LastAcknowledged_IsTheirNumber_NotOurs()
+
+        /// <summary>
+        /// <c>LastAcknowledged</c> meldet, was die Gegenstelle gezählt hat -
+        /// nicht, was wir gezählt haben.
+        /// </summary>
+        /// <remarks>
+        /// Die Unterscheidung ist der ganze Zweck der Eigenschaft: der Lauf
+        /// gegen einen fremden Server vergleicht sie mit
+        /// <c>OutboundCount</c>, um Übereinstimmung von blosser Duldung zu
+        /// trennen. Gäbe sie unseren eigenen Zähler zurück, ginge dieser
+        /// Vergleich immer auf und der Lauf prüfte nichts.
+        ///
+        /// Deshalb hier ein <c>h</c>, das absichtlich neben unserem Stand
+        /// liegt: gesendet wurde nichts, bestätigt werden sieben.
+        /// </remarks>
+        [Test]
+        public void LastAcknowledged_IsTheirNumber_NotOurs()
+        {
+
+            var manager = new StreamManagementManager(_ => Task.CompletedTask);
+
+            manager.ProcessEnabled("<enabled xmlns='urn:xmpp:sm:3'/>");
+            manager.ProcessAck("<a xmlns='urn:xmpp:sm:3' h='7'/>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(manager.LastAcknowledged, Is.EqualTo(7u));
+                Assert.That(manager.OutboundCount,    Is.Zero);
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

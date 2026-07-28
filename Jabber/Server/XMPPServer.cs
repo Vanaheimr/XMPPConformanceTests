@@ -1854,9 +1854,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // nachgereichte Presence aus Abschnitt 3.1.5, und dort
                 // verdeckt das Verhalten des Clients den Unterschied. Sie
                 // bleibt als Vorkehrung für den nächsten Aufrufer stehen.
+                // Und der Namensraum muss mitwechseln. Was von einem Client
+                // hereinkam, steht in jabber:client; hinaus geht es auf einem
+                // Stream, der jabber:server spricht (RFC 6120, Abschnitt
+                // 4.8.1). Prosody beantwortet ein jabber:client-IQ auf dem
+                // S2S-Stream mit einem Fehler - zwischen zwei Instanzen dieses
+                // Servers fiele es nie auf, weil beide nur den lokalen Namen
+                // ansehen.
                 return ServerLinks is not null &&
                        await ServerLinks.DeliverAsync(DomainOf(to),
-                                                      StampTo(stanza, to),
+                                                      StanzaNamespace.Apply(StampTo(stanza, to),
+                                                                            StanzaNamespace.Server),
                                                       _cts.Token);
 
             }

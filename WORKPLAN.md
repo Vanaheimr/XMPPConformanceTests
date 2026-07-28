@@ -50,10 +50,11 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **437 Tests, 0 Fehler, 9 übersprungen** in gut zwei
-Minuten. Übersprungen wird, was ohne fremde Gegenstelle nichts zu prüfen hat —
-die acht Föderationstests gegen Prosody und ejabberd — sowie einer, der eine
-Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt. Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Aktueller Stand der Suite: **447 Tests, 0 Fehler** in gut zwei Minuten.
+Übersprungen wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht
+Föderationstests gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody —
+sowie einer, der eine Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt.
+Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar) und die Slot-Identität im Verbindungs-Cache
@@ -938,11 +939,64 @@ ausgehende Verbindung Bidi nutzt, wählt ejabberd uns gar nicht erst an.
 
 ## Als Nächstes (Client)
 
-### XEP-0198 gegen einen echten Server, dann Default umstellen
+### XEP-0198 gegen einen echten Server ✅ — und der Client konnte sich gar nicht anmelden
 
-Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen eine der beiden
-fremden Gegenstellen — beide stehen jetzt bereit; danach kann
-`StreamManagementEnabled` auf `true`.
+Die Zählung stimmte gegen `XMPPServer`, also gegen unsere eigene Auffassung
+davon, was eine Stanza ist. Der Lauf gegen Prosody sollte das prüfen. Er kam
+zunächst nicht so weit.
+
+**Der Client konnte sich an keinem RFC-7395-konformen Server anmelden.**
+Prosody wies das Bind-IQ mit `<unsupported-stanza-type/>` ab und schloss den
+Stream. Im Log stand, warum: es kam als `<iq … xmlns=''>` an.
+
+RFC 7395, Abschnitt 3.3.3 verlangt, dass jeder Rahmen für sich als
+vollständiges XML-Dokument lesbar ist, „complete with all relevant namespace
+and language declarations". Über TCP steht der Content-Namensraum einmal am
+`<stream:stream>` und gilt für alles darin; über WebSocket gibt es dieses
+umschliessende Element nicht, und eine Stanza ohne eigene Deklaration steht in
+*keinem* Namensraum. Unser Server hat das nie bemängelt, weil er Stanzas am
+lokalen Namen erkennt und den Namensraum gar nicht ansieht — beide Seiten
+machten denselben Fehler, also fiel er nicht auf.
+
+Behoben in `StanzaNamespace.Apply`, aufgerufen in `XMPPConnection.SendAsync` —
+derselben einen Stelle, durch die auch gezählt wird, und aus demselben Grund:
+sie ist die einzige, durch die jeder ausgehende Rahmen läuft.
+
+**Und der Fix holte einen zweiten Fehler heraus.** Mit einem Mal fiel
+`APingOverABidirectionalStream` durch: unser Server reichte die
+`jabber:client`-Stanza unverändert auf den S2S-Stream weiter, und dort ist sie
+keine gültige Stanza — Prosody antwortete mit einem Fehler-IQ. Solange die
+Stanza gar keinen Namensraum trug, erbte sie auf dem S2S-Stream stillschweigend
+den richtigen; der Fehler war die ganze Zeit da und unsichtbar. Er hätte jeden
+echten Client getroffen, dessen Stanza über die Domain-Grenze geht.
+
+Behoben in `RouteToAsync`, neben `StampTo` — der einen Weiche zwischen „hier"
+und „woanders".
+
+Sieben Mutationen, alle von genau den zuständigen Tests erschlagen: Client
+stempelt nicht (vier Prosody-Tests), Server tauscht nicht
+(`APingOverABidirectionalStream`), Namensprüfung weg (zwölf Tests quer durch
+die Zählung), naives „steht irgendwo ein xmlns" (der Bind-IQ-Fall),
+Präfix-Deklaration zählt als Standard-Namensraum, `>` im Attributwert beendet
+das Start-Tag, `LastAcknowledged` meldet den eigenen Zähler.
+
+**Das eigentliche Ergebnis:** die Zählung stimmt. `ProsodyCountsTheSetupExactlyAsWeDo`
+vergleicht nach dem vollständigen Aufbau — Carbons, Roster, erste Presence, und
+dazwischen Nonzas — unseren `OutboundCount` mit Prosodys `h`, und beide Werte
+sind gleich. Geprüft wird Gleichheit und nicht nur eine leergelaufene
+Warteschlange: ein zu grosses `h` räumte sie ebenfalls, und ein Client, der zu
+wenig zählt, käme damit durch. Dafür gibt es `LastAcknowledged` überhaupt.
+
+**Offen geblieben — die Gegenrichtung an der Domain-Grenze.** Was von einem
+fremden Server hereinkommt, steht in `jabber:server` und wird unverändert an
+den lokalen Client zugestellt. Unser Client stört sich nicht daran, weil er
+Stanzas am lokalen Namen erkennt — genau die Nachsicht, die den ersten Fehler
+verdeckt hat. Ein fremder Client dürfte strenger sein. Nicht mitgemacht, weil
+kein Lauf es zeigt und ein Eingriff ohne Beleg nur Rauschen wäre; die Stelle
+ist `RouteToAsync`, lokaler Zweig.
+
+**Noch nicht: `StreamManagementEnabled` auf `true`.** Der Schalter wird von
+rund 440 Tests mitgenommen, das ist ein eigener Schnitt.
 
 Anschließend Stream-Resume: `ResumeAsync` und `GetUnackedStanzas` existieren,
 werden aber nirgends aufgerufen — nach einem Reconnect baut der Client neu auf

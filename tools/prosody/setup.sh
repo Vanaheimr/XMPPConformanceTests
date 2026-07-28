@@ -41,6 +41,14 @@ INBOUND_DOMAIN="localhost"
 # eingehenden Fall uns.
 PEER_S2S_PORT=15269
 
+# Der WebSocket-Endpunkt fuer den Client-Lauf (XEP-0198). 5281 ist Prosodys
+# Vorgabe fuer HTTPS.
+HTTPS_PORT=5281
+
+# Ein Konto auf Prosody, mit dem sich unser Client dort anmeldet.
+TEST_USER="alice"
+TEST_PASSWORD="geheim"
+
 mkdir -p "$PREFIX"/{debs,etc,var/lib,certs,run} "$ROOT"
 
 # ---------------------------------------------------------------- Pakete ----
@@ -139,6 +147,11 @@ modules_enabled = {
     "roster"; "saslauth"; "tls"; "dialback"; "disco";
     "posix"; "ping"; "time"; "uptime"; "version";
 
+    -- XEP-0198 auf der Client-Seite, und der Transport dorthin. Unser Client
+    -- spricht XMPP ueber WebSocket (RFC 7395), nicht ueber den rohen
+    -- 5222er-Strom - ohne mod_websocket gaebe es fuer ihn keinen Weg herein.
+    "smacks"; "websocket";
+
     -- XEP-0288: erlaubt es, beide Richtungen ueber eine Verbindung zu
     -- fuehren. Ohne dieses Modul beantwortet Prosody eine eingehende Stanza
     -- ausschliesslich ueber eine *eigene* ausgehende Verbindung zur
@@ -178,6 +191,12 @@ s2s_connect_timeout    = 10
 s2s_ports  = { $PEER_S2S_PORT }
 interfaces = { "127.0.0.1" }
 
+-- Der WebSocket-Endpunkt fuer den Client: wss://127.0.0.1:$HTTPS_PORT/xmpp-websocket.
+-- Der Klartext-Port bleibt leer, damit nichts unverschluesselt danebensteht.
+https_ports      = { $HTTPS_PORT }
+https_interfaces = { "127.0.0.1" }
+http_ports       = { }
+
 certificates = "$PREFIX/certs"
 
 ssl = {
@@ -215,6 +234,16 @@ pkill -f "lua5.4 $ROOT/usr/bin/prosody" 2>/dev/null || true
 sleep 1
 : > "$PREFIX/prosody.log"
 
+# Das Konto fuer den Client-Lauf. Bei angehaltenem Server, weil prosodyctl
+# dieselben Dateien anfasst wie der laufende Prozess.
+#
+# "register" und nicht "adduser": adduser fragt das Passwort im Dialog ab und
+# scheitert ohne Terminal - lautlos, wenn man seine Ausgabe wegwirft. register
+# nimmt es als Argument. Ein zweiter Aufruf setzt das Passwort neu, das ist
+# hier gerade richtig.
+"$ROOT/usr/bin/prosodyctl" register "$TEST_USER" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
+    | grep -i "User account\|error" || true
+
 cd "$PREFIX"
 nohup "$ROOT/usr/bin/prosody" > "$PREFIX/prosody.out" 2>&1 &
 disown
@@ -222,6 +251,9 @@ sleep 4
 
 if grep -q "Certificates loaded" "$PREFIX/prosody.log"; then
     echo "   Prosody laeuft, Zertifikate geladen."
+    grep -q "Serving 'websocket' at https://127.0.0.1:$HTTPS_PORT" "$PREFIX/prosody.log" \
+        && echo "   WebSocket-Endpunkt auf $HTTPS_PORT." \
+        || echo "   WARNUNG - kein WebSocket-Endpunkt auf $HTTPS_PORT; der XEP-0198-Lauf faellt aus."
 else
     echo "   FEHLER - Prosody hat keine Zertifikate geladen:"
     tail -20 "$PREFIX/prosody.log"
@@ -230,7 +262,9 @@ fi
 
 cat <<DONE
 
-Fertig. Prosody bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT.
+Fertig. Prosody bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT (S2S) und
+wss://127.0.0.1:$HTTPS_PORT/xmpp-websocket (Client), Konto
+$TEST_USER@$PEER_DOMAIN / $TEST_PASSWORD.
 
 Ausgehender Lauf, von Windows aus:
 

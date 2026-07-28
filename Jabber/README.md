@@ -4,9 +4,13 @@ Ein XMPP-Client für die Kommandozeile mit WebSocket-Transport (RFC 7395) und
 SCRAM-Authentifizierung.
 
 > **Reifegrad:** Experimentell. Der Client verbindet, authentifiziert und
-> chattet gegen ejabberd, aber Verbindungsmanagement und Fehlerbehandlung sind
-> unvollständig, und Stream Management kann noch nicht resumen (siehe [Bekannte
-> Einschränkungen](#bekannte-einschränkungen)). Nicht für den Produktivbetrieb.
+> chattet gegen Prosody 13 über `wss://` — geprüft, nicht behauptet: bis vor
+> kurzem stand hier dasselbe über ejabberd, und tatsächlich hätte sich der
+> Client an *keinem* RFC-7395-konformen Server anmelden können, weil seine
+> Stanzas ohne Namensraum hinausgingen. Verbindungsmanagement und
+> Fehlerbehandlung sind unvollständig, und Stream Management kann noch nicht
+> resumen (siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)). Nicht
+> für den Produktivbetrieb.
 
 ## Authentifizierung
 
@@ -31,7 +35,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0198 | Stream Management | ⚠️ | Zählung korrekt und getestet; aus per Default, kein Resume |
+| XEP-0198 | Stream Management | ⚠️ | Zählung gegen Prosody 13 geprüft; aus per Default, kein Resume |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
@@ -600,11 +604,20 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
   wäre die saubere Lösung.
 - **XEP-0198 ist per Default aus und kann nicht resumen.** Die Zählung stimmt
-  jetzt und ist gegen den `XMPPServer` abgesichert, aber es gab noch keinen
-  Lauf gegen einen echten Server — deshalb bleibt `StreamManagementEnabled`
-  vorerst `false`. `ResumeAsync` und `GetUnackedStanzas` existieren, werden aber
-  nirgends aufgerufen: nach einem Reconnect baut der Client den Stream neu auf,
-  statt ihn fortzusetzen, und die unbestätigten Stanzas gehen verloren.
+  und ist inzwischen gegen Prosody 13 geprüft: nach einem vollständigen
+  Sitzungsaufbau melden beide Seiten denselben Stand, und zwar auf den Zähler
+  genau — nicht nur „die Warteschlange lief leer", was auch ein zu grosses `h`
+  bewirkte. `StreamManagementEnabled` steht trotzdem noch auf `false`: der
+  Schalter wird von rund 440 Tests mitgenommen, das ist ein eigener Schritt.
+  `ResumeAsync` und `GetUnackedStanzas` existieren, werden aber nirgends
+  aufgerufen: nach einem Reconnect baut der Client den Stream neu auf, statt
+  ihn fortzusetzen, und die unbestätigten Stanzas gehen verloren.
+- **Der Content-Namensraum wandert nur in einer Richtung mit.** Was ein
+  lokaler Client über die Domain-Grenze schickt, wird von `jabber:client` auf
+  `jabber:server` umgestellt; was von einem fremden Server hereinkommt, geht in
+  `jabber:server` an den lokalen Client weiter. Unser Client stört sich nicht
+  daran, weil er Stanzas am lokalen Namen erkennt — ein fremder dürfte
+  strenger sein.
 
 ### Funktionsumfang
 - Kein Multi-User Chat (XEP-0045)

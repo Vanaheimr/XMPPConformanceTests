@@ -669,6 +669,13 @@ public sealed class XMPPConnection : IAsyncDisposable
     private async Task SendAsync(string xml)
     {
 
+        // RFC 7395, Abschnitt 3.3.3: über WebSocket gibt es kein umschliessendes
+        // <stream:stream>, von dem eine Stanza ihren Namensraum erben könnte -
+        // sie muss ihn selbst tragen. Hier und nicht an den rund 25 Aufrufern,
+        // aus demselben Grund, aus dem auch gezählt wird: das ist die einzige
+        // Stelle, durch die jeder ausgehende Rahmen läuft.
+        xml = StanzaNamespace.Apply(xml, StanzaNamespace.Client);
+
         // Socket lokal festhalten: das Feld kann während eines Reconnects
         // ausgetauscht werden, während wir noch auf das Lock warten.
         var webSocket = _webSocket;

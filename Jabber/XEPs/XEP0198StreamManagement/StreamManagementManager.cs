@@ -63,6 +63,18 @@ public sealed class StreamManagementManager
     public uint OutboundCount => _outbound;
     public int UnackedCount { get { lock (_lock) return _unacked.Count; } }
 
+    /// <summary>
+    /// Der zuletzt vom Gegenüber gemeldete Zählerstand (<c>h</c>).
+    /// </summary>
+    /// <remarks>
+    /// Dass die Warteschlange leerläuft, heisst nur, dass das gemeldete
+    /// <c>h</c> mindestens so gross war wie unsere Sequenznummern. Eine Seite,
+    /// die zu <i>wenig</i> zählt, bliebe damit unentdeckt - ihr <c>h</c> wäre
+    /// zu gross, und alles sähe in Ordnung aus. Erst der Vergleich mit
+    /// <see cref="OutboundCount"/> trennt Übereinstimmung von blosser Duldung.
+    /// </remarks>
+    public uint LastAcknowledged { get { lock (_lock) return _lastAcked; } }
+
     public event Action<uint>? OnAckReceived;
     public event Action<List<string>>? OnStanzasLost;
     public event Action? OnResumed;
