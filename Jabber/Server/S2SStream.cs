@@ -800,8 +800,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                       // TLS. Ist Bidi bereits ausgehandelt, entfällt die
                       // Ankündigung - ein zweites <bidi/> hätte nichts mehr zu
                       // sagen.
+                      //
+                      // Zwei Formen, und die zweite ist eine Zumutung mit
+                      // Beleg: ejabberd 24.12 greift die Form der XEP nicht
+                      // auf. Seine annehmende Seite kündigt selbst
+                      // urn:xmpp:bidi an (siehe KuendigtBidiAn), und seine
+                      // aufbauende Seite sucht offenbar dasselbe. Kündigen wir
+                      // nur die XEP-Form an, nimmt es unsere Rückrichtung
+                      // nicht - beobachtet, nicht vermutet: mit beiden Formen
+                      // nimmt es sie.
+                      //
+                      // In P6 stand hier die Gegenthese, aus ejabberds
+                      // *master* geschlossen, wo es behoben ist. Die
+                      // ausgelieferte Fassung verhält sich anders, und darauf
+                      // kommt es an.
+                      //
+                      // Auf dem Draht ist das eindeutig: das Freischalt-Element
+                      // heisst in beiden Lesarten urn:xmpp:bidi, es gibt also
+                      // nur eine Antwort. Wer nur die XEP-Form kennt,
+                      // übergeht das zweite Element als unbekanntes Feature.
                       (bidi && !BidiEnabled
-                           ? $"<bidi xmlns='{BidiFeatureNamespace}'/>"
+                           ? $"<bidi xmlns='{BidiFeatureNamespace}'/>" +
+                             $"<bidi xmlns='{BidiNamespace}'/>"
                            : "") +
                       "</stream:features>",
                       cancellationToken);

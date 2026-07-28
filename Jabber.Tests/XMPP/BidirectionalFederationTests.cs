@@ -100,12 +100,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             // geht es hier.
             _linksS   = new TcpServerLinks(_links) {
                             UseSaslExternal          = true,
-                            UseBidirectionalStreams  = bidi
+                            OfferBidirectionalStreams    = bidi,
+                            RequestBidirectionalStreams  = bidi
                         };
 
             _rechtsS  = new TcpServerLinks(_rechts) {
                             UseSaslExternal          = true,
-                            UseBidirectionalStreams  = bidi
+                            OfferBidirectionalStreams    = bidi,
+                            RequestBidirectionalStreams  = bidi
                         };
 
             // Nur links kennt rechts. Ausdrücklich die Adresse und nicht
@@ -310,10 +312,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             try
             {
 
-                _linksS   = new TcpServerLinks(_links)  { UseSaslExternal = true, UseBidirectionalStreams = true };
-                _rechtsS  = new TcpServerLinks(_rechts) { UseSaslExternal = true, UseBidirectionalStreams = true };
+                _linksS   = new TcpServerLinks(_links)  { UseSaslExternal = true, OfferBidirectionalStreams = true, RequestBidirectionalStreams = true };
+                _rechtsS  = new TcpServerLinks(_rechts) { UseSaslExternal = true, OfferBidirectionalStreams = true, RequestBidirectionalStreams = true };
 
-                var fernerS = new TcpServerLinks(ferner) { UseSaslExternal = true, UseBidirectionalStreams = true };
+                var fernerS = new TcpServerLinks(ferner) { UseSaslExternal = true, OfferBidirectionalStreams = true, RequestBidirectionalStreams = true };
 
                 // Beide wählen rechts an; rechts kennt keinen von beiden.
                 fernerS.AddPeer(_rechts.Domain, System.Net.IPAddress.Loopback.ToString(),

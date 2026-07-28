@@ -139,7 +139,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean UseSaslExternal { get; init; }
 
         /// <summary>
-        /// XEP-0288: beide Richtungen über eine Verbindung führen.
+        /// XEP-0288: die Rückrichtung auf <b>eingehenden</b> Verbindungen
+        /// anbieten.
         /// </summary>
         /// <remarks>
         /// Ohne die Erweiterung antwortet jede Seite über eine <b>eigene</b>
@@ -148,11 +149,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Firewall oder ohne DNS-Eintrag kann sie das nicht, und die Antwort
         /// geht verloren, ohne dass jemand es merkt.
         ///
-        /// Eingeschaltet wird beides zugleich: angeboten auf eingehenden
-        /// Verbindungen, erbeten auf ausgehenden. Das eine ohne das andere
-        /// hälfe nur der halben Föderation.
+        /// Getrennt von <see cref="RequestBidirectionalStreams"/>, weil es
+        /// zwei verschiedene Dinge sind: hier sagen wir einer anwählenden
+        /// Gegenstelle, dass sie uns über ihre eigene Verbindung antworten
+        /// darf; dort erbitten wir dasselbe von einer Gegenstelle, die wir
+        /// anwählen. Zusammengeschaltet waren sie nicht bloss unscharf - es
+        /// war damit unmöglich, unsere Ankündigung überhaupt zu beobachten:
+        /// solange unsere ausgehende Verbindung die Rückrichtung nutzt, wählt
+        /// die Gegenstelle uns gar nicht erst an.
         /// </remarks>
-        public Boolean UseBidirectionalStreams { get; init; }
+        public Boolean OfferBidirectionalStreams { get; init; }
+
+        /// <summary>
+        /// XEP-0288: die Rückrichtung auf <b>ausgehenden</b> Verbindungen
+        /// erbitten.
+        /// </summary>
+        /// <remarks>
+        /// Sinnvoll, wenn die Gegenstelle uns nicht erreichen kann. Siehe
+        /// <see cref="OfferBidirectionalStreams"/> für die Gegenrichtung.
+        /// </remarks>
+        public Boolean RequestBidirectionalStreams { get; init; }
 
         /// <summary>
         /// Wie viele Stanzas über die Rückrichtung eines eingehenden Streams
@@ -323,8 +339,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // rechnet, dass wir sie nicht erreichen. Erst anzuwählen und die
             // bestehende Verbindung nur als Notnagel zu behandeln, hiesse
             // genau dort zu scheitern, wo die Erweiterung hilft.
-            if (UseBidirectionalStreams &&
-                await S2SStream.TryDeliverOverBidiAsync(EingehendeStreams(), remoteDomain,
+            // Kein Schalter davor: BidiEnabled kann nur wahr sein, wenn wir
+            // die Rückrichtung angeboten *und* die Gegenstelle sie erbeten
+            // hat. Eine zusätzliche Abfrage prüfte dieselbe Aussage ein
+            // zweites Mal - und hing bis zuletzt am falschen Schalter, dem
+            // für die ausgehende Seite.
+            if (await S2SStream.TryDeliverOverBidiAsync(EingehendeStreams(), remoteDomain,
                                                         stanza, cancellationToken))
             {
                 Interlocked.Increment(ref _bidiDeliveries);
@@ -582,7 +602,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  verifyKey:         VerifyDialbackKeyAsync,
                                  framing:           TcpStreamFraming.Instance,
                                  externalIdentity:  IdentityCheckFor(peerCertificate),
-                                 offerBidi:         UseBidirectionalStreams);
+                                 offerBidi:         OfferBidirectionalStreams);
 
                 var link = new InboundLink(stream, client);
 
@@ -761,7 +781,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                  // Zertifikat geprüft.
                                  deliverStanza:     (peerDomain, stanza)
                                                         => _localServer.AcceptFromRemoteAsync(peerDomain, stanza),
-                                 useBidi:           UseBidirectionalStreams);
+                                 useBidi:           RequestBidirectionalStreams);
 
                 stream.OnClosed += _ => DropOutbound(remoteDomain, slot);
 

@@ -96,8 +96,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         /// <summary>
         /// XEP-0288, Abschnitt 3: wer es beherrscht, kündigt es in den
-        /// Features an.
+        /// Features an - in beiden Formen, die in freier Wildbahn vorkommen.
         /// </summary>
+        /// <remarks>
+        /// Die XEP-Form (<c>urn:xmpp:features:bidi</c>) ist die richtige, und
+        /// Prosody greift genau sie auf. ejabberd 24.12 nicht: es kündigt
+        /// selbst <c>urn:xmpp:bidi</c> an und sucht offenbar dasselbe. Ohne
+        /// die zweite Form nimmt es unsere Rückrichtung nicht - beobachtet in
+        /// <c>ThePeerTakesTheReturnPathWeOffered</c>, nicht vermutet.
+        ///
+        /// Auf dem Draht bleibt es eindeutig: das Freischalt-Element heisst in
+        /// beiden Lesarten <c>urn:xmpp:bidi</c>, es kommt also nur eine
+        /// Antwort zurück.
+        /// </remarks>
         [Test]
         public async Task TheReceiverAnnouncesBidi()
         {
@@ -109,7 +120,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await stream.ProcessFrameAsync(OpenVon("links.example"));
 
-            Assert.That(Gesendet($"<bidi xmlns='{S2SStream.BidiFeatureNamespace}'/>"), Is.True);
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Gesendet($"<bidi xmlns='{S2SStream.BidiFeatureNamespace}'/>"), Is.True,
+                            "Die Form der XEP fehlt.");
+
+                Assert.That(Gesendet($"<bidi xmlns='{S2SStream.BidiNamespace}'/>"), Is.True,
+                            "Die Form, die ejabberd 24.12 sucht, fehlt.");
+
+            });
 
         }
 

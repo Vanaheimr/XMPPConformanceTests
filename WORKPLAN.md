@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **473 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
+Aktueller Stand der Suite: **475 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -930,11 +930,9 @@ Zweitens: dass ejabberd einen alten `s2s_out` einem bestehenden Bidi-Stream
 vorzieht, ist eine zweite Eigenheit; sie beisst nur, weil unser Testserver bei
 jedem Lauf auf einem anderen Port liegt.
 
-**Offen geblieben:** ob ejabberd unsere Ankündigung tatsächlich annimmt, wenn
-*es* uns anwählt, ist nicht beobachtet — nur aus seinem Quelltext geschlossen.
-Zu sehen wäre es erst, wenn `TcpServerLinks` das Anbieten vom Benutzen trennte
-(heute schaltet `UseBidirectionalStreams` beides zugleich). Solange unsere
-ausgehende Verbindung Bidi nutzt, wählt ejabberd uns gar nicht erst an.
+**Offen geblieben** war, ob ejabberd unsere Ankündigung tatsächlich annimmt,
+wenn *es* uns anwählt — hier nur aus seinem Quelltext geschlossen. Inzwischen
+beobachtet, und der Schluss war **falsch**: siehe R6.
 
 ---
 
@@ -1238,6 +1236,47 @@ Namensraum setzen, und `jabber:server` statt `jabber:client`.
 
 Der Lauf gegen Prosody und ejabberd blieb danach unverändert grün — die
 Änderung betrifft nur, was unsere Clients von unserem Server bekommen.
+
+### R6. Anbieten und Erbitten getrennt ✅ — und der Schluss aus P6 fällt
+
+`UseBidirectionalStreams` steuerte beides zugleich: die Ankündigung auf
+eingehenden Verbindungen und die Bitte auf ausgehenden. Das war nicht bloss
+unscharf — es machte die eine Richtung **unbeobachtbar**. Solange unsere
+ausgehende Verbindung die Rückrichtung nutzt, antwortet die Gegenstelle
+darüber und wählt uns gar nicht erst an; es gab also keinen Zustand, in dem
+sich unsere Ankündigung zeigen konnte.
+
+Jetzt zwei Schalter, `OfferBidirectionalStreams` und
+`RequestBidirectionalStreams`. Damit gibt es den Zustand „anbieten, nicht
+erbitten", und damit den Test `ThePeerTakesTheReturnPathWeOffered`: zwei Pings,
+weil es beim ersten die eingehende Verbindung noch nicht gibt, und
+`BidirectionalDeliveryCount` als Beleg.
+
+**Prosody nimmt an, ejabberd 24.12 nicht.** Genau die Abweichung, für die der
+zweite Server da ist — und sie widerlegt, was in P6 hier stand. Dort hatte ich
+aus ejabberds *master* geschlossen, seine aufbauende Seite suche die XEP-Form
+`urn:xmpp:features:bidi`, und daraus, dass unsere Ankündigung genügt. Die
+ausgelieferte 24.12 verhält sich anders: sie kündigt selbst `urn:xmpp:bidi` an
+und sucht offenbar dasselbe.
+
+Derselbe Fehler wie damals im Kleinen: aus dem Quelltext einer anderen Fassung
+auf das Verhalten der laufenden geschlossen. Der Unterschied ist, dass es
+diesmal auffiel, weil ein Test danach fragte.
+
+Behoben durch **zwei** Ankündigungen. Auf dem Draht bleibt es eindeutig: das
+Freischalt-Element heisst in beiden Lesarten `urn:xmpp:bidi`, es kommt also nur
+eine Antwort zurück, und wer nur die XEP-Form kennt, übergeht das zweite
+Element als unbekanntes Feature. Nach der Änderung nehmen beide Server die
+Rückrichtung an.
+
+Nebenbei hing eine dritte Sache am selben Schalter: ob wir eine bestehende
+Rückrichtung überhaupt *benutzen*. Das gehört zum Anbieten und nicht zum
+Erbitten — und ist jetzt ganz ohne Schalter, weil `BidiEnabled` beides schon
+voraussetzt.
+
+Zwei Mutationen, beide von `ThePeerTakesTheReturnPathWeOffered` erschlagen: nur
+die XEP-Form ankündigen (ejabberd fällt aus), und das Anbieten wieder an den
+Schalter für die ausgehende Seite hängen (beide fallen aus).
 
 ---
 

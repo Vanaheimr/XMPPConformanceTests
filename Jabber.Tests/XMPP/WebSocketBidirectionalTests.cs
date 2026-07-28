@@ -96,8 +96,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             _links.Start();
             _rechts.Start();
 
-            _linksS   = new WebSocketServerLinks(_links)  { UseBidirectionalStreams = bidi };
-            _rechtsS  = new WebSocketServerLinks(_rechts) { UseBidirectionalStreams = bidi };
+            _linksS   = new WebSocketServerLinks(_links)  { OfferBidirectionalStreams = bidi, RequestBidirectionalStreams = bidi };
+            _rechtsS  = new WebSocketServerLinks(_rechts) { OfferBidirectionalStreams = bidi, RequestBidirectionalStreams = bidi };
 
             _linksS.AddPeer(_rechts.Domain, _rechtsS.Uri, _rechts.IsOwnCertificate);
             _rechtsS.AddPeer(_links.Domain, _linksS.Uri,  _links.IsOwnCertificate);

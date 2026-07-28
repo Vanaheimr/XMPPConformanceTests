@@ -118,7 +118,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Baut Server und S2S-Zweig auf, oder überspringt den Test, wenn die
         /// Gegenstelle nicht bereitsteht.
         /// </summary>
-        /// <param name="bidi">XEP-0288 aushandeln.</param>
+        /// <param name="bidi">
+        /// XEP-0288 in beide Richtungen: anbieten und erbitten.
+        /// </param>
+        /// <param name="nurAnbieten">
+        /// XEP-0288 nur auf eingehenden Verbindungen anbieten, auf ausgehenden
+        /// nicht erbitten.
+        /// </param>
         /// <param name="erreichbar">
         /// Unter einer Domain und einem Port aufbauen, unter denen die
         /// Gegenstelle uns von sich aus anwählen kann.
@@ -127,9 +133,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Ohne SASL-EXTERNAL aufbauen, sodass beide Seiten auf die
         /// Dialback-Rückfrage zurückfallen.
         /// </param>
-        protected void Aufbau(Boolean bidi        = false,
-                              Boolean erreichbar  = false,
-                              Boolean dialback    = false)
+        protected void Aufbau(Boolean bidi         = false,
+                              Boolean nurAnbieten  = false,
+                              Boolean erreichbar   = false,
+                              Boolean dialback     = false)
         {
 
             var verzeichnis = CertDirectory;
@@ -160,7 +167,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                             // damit von selbst auf Dialback zurück, ohne dass
                             // eine Seite es erzwingen müsste.
                             UseSaslExternal          = !dialback,
-                            UseBidirectionalStreams  = bidi
+                            OfferBidirectionalStreams    = bidi || nurAnbieten,
+                            RequestBidirectionalStreams  = bidi
                         };
 
             Links.AddPeer(PeerDomain, "127.0.0.1", PeerPort, TcpTlsMode.StartTls, TrautDerTestCA);
@@ -264,6 +272,86 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await _client.ConnectAsync();
 
             return _client;
+
+        }
+
+        #endregion
+
+
+        #region ThePeerTakesTheReturnPathWeOffered()
+
+        /// <summary>
+        /// Die Gegenstelle nimmt unsere XEP-0288-Ankündigung an, wenn <b>sie</b>
+        /// uns anwählt.
+        /// </summary>
+        /// <remarks>
+        /// Die Richtung, die bis zuletzt nur aus fremdem Quelltext geschlossen
+        /// und nie beobachtet war - und sie war es aus einem hausgemachten
+        /// Grund: ein einziger Schalter steuerte Anbieten und Erbitten
+        /// zugleich. Solange unsere ausgehende Verbindung die Rückrichtung
+        /// nutzt, antwortet die Gegenstelle darüber und wählt uns gar nicht
+        /// erst an. Es gab also keinen Zustand, in dem sich unsere
+        /// Ankündigung zeigen konnte.
+        ///
+        /// Mit getrennten Schaltern gibt es ihn: wir bieten an, erbitten aber
+        /// nicht. Der Ablauf ist dann
+        ///
+        /// <list type="number">
+        ///   <item>
+        ///     Alice pingt. Wir wählen an - ohne <c>&lt;bidi/&gt;</c> -, die
+        ///     Gegenstelle beantwortet den Ping über eine <b>eigene</b>
+        ///     Verbindung zu uns (RFC 6120, Abschnitt 4.1).
+        ///   </item>
+        ///   <item>
+        ///     Auf dieser eingehenden Verbindung kündigen wir die Rückrichtung
+        ///     an. Nimmt die Gegenstelle sie an, ist der Stream bei uns
+        ///     freigeschaltet.
+        ///   </item>
+        ///   <item>
+        ///     Der zweite Ping geht dann über genau diesen Stream hinaus statt
+        ///     über eine neue Verbindung - und das zählt
+        ///     <c>BidirectionalDeliveryCount</c>.
+        ///   </item>
+        /// </list>
+        ///
+        /// Zwei Pings, nicht einer: beim ersten gibt es die eingehende
+        /// Verbindung noch nicht.
+        ///
+        /// <b>Nur innerhalb von WSL.</b> Von Windows aus erreicht uns die
+        /// Gegenstelle nicht.
+        /// </remarks>
+        [Test]
+        public async Task ThePeerTakesTheReturnPathWeOffered()
+        {
+
+            if (!OperatingSystem.IsLinux())
+                Assert.Ignore($"Nur innerhalb von WSL: von Windows aus erreicht {PeerName} diesen Server nicht.");
+
+            Aufbau(nurAnbieten: true, erreichbar: true);
+
+            var alice = await AliceAsync();
+
+            Assert.That(await alice.PingAsync(PeerDomain), Is.Not.Null,
+                        "Schon der erste Ping kam nicht zurück.");
+
+            Assert.That(await XMPPServer.WaitUntilAsync(() => Links!.InboundConnectionCount > 0,
+                                                       TimeSpan.FromSeconds(10)),
+                        Is.True,
+                        $"Keine eingehende Verbindung von {PeerName}.");
+
+            var dauer = await alice.PingAsync(PeerDomain);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(dauer, Is.Not.Null,
+                            "Der zweite Ping kam nicht zurück.");
+
+                Assert.That(Links!.BidirectionalDeliveryCount, Is.GreaterThan(0),
+                            $"{PeerName} hat unsere Ankündigung nicht angenommen - " +
+                            "die zweite Stanza ging über eine eigene Verbindung hinaus.");
+
+            });
 
         }
 

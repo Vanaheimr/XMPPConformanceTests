@@ -395,16 +395,23 @@ miteinander sprechen:
   (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
   Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
   dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
-- XEP-0288 Bidirectional Server-to-Server Streams (`UseBidirectionalStreams`):
-  beide Richtungen über eine Verbindung. Ohne die Erweiterung antwortet jede
-  Seite über eine *eigene* ausgehende Verbindung (RFC 6120 §4.1) — hinter NAT,
-  hinter einer Firewall oder ohne DNS-Eintrag geht die Antwort dann verloren,
-  und zwar stillschweigend. Angeboten auf eingehenden Verbindungen, erbeten auf
-  ausgehenden; über die Rückrichtung geht nichts vor dem Ausweis der
-  Gegenstelle und nichts für eine fremde Domain. Auf beiden S2S-Transporten,
-  gegen Prosody 13 und ejabberd 24.12 geprüft. Angekündigt wird die Form der
-  XEP (`urn:xmpp:features:bidi`); gelesen wird zusätzlich `urn:xmpp:bidi`,
-  weil ejabberd 24.12 in den Features das Freischalt-Element ablegt
+- XEP-0288 Bidirectional Server-to-Server Streams: beide Richtungen über eine
+  Verbindung. Ohne die Erweiterung antwortet jede Seite über eine *eigene*
+  ausgehende Verbindung (RFC 6120 §4.1) — hinter NAT, hinter einer Firewall
+  oder ohne DNS-Eintrag geht die Antwort dann verloren, und zwar
+  stillschweigend. Zwei Schalter, weil es zwei Dinge sind:
+  `OfferBidirectionalStreams` kündigt sie auf eingehenden Verbindungen an,
+  `RequestBidirectionalStreams` erbittet sie auf ausgehenden. Über die
+  Rückrichtung geht nichts vor dem Ausweis der Gegenstelle und nichts für eine
+  fremde Domain. Auf beiden S2S-Transporten, gegen Prosody 13 und ejabberd
+  24.12 in beiden Richtungen geprüft.
+
+  Angekündigt werden **beide** Namensräume (`urn:xmpp:features:bidi` und
+  `urn:xmpp:bidi`), gelesen ebenfalls beide. Die XEP kennt für die Ankündigung
+  nur den ersten; ejabberd 24.12 legt in die Features das Freischalt-Element
+  und greift nur den zweiten auf. Beobachtet, nicht vermutet — mit nur der
+  XEP-Form nimmt es unsere Rückrichtung nicht. Eindeutig bleibt es trotzdem:
+  das Freischalt-Element heisst in beiden Lesarten `urn:xmpp:bidi`
 - Aufbewahrte Subscription-Anfragen (RFC 6121 §3.1.3): wer nicht verbunden ist,
   bekommt seine Anfragen beim nächsten Anmelden — und bei jeder weiteren
   Resource wieder, bis er zustimmt oder ablehnt. Aufbewahrt wird die
