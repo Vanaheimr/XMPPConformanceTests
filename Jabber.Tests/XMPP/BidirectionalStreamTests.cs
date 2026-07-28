@@ -215,6 +215,61 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnOfferInTheEnableNamespace_IsUnderstood()
+
+        /// <summary>
+        /// Eine Ankündigung im Namensraum des Freischalt-Elements wird
+        /// ebenfalls als Angebot gelesen.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0288 vergibt zwei Namensräume: <c>urn:xmpp:features:bidi</c>
+        /// für die Ankündigung in den Features, <c>urn:xmpp:bidi</c> für das
+        /// Element, mit dem der aufbauende Server sie annimmt. Prosody hält
+        /// sich daran.
+        ///
+        /// ejabberd 24.12 nicht: seine annehmende Seite legt das
+        /// <i>Freischalt</i>-Element in die Features, kündigt also
+        /// <c>&lt;bidi xmlns='urn:xmpp:bidi'/&gt;</c> an. Upstream ist das
+        /// inzwischen behoben - in den ausgelieferten Fassungen steht es noch.
+        ///
+        /// Das ist kein Fehler, den wir mitmachen: wir kündigen weiter die
+        /// Form der XEP an, und ejabberds aufbauende Seite sucht genau die
+        /// (sein Codec bildet beide Formen auf getrennte Typen ab). Nur beim
+        /// <b>Lesen</b> eines fremden Angebots sind wir nachsichtig - sonst
+        /// verlöre die Rückrichtung gegen jeden dieser Server, und übrig
+        /// bliebe eine Verbindung, die stillschweigend einseitig ist.
+        /// </remarks>
+        [Test]
+        public async Task AnOfferInTheEnableNamespace_IsUnderstood()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden,
+                                            canOfferExternal: true, useBidi: true);
+
+            await stream.ProcessFrameAsync(OpenVon("rechts.example", "links.example", "abc"));
+
+            // Wortwörtlich das, was ejabberd 24.12 schickt.
+            await stream.ProcessFrameAsync(
+                      "<stream:features xmlns:stream='http://etherx.jabber.org/streams'>" +
+                      $"<mechanisms xmlns='{S2SStream.SaslNamespace}'><mechanism>EXTERNAL</mechanism></mechanisms>" +
+                      "<dialback xmlns='urn:xmpp:features:dialback'><errors/></dialback>" +
+                      $"<bidi xmlns='{S2SStream.BidiNamespace}'/>" +
+                      "</stream:features>");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Gesendet($"<bidi xmlns='{S2SStream.BidiNamespace}'/>"), Is.True,
+                            "Das Angebot stand da, nur im anderen Namensraum.");
+
+                Assert.That(stream.BidiEnabled, Is.True);
+
+            });
+
+        }
+
+        #endregion
+
         #region BidiGoesOutBeforeTheAuthentication()
 
         /// <summary>

@@ -398,7 +398,9 @@ miteinander sprechen:
   und zwar stillschweigend. Angeboten auf eingehenden Verbindungen, erbeten auf
   ausgehenden; über die Rückrichtung geht nichts vor dem Ausweis der
   Gegenstelle und nichts für eine fremde Domain. Auf beiden S2S-Transporten,
-  gegen Prosody 13 geprüft
+  gegen Prosody 13 und ejabberd 24.12 geprüft. Angekündigt wird die Form der
+  XEP (`urn:xmpp:features:bidi`); gelesen wird zusätzlich `urn:xmpp:bidi`,
+  weil ejabberd 24.12 in den Features das Freischalt-Element ablegt
 - Aufbewahrte Subscription-Anfragen (RFC 6121 §3.1.3): wer nicht verbunden ist,
   bekommt seine Anfragen beim nächsten Anmelden — und bei jeder weiteren
   Resource wieder, bis er zustimmt oder ablehnt. Aufbewahrt wird die
@@ -510,10 +512,13 @@ Server-Implementierung:
   neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
   Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
   auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
-- **Kein Lauf gegen ejabberd.** Gegen Prosody 13 sind inzwischen beide
-  S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS, SASL-EXTERNAL,
-  Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Ein zweiter fremder
-  Server wäre die nächste unabhängige Probe.
+- **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
+  sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
+  SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide
+  Aufbauten stehen in `tools/`; die Tests überspringen sich ohne sie. Was der
+  zweite Server zutage förderte, stand im ersten Lauf nicht: ejabberd kündigt
+  Bidi im Namensraum des Freischalt-Elements an, und wir übersahen das Angebot
+  darum. Ein dritter Server fände vermutlich ein Drittes.
 - **Föderation.** Es gibt drei Wege über die Domain-Grenze:
   `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung),
   `WebSocketServerLinks` und `TcpServerLinks` (beide mit TLS und Dialback nach
@@ -521,9 +526,8 @@ Server-Implementierung:
   die Gegenstellenliste bei der Dialback-Prüfung ersetzt, wandert die
   Vertrauenswurzel vom Betreiber ins DNS. Ausserdem: SASL-EXTERNAL gibt es nur
   über TCP, nicht über WebSocket, und `id-on-xmppAddr` im Zertifikat wird nicht
-  gelesen. Der ausgehende TCP-Weg ist inzwischen gegen Prosody 13 geprüft —
-  STARTTLS, SASL-EXTERNAL und Stanza-Zustellung tragen; Dialback und der
-  eingehende Weg sind es weiterhin nur gegen die eigene Gegenstelle.
+  gelesen. Der TCP-Weg ist in beiden Richtungen gegen zwei fremde Server
+  geprüft; der WebSocket-Weg bleibt auf Instanzen dieses Servers beschränkt.
 - **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
   Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der

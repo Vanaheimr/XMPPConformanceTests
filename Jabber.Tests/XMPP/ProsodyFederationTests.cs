@@ -17,14 +17,7 @@
 
 #region Usings
 
-using System.Net.Security;
-using System.Net.Sockets;
-using System.Security.Cryptography.X509Certificates;
-
 using NUnit.Framework;
-
-using org.GraphDefined.Vanaheimr.Hermod.XMPP;
-using org.GraphDefined.Vanaheimr.Hermod.XMPP.Server;
 
 #endregion
 
@@ -35,212 +28,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
     /// Föderation gegen Prosody - eine fremde, ausgewachsene Gegenstelle.
     /// </summary>
     /// <remarks>
-    /// Alles andere in dieser Testsammlung prüft unseren Server gegen unseren
-    /// Server. Das beweist, dass beide Seiten dieselbe Auffassung vom Protokoll
-    /// haben - nicht, dass diese Auffassung stimmt. Wo unsere beiden Seiten
-    /// denselben Fehler machen, fällt er nicht auf.
-    ///
-    /// Diese Tests überspringen sich, wenn auf 5269 kein Prosody antwortet.
+    /// Diese Tests überspringen sich, wenn auf 15269 kein Prosody antwortet.
     /// Der Aufbau steht in <c>tools/prosody/</c>: Prosody wird ohne root in
     /// WSL ausgepackt, bekommt ein von einer Test-CA signiertes Zertifikat und
-    /// horcht auf 127.0.0.1:5269. Dieselbe CA signiert unser Zertifikat -
+    /// horcht auf 127.0.0.1:15269. Dieselbe CA signiert unser Zertifikat -
     /// damit trägt SASL-EXTERNAL (XEP-0178), und Dialback wird nicht gebraucht.
+    ///
+    /// Die Mechanik des Aufbaus steht in
+    /// <see cref="AForeignPeerFederationTests"/>; hier steht nur, was Prosody
+    /// eigen ist.
     /// </remarks>
     [TestFixture]
     [Category("Prosody")]
-    public class ProsodyFederationTests
+    public class ProsodyFederationTests : AForeignPeerFederationTests
     {
 
         #region Data
 
-        private const String PeerDomain     = "prosody.test";
-        private const Int32  PeerPort       = 15269;
-
-
-        /// <summary>Unsere Domain im ausgehenden Lauf.</summary>
-        private const String LocalDomain    = "jabber.test";
+        protected override String  PeerName      => "Prosody";
+        protected override String  PeerDomain    => "prosody.test";
+        protected override Int32   PeerPort      => 15269;
+        protected override String  CertVariable  => "JABBER_PROSODY_CERTS";
 
         /// <summary>
-        /// Unsere Domain im eingehenden Lauf - und der Grund, warum es zwei
-        /// gibt.
+        /// 5269 - der Port, auf den Prosody ohne SRV-Eintrag zurückfällt.
+        /// Prosody kennt keinen Schalter dafür, also weicht im eingehenden Lauf
+        /// Prosody selbst auf 15269 aus und überlässt uns diesen hier.
         /// </summary>
-        /// <remarks>
-        /// Damit <b>Prosody</b> uns anwählen kann, muss es unsere Domain
-        /// auflösen können. Ein Eintrag in <c>/etc/hosts</c> bräuchte root;
-        /// <c>localhost</c> steht dort ohnehin und zeigt auf die
-        /// Rückschleife. Deshalb bedient der Testserver in diesem Fall diese
-        /// Domain - und horcht auf 5269, dem Port, auf den Prosody ohne
-        /// SRV-Eintrag zurückfällt. Prosody selbst weicht dafür auf 15269 aus.
-        /// </remarks>
-        private const String InboundDomain  = "localhost";
-        private const Int32  InboundPort    = 5269;
-
-        private XMPPServer?       _server;
-        private XMPPClient?       _client;
-        private TcpServerLinks?   _links;
-        private X509Certificate2  _ca      = null!;
-        private X509Certificate2  _ourCert = null!;
-
-        #endregion
-
-        #region Aufbau / Abbau
-
-        /// <summary>
-        /// Wo die Test-CA und unser Zertifikat liegen. Ohne sie oder ohne
-        /// laufenden Prosody hat dieser Test nichts zu prüfen.
-        /// </summary>
-        private static String CertDirectory
-            => Environment.GetEnvironmentVariable("JABBER_PROSODY_CERTS") ?? "";
-
-        /// <summary>
-        /// Baut Server und S2S-Zweig auf, oder überspringt den Test, wenn kein
-        /// Prosody bereitsteht.
-        /// </summary>
-        /// <param name="bidi">XEP-0288 aushandeln.</param>
-        /// <param name="erreichbar">
-        /// Unter einer Domain und einem Port aufbauen, unter denen Prosody uns
-        /// von sich aus anwählen kann.
-        /// </param>
-        /// <param name="dialback">
-        /// Ohne SASL-EXTERNAL aufbauen, sodass beide Seiten auf die
-        /// Dialback-Rückfrage zurückfallen.
-        /// </param>
-        private void Aufbau(Boolean bidi        = false,
-                            Boolean erreichbar  = false,
-                            Boolean dialback    = false)
-        {
-
-            var verzeichnis = CertDirectory;
-
-            if (verzeichnis.Length == 0 || !File.Exists(Path.Combine(verzeichnis, "ca.crt")))
-                Assert.Ignore("Kein Prosody-Aufbau: JABBER_PROSODY_CERTS zeigt auf keine Test-CA.");
-
-            if (!PortAntwortet())
-                Assert.Ignore($"Auf 127.0.0.1:{PeerPort} antwortet kein Prosody.");
-
-            var domain = erreichbar ? InboundDomain : LocalDomain;
-
-            _ca       = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(verzeichnis, "ca.crt"));
-            _ourCert  = X509CertificateLoader.LoadPkcs12FromFile(
-                            Path.Combine(verzeichnis, $"{domain}.pfx"), null);
-
-            _server   = new XMPPServer(domain, certificate: _ourCert);
-            _server.Start();
-            _server.AddAccount("alice");
-
-            _links = new TcpServerLinks(_server,
-                                        port: erreichbar ? InboundPort : 0,
-                                        mode: TcpTlsMode.StartTls) {
-
-                         // Ohne SASL-EXTERNAL legen wir kein Klientzertifikat
-                         // vor. Prosody hat dann nichts zu prüfen und bietet
-                         // EXTERNAL gar nicht erst an - der Weg fällt damit
-                         // von selbst auf Dialback zurück, ohne dass eine
-                         // Seite es erzwingen müsste.
-                         UseSaslExternal          = !dialback,
-                         UseBidirectionalStreams  = bidi
-                     };
-
-            _links.AddPeer(PeerDomain, "127.0.0.1", PeerPort, TcpTlsMode.StartTls, TrautDerTestCA);
-
-        }
-
-        [TearDown]
-        public async Task Abbau()
-        {
-
-            if (_client is not null)
-            {
-                try { await _client.DisposeAsync(); } catch { /* im Teardown egal */ }
-                _client = null;
-            }
-
-            // Ausdrücklich vor dem Server: der S2S-Zweig hält im erreichbaren
-            // Aufbau den festen Port 5269, und den bekommt der nächste Test
-            // sonst nicht mehr. Das kostete hier zwei Testläufe, weil ein
-            // gescheiterter Bind wie ein Protokollfehler aussieht.
-            if (_links is not null)
-            {
-                try { await _links.DisposeAsync(); } catch { /* im Teardown egal */ }
-                _links = null;
-            }
-
-            if (_server is not null)
-            {
-                await _server.DisposeAsync();
-                _server = null;
-            }
-
-        }
-
-        #endregion
-
-        #region Hilfsfunktionen
-
-        private static Boolean PortAntwortet()
-        {
-            try
-            {
-                using var s = new TcpClient();
-                return s.ConnectAsync("127.0.0.1", PeerPort).Wait(TimeSpan.FromSeconds(2));
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Nimmt genau die Zertifikate an, die von der Test-CA signiert sind.
-        /// </summary>
-        /// <remarks>
-        /// Nicht "alles annehmen": eine Prüfung, die jedes Zertifikat
-        /// durchlässt, bestünde auch gegen eine beliebige fremde Gegenstelle
-        /// und sagte über den Handshake nichts aus. Der Betriebssystemspeicher
-        /// hilft hier nicht - die Test-CA steht dort nicht und soll es auch
-        /// nicht.
-        /// </remarks>
-        private Boolean TrautDerTestCA(Object            sender,
-                                       X509Certificate?  certificate,
-                                       X509Chain?        chain,
-                                       SslPolicyErrors   errors)
-        {
-
-            if (certificate is null)
-                return false;
-
-            var zertifikat = certificate as X509Certificate2
-                                 ?? X509CertificateLoader.LoadCertificate(certificate.GetRawCertData());
-
-            using var pruefung = new X509Chain();
-
-            pruefung.ChainPolicy.TrustMode       = X509ChainTrustMode.CustomRootTrust;
-            pruefung.ChainPolicy.RevocationMode  = X509RevocationMode.NoCheck;
-            pruefung.ChainPolicy.CustomTrustStore.Add(_ca);
-
-            return pruefung.Build(zertifikat);
-
-        }
-
-        private async Task<XMPPClient> AliceAsync()
-        {
-
-            var connection = new XMPPConnection($"alice@{_server!.Domain}", "pw", _server.Uri) {
-                                 KeepaliveEnabled            = false,
-                                 MaxReconnectAttempts        = 0,
-                                 ServerCertificateValidator  = (_, c, _, _) =>
-                                     c is not null &&
-                                     c.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256)
-                                      .Equals(_ourCert.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256),
-                                              StringComparison.OrdinalIgnoreCase)
-                             };
-
-            _client = new XMPPClient(connection);
-            await _client.ConnectAsync();
-
-            return _client;
-
-        }
+        protected override Int32   InboundPort   => 5269;
 
         #endregion
 
@@ -265,7 +80,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Aufbau();
 
-            var angekommen = await _links!.DeliverAsync(
+            var angekommen = await Links!.DeliverAsync(
                                  PeerDomain,
                                  $"<message from='alice@{LocalDomain}' to='{PeerDomain}' type='chat'>" +
                                  "<body>Hallo Prosody</body></message>",
@@ -356,17 +171,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(dauer, Is.Not.Null,
                             "Prosody hat den Ping nicht beantwortet.");
 
-                Assert.That(_links!.InboundConnectionCount, Is.GreaterThan(0),
+                Assert.That(Links!.InboundConnectionCount, Is.GreaterThan(0),
                             "Die Antwort kam, aber nicht über eine eingehende Verbindung - " +
                             "dann prüft dieser Test nicht, was er prüfen soll.");
 
-                Assert.That(_links.BidirectionalDeliveryCount, Is.Zero,
+                Assert.That(Links.BidirectionalDeliveryCount, Is.Zero,
                             "Aufbau des Tests: hier soll gerade keine Rückrichtung im Spiel sein.");
 
                 // Und der Nachweis, dass Prosody sich über sein Zertifikat
                 // ausgewiesen hat und nicht über Dialback: sonst hätten *wir*
                 // zurückfragen müssen.
-                Assert.That(_links.DialbackVerificationCount, Is.Zero,
+                Assert.That(Links.DialbackVerificationCount, Is.Zero,
                             "Hier soll SASL-EXTERNAL tragen, nicht Dialback.");
 
             });
@@ -428,10 +243,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                             "Prosody hat den Ping nicht beantwortet - eine der beiden " +
                             "Rückfragen ist gescheitert.");
 
-                Assert.That(_links!.DialbackVerificationCount, Is.GreaterThan(0),
+                Assert.That(Links!.DialbackVerificationCount, Is.GreaterThan(0),
                             "Wir haben Prosodys Schlüssel nie nachgefragt.");
 
-                Assert.That(_links.InboundConnectionCount, Is.GreaterThan(0),
+                Assert.That(Links.InboundConnectionCount, Is.GreaterThan(0),
                             "Ohne eingehende Verbindung gab es auch nichts zu prüfen.");
 
             });

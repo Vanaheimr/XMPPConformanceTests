@@ -50,9 +50,10 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **395 Tests, 0 Fehler, 1 übersprungen** in gut
-eineinhalb Minuten (der übersprungene prüft eine Eigenschaft, die es nur im
-STARTTLS-Betrieb gibt, und läuft daher nur in einer der beiden Fassungen). Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Aktueller Stand der Suite: **437 Tests, 0 Fehler, 9 übersprungen** in gut zwei
+Minuten. Übersprungen wird, was ohne fremde Gegenstelle nichts zu prüfen hat —
+die acht Föderationstests gegen Prosody und ejabberd — sowie einer, der eine
+Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt. Drei benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar) und die Slot-Identität im Verbindungs-Cache
@@ -855,14 +856,93 @@ nicht ab, und der festgehaltene Port 5269 fehlte dem nächsten Test. Ein
 gescheiterter Bind sieht dabei aus wie ein Protokollfehler — das kostete zwei
 Testläufe.
 
+### P6. Lauf gegen ejabberd ✅ — der zweite Zeuge, und was er allein sah
+
+Prosody allein belegt, dass wir mit Prosody können. Wo unsere Auffassung des
+Protokolls von der Norm abweicht, Prosody dieselbe Abweichung aber mitmacht,
+fällt das nicht auf. Deshalb ein zweiter, unabhängig entstandener Server:
+ejabberd 24.12, in Erlang, anderer Werdegang, anderer Autorenkreis.
+
+Aufbau in `tools/ejabberd/setup.sh`, nach demselben Muster wie Prosody: ohne
+root ausgepackt, eigene Test-CA, `ejabberd.test` auf 127.0.0.1:25269. Zwei
+Stellen wollten dabei anderes Werkzeug als bei Prosody:
+
+- **Erlang ist in Debian fest auf `/usr/lib/erlang` verdrahtet** — und zwar in
+  allen drei Zweigen der Fallunterscheidung im `erl`-Startskript, auch in dem,
+  der laut Quelltext `ERL_ROOTDIR` beachten soll. Die Variable zu setzen sieht
+  aus, als müsste es reichen, und tut nichts. Dieselbe Falle wie Prosodys
+  `CFG_*`, nur besser getarnt.
+- **`ejabberdctl` bricht mit „can only be run by root or the user ejabberd" ab,**
+  bevor es irgendetwas tut. `INSTALLUSER` leeren, dann geht es.
+
+Die vier Tests spiegeln die Prosody-Sammlung; die gemeinsame Mechanik ist nach
+`AForeignPeerFederationTests` gezogen, sodass jede Sammlung nur noch Domain,
+Ports, Umgebungsvariable und ihre eigene Prosa trägt. ejabberd horcht auf 25269
+und wählt uns auf 5270 an (`outgoing_s2s_port`) — beide Gegenstellen können
+damit nebeneinander laufen.
+
+**Der Fund: wir übersahen ejabberds Bidi-Angebot.** XEP-0288 vergibt zwei
+Namensräume und meint zwei Dinge damit — `urn:xmpp:features:bidi` für die
+Ankündigung, `urn:xmpp:bidi` für das Element, mit dem der aufbauende Server sie
+annimmt. Prosody hält sich daran. ejabberd 24.12 legt in die Features das
+*Freischalt*-Element, kündigt also `<bidi xmlns='urn:xmpp:bidi'/>` an.
+
+Wir sahen darin kein Angebot, schickten kein `<bidi/>`, und die Antwort auf den
+Ping ging über eine Verbindung, die es nicht gab: dreissig Sekunden
+Zeitüberschreitung, kein Fehler, keine Meldung. Genau die Sorte Ausfall, gegen
+die XEP-0288 gedacht ist.
+
+Bevor daraus eine Änderung wurde, drei Feststellungen statt Vermutungen:
+
+1. Die XEP (1.0.1, 2016) nennt für die Ankündigung eindeutig
+   `urn:xmpp:features:bidi`.
+2. ejabberds eigener Codec bildet **beide** Formen auf getrennte Typen ab —
+   direkt nachgefragt: `urn:xmpp:features:bidi` → `{s2s_bidi_feature}`,
+   `urn:xmpp:bidi` → `{s2s_bidi}`.
+3. Seine *aufbauende* Seite sucht `{s2s_bidi_feature}`, ist also konform und
+   versteht unsere Ankündigung. Upstream ist die annehmende Seite inzwischen
+   behoben (`s2s_in_features(Acc, _) -> [#s2s_bidi_feature{}|Acc].`).
+
+Daraus folgt eine einseitige Änderung: `S2SStream.KuendigtBidiAn` liest beide
+Formen, angekündigt wird weiter nur die der XEP. Nachsichtig beim Lesen, streng
+beim Schreiben — und keine Zeile mehr als das, weil für eine zweite Ankündigung
+kein Beleg vorlag.
+
+**Und ein Test, der zweimal recht gehabt hätte und einmal nicht.** Der
+Bidi-Ping bestand, fiel dann durch und bestand wieder. Das Log sagte, woran es
+lag: ejabberd hatte den Bidi-Stream, wählte für die Antwort aber einen
+*zwischengespeicherten* `s2s_out` nach `jabber.test`, angelegt in einem
+früheren Lauf und zeigend auf einen längst toten Ephemeralport.
+
+Woher der stammte: unsere `<message>` an die blosse Domain `ejabberd.test` hat
+dort keinen Empfänger und wird zurückgewiesen — und für die Rückweisung legt
+ejabberd eine ausgehende Verbindung zu uns an, die den Test überlebt. Ein
+`<iq type='result'/>` darf laut RFC 6120, Abschnitt 8.3.1, nie beantwortet
+werden und hinterlässt deshalb nichts. Danach dreimal hintereinander 8/8 ohne
+Neustart dazwischen.
+
+Zweierlei bleibt daran hängen. Erstens: die Prosody-Sammlung schickt dieselbe
+Nachricht und ist bisher nicht aufgefallen — geändert wurde sie trotzdem nicht,
+weil dafür kein Beleg vorliegt und Änderung ohne Beleg nur Rauschen ist.
+Zweitens: dass ejabberd einen alten `s2s_out` einem bestehenden Bidi-Stream
+vorzieht, ist eine zweite Eigenheit; sie beisst nur, weil unser Testserver bei
+jedem Lauf auf einem anderen Port liegt.
+
+**Offen geblieben:** ob ejabberd unsere Ankündigung tatsächlich annimmt, wenn
+*es* uns anwählt, ist nicht beobachtet — nur aus seinem Quelltext geschlossen.
+Zu sehen wäre es erst, wenn `TcpServerLinks` das Anbieten vom Benutzen trennte
+(heute schaltet `UseBidirectionalStreams` beides zugleich). Solange unsere
+ausgehende Verbindung Bidi nutzt, wählt ejabberd uns gar nicht erst an.
+
 ---
 
 ## Als Nächstes (Client)
 
 ### XEP-0198 gegen einen echten Server, dann Default umstellen
 
-Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen ejabberd oder
-Prosody; danach kann `StreamManagementEnabled` auf `true`.
+Die Zählung stimmt gegen `XMPPServer`. Es fehlt ein Lauf gegen eine der beiden
+fremden Gegenstellen — beide stehen jetzt bereit; danach kann
+`StreamManagementEnabled` auf `true`.
 
 Anschließend Stream-Resume: `ResumeAsync` und `GetUnackedStanzas` existieren,
 werden aber nirgends aufgerufen — nach einem Reconnect baut der Client neu auf

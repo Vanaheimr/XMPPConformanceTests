@@ -837,8 +837,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Nach TLS ist hier ohnehin: diesen Stream gibt es erst, wenn der
             // Transport die Verschlüsselung hinter sich hat (XEP-0288
             // verlangt genau diese Reihenfolge).
-            if (bidi && !BidiEnabled &&
-                frame.Contains(BidiFeatureNamespace, StringComparison.Ordinal))
+            if (bidi && !BidiEnabled && KuendigtBidiAn(frame))
             {
                 await sendFrame($"<bidi xmlns='{BidiNamespace}'/>", cancellationToken);
                 BidiEnabled = true;
@@ -876,6 +875,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             return true;
 
         }
+
+        /// <summary>
+        /// Steht in diesen Features ein Bidi-Angebot?
+        /// </summary>
+        /// <remarks>
+        /// XEP-0288 vergibt zwei Namensräume und meint zwei verschiedene
+        /// Dinge damit: <see cref="BidiFeatureNamespace"/> für die
+        /// Ankündigung, <see cref="BidiNamespace"/> für das Element, mit dem
+        /// der aufbauende Server sie annimmt. Angekündigt wird der erste -
+        /// Prosody hält sich daran, und wir tun es auch.
+        ///
+        /// ejabberd 24.12 nicht: seine annehmende Seite legt das
+        /// <i>Freischalt</i>-Element in die Features. Upstream ist das
+        /// inzwischen behoben, in den ausgelieferten Fassungen steht es noch,
+        /// und sie sind zahlreich.
+        ///
+        /// Deshalb hier beide Formen - aber nur beim Lesen. Was wir selbst
+        /// ankündigen, bleibt die Form der XEP; ejabberds aufbauende Seite
+        /// sucht genau die und versteht uns. Wer beim Lesen streng bliebe,
+        /// bekäme keinen Fehler, sondern eine Verbindung, die stillschweigend
+        /// einseitig ist - und deren Antworten dann an einer Firewall hängen
+        /// bleiben, aus keinem im Protokoll sichtbaren Grund.
+        /// </remarks>
+        private static Boolean KuendigtBidiAn(String features)
+
+            => features.Contains(BidiFeatureNamespace, StringComparison.Ordinal) ||
+               features.Contains(BidiNamespace,        StringComparison.Ordinal);
 
         /// <summary>
         /// <c>&lt;auth mechanism='EXTERNAL'/&gt;</c> auf der annehmenden
