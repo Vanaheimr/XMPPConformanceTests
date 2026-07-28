@@ -35,7 +35,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0198 | Stream Management | ✅ | Zählung gegen Prosody 13 geprüft, an per Default, mit Wiederaufnahme |
+| XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
@@ -618,8 +618,9 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Abriss knüpft der Client vor dem Resource Binding an den alten Stream an: die
   Full-JID bleibt, was während der Störung ankam, wird nachgeliefert, und die
   Kontakte sehen kein Verschwinden. Gelingt es nicht — Frist abgelaufen,
-  Kennung unbekannt —, bindet er neu. Gegen Prosody 13 (`mod_smacks`) ist das
-  geprüft, gegen ejabberd noch nicht.
+  Kennung unbekannt —, bindet er neu. Geprüft gegen Prosody 13
+  (`mod_smacks`) und ejabberd 24.12 (`mod_stream_mgmt`) - beide verhalten sich
+  hier gleich.
 - **Der Content-Namensraum wandert nur in einer Richtung mit.** Was ein
   lokaler Client über die Domain-Grenze schickt, wird von `jabber:client` auf
   `jabber:server` umgestellt; was von einem fremden Server hereinkommt, geht in

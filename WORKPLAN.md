@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **464 Tests, 0 Fehler** in knapp drei Minuten, und
+Aktueller Stand der Suite: **471 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1185,6 +1185,33 @@ die Zusicherung war auch ohne Wiederaufnahme erfüllt.
 Der Vergleich „vorher gleich nachher" ist nur dann ein Beleg, wenn *vorher*
 etwas dastand. Das ist in dieser Sitzung der dritte Test, der grün war und
 nichts gemessen hat.
+
+### R4. Dieselbe Probe gegen ejabberd ✅ — und diesmal kein Fund
+
+ejabberd bekommt einen `ejabberd_http_ws`-Handler auf 5443,
+`mod_stream_mgmt` und zwei Konten. Die sieben Prüfungen sind nach
+`AForeignPeerStreamManagementTests` gezogen — sie prüfen für jede Gegenstelle
+dasselbe, und was sich unterscheidet, legen die Ableitungen in zwanzig Zeilen
+fest. Ein dritter Server kostet damit fast nichts.
+
+**Vierzehn von vierzehn, keine Abweichung.** Das ist ein anderes Ergebnis als
+bei XEP-0288, wo ejabberd in den Stream-Features das Freischalt-Element statt
+der Ankündigung schickte und wir sein Angebot deshalb übersahen. Bei
+XEP-0198 stimmen beide Server in allem überein, was wir prüfen: Zählung des
+Aufbaus, Nonzas, unser Empfangszähler, Zusage, Wiederaufnahme, Nachlieferung.
+
+Das ist kein verschwendeter Lauf. Vorher war offen, ob unsere Wiederaufnahme
+an Prosodys Auslegung hängt; jetzt ist es das nicht. Ein zweiter Zeuge, der
+bestätigt, sagt weniger als einer, der widerspricht — aber er sagt etwas.
+
+Zwei Unterschiede im Aufbau, beide banal und beide wären beim Festverdrahten
+zur Falle geworden:
+
+- Der WebSocket-Pfad heisst bei ejabberd `/websocket`, bei Prosody
+  `/xmpp-websocket`. RFC 7395 schreibt keinen vor.
+- `ejabberdctl register` geht über einen RPC-Aufruf in den laufenden Knoten
+  und braucht ihn gestartet; `prosodyctl register` fasst die Dateien direkt an
+  und will ihn *angehalten*. Genau verkehrt herum.
 
 ---
 

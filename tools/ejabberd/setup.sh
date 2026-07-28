@@ -43,6 +43,17 @@ INBOUND_DOMAIN="localhost"
 PEER_S2S_PORT=25269
 INBOUND_PORT=5270
 
+# Der WebSocket-Endpunkt fuer den Client-Lauf (XEP-0198). 5443 ist ejabberds
+# Vorgabe; Prosody liegt auf 5281, beide koennen also nebeneinander stehen.
+WSS_PORT=5443
+
+# Zwei Konten: eines fuer den Client selbst, eines als Absender. Ohne den
+# zweiten laesst sich nicht pruefen, ob eine waehrend der Stoerung zugestellte
+# Nachricht nach der Wiederaufnahme nachkommt.
+TEST_USER="alice"
+TEST_USER2="bob"
+TEST_PASSWORD="geheim"
+
 mkdir -p "$PREFIX"/{debs,etc,logs,spool,certs} "$ROOT"
 
 # ---------------------------------------------------------------- Pakete ----
@@ -169,6 +180,17 @@ listen:
     ip: "127.0.0.1"
     module: ejabberd_s2s_in
 
+  ## Der Weg fuer unseren Client: er spricht XMPP ueber WebSocket (RFC 7395),
+  ## nicht ueber den rohen 5222er-Strom. Ohne diesen Handler gaebe es fuer ihn
+  ## keinen Weg herein.
+  -
+    port: $WSS_PORT
+    ip: "127.0.0.1"
+    module: ejabberd_http
+    tls: true
+    request_handlers:
+      /websocket: ejabberd_http_ws
+
 ## "required", nicht "required_trusted": beides verlangt STARTTLS, aber nur
 ## das zweite verlangt zusaetzlich eine gueltige Kette und wuerde damit
 ## Dialback ausschliessen. So entscheidet unsere Seite, welches Verfahren zum
@@ -207,6 +229,12 @@ modules:
   ## *eigene* ausgehende Verbindung - so sieht RFC 6120 Abschnitt 4.1 den
   ## Stream, und so verhaelt sich jeder ausgewachsene Server.
   mod_s2s_bidi: {}
+
+  ## XEP-0198 samt Wiederaufnahme. resume_timeout kurz genug, dass ein Test
+  ## den Verfall abwarten kann, lang genug fuer einen Reconnect.
+  mod_stream_mgmt:
+    resume_timeout: 60
+    max_resume_timeout: 300
 CFG
 
 # ------------------------------------------------------------------ Start ---
@@ -243,7 +271,21 @@ for _ in $(seq 30); do
 done
 
 if [ "$gestartet" = 1 ]; then
+
     echo "   ejabberd laeuft."
+
+    # Die Konten erst jetzt: ejabberdctl register geht ueber einen RPC-Aufruf
+    # in den laufenden Knoten, anders als Prosodys prosodyctl, das die Dateien
+    # direkt anfasst. Bei angehaltenem Server gaebe es hier nur ein "nodedown".
+    for u in "$TEST_USER" "$TEST_USER2"; do
+        "$ROOT/usr/sbin/ejabberdctl" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
+            | grep -iv "^$" | head -1 || true
+    done
+
+    grep -q "Start accepting TLS connections at 127.0.0.1:$WSS_PORT" "$PREFIX/logs/ejabberd.log" \
+        && echo "   WebSocket-Endpunkt auf $WSS_PORT." \
+        || echo "   WARNUNG - kein WebSocket-Endpunkt auf $WSS_PORT; der XEP-0198-Lauf faellt aus."
+
 else
     echo "   FEHLER - ejabberd ist nicht hochgekommen:"
     tail -30 "$PREFIX/logs/ejabberd.log" 2>/dev/null
@@ -252,7 +294,9 @@ fi
 
 cat <<DONE
 
-Fertig. ejabberd bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT.
+Fertig. ejabberd bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT (S2S) und
+wss://127.0.0.1:$WSS_PORT/websocket (Client), Konten
+$TEST_USER@$PEER_DOMAIN und $TEST_USER2@$PEER_DOMAIN, Passwort $TEST_PASSWORD.
 
 Ausgehender Lauf, von Windows aus:
 
