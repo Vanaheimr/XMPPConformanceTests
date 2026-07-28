@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **450 Tests, 0 Fehler** in gut zwei Minuten, und
+Aktueller Stand der Suite: **456 Tests, 0 Fehler** in gut zwei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1035,19 +1035,67 @@ Keepalive-Tests im SM-Fall — den zweiten nur wegen der neuen Untergrenze), und
 
 ---
 
-## Als Nächstes (Client)
+## Stream-Resume (XEP-0198 Abschnitt 5)
 
-### Stream-Resume
+Zwei Schnitte, weil das `<resume/>` selbst in der Aufbauphase des Clients sitzt
+— nach der Anmeldung, **vor** dem Resource Binding. Ohne einen Client, der es
+schickt, führt kein Testweg dorthin: die Testbasis fährt echte
+`XMPPClient`-Instanzen, und die binden immer. Ein zweiter, handgeschriebener
+SASL-Client nur für diesen einen Test wäre Aufwand ohne Erkenntnis, denn R2
+folgt unmittelbar.
 
-`ResumeAsync` und `GetUnackedStanzas` existieren, werden aber nirgends
-aufgerufen — nach einem Reconnect baut der Client neu auf und die
-unbestätigten Stanzas gehen verloren. Der `XMPPServer` beherrscht `<resume/>`
-ebenfalls noch nicht, das wäre gleich mitzumachen.
+### R1. Der Server hebt abgerissene Streams auf ✅
 
-Jetzt fällt das mehr ins Gewicht als vorher: Stream Management ist der
-Vorgabewert, also handelt jeder Client es aus, und jeder Client sammelt damit
-unbestätigte Stanzas an, die ein Reconnect wegwirft. Vorher betraf das nur, wer
-den Schalter selbst umgelegt hatte.
+Der Teil, der ohne Rückkehrer prüfbar ist.
+
+**Die Kennung war ratbar, und niemandem fiel es auf.** Die frühere Fassung
+schickte `id='sm-{Verbindungsnummer}'` — eine kleine Zahl, die jeder Mitlesende
+mitzählen kann. Ohne Wiederaufnahme war sie folgenlos: es gab nichts, was
+sich damit übernehmen liesse. Mit ihr wäre sie ein Einfallstor geworden, denn
+die Kennung ist das einzige Geheimnis, das einen Rückkehrer ausweist. Jetzt
+kommt sie aus dem Zufallsgenerator, 128 Bit.
+
+**Der eigentliche Eingriff sitzt dort, wo bisher bedingungslos abgemeldet
+wurde.** Reisst die Verbindung, erzeugt der Server seit jeher eine Abmeldung im
+Namen des Clients (RFC 6121, Abschnitt 4.5.2) — sonst führen die Kontakte die
+Resource für immer als online. Wer wiederkommen darf, darf das nicht: die
+Kontakte sähen ein Verschwinden, das gleich darauf zurückzunehmen wäre, und
+zwischen den beiden Presences läge alles, was inzwischen an eine vermeintlich
+abgemeldete Resource ging.
+
+Also wird der Stream geparkt statt abgemeldet — und das verlangt sofort die
+Gegenprobe: **eine aufgeschobene Abmeldung, die nie kommt, ist schlimmer als
+eine zu frühe.** Sie fiele niemandem auf. Deshalb ein Durchgang im
+Sekundentakt, der abgelaufene Streams abräumt und die Abmeldung nachholt, und
+ein Test, der genau darauf wartet.
+
+Dabei eine Falle, die nur beim Schreiben sichtbar wurde: der Abräumer ruft
+dieselbe `AnnounceUnavailableAsync` auf, die vorne parkt. Ohne vorheriges
+`EndResumption()` sieht sie wieder einen wiederaufnehmbaren Stream und parkt
+ihn erneut — mit neuer Frist, für immer. Die Mutation, die diese Zeile
+entfernt, tötet den Verfallstest.
+
+Dazu der Puffer der noch nicht bestätigten Stanzas, aus dem nach einer
+Wiederaufnahme nachzusenden wäre. Er wird nur bei zugesagter Wiederaufnahme
+gefüllt — sonst wäre es ein Speicher, aus dem nie jemand liest — und leert sich
+am `<a h='…'/>` des Clients, in derselben Modulo-Arithmetik wie auf der
+Client-Seite.
+
+Fünf Mutationen, jede von genau dem zuständigen Test erschlagen: nie parken,
+Verfall ohne `EndResumption`, ungefragt zusagen, Kennung aus der
+Verbindungsnummer, Puffer leert sich nicht.
+
+### R2. Der Client kommt zurück
+
+Offen. `ResumeAsync` und `GetUnackedStanzas` existieren, werden aber nirgends
+aufgerufen; der Client fordert `resume='true'` gar nicht erst an und baut nach
+einem Abriss neu auf. Serverseitig fehlt das Gegenstück: `<resume/>` →
+`<resumed h='…'/>` samt Nachsenden, oder `<failed><item-not-found/></failed>`.
+
+Das wiegt seit dem Default-Umstieg mehr als vorher: Stream Management handelt
+jetzt jeder Client aus, also sammelt auch jeder unbestätigte Stanzas an, die
+ein Reconnect wegwirft. Vorher betraf das nur, wer den Schalter selbst umgelegt
+hatte.
 
 ---
 

@@ -83,18 +83,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// XEP-0198 Stream Management aushandeln? <c>null</c> lässt den
         /// Vorgabewert stehen.
         /// </param>
-        protected async Task<XMPPClient> ConnectClientAsync(String     localPart         = "alice",
-                                                            Boolean    createAccount     = true,
-                                                            TimeSpan?  keepalive         = null,
-                                                            TimeSpan?  reconnectDelay    = null,
-                                                            Boolean?   streamManagement  = null)
+        protected async Task<XMPPClient> ConnectClientAsync(String     localPart             = "alice",
+                                                            Boolean    createAccount         = true,
+                                                            TimeSpan?  keepalive             = null,
+                                                            TimeSpan?  reconnectDelay        = null,
+                                                            Boolean?   streamManagement      = null,
+                                                            Int32      maxReconnectAttempts  = 20)
         {
 
             if (createAccount && Server.GetAccount($"{localPart}@{Server.Domain}") is null)
                 Server.AddAccount(localPart);
 
             var client = CreateClient(localPart, keepalive, reconnectDelay,
-                                      streamManagement: streamManagement);
+                                      streamManagement:     streamManagement,
+                                      maxReconnectAttempts: maxReconnectAttempts);
 
             await client.ConnectAsync();
 
@@ -114,11 +116,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// einziger Test den Vorgabewert - eine Umstellung ginge geräuschlos
         /// durch.
         /// </remarks>
-        protected XMPPClient CreateClient(String     localPart         = "alice",
-                                          TimeSpan?  keepalive         = null,
-                                          TimeSpan?  reconnectDelay    = null,
-                                          String     password          = "pw",
-                                          Boolean?   streamManagement  = null)
+        protected XMPPClient CreateClient(String     localPart             = "alice",
+                                          TimeSpan?  keepalive             = null,
+                                          TimeSpan?  reconnectDelay        = null,
+                                          String     password              = "pw",
+                                          Boolean?   streamManagement      = null,
+                                          Int32      maxReconnectAttempts  = 20)
         {
 
             var connection = new XMPPConnection($"{localPart}@{Server.Domain}",
@@ -128,7 +131,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 KeepaliveEnabled         = keepalive.HasValue,
                 KeepaliveInterval        = keepalive ?? TimeSpan.FromSeconds(25),
                 InitialReconnectDelay    = reconnectDelay ?? TimeSpan.FromMilliseconds(200),
-                MaxReconnectAttempts     = 20,
+                MaxReconnectAttempts     = maxReconnectAttempts,
 
                 // Der Testserver signiert sein Zertifikat selbst; kein Rechner
                 // vertraut ihm. Angeheftet wird der Fingerabdruck genau dieses

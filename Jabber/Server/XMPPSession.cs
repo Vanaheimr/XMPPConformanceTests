@@ -40,6 +40,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly List<String> _sent = [];
         private readonly Lock _lock = new();
 
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: was an den Client ging und noch nicht
+        /// bestätigt ist. Nach einer Wiederaufnahme geht genau das nach.
+        /// </summary>
+        private readonly Queue<(UInt32 Seq, String Stanza)> _unackedToClient = new();
+
+        private UInt32? _lastAckFromClient;
+
         #endregion
 
         #region Properties
@@ -181,7 +189,43 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// XEP-0198: das zuletzt vom Client gemeldete <c>h</c>, oder null,
         /// solange der Client noch kein <c>&lt;a/&gt;</c> geschickt hat.
         /// </summary>
-        public UInt32? LastAckFromClient { get; internal set; }
+        public UInt32? LastAckFromClient
+        {
+            get { lock (_lock) return _lastAckFromClient; }
+            internal set => AcknowledgeToClient(value);
+        }
+
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: die Kennung, mit der dieser Stream wieder
+        /// aufgenommen werden kann - oder null, wenn der Client nicht danach
+        /// gefragt hat.
+        /// </summary>
+        /// <remarks>
+        /// Sie ist das einzige Geheimnis, das einen Rückkehrer ausweist: wer
+        /// sie kennt, übernimmt den Stream samt Full-JID. Deshalb kommt sie
+        /// aus <see cref="System.Security.Cryptography.RandomNumberGenerator"/>
+        /// und nicht aus der Verbindungsnummer, wie es die frühere Fassung tat
+        /// - dort war sie folgenlos, hier wäre sie ein Einfallstor.
+        /// </remarks>
+        public String? ResumptionId { get; private set; }
+
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: die noch nicht bestätigten Stanzas an den
+        /// Client, die nach einer Wiederaufnahme nachzusenden wären.
+        /// </summary>
+        public Int32 UnacknowledgedToClient
+        {
+            get { lock (_lock) return _unackedToClient.Count; }
+        }
+
+        /// <summary>
+        /// Die noch nicht bestätigten Stanzas mit ihrer Sequenznummer, in
+        /// Sendereihenfolge.
+        /// </summary>
+        internal IReadOnlyList<(UInt32 Seq, String Stanza)> PendingToClient
+        {
+            get { lock (_lock) return [.. _unackedToClient]; }
+        }
 
         /// <summary>Die zugrundeliegende WebSocket-Verbindung.</summary>
         public WebSocketServerConnection Connection => _connection;
@@ -259,15 +303,76 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// XEP-0198: Handelt Stream Management aus und setzt beide Zähler auf
         /// null, wie es Abschnitt 4 für <c>&lt;enabled/&gt;</c> verlangt.
         /// </summary>
-        internal void EnableStreamManagement()
+        /// <param name="resumable">
+        /// Hat der Client <c>resume='true'</c> verlangt? Dann bekommt die
+        /// Sitzung eine Kennung, unter der sie wieder aufgenommen werden kann.
+        /// </param>
+        internal void EnableStreamManagement(Boolean resumable = false)
         {
             lock (_lock)
             {
+
                 StreamManagementEnabled    = true;
                 StanzasSentToClient        = 0;
                 StanzasReceivedFromClient  = 0;
-                LastAckFromClient          = null;
+                _lastAckFromClient         = null;
+
+                _unackedToClient.Clear();
+
+                // 128 Bit aus dem Zufallsgenerator, Base64 ohne Polsterung -
+                // 22 Zeichen. Kürzer wäre ratbar, und was hier zu raten ist,
+                // ist eine fremde Sitzung.
+                ResumptionId = resumable
+                                   ? Convert.ToBase64String(
+                                         System.Security.Cryptography.RandomNumberGenerator.GetBytes(16))
+                                            .TrimEnd('=')
+                                   : null;
+
             }
+        }
+
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: Nimmt die Zusage der Wiederaufnahme zurück.
+        /// </summary>
+        /// <remarks>
+        /// Nach Ablauf der Frist ist der Stream endgültig zu Ende. Ohne diesen
+        /// Schritt sähe die Abmeldung, die jetzt nachzuholen ist, wieder einen
+        /// wiederaufnehmbaren Stream vor sich und schöbe sich selbst erneut
+        /// auf.
+        /// </remarks>
+        internal void EndResumption()
+        {
+            lock (_lock)
+            {
+                ResumptionId = null;
+                _unackedToClient.Clear();
+            }
+        }
+
+        /// <summary>
+        /// XEP-0198: Der Client hat gemeldet, wie viel er empfangen hat -
+        /// alles bis dahin darf aus dem Puffer.
+        /// </summary>
+        internal void AcknowledgeToClient(UInt32? h)
+        {
+
+            lock (_lock)
+            {
+
+                _lastAckFromClient = h;
+
+                if (h is null)
+                    return;
+
+                // Modulo-Arithmetik wie auf der Client-Seite: der Zähler läuft
+                // nach 2^32-1 auf 0 über (Abschnitt 4), und ein schlichtes
+                // Seq <= h liesse die offenen Stanzas danach für immer liegen.
+                while (_unackedToClient.Count > 0 &&
+                       unchecked(h.Value - _unackedToClient.Peek().Seq) < 0x8000_0000u)
+                    _unackedToClient.Dequeue();
+
+            }
+
         }
 
         /// <summary>
@@ -319,7 +424,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     // XEP-0198: erst nach dem erfolgreichen Senden zählen.
                     if (StreamManagementEnabled && IsStanza(xml))
+                    {
+
                         StanzasSentToClient++;
+
+                        // Und aufheben, solange der Client sie nicht bestätigt
+                        // hat - nur mit zugesagter Wiederaufnahme, sonst wäre
+                        // es ein Puffer, aus dem nie jemand liest.
+                        if (ResumptionId is not null)
+                            _unackedToClient.Enqueue((StanzasSentToClient, xml));
+
+                    }
 
                 }
 

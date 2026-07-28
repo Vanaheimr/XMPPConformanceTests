@@ -532,8 +532,12 @@ Server-Implementierung:
   über TCP, nicht über WebSocket, und `id-on-xmppAddr` im Zertifikat wird nicht
   gelesen. Der TCP-Weg ist in beiden Richtungen gegen zwei fremde Server
   geprüft; der WebSocket-Weg bleibt auf Instanzen dieses Servers beschränkt.
-- **Kein Stream-Resume.** `<enable/>` wird beantwortet, `<resume/>` nicht; die
-  Gegenprobe zur Resume-Lücke des Clients fehlt damit auf beiden Seiten.
+- **Stream-Resume: die Hälfte steht.** Der Server sagt die Wiederaufnahme zu
+  (`<enabled id='…' resume='true'/>`, Kennung aus dem Zufallsgenerator), hebt
+  einen abgerissenen Stream samt Zähler und ungesendeten Stanzas auf und schiebt
+  dessen `unavailable`-Presence auf, bis die Frist (`ResumptionTimeout`,
+  Vorgabe 60 s) abläuft. Was fehlt, ist das `<resume/>` selbst — und der Client,
+  der es schickt.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
   Server keine Stanza-Fehler; unbekannte IQs bekommen pauschal
   `<service-unavailable/>`.

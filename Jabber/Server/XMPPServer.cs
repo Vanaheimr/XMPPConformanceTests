@@ -76,6 +76,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly CancellationTokenSource _cts = new();
         private readonly Dictionary<String, XMPPAccount> _accounts = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<XMPPSession> _sessions = [];
+
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: abgerissene Streams, die auf ihren
+        /// Rückkehrer warten - nach ihrer Kennung.
+        /// </summary>
+        private readonly Dictionary<String, ParkedStream> _resumable = new(StringComparer.Ordinal);
+
+        private Timer? _resumptionSweeper;
         private readonly Lock _lock = new();
 
         private Int32 _connectionCounter;
@@ -229,6 +237,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         /// <summary>XEP-0198: Beantwortet der Server ein <c>&lt;r/&gt;</c> des Clients?</summary>
         public Boolean AnswerAckRequests { get; set; } = true;
+
+        /// <summary>
+        /// XEP-0198, Abschnitt 5: Sagt der Server die Wiederaufnahme eines
+        /// abgerissenen Streams zu?
+        /// </summary>
+        public Boolean OfferStreamResumption { get; set; } = true;
+
+        /// <summary>
+        /// Wie lange ein abgerissener Stream auf seinen Rückkehrer wartet.
+        /// </summary>
+        /// <remarks>
+        /// Danach gilt die Sitzung als beendet, und die Abmeldung, die der
+        /// Abriss aufgeschoben hat, wird nachgeholt. Ohne diese Frist bliebe
+        /// jede abgerissene Resource für ihre Kontakte auf ewig online.
+        /// </remarks>
+        public TimeSpan ResumptionTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+        /// <summary>
+        /// Wie viele abgerissene Streams gerade auf ihren Rückkehrer warten.
+        /// </summary>
+        public Int32 ResumableStreamCount
+        {
+            get { lock (_lock) return _resumable.Count; }
+        }
 
         /// <summary>
         /// Beantwortet der Server XEP-0199 Pings mit einem Stanza-Fehler statt
@@ -504,7 +536,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #region Start und Verbindungsannahme
 
         public void Start()
-            => _webSocketServer.Start().GetAwaiter().GetResult();
+        {
+
+            _webSocketServer.Start().GetAwaiter().GetResult();
+
+            // XEP-0198, Abschnitt 5: die Frist der aufgehobenen Streams läuft
+            // in Echtzeit ab, nicht beim nächsten Zugriff - sonst hinge eine
+            // aufgeschobene Abmeldung daran, dass zufällig jemand anderes
+            // etwas tut. Eine Sekunde reicht: die Frist liegt in der
+            // Grössenordnung von Minuten.
+            _resumptionSweeper = new Timer(
+                                     _ => SweepResumableStreamsAsync().GetAwaiter().GetResult(),
+                                     null,
+                                     TimeSpan.FromSeconds(1),
+                                     TimeSpan.FromSeconds(1));
+
+        }
 
         /// <summary>
         /// Der WebSocket-Transport. Das Protokoll steckt vollständig in
@@ -723,6 +770,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task AnnounceUnavailableAsync(XMPPSession session)
         {
 
+            // XEP-0198, Abschnitt 5: einem Stream, dem die Wiederaufnahme
+            // zugesagt ist, wird die Abmeldung erst einmal erspart. Sonst
+            // führte der Server seinen Kontakten ein Verschwinden vor, das
+            // gleich darauf zurückgenommen werden müsste - und zwischen den
+            // beiden Presences läge alles, was in der Zwischenzeit an eine
+            // vermeintlich abgemeldete Resource gerichtet war.
+            //
+            // Vor dem Wächter unten, nicht dahinter: TryMarkUnavailable
+            // schaltet den Zustand um, und danach wäre die Sitzung für die
+            // nachgeholte Abmeldung nach Fristablauf schon verbraucht.
+            if (session.ResumptionId is not null && Park(session))
+                return;
+
             // Hat der Client sich selbst abgemeldet, ist die Sache erledigt.
             // Die Umschaltung muss atomar sein: sonst kommen ein abbrechender
             // Socket und die eigene Abmeldung des Clients beide am Wächter
@@ -741,6 +801,77 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             foreach (var remote in RemotePresenceTargetsOf(session))
                 await RouteToAsync(remote, StampTo(stanza, remote));
+
+        }
+
+        /// <summary>
+        /// Hebt einen abgerissenen Stream für seinen Rückkehrer auf.
+        /// </summary>
+        /// <returns>
+        /// false, wenn nichts aufzuheben war - dann nimmt der Aufrufer den
+        /// gewohnten Weg und meldet ab.
+        /// </returns>
+        private Boolean Park(XMPPSession session)
+        {
+
+            if (session.FullJid is null || !session.IsAvailable)
+                return false;
+
+            lock (_lock)
+            {
+
+                // Zwei Abrisse derselben Sitzung dürfen nicht zwei Einträge
+                // ergeben: der zweite bekäme eine neue Frist und hielte die
+                // Abmeldung beliebig lange auf.
+                if (_resumable.ContainsKey(session.ResumptionId!))
+                    return true;
+
+                _resumable[session.ResumptionId!] = new ParkedStream(
+                                                        session,
+                                                        DateTimeOffset.UtcNow + ResumptionTimeout);
+
+            }
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// Räumt abgelaufene Streams ab und holt ihre Abmeldung nach.
+        /// </summary>
+        /// <remarks>
+        /// Ohne diesen Durchgang wäre die Aufschiebung aus
+        /// <see cref="AnnounceUnavailableAsync"/> keine Aufschiebung, sondern
+        /// ein Verschlucken: die Kontakte führten jede abgerissene Resource
+        /// für immer als online, und niemandem fiele etwas auf.
+        /// </remarks>
+        internal async Task SweepResumableStreamsAsync()
+        {
+
+            List<ParkedStream> abgelaufen;
+
+            lock (_lock)
+            {
+
+                abgelaufen = [.. _resumable.Values.Where(p => p.Deadline <= DateTimeOffset.UtcNow)];
+
+                foreach (var p in abgelaufen)
+                    _resumable.Remove(p.Session.ResumptionId!);
+
+            }
+
+            foreach (var p in abgelaufen)
+            {
+
+                // Zuerst die Zusage zurücknehmen, dann abmelden: sonst sähe
+                // AnnounceUnavailableAsync wieder einen wiederaufnehmbaren
+                // Stream vor sich und parkte ihn erneut. Die Abmeldung käme
+                // dann nie.
+                p.Session.EndResumption();
+
+                await AnnounceUnavailableAsync(p.Session);
+
+            }
 
         }
 
@@ -815,12 +946,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     return;
                 }
 
+                // XEP-0198, Abschnitt 5: nur zusagen, wonach gefragt wurde.
+                // Ein ungefragtes resume='true' verpflichtete den Server, jede
+                // abgerissene Sitzung aufzuheben, und kein Client käme je
+                // zurück, um sie abzuholen.
+                var resume = OfferStreamResumption &&
+                             Regex.IsMatch(frame, @"resume=['""](true|1)['""]");
+
                 // Zähler zuerst zurücksetzen: das <enabled/> selbst ist eine
                 // Nonza und zählt nicht mit.
-                session.EnableStreamManagement();
+                session.EnableStreamManagement(resume);
 
                 await session.SendAsync(
-                    $"<enabled xmlns='urn:xmpp:sm:3' id='sm-{session.ConnectionNumber}'/>");
+                    resume
+                        ? $"<enabled xmlns='urn:xmpp:sm:3' id='{session.ResumptionId}' " +
+                          $"resume='true' max='{(Int32) ResumptionTimeout.TotalSeconds}'/>"
+                        : $"<enabled xmlns='urn:xmpp:sm:3' id='sm-{session.ConnectionNumber}'/>");
 
                 return;
 
@@ -845,7 +986,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var h = Regex.Match(frame, @"h=['""](\d+)['""]");
 
                 if (h.Success && UInt32.TryParse(h.Groups[1].Value, out var value))
-                    session.LastAckFromClient = value;
+                    session.AcknowledgeToClient(value);
 
                 return;
 
@@ -2457,7 +2598,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             _cts.Cancel();
 
+            if (_resumptionSweeper is not null)
+            {
+                await _resumptionSweeper.DisposeAsync();
+                _resumptionSweeper = null;
+            }
+
             KillAllSessions();
+
+            lock (_lock)
+                _resumable.Clear();
 
             try { await _webSocketServer.Shutdown(Wait: true); }
             catch { }
