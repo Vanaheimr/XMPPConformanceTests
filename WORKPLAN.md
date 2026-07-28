@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **488 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **497 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1372,6 +1372,64 @@ Passwort lässt sich nach dem Erzeugen der Verbindung nicht mehr ändern. Der
 angeheftete Wert wäre ohnehin derselbe, den `EnsureAcceptable` gerade
 durchgelassen hat.
 
+### D2. Der vergiftbare Caps-Cache ✅ — ein Hash, der erzeugt, aber nie geprüft wurde
+
+`ver` ist keine Kennung, die eine Entity sich aussucht, sondern der Hash über
+das, was sie auf disco#info antwortet. Dieser Client erzeugte ihn seit jeher
+korrekt — gegen den Testvektor aus XEP-0115 §5.2 belegt — und rechnete ihn bei
+fremden Antworten kein einziges Mal nach.
+
+Damit war der Cache von jedem vergiftbar, dessen Presence hier ankommt. Die
+Bewegung ist kurz: Der Angreifer kündigt in seiner Presence das
+`node#ver`-Paar eines verbreiteten Clients an und antwortet auf die folgende
+Abfrage mit einer Liste seiner Wahl. Unter diesem Paar liegt fortan seine
+Liste — und ausgeliefert wird sie an jeden weiteren Kontakt, der dasselbe Paar
+ankündigt, ohne dass der je gefragt würde. Der Angreifer bestimmt damit, was
+dieser Client über Dritte glaubt: welche Verschlüsselung sie können, ob sie
+Empfangsbestätigungen verstehen, was sich ihnen schicken lässt.
+
+Die Rechnung lag schon da, nur nicht erreichbar: `CalculateVerificationString`
+las fest aus `LocalIdentities`/`LocalFeatures`. Sie ist jetzt als
+`VerificationString(identities, features)` über beliebige Angaben anwendbar —
+mehr brauchte es nicht, um aus einem erzeugten Wert einen geprüften zu machen.
+
+Drei Gründe führen dazu, dass ein Eintrag nicht abgelegt wird, und sie sind
+nicht dasselbe:
+
+| Grund | Was er bedeutet |
+|---|---|
+| Kein `hash`-Attribut | Altform vor XEP-0115 1.4; `ver` ist dort eine Versionsnummer und gar kein Hash |
+| Unbekannter Algorithmus | Nachrechnen lässt sich nur `sha-1` |
+| Datenformular in der Antwort | XEP-0128 geht in den `ver`-Wert ein, diese Rechnung kennt es noch nicht |
+| Hash passt nicht | Die Fälschung |
+
+Nur der letzte ist ein Angriff. Die anderen drei sind Unvermögen — eigenes oder
+das der Gegenstelle —, und der Unterschied gehört ins Protokoll: Über
+`OnCapsRejected` geht der Grund im Klartext hinaus. Gemeldet wird die Antwort
+in allen vier Fällen trotzdem über `OnCapsDiscovered`; sie ist das, was diese
+Entity über sich sagt, und genau das ergäbe auch eine gewöhnliche
+disco#info-Abfrage. Verweigert wird nur das Bündeln.
+
+Neun Mutationen, alle erschlagen. Zwei davon sind die, um die es geht:
+
+- **Warnen und trotzdem ablegen** — der klassische halbe Fix. Fünf Tests fallen
+  aus, weil `GetCachedInfo` den Eintrag findet.
+- **Die Aufrufstelle lässt das `hash`-Attribut fallen.** Erschlagen allein von
+  `CapsOfARealContact_AreVerifiedAndCached`. Ohne diesen Test hätte diese
+  Mutation überlebt, und mit ihr wäre der Cache dauerhaft leer geblieben, ohne
+  dass irgendetwas rot geworden wäre — die Prüfung hätte weiter funktioniert,
+  nur eben immer mit dem Ergebnis „nicht prüfbar". Der Test war eigens gegen
+  diese Lücke geschrieben und belegt nebenbei, dass unser eigenes `ver` zu
+  unserer eigenen disco#info-Antwort passt.
+
+Eine Mutation überlebte zunächst und deckte dabei etwas auf: die Prüfung auf
+ein fehlendes `hash`-Attribut ist für die Entscheidung redundant — `null` ist
+ohnehin nicht `sha-1`, der nächste Zweig fängt sie also mit. Sie trägt allein
+die genauere Begründung. Damit stand die Wahl, sie zu streichen oder die
+Begründung zu prüfen; der Test prüft sie jetzt. Ein Zweig, dessen einziger
+Zweck eine Aussage ist, muss über diese Aussage abgesichert sein — sonst ist er
+Zierde.
+
 ---
 
 ## Später
@@ -1383,8 +1441,8 @@ durchgelassen hat.
 - SASLprep ist auf NFKC reduziert — für Nicht-ASCII-Passwörter falsch
 
 ### XEPs
-- XEP-0115: Caps-Cache verifiziert den Hash der Antwort nicht (der Cache ist damit vergiftbar)
-- XEP-0115: XEP-0128-Datenformulare fehlen im Verification String
+- XEP-0115: XEP-0128-Datenformulare fehlen im Verification String — Antworten
+  mit Formular sind deshalb nicht prüfbar und bleiben ungecacht (siehe D2)
 - XEP-0030: die eigene disco#info-Antwort setzt kein `node`-Attribut
 - XEP-0060: IQ-Ergebnisse korrelieren, Fehler nicht mehr verschlucken
 

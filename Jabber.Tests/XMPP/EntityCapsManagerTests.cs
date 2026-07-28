@@ -138,6 +138,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region VerificationString_WorksOnForeignDataToo()
+
+        /// <summary>
+        /// Dieselbe Rechnung über fremde Angaben - der Testvektor aus
+        /// Abschnitt 5.2, diesmal nicht aus den eigenen Listen.
+        /// </summary>
+        /// <remarks>
+        /// Bis dahin liess sich der Hash nur über die eigenen Features bilden.
+        /// Damit war er ein Wert, den dieser Client zwar erzeugt, aber nie
+        /// nachprüft — und genau das Nachprüfen ist der Zweck des Verfahrens.
+        /// </remarks>
+        [Test]
+        public void VerificationString_WorksOnForeignDataToo()
+        {
+
+            var ver = EntityCapsManager.VerificationString(
+                          [new DiscoIdentity("client", "pc", "Exodus 0.9.1")],
+                          ["http://jabber.org/protocol/caps",
+                           "http://jabber.org/protocol/disco#info",
+                           "http://jabber.org/protocol/disco#items",
+                           "http://jabber.org/protocol/muc"]);
+
+            Assert.That(ver, Is.EqualTo(Xep0115_SimpleVer));
+
+        }
+
+        #endregion
+
         #region VerificationString_IsIndependentOfInsertionOrder()
 
         /// <summary>

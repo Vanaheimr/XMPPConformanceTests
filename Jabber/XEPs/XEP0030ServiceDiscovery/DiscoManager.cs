@@ -37,6 +37,9 @@ public sealed class DiscoManager
     /// <summary>Der Namespace von disco#items.</summary>
     public const string ItemsNamespace = "http://jabber.org/protocol/disco#items";
 
+    /// <summary>Der Namespace der Datenformulare (XEP-0004/XEP-0128).</summary>
+    private const string DataFormNamespace = "jabber:x:data";
+
     private readonly Func<string, Task> _sendStanza;
     private readonly Dictionary<string, TaskCompletionSource<DiscoInfo?>> _infoQueries = new();
     private readonly Dictionary<string, TaskCompletionSource<DiscoItems?>> _itemsQueries = new();
@@ -202,6 +205,13 @@ public sealed class DiscoManager
                 if (var is not null)
                     info.Features.Add(var);
             }
+
+            // XEP-0128: erweiterte Angaben als Datenformular. Ausgewertet wird
+            // der Inhalt nicht - nur festgehalten, dass er da war, weil der
+            // Verification String nach XEP-0115 über ihn mitgeht.
+            info.HasExtendedInfo = query.Elements()
+                                        .Any(child => child.Name.NamespaceName == DataFormNamespace &&
+                                                      child.Name.LocalName     == "x");
 
         }
 

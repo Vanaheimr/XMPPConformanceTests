@@ -1428,7 +1428,14 @@ public sealed class XMPPConnection : IAsyncDisposable
                 {
                     // Query an Full-JID (für korrekte Resource), nicht Bare-JID
                     // Server routet die Antwort korrekt
-                    _ = EntityCaps.ProcessCapsAsync(from, caps.Value.Node, caps.Value.Ver);
+                    //
+                    // Das hash-Attribut geht mit: Ohne es lässt sich der
+                    // ver-Wert nicht nachrechnen, und was sich nicht
+                    // nachrechnen lässt, wird nicht abgelegt.
+                    _ = EntityCaps.ProcessCapsAsync(from,
+                                                    caps.Value.Node,
+                                                    caps.Value.Ver,
+                                                    caps.Value.Hash);
                 }
             }
         }

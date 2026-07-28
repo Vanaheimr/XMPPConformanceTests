@@ -51,7 +51,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0030 | Service Discovery | ⚠️ | Abfrage + Antwort; Antwort setzt kein `node`-Attribut |
 | XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; IQ-Ergebnisse werden nicht korreliert |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
-| XEP-0115 | Entity Capabilities | ⚠️ | ver-String weicht von XEP-0115 §5.1 ab; Antwort-Hash wird nicht verifiziert |
+| XEP-0115 | Entity Capabilities | ⚠️ | Antwort-Hash wird nach §5.4 geprüft, sonst kein Cache-Eintrag; XEP-0128-Datenformulare fehlen im ver-String und werden deshalb nicht gecacht |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
@@ -250,8 +250,11 @@ verarbeitet:
    eigenen Bare-JID. Sonst könnte jeder Absender Kontakte in den lokalen
    Roster einschleusen oder daraus löschen.
 
-**Nicht abgedeckt:** der XEP-0115-Caps-Cache, der die Antwort nicht gegen den
-angekündigten Hash prüft.
+5. **Caps-Antworten (XEP-0115 §5.4)** — eine disco#info-Antwort kommt nur dann
+   unter `node#ver` in den Cache, wenn ihr SHA-1-Hash genau diesen `ver`-Wert
+   ergibt. Sonst könnte jeder, dessen Presence hier ankommt, das `node#ver`-Paar
+   eines verbreiteten Clients ankündigen, eine Liste seiner Wahl antworten und
+   sie damit jedem weiteren Kontakt unterschieben, der dasselbe Paar ankündigt.
 
 ## Architektur
 
@@ -637,8 +640,12 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 ### Architektur
 - **Caps-Hash deckt keine XEP-0128-Datenformulare ab.** XEP-0115 §5.1 nimmt
   `FORM_TYPE`-Felder mit in den Verification String auf;
-  `CalculateVerificationString` verarbeitet nur Identitäten und Features. Solange
-  die eigene disco#info-Antwort keine Formulare enthält, stimmt der Hash.
+  `VerificationString` verarbeitet nur Identitäten und Features. Für die eigene
+  Ankündigung stimmt der Hash trotzdem, weil die eigene disco#info-Antwort keine
+  Formulare enthält. Für fremde ist die Folge, dass eine Antwort **mit**
+  Formular nicht geprüft werden kann und deshalb ungecacht bleibt — richtig, aber
+  es kostet den Nutzen von XEP-0115 gegenüber genau diesen Gegenstellen. Das ist
+  der nächste Schritt an dieser Stelle.
 - **Log-Ausgabe und Konsolen-UI überlagern sich.** Der Standard-Konsolenlogger
   schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
   eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
