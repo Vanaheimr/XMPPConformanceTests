@@ -70,6 +70,75 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TwoResourcesDifferingOnlyInCase_AreTwoDevices()
+
+        /// <summary>
+        /// Zwei Resourcen desselben Kontos, die sich nur in der Schreibweise
+        /// unterscheiden, sind zwei Geräte — und eine Nachricht an das eine
+        /// darf nicht beim anderen landen.
+        /// </summary>
+        /// <remarks>
+        /// RFC 7622, Abschnitt 3.4: Der Resourcepart ist von der Schreibweise
+        /// abhängig. Die Resource-Vergabe im Server hat das immer schon
+        /// beachtet — sonst wäre die zweite Anmeldung als Konflikt abgewiesen
+        /// worden. Das Nachschlagen einer Sitzung dagegen lief über
+        /// <c>OrdinalIgnoreCase</c> auf der ganzen Full-JID.
+        ///
+        /// Beides zusammen ergibt genau den Fehler, den niemand bemerkt: Der
+        /// Server nimmt zwei Geräte an und stellt dann beiden den Verkehr
+        /// desselben zu. Die Nachricht landet auf dem falschen, und beim
+        /// Absender sieht alles nach Erfolg aus.
+        /// </remarks>
+        [Test]
+        public async Task TwoResourcesDifferingOnlyInCase_AreTwoDevices()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            Server.AddAccount("alice");
+
+            var grossClient = CreateClient("alice");
+            grossClient.Connection.Resource = "Handy";
+            await grossClient.ConnectAsync();
+
+            var kleinClient = CreateClient("alice");
+            kleinClient.Connection.Resource = "handy";
+            await kleinClient.ConnectAsync();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(grossClient.FullJid, Does.EndWith("/Handy"));
+                Assert.That(kleinClient.FullJid, Does.EndWith("/handy"),
+                            "Die zweite Anmeldung muss ihre eigene Resource bekommen.");
+            });
+
+            var beimGrossen = new ConcurrentQueue<XMPPMessage>();
+            var beimKleinen = new ConcurrentQueue<XMPPMessage>();
+
+            grossClient.OnMessage += m => beimGrossen.Enqueue(m);
+            kleinClient.OnMessage += m => beimKleinen.Enqueue(m);
+
+            await bob.SendMessageAsync(kleinClient.FullJid, "Nur an das kleine Handy");
+
+            await WaitFor(() => !beimKleinen.IsEmpty, "Zustellung an alice/handy");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(beimKleinen, Has.Count.EqualTo(1));
+
+                Assert.That(beimGrossen, Is.Empty,
+                            "Die Nachricht an /handy darf /Handy nicht erreichen.");
+
+                Assert.That(Server.SessionOf(grossClient.FullJid)?.Resource, Is.EqualTo("Handy"));
+                Assert.That(Server.SessionOf(kleinClient.FullJid)?.Resource, Is.EqualTo("handy"));
+
+            });
+
+        }
+
+        #endregion
+
         #region MessageDelivery_TriggersReceiptAndChatMarker()
 
         /// <summary>

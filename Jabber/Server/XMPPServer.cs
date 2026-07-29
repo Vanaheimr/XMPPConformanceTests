@@ -492,8 +492,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </remarks>
         public XMPPSession? SessionOf(String fullJid)
         {
+            // RFC 7622, Abschnitt 3.4: Der Resourcepart ist von der Schreibweise
+            // abhängig, Local- und Domainpart sind es nicht. Ein
+            // OrdinalIgnoreCase über die ganze Full-JID warf beides in einen
+            // Topf - und lieferte damit zu 'alice@example.com/handy' auch die
+            // Sitzung von 'alice@example.com/Handy' aus. Die Resource-Vergabe
+            // unterschied die beiden von Anfang an (siehe Belegt); nur das
+            // Nachschlagen nicht.
             lock (_lock)
-                return _sessions.Where(s => String.Equals(s.FullJid, fullJid, StringComparison.OrdinalIgnoreCase))
+                return _sessions.Where(s => JidUtilities.AreEqual(s.FullJid, fullJid))
                                 .OrderByDescending(s => s.IsOpen)
                                 .FirstOrDefault(s => s.IsOpen || s.ResumptionId is not null);
         }

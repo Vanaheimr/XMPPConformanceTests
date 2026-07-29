@@ -108,9 +108,33 @@ explizit angegeben werden, z. B. Prosody: `wss://<host>:5281/xmpp-websocket`.
 
 ### RFC 7622 — JID-Behandlung
 
-Kein PRECIS/Stringprep. Bare-JIDs werden per `ToLowerInvariant()` verglichen,
-Resourceparts werden dabei ebenfalls kleingeschrieben, obwohl sie
-case-sensitiv sind.
+`JidUtilities` zerlegt, prüft und vergleicht JIDs nach RFC 7622; geprüft gegen
+beide Beispieltabellen aus §3.5 (fünfzehn gültige und acht ungültige Adressen).
+
+| Regel | Stand |
+|---|---|
+| Zerlegung in der Reihenfolge aus §3.2 (erst `/`, dann `@`) | ✅ |
+| Localpart: UsernameCaseMapped, plus die Ausschlüsse aus §3.3.1 | ⚠️ Abbildungsregeln vollständig, Klassenzugehörigkeit angenähert |
+| Resourcepart: OpaqueString, **nicht** kleingeschrieben | ⚠️ ebenso |
+| Domainpart: kleingeschrieben, NFC | ⚠️ kein IDNA2008 |
+| Höchstlänge 1023 Oktette je Teil | ✅ |
+| Vergleich: Local-/Domainpart schreibweisenunabhängig, Resourcepart nicht | ✅ |
+
+**Angenähert** heisst konkret: Die Abbildungsregeln der PRECIS-Profile
+(Breitenabbildung, Kleinschreibung, Leerzeichenabbildung, NFC) sind vollständig
+umgesetzt. Ob ein Codepoint zur IdentifierClass bzw. FreeformClass gehört, wird
+aus seiner Unicode-Kategorie und seiner Kompatibilitätszerlegung abgeleitet
+statt aus den abgeleiteten Eigenschaften nach RFC 8264. Das trifft die Fälle,
+die RFC 7622 selbst vorführt; aussen vor bleiben die Ausnahmeliste (RFC 8264,
+Tabelle F), die Sonderregeln für Joiner und Hangul-Jamo sowie IDNA2008 für
+Domain-Labels.
+
+**Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
+(`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird
+angenommen. Die Tabelle führt es als Nicht-JID, aber die Regel dazu fehlt — das
+OpaqueString-Profil lässt Leerzeichen ausdrücklich zu. Für einen Router ist
+Annehmen ausserdem die vorsichtigere Wahl: Eine Adresse zurückzuweisen, die
+andere Server für gültig halten, verliert Nachrichten.
 
 ## Installation
 
@@ -594,6 +618,7 @@ nicht gegen sich selbst:
 | XEP-0115 §5.2 | Verification String `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ exakt reproduziert |
 | XEP-0115 §5.3 | Verification String `q07IKJEyjvHSyhy//CH0CxmKi8w=` (zwei Sprachen, ein Datenformular) | ✅ exakt reproduziert |
 | RFC 4013 §3 | SASLprep-Beispieltabelle, alle sieben Zeilen | ✅ exakt reproduziert |
+| RFC 7622 §3.5 | JID-Beispieltabellen: 15 gültige, 8 ungültige Adressen | ✅ reproduziert (Ausnahme: Beispiel 18, siehe oben) |
 | RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
 | XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 

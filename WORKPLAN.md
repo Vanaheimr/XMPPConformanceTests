@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **515 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **526 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1525,6 +1525,56 @@ Vorbereitung ab und meldet einen Fehlversuch. Was in einem
 PLAIN-`<auth/>` steht, bestimmt die Gegenstelle; ein Steuerzeichen darin darf
 nicht den Server umwerfen.
 
+### D5. JIDs nach RFC 7622 ✅ — und die Nachricht auf dem falschen Gerät
+
+Der Vergleich zweier JIDs lief überall über `OrdinalIgnoreCase` auf der ganzen
+Zeichenkette. Nach RFC 7622, Abschnitt 3.4 sind aber nur Local- und Domainpart
+von der Schreibweise unabhängig, der Resourcepart nicht.
+
+Der Fehler war nicht theoretisch, und er hatte eine hässliche Form. Die
+Resource-Vergabe im Server hat immer schon ordinal verglichen — `Handy` und
+`handy` waren für sie zwei verschiedene Geräte, und die zweite Anmeldung kam
+deshalb durch statt als Konflikt abgewiesen zu werden. Nur das *Nachschlagen*
+einer Sitzung tat es nicht. Der Server nahm also zwei Geräte an und stellte
+danach beiden den Verkehr desselben zu: Die Nachricht landete auf dem falschen,
+und beim Absender sah alles nach Erfolg aus.
+
+`JidUtilities` ist jetzt eine Umsetzung von RFC 7622 statt einer Zeile
+`ToLowerInvariant`: zerlegen in der Reihenfolge aus Abschnitt 3.2, jeden Teil
+nach seinem PRECIS-Profil vorbereiten, Höchstlängen in Oktetten, vergleichen
+Teil für Teil. Geprüft gegen beide Beispieltabellen aus Abschnitt 3.5.
+
+Die Klassenzugehörigkeit eines Codepoints ist angenähert — aus Unicode-Kategorie
+und Kompatibilitätszerlegung statt aus den abgeleiteten Eigenschaften nach
+RFC 8264. Das ist im README benannt, samt dem, was dadurch aussen vor bleibt.
+
+Eine Abweichung ist bewusst und hat einen eigenen Test, damit sie eine Stelle
+hat, an der sie auffällt: Beispiel 18 (führendes Leerzeichen im Resourcepart)
+wird angenommen. Die Tabelle führt es als Nicht-JID, aber im Regelteil steht
+nichts dergleichen — das OpaqueString-Profil lässt Leerzeichen zu. Für einen
+Router ist Annehmen die vorsichtigere Wahl: Eine Adresse zurückzuweisen, die
+andere Server für gültig halten, verliert Nachrichten, und zwar unsere.
+
+Zwölf Mutationen, neun sofort erschlagen. **Drei überlebten, und alle drei aus
+demselben Grund: Der Testfall traf schon eine frühere Regel.**
+
+| Mutation | Warum sie zuerst überlebte |
+|---|---|
+| Am letzten statt am ersten `/` trennen | Mein Beispiel hatte nur einen Schrägstrich |
+| Kompatibilitätszeichen im Localpart zulassen | Die römische Vier fällt schon über ihre Kategorie |
+| Leeren Resourcepart zulassen | Beispiel 19 hat *beide* Teile leer; der Localpart wird zuerst geprüft |
+
+Das ist dieselbe Sorte Selbsttäuschung wie in D3 und D4, jetzt zum dritten Mal
+und in drei Ausprägungen gleichzeitig. Der gemeinsame Nenner ist inzwischen
+klar zu benennen: **Ein Beispiel aus einer Spezifikation ist noch kein Test.**
+Die Tabellen sind zum Vorführen gebaut, nicht zum Trennen — eine Zeile darf
+gern gegen drei Regeln zugleich verstossen. Ein Test, der eine bestimmte Regel
+absichern soll, braucht einen Fall, der genau *diese* eine verletzt.
+
+Behoben mit `juliet@example.com/foo/bar` (der Fall, den Abschnitt 3.4 selbst
+nennt), der Ligatur ﬁ (ein Kleinbuchstabe, der kompatibel in „fi" zerfällt) und
+den beiden leeren Teilen je für sich.
+
 ---
 
 ## Später
@@ -1532,8 +1582,10 @@ nicht den Server umwerfen.
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
 - Roster-Versionierung nutzen (`Roster.Version` und `RosterStanzaBuilder.GetRoster` liegen ungenutzt herum)
-- RFC 7622: kein PRECIS, und der Resourcepart wird beim Vergleich fälschlich
-  kleingeschrieben — die StringPrep-Tabellen dafür lägen seit D4 bereit
+- RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
+  FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
+  den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz
+  (siehe D5)
 
 ### XEPs
 - XEP-0128: eigene erweiterte Angaben (Software, Version, Betriebssystem) werden
