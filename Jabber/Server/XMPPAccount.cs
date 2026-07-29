@@ -35,6 +35,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         private readonly List<RosterEntry> _roster = [];
         private readonly Dictionary<String, String> _pendingRequests = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<OfflineMessage> _offlineMessages = [];
         private readonly Lock _lock = new();
 
         #endregion
@@ -121,6 +122,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 lock (_lock)
                     return new Dictionary<String, String>(_pendingRequests, StringComparer.OrdinalIgnoreCase);
             }
+        }
+
+        /// <summary>
+        /// Nachrichten, die aufbewahrt wurden, weil das Konto keine erreichbare
+        /// Resource hatte (RFC 6121, Abschnitt 8.5.2.2.1), älteste zuerst.
+        /// </summary>
+        /// <remarks>
+        /// Die Reihenfolge ist nicht Beiwerk. Ein Gespräch, das in falscher
+        /// Ordnung nachgereicht wird, ist schwerer zu lesen als eines, das ganz
+        /// fehlt - der Leser hält die Antwort für die Frage.
+        /// </remarks>
+        public IReadOnlyList<OfflineMessage> OfflineMessages
+        {
+            get { lock (_lock) return _offlineMessages.ToList(); }
         }
 
         /// <summary>
@@ -269,6 +284,85 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         {
             lock (_lock)
                 return _pendingRequests.ContainsKey(bareJid);
+        }
+
+        /// <summary>
+        /// Bewahrt eine Nachricht auf, bis das Konto wieder erreichbar ist.
+        /// </summary>
+        /// <param name="stanza">Die vollständige Stanza mit gesetztem <c>from</c>.</param>
+        /// <param name="storedAt">Der Zeitpunkt des Eingangs.</param>
+        /// <param name="maxStored">
+        /// Obergrenze für die Zahl aufbewahrter Nachrichten je Konto.
+        /// </param>
+        /// <returns>
+        /// false, wenn die Grenze erreicht ist - dann ist die Nachricht nicht
+        /// aufbewahrt, und der Absender soll es erfahren.
+        /// </returns>
+        /// <remarks>
+        /// Ist die Grenze erreicht, wird die neue Nachricht abgewiesen und
+        /// keine aufbewahrte verdrängt. Beides verliert eine Nachricht, aber
+        /// nur eines davon sagt es jemandem: Wer abweist, kann dem Absender
+        /// <c>&lt;service-unavailable/&gt;</c> antworten - RFC 6121,
+        /// Abschnitt 8.5.2.2.1 stellt genau diese beiden Wege nebeneinander.
+        /// Wer verdrängt, wirft eine Nachricht weg, von der der Absender
+        /// annimmt, sie liege bereit, und der Empfänger nie erfährt, dass es
+        /// sie gab.
+        /// </remarks>
+        public Boolean StoreOfflineMessage(String          stanza,
+                                           DateTimeOffset  storedAt,
+                                           Int32           maxStored = Int32.MaxValue)
+        {
+
+            lock (_lock)
+            {
+
+                if (_offlineMessages.Count >= maxStored)
+                    return false;
+
+                _offlineMessages.Add(new OfflineMessage(stanza, storedAt));
+
+            }
+
+            OnChanged?.Invoke(this);
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// Gibt die aufbewahrten Nachrichten heraus und leert die Ablage.
+        /// </summary>
+        /// <remarks>
+        /// Herausgeben und Leeren in einem Schritt, unter derselben Sperre:
+        /// Zwei Resourcen, die sich gleichzeitig anmelden, bekämen die Ablage
+        /// sonst beide zu sehen, und der Nutzer läse alles doppelt.
+        ///
+        /// Anders als eine aufbewahrte Subscription-Anfrage
+        /// (<see cref="PendingSubscriptionRequests"/>) bleibt hier nichts
+        /// stehen. Die Anfrage wird nachgereicht, bis sie beantwortet ist -
+        /// eine Nachricht ist mit dem Zustellen erledigt, und wer sie bei jeder
+        /// Anmeldung erneut vorgelegt bekäme, könnte sie nie loswerden.
+        /// </remarks>
+        public IReadOnlyList<OfflineMessage> TakeOfflineMessages()
+        {
+
+            List<OfflineMessage> entnommen;
+
+            lock (_lock)
+            {
+
+                if (_offlineMessages.Count == 0)
+                    return [];
+
+                entnommen = _offlineMessages.ToList();
+                _offlineMessages.Clear();
+
+            }
+
+            OnChanged?.Invoke(this);
+
+            return entnommen;
+
         }
 
         /// <summary>

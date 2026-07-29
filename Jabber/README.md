@@ -53,7 +53,9 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
+| XEP-0160 | Best Practices for Handling Offline Messages | ⚠️ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Nachrichten mit ausschliesslich Tippstatus-Inhalt werden nicht ausgenommen, und Nachrichten von fremden Servern erreichen die Ablage nicht |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
+| XEP-0203 | Delayed Delivery | ⚠️ | Der Server stempelt nachgereichte Nachrichten; der Client liest den Stempel nicht — `XMPPMessage.Timestamp` ist die Empfangszeit |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
@@ -85,8 +87,9 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
 | Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Ändern den Subscription-Zustand und gelten nicht als Anwesenheit |
 | Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
-| Zustellregeln nach Typ (§8.5) | ⚠️ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). Was fehlt: Ohne erreichbare Resource verlangt §8.5.2.2.1 für `normal`/`chat` Ablage oder Fehler — dieser Server hat keine Ablage und verwirft still |
-| Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar |
+| Zustellregeln nach Typ (§8.5) | ⚠️ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). An eine Resource, die es nicht gibt: `chat` wie an das Konto (§8.5.3.2.1), alles andere still verworfen. Was fehlt: Eine Nachricht von einem anderen Server geht direkt ins Routing und nimmt diese Regeln nicht |
+| Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
+| Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
 
 ### RFC 7395 — XMPP über WebSocket
 
@@ -509,6 +512,9 @@ miteinander sprechen:
   Client, sonst prüften die Tests beide Seiten mit derselben Logik
 - Stanza- und Stream-Fehler auf Zuruf: `StanzaErrorIq(…)` und
   `session.SendStreamErrorAsync(condition)`
+- Offline-Ablage nach RFC 6121 §8.5.2.2.1 und XEP-0160, mit XEP-0203-Stempel;
+  `StoreOfflineMessages` schaltet auf den gleichrangig erlaubten Gegenweg um
+  (`<service-unavailable/>` an den Absender)
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
   `OfferStreamManagement`, `AnswerAckRequests`, `SwallowClientStanzas`
@@ -579,6 +585,20 @@ Server-Implementierung:
   neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
   Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
   auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
+- **Die Offline-Ablage liegt im Kontenspeicher und unverschlüsselt.**
+  `FileAccountStore` schreibt die vollständigen Stanzas in dieselbe JSON-Datei
+  wie die Zugangsdaten — Nachrichtentexte im Klartext, ohne gesetzte
+  Zugriffsrechte. Ein echter Server trennt die beiden und hätte für die Ablage
+  ausserdem eine Verfallszeit; hier bleibt eine Nachricht liegen, bis jemand
+  sie abholt. Was ebenfalls fehlt: XEP-0013 (die Ablage einsehen und einzeln
+  abholen, statt sie beim Anmelden über sich hereinbrechen zu lassen) und die
+  Regel aus XEP-0160, eine Nachricht mit ausschliesslich Tippstatus-Inhalt
+  nicht abzulegen.
+- **Nachrichten von anderen Servern nehmen die Zustellregeln nicht.** Was über
+  S2S hereinkommt, geht direkt ins Routing (RFC 6121 §8.5 bleibt aussen vor):
+  keine Offline-Ablage, keine Priorität, keine Typunterscheidung. Für den
+  häufigsten Fall einer Nachricht an einen Abwesenden — den Bekannten auf einem
+  fremden Server — ist die Ablage damit noch nicht zuständig.
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide
@@ -713,6 +733,10 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 - Kein HTTP File Upload (XEP-0363)
 - Keine Client State Indication (XEP-0352)
 - Kein Last Message Correction (XEP-0308)
+- Kein Flexible Offline Message Retrieval (XEP-0013) — die Ablage kommt beim
+  Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln abholen
+- Der Client liest den XEP-0203-Stempel nicht; eine nachgereichte Nachricht
+  erscheint mit ihrer Empfangszeit, obwohl der Server den Verzug mitteilt
 - Kein TCP-Transport — `XmppConnection.CreateTcp` erzeugt eine `tcp://`-URI,
   die `ClientWebSocket` ablehnt, und ist damit funktionslos.
 

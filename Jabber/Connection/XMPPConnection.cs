@@ -155,6 +155,23 @@ public sealed class XMPPConnection : IAsyncDisposable
     public TimeSpan KeepaliveInterval { get; set; } = TimeSpan.FromSeconds(25);
     public bool KeepaliveEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Die Priorität, die jede Presence dieses Clients trägt (RFC 6121,
+    /// Abschnitt 4.7.2.3); <c>null</c> lässt das Element weg.
+    /// </summary>
+    /// <remarks>
+    /// Sie ist die einzige Möglichkeit eines Clients zu sagen, wie sehr er
+    /// gemeint ist, wenn eine Nachricht an das Konto und nicht an ihn geht.
+    /// Negativ heisst: gar nicht - das Gerät bleibt gerichtet ansprechbar und
+    /// hält sich aus dem Übrigen heraus. Der Server richtet sich danach
+    /// (RFC 6121, Abschnitt 8.5.2.1.1), und auch die Offline-Ablage wird erst
+    /// einer Resource mit nicht-negativer Priorität nachgereicht (XEP-0160).
+    ///
+    /// Der Bereich ist auf -128 bis +127 begrenzt; ein Wert daneben wird vom
+    /// Server abgeklemmt statt abgelehnt.
+    /// </remarks>
+    public int? PresencePriority { get; set; }
+
     // XEP-0198: Stream Management. Die frühere Abschaltung wegen
     // "ejabberd-Kompatibilitätsproblemen" ging auf die fehlerhafte Zählung
     // zurück. Die ist behoben, gegen XMPPServer getestet und inzwischen gegen
@@ -2018,6 +2035,11 @@ public sealed class XMPPConnection : IAsyncDisposable
             sb.Append($"<show>{XmlEscaping.Escape(show)}</show>");
         if (!string.IsNullOrEmpty(status))
             sb.Append($"<status>{XmlEscaping.Escape(status)}</status>");
+
+        // RFC 6121, Abschnitt 4.7.2.3: Die Priorität steht hinter show und
+        // status, wie der Abschnitt sie aufzählt.
+        if (PresencePriority.HasValue)
+            sb.Append($"<priority>{PresencePriority.Value}</priority>");
 
         // XEP-0115: Entity Capabilities
         if (EntityCaps != null)

@@ -1,4 +1,4 @@
-# Arbeitsplan
+﻿# Arbeitsplan
 
 Was an Client und Server offen ist, in welcher Reihenfolge es sinnvoll ist und
 warum. Die ausführliche Beschreibung der einzelnen Lücken steht in
@@ -50,16 +50,17 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **553 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **569 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
-wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
-gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
-der eine Eigenschaft prüft, die es nur im STARTTLS-Betrieb gibt.
-Vier benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
+die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
+prüft, die es nur im STARTTLS-Betrieb gibt.
+Fünf benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar), die Slot-Identität im Verbindungs-Cache
-(siehe S4b-3) und der Zeitpunkt der SASL-Anheftung (siehe D1).
+(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1) und die Abkürzung
+über die leere Offline-Ablage (siehe D14).
 
 ---
 
@@ -1942,15 +1943,113 @@ Nicht behoben und vermerkt: Ohne erreichbare Resource verlangt Abschnitt
 Ablage für Abwesende und verwirft still — für die drei übrigen Arten ist das
 richtig, für diese beiden nicht.
 
+### D14. Die Offline-Ablage ✅ — und der dritte Weg, den es nicht gibt
+
+Der offene Punkt aus D13. Abschnitt 8.5.2.2.1 stellt zwei Wege nebeneinander und
+verbietet den dritten:
+
+| Ohne erreichbare Resource | Vorschrift |
+|---|---|
+| `normal`, `chat` | ablegen **oder** `<service-unavailable/>` an den Absender |
+| `groupchat` | MUSS `<service-unavailable/>` |
+| `headline`, `error` | MUSS still verwerfen |
+
+Der dritte Weg — stillschweigend verwerfen, was abgelegt oder abgelehnt werden
+müsste — war genau der, den dieser Server ging. Und er ist der unangenehmste von
+allen: Der Absender hält seine Nachricht für zugestellt, der Empfänger hat nie
+erfahren, dass es sie gab, und **niemand kann den Verlust bemerken**. Ein Fehler,
+der sich selbst verbirgt, ist schlimmer als einer, der lärmt.
+
+Beide erlaubten Wege sind jetzt da, weil sie sich gegenseitig begrenzen: Ohne
+Ablage wäre die Ablehnung der Regelfall, ohne Ablehnung hätte eine voll gelaufene
+Ablage keinen Ausweg. `StoreOfflineMessages` wählt zwischen ihnen — abgeschaltet
+ist der Server nicht weniger regelkonform, nur unbequemer.
+
+**Zwei Stellen führen in die Ablage, nicht eine.** Die zweite ist Abschnitt
+8.5.3.2.1: Ein `chat` an eine Resource, die es nicht gibt, wird behandelt, als
+wäre er an das Konto gegangen. Die Ausnahme sieht schrullig aus und trifft den
+Alltag — ein Client antwortet auf die Full-JID, die er zuletzt gesehen hat, und
+wenn der Gesprächspartner in der Zwischenzeit das Gerät gewechselt hat, ist sie
+weg. Für die übrigen Arten bleibt es beim stillen Verwerfen: Wer eine Full-JID
+anschreibt, meint diese Resource; bei einem Gespräch ist das eine Abkürzung für
+„mein Gegenüber", bei allem anderen eine Angabe, die der Absender so gewollt hat.
+
+Nur die halbe Ausnahme umzusetzen wäre schlimmer als der bisherige Zustand
+gewesen: Die Nachricht landete in der Ablage, während der Empfänger mit einer
+anderen Resource daneben sitzt und wartet. Deshalb steht sie in einem Test.
+
+**Die Grenze weist ab und verdrängt nicht.** Beide Richtungen verlieren eine
+Nachricht, aber nur eine davon sagt es jemandem. Und eine Grenze, die verdrängt,
+wäre selbst der Angriff: Wer die Ablage vollschreibt, löschte damit fremde Post.
+Dieselbe Überlegung wie bei den aufbewahrten Subscription-Anfragen aus S6.
+
+**Nachgereicht wird bei jeder nicht-negativen verfügbaren Presence, nicht beim
+Verfügbar*werden*** — anders als die aufbewahrte Anfrage direkt darüber. Der
+Unterschied liegt daran, dass die Ablage beim Zustellen geleert wird: Ein zweiter
+Durchgang findet nichts mehr und kann nichts doppelt vorlegen. Und er hat einen
+eigenen Fall: Eine Resource, die mit negativer Priorität angemeldet ist und sie
+auf 0 hebt, war schon verfügbar — sie wird aber gerade eben erst zu einem
+Empfänger.
+
+Beide Bedingungen sind nötig, nicht nur die Priorität. Eine Abmeldung setzt die
+Priorität der Sitzung auf 0 zurück, denn eine abgemeldete Resource hat keinen
+Zustand zu berichten. Wer nur nach der Priorität fragt, leert die Ablage in einen
+Stream, der sich gerade verabschiedet.
+
+Dazu drei Dinge, ohne die die Ablage nur halb taugt: der XEP-0203-Stempel (ohne
+ihn behauptet eine Nachricht von gestern, sie sei von jetzt), das Überdauern
+eines Neustarts (ein angenommener Absender darf sich darauf verlassen) und die
+Ankündigung als `msgoffline` in disco#info (sonst müsste ein Client aus dem
+Ausbleiben eines Fehlers schliessen, dass abgelegt wurde — und ein Fehler kann
+sich verspäten).
+
+Neu am Client: `PresencePriority`. Ohne sie kann ein Client nicht sagen, wie sehr
+er gemeint ist, wenn eine Nachricht an das Konto geht — und der negative Zweig
+der Ablage wäre durch den Client überhaupt nicht prüfbar gewesen.
+
+27 Mutationen, 26 erschlagen. Der Überlebende ist die Abkürzung `if
+(_offlineMessages.Count == 0) return [];` in `TakeOfflineMessages`. Sie ist keine
+Aussage über Verhalten, sondern eine Vorkehrung gegen ein Schreiben ohne
+Änderung: Ohne sie meldete jede verfügbare Presence eine Kontoänderung, und der
+Dateispeicher schriebe bei jeder Anmeldung. Kein Test hält sie fest, und das ist
+richtig so — ein Test darauf prüfte den Dateizugriff und nicht das Protokoll.
+
+**Der lehrreiche Fehlschlag lag diesmal im Werkzeug.** Ein Test scheiterte drei
+Läufe hintereinander, auch allein, auch nach Neubau — und war doch richtig. Mein
+Mutationsskript setzt die Datei am Ende mit `Copy-Item` aus einer Sicherung
+zurück, und `Copy-Item` übernimmt den Zeitstempel der Sicherung. Der ist älter
+als das mutierte Binary; MSBuild hielt den Build für aktuell und übersetzte nicht
+neu. Der „reproduzierbare" Fehlschlag lief gegen das Binary der letzten Mutation.
+
+Die Lehre ist nicht neu, aber sie hatte eine neue Verkleidung: **Wenn ein Test
+scheitert, den man gerade geschrieben hat, ist der Verdächtige nicht immer der
+Code — er kann auch das sein, womit man messt.** Das Skript setzt den Zeitstempel
+jetzt neu, und jeder Mutationsdurchgang klammert die Mutation zwischen zwei grüne
+Läufe ohne sie.
+
+Nicht behoben und vermerkt: Eine Nachricht, die über die Servergrenze
+hereinkommt, nimmt weiterhin nicht den Weg aus Abschnitt 8.5 — sie geht direkt
+ins Routing. Damit greifen für sie weder die Ablage noch die Prioritäten noch die
+Typregeln aus D13. Das ist kein Loch, das die Ablage aufgerissen hat, sondern
+eines, das sie sichtbar macht: Für den häufigsten Fall einer Nachricht an einen
+Abwesenden — den Bekannten auf einem anderen Server — ist die Ablage noch nicht
+zuständig.
+
+Ebenfalls vermerkt: XEP-0160 rät, eine Nachricht mit ausschliesslich
+XEP-0085-Inhalt (Tippstatus) nicht abzulegen. Dieser Client schickt keine, also
+gibt es dafür keinen Weg zu prüfen — die Regel bliebe ungetestet.
+
 ---
 
 ## Später
 
 ### Protokoll
-- RFC 6121 §8.5.2.2.1: Ohne erreichbare Resource verlangt der Abschnitt für
-  `normal` und `chat` Ablage oder Fehler. Der Testserver hat keine Ablage für
-  Abwesende und verwirft still — für `groupchat`, `headline` und `error` ist
-  das richtig, für die beiden übrigen nicht (siehe D13)
+- RFC 6121 §8.5: Eine Nachricht von einem anderen Server geht direkt ins Routing
+  und nimmt die Zustellregeln nicht — weder Offline-Ablage noch Priorität noch
+  Typunterscheidung (siehe D14)
+- XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
+  abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
+  (siehe D14)
 - RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
   FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
   den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz

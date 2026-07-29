@@ -196,6 +196,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                        account.PendingSubscriptionRequests.Count > 0
                            ? new Dictionary<String, String>(account.PendingSubscriptionRequests)
+                           : null,
+
+                       account.OfflineMessages.Count > 0
+                           ? [.. account.OfflineMessages.Select(m => new AbgelegteNachricht(m.Stanza, m.StoredAt))]
                            : null
 
                    );
@@ -230,6 +234,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             foreach (var anfrage in datensatz.PendingSubscriptions ?? [])
                 account.RememberSubscriptionRequest(anfrage.Key, anfrage.Value);
 
+            // Und dasselbe für die Offline-Ablage. Ein Absender, dessen
+            // Nachricht angenommen wurde, darf sich darauf verlassen, dass sie
+            // ankommt - ein Neustart des Servers ist kein Grund, sie zu
+            // verlieren, und der Absender erfährt davon nie etwas.
+            foreach (var nachricht in datensatz.OfflineMessages ?? [])
+                account.StoreOfflineMessage(nachricht.Stanza, nachricht.StoredAt);
+
             return account;
 
         }
@@ -248,10 +259,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Aufbewahrte Subscription-Anfragen, nach Absender (RFC 6121,
         /// Abschnitt 3.1.3). Fehlt in älteren Dateien und ist dann null.
         /// </param>
+        /// <param name="OfflineMessages">
+        /// Die Offline-Ablage (RFC 6121, Abschnitt 8.5.2.2.1). Fehlt in älteren
+        /// Dateien und ist dann null.
+        /// </param>
         private sealed record GespeichertesKonto(String                        BareJid,
                                                  GespeicherteZugangsdaten      Credentials,
                                                  List<GespeicherterKontakt>    Roster,
-                                                 Dictionary<String, String>?   PendingSubscriptions);
+                                                 Dictionary<String, String>?   PendingSubscriptions,
+                                                 List<AbgelegteNachricht>?     OfflineMessages);
+
+        private sealed record AbgelegteNachricht(String          Stanza,
+                                                 DateTimeOffset  StoredAt);
 
         private sealed record GespeicherteZugangsdaten(String                                    Salt,
                                                        Int32                                     IterationCount,

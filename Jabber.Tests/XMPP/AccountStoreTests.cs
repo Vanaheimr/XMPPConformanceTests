@@ -260,6 +260,57 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheOfflineStore_SurvivesTheRoundTrip()
+
+        /// <summary>
+        /// Die Offline-Ablage (RFC 6121, Abschnitt 8.5.2.2.1) gehört ebenso zum
+        /// Konto - samt Reihenfolge und Eingangszeitpunkt.
+        /// </summary>
+        /// <remarks>
+        /// Ein Absender, dessen Nachricht der Server angenommen hat, statt sie
+        /// mit <c>&lt;service-unavailable/&gt;</c> abzuweisen, darf sich darauf
+        /// verlassen, dass sie ankommt. Ginge sie beim Neustart verloren, wäre
+        /// die Annahme ein leeres Versprechen - und niemand könnte den Verlust
+        /// bemerken, denn der Absender hat seine Bestätigung schon.
+        ///
+        /// Der Zeitpunkt gehört dazu: Ohne ihn trüge die nachgereichte
+        /// Nachricht nach einem Neustart einen falschen oder keinen
+        /// XEP-0203-Stempel und behauptete damit, sie sei von jetzt.
+        /// </remarks>
+        [Test]
+        public void TheOfflineStore_SurvivesTheRoundTrip()
+        {
+
+            var account    = new XMPPAccount("alice@localhost", "geheim");
+            var zeitpunkt  = new DateTimeOffset(2026, 7, 29, 14, 5, 9, TimeSpan.Zero);
+
+            account.StoreOfflineMessage("<message from='bob@localhost' to='alice@localhost' type='chat'>" +
+                                        "<body>Erste</body></message>",
+                                        zeitpunkt);
+
+            account.StoreOfflineMessage("<message from='bob@localhost' to='alice@localhost' type='chat'>" +
+                                        "<body>Zweite</body></message>",
+                                        zeitpunkt.AddMinutes(3));
+
+            new FileAccountStore(_datei).Save(account);
+
+            var gelesen = new FileAccountStore(_datei).Load().Single().OfflineMessages;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gelesen,                Has.Count.EqualTo(2));
+                Assert.That(gelesen[0].Stanza,      Does.Contain("Erste"));
+                Assert.That(gelesen[1].Stanza,      Does.Contain("Zweite"),
+                            "Die Reihenfolge des Eingangs übersteht den Neustart.");
+                Assert.That(gelesen[0].StoredAt,    Is.EqualTo(zeitpunkt));
+
+            });
+
+        }
+
+        #endregion
+
         #region SavingTwice_DoesNotDuplicate()
 
         /// <summary>

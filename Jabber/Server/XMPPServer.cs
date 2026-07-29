@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Globalization;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -181,6 +182,42 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Kontakt bekäme dann Müll zu sehen und das Erwartete nicht.
         /// </remarks>
         public Int32 MaxStoredSubscriptionRequests { get; set; } = 100;
+
+        /// <summary>
+        /// Bewahrt der Server Nachrichten für ein Konto ohne erreichbare
+        /// Resource auf (XEP-0160)?
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 8.5.2.2.1 stellt zwei Wege nebeneinander: die
+        /// Nachricht ablegen oder dem Absender
+        /// <c>&lt;service-unavailable/&gt;</c> antworten. Beide sind richtig,
+        /// und dieser Schalter wählt zwischen ihnen - abgeschaltet ist der
+        /// Server also nicht weniger regelkonform, sondern nur weniger
+        /// bequem.
+        ///
+        /// Was er nicht darf, ist die dritte Möglichkeit: stillschweigend
+        /// verwerfen. Genau das tat dieser Server bis hierher, und es ist der
+        /// unangenehmste der drei Wege - der Absender hält seine Nachricht für
+        /// zugestellt.
+        ///
+        /// Der Schalter steuert auch die Ankündigung in disco#info
+        /// (<c>msgoffline</c>): ein Client soll nicht erst am ausbleibenden
+        /// Fehler merken, was der Server mit Nachrichten an Abwesende tut.
+        /// </remarks>
+        public Boolean StoreOfflineMessages { get; set; } = true;
+
+        /// <summary>
+        /// Wie viele Nachrichten je Konto aufbewahrt werden.
+        /// </summary>
+        /// <remarks>
+        /// Aufbewahrt wird, was Fremde schicken - dieselbe Lage wie bei
+        /// <see cref="MaxStoredSubscriptionRequests"/>, und ohne Grenze wäre
+        /// die Ablage selbst die Schwachstelle. Ist die Grenze erreicht, wird
+        /// die neue Nachricht abgewiesen und keine aufbewahrte verdrängt: eine
+        /// abgewiesene Nachricht ist dem Absender gemeldet, eine verdrängte
+        /// verschwindet unbemerkt.
+        /// </remarks>
+        public Int32 MaxStoredOfflineMessages { get; set; } = 100;
 
         /// <summary>
         /// Welche SASL-Mechanismen der Server anbietet, in der Reihenfolge der
@@ -1441,6 +1478,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     "<feature var='urn:xmpp:carbons:2'/>" +
                     "<feature var='urn:xmpp:ping'/>" +
                     "<feature var='urn:xmpp:sm:3'/>" +
+                    // XEP-0160, Abschnitt 4: Nur wenn es die Ablage wirklich
+                    // gibt. Eine Ankündigung, die immer steht, verspricht einem
+                    // Client, dass seine Nachricht an einen Abwesenden liegen
+                    // bleibt - und lässt ihn den Fehler übersehen, mit dem der
+                    // Server ihm gerade das Gegenteil sagt.
+                    (StoreOfflineMessages ? "<feature var='msgoffline'/>" : "") +
                     "</query></iq>");
                 return;
             }
@@ -1672,8 +1715,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // denselben Weg.
             var messageType = MessageTypeExtensions.Parse(Attr(frame, "type"));
 
-            XMPPSession[] recipients;
-
             if (to.Contains('/'))
             {
 
@@ -1685,28 +1726,52 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // Auch die Priorität steht hier nicht im Weg: Wer sie negativ
                 // setzt, will nichts mehr abbekommen, was bloss an sein Konto
                 // ging - gerichtet ansprechbar bleibt er.
-                var match = SessionOf(to);
+                if (SessionOf(to) is { } match)
+                {
 
-                if (match is null)
-                    // Abschnitt 8.5.3.2.1: Keine passende Resource. Ohne
-                    // Ablage für Abwesende bleibt nur das stille Verwerfen,
-                    // das der Abschnitt für normal, groupchat und headline
-                    // ausdrücklich zulässt - für chat verlangt er eigentlich
-                    // Ablage oder Fehler (siehe README).
+                    await match.SendAsync(stamped);
+
+                    if (DeliverCarbons)
+                        await SendSentCarbonsAsync(session, stamped);
+
                     return;
 
-                await match.SendAsync(stamped);
+                }
 
-                if (!DeliverCarbons)
+                // Abschnitt 8.5.3.2.1: Keine passende Resource. Für normal,
+                // groupchat und headline darf die Stanza still verworfen
+                // werden - der Absender hat diese Resource gemeint, und die
+                // gibt es nicht.
+                if (messageType != MessageType.Chat)
                     return;
 
-                await SendSentCarbonsAsync(session, stamped);
-
-                return;
+                // Ein chat dagegen wird behandelt, als wäre er an das Konto
+                // gegangen. Die Ausnahme sieht schrullig aus und trifft den
+                // Alltag: Ein Client antwortet auf die Full-JID, die er zuletzt
+                // gesehen hat, und wenn der Gesprächspartner in der Zwischenzeit
+                // das Gerät gewechselt hat, ist sie weg. Der Absender meinte
+                // nicht diese Resource, sondern seinen Gegenüber.
+                //
+                // Das 'to' bleibt dabei stehen, wie es ankam - nicht
+                // umgeschrieben auf die Resource, die es nun bekommt.
 
             }
 
-            // Ab hier: an den Bare-JID gerichtet (Abschnitt 8.5.2).
+            await DeliverToAccountAsync(session, to, stamped, Attr(frame, "id"), messageType);
+
+        }
+
+        /// <summary>
+        /// Die Zustellung an ein Konto (RFC 6121, Abschnitt 8.5.2) - dorthin
+        /// führen der Bare-JID und, für <c>chat</c>, auch die nicht passende
+        /// Resource.
+        /// </summary>
+        private async Task DeliverToAccountAsync(XMPPSession  session,
+                                                 String       to,
+                                                 String       stamped,
+                                                 String?      id,
+                                                 MessageType  messageType)
+        {
 
             // Eine Fehler-Stanza wird stillschweigend übergangen. Auf sie zu
             // antworten hiesse, einen Fehler mit einem Fehler zu beantworten.
@@ -1718,13 +1783,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Absender bekommt es gesagt.
             if (messageType == MessageType.GroupChat)
             {
-                await SendServiceUnavailableAsync(session, "message", Attr(frame, "id"), to);
+                await SendServiceUnavailableAsync(session, "message", id, to);
                 return;
             }
 
             // Eine Resource mit negativer Priorität bekommt nichts, was bloss
             // an das Konto gerichtet war - für jede Art von Nachricht.
-            recipients = [.. SessionsOf(to).Where(r => r.PresencePriority >= 0)];
+            var recipients = SessionsOf(to).Where(r => r.PresencePriority >= 0).ToArray();
 
             // Ein headline geht an *alle* nicht-negativen Resourcen: Er ist
             // eine Meldung an den Menschen und nicht an ein Gerät, und welches
@@ -1741,14 +1806,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             }
 
-            XMPPSession? primary = null;
-
-            if (recipients.Length > 0)
+            // Bleiben normal und chat. Ist niemand erreichbar, verlangt
+            // Abschnitt 8.5.2.2.1 die Ablage oder einen Fehler - stillschweigend
+            // verwerfen darf der Server sie nicht.
+            //
+            // "Niemand erreichbar" heisst hier auch: nur negative Prioritäten.
+            // Abschnitt 8.5.2.1.1 sagt das am Ende ausdrücklich - dann soll der
+            // Server verfahren, als gäbe es überhaupt keine Resource. Die
+            // Alternative wäre, die Nachricht doch dem Gerät zu geben, das
+            // gerade gesagt hat, es wolle sie nicht.
+            if (recipients.Length == 0)
             {
-                // Wie ein echter Server: an die zuletzt gebundene Resource zustellen.
-                primary = recipients[^1];
-                await primary.SendAsync(stamped);
+                await StoreOfflineOrRefuseAsync(session, to, stamped, id);
+                await SendSentCarbonsAsync(session, stamped);
+                return;
             }
+
+            // Wie ein echter Server: an die zuletzt gebundene Resource zustellen.
+            var primary = recipients[^1];
+
+            await primary.SendAsync(stamped);
 
             if (!DeliverCarbons)
                 return;
@@ -1758,6 +1835,125 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await other.SendAsync(CarbonEnvelope("received", other.BareJid!, other.FullJid!, stamped));
 
             await SendSentCarbonsAsync(session, stamped);
+
+        }
+
+        /// <summary>
+        /// Legt eine Nachricht für ein Konto ohne erreichbare Resource ab -
+        /// oder sagt dem Absender, dass daraus nichts wird (RFC 6121,
+        /// Abschnitt 8.5.2.2.1, XEP-0160).
+        /// </summary>
+        /// <remarks>
+        /// Der Abschnitt stellt zwei Wege nebeneinander und verbietet den
+        /// dritten. Ablegen und Ablehnen sind beide richtig; stillschweigend
+        /// verwerfen ist es nicht, denn dann hält der Absender seine Nachricht
+        /// für zugestellt und niemand kann den Verlust bemerken.
+        ///
+        /// Ein Konto, das es hier nicht gibt, bleibt davon ausgenommen:
+        /// Abschnitt 8.5.1 lässt für diesen Fall auch das stille Übergehen zu,
+        /// und dabei bleibt es. Wer aus jeder Nachricht an einen unbekannten
+        /// Namen einen Fehler machte, gäbe damit Auskunft darüber, welche Konten
+        /// es auf diesem Server gibt.
+        /// </remarks>
+        private async Task StoreOfflineOrRefuseAsync(XMPPSession  session,
+                                                     String       to,
+                                                     String       stamped,
+                                                     String?      id)
+        {
+
+            if (GetAccount(BareOf(to)) is not { } account)
+                return;
+
+            if (StoreOfflineMessages &&
+                account.StoreOfflineMessage(stamped,
+                                            DateTimeOffset.UtcNow,
+                                            MaxStoredOfflineMessages))
+            {
+                return;
+            }
+
+            await SendServiceUnavailableAsync(session, "message", id, to);
+
+        }
+
+        /// <summary>
+        /// Reicht einer neu verfügbaren Resource die abgelegten Nachrichten
+        /// nach (XEP-0160).
+        /// </summary>
+        /// <remarks>
+        /// Nur an eine verfügbare Resource mit nicht-negativer Priorität.
+        /// XEP-0160 sagt es so ("when the recipient next sends non-negative
+        /// available presence"), und es ist dieselbe Rücksicht, die Abschnitt
+        /// 8.5 im laufenden Betrieb verlangt: Ein Gerät, das sich aus dem
+        /// Verkehr an das Konto heraushält, ist der falsche Ort für eine
+        /// Ablage, die gerade deshalb entstanden ist, weil niemand hingesehen
+        /// hat.
+        ///
+        /// Beide Bedingungen sind nötig, nicht nur die zweite: Eine Abmeldung
+        /// setzt die Priorität auf 0 zurück (<see cref="XMPPSession.RecordPresence"/>),
+        /// und ohne die Frage nach der Verfügbarkeit ginge die Ablage genau an
+        /// die Resource, die sich gerade abgemeldet hat.
+        ///
+        /// Anders als die aufbewahrten Subscription-Anfragen wird die Ablage
+        /// dabei geleert - siehe
+        /// <see cref="XMPPAccount.TakeOfflineMessages"/>.
+        /// </remarks>
+        private async Task SendOfflineMessagesToAsync(XMPPSession session)
+        {
+
+            if (session.Account is not { } account ||
+                !session.IsAvailable ||
+                session.PresencePriority < 0)
+            {
+                return;
+            }
+
+            foreach (var nachricht in account.TakeOfflineMessages())
+                await session.SendAsync(WithDelay(nachricht, Domain));
+
+        }
+
+        /// <summary>
+        /// Hängt einer nachgereichten Nachricht ihren Eingangszeitpunkt an
+        /// (XEP-0203).
+        /// </summary>
+        /// <remarks>
+        /// Ohne den Stempel behauptet eine Nachricht von gestern, sie sei von
+        /// jetzt: Der Empfänger sieht den Unterschied nicht und antwortet auf
+        /// etwas, das sich längst erledigt hat. Der Stempel ist der einzige
+        /// Weg, den Verzug überhaupt mitzuteilen - die Stanza selbst trägt
+        /// keine Zeit.
+        ///
+        /// Angehängt und nicht eingesetzt: Das <c>&lt;delay/&gt;</c> ist ein
+        /// weiteres Kindelement der Nachricht, und die Reihenfolge der
+        /// Kindelemente ist frei.
+        ///
+        /// Der zweite Zweig ist kein Vorsorgezweig: Eine Nachricht ohne
+        /// Kindelemente (<c>&lt;message .../&gt;</c>) darf ein Client schicken,
+        /// sie ist ein <c>chat</c> wie jeder andere und wird deshalb abgelegt.
+        /// Ohne das Auflösen des leeren Elements ginge der Stempel entweder
+        /// verloren oder hinter das Ende der Stanza.
+        /// </remarks>
+        internal static String WithDelay(OfflineMessage message, String from)
+        {
+
+            var stamp = message.StoredAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss'Z'",
+                                                              CultureInfo.InvariantCulture);
+
+            var delay = $"<delay xmlns='urn:xmpp:delay' from='{from}' stamp='{stamp}'>Offline Storage</delay>";
+
+            var stanza = message.Stanza;
+            var ende   = stanza.LastIndexOf("</message>", StringComparison.Ordinal);
+
+            if (ende >= 0)
+                return stanza[..ende] + delay + stanza[ende..];
+
+            // Ein leeres Element: <message .../> wird zu <message ...>…</message>.
+            var schluss = stanza.LastIndexOf("/>", StringComparison.Ordinal);
+
+            return schluss >= 0
+                       ? stanza[..schluss] + ">" + delay + "</message>"
+                       : stanza;
 
         }
 
@@ -1822,6 +2018,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Verteilung abschaltet, will keine Anfragen verlieren.
             if (wurdeVerfuegbar)
                 await SendStoredSubscriptionRequestsToAsync(session);
+
+            // XEP-0160: "When the recipient next sends non-negative available
+            // presence to the server, the server delivers the message to the
+            // resource that has sent that presence."
+            //
+            // Bei *jeder* solchen Presence und nicht nur beim Verfügbarwerden -
+            // anders als bei der aufbewahrten Anfrage darüber. Der Unterschied
+            // liegt daran, dass die Ablage beim Zustellen geleert wird: Ein
+            // zweiter Durchgang findet nichts mehr und kann deshalb nichts
+            // doppelt vorlegen. Und er hat einen eigenen Fall, den das
+            // Verfügbarwerden nicht abdeckt: Eine Resource, die mit negativer
+            // Priorität angemeldet ist und sie auf 0 hebt, war schon verfügbar -
+            // sie wird aber gerade eben erst zu einem Empfänger.
+            await SendOfflineMessagesToAsync(session);
 
             if (!BroadcastPresence)
                 return;
