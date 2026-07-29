@@ -302,6 +302,56 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnInvisibleClient_KeepsItsResumableStream()
+
+        /// <summary>
+        /// Die Wiederaufnahme hängt am Stream, nicht an der Presence: Auch ein
+        /// Client, der sich unsichtbar gemacht hat, behält seinen aufgehobenen
+        /// Stream.
+        /// </summary>
+        /// <remarks>
+        /// Hier wurden zwei Dinge verwechselt. Zugesagt wird die Wiederaufnahme
+        /// mit <c>&lt;enabled resume='true'/&gt;</c> und gehört damit dem
+        /// Stream; die Presence sagt den Kontakten etwas über den Menschen
+        /// davor. Das Ablegen verlangte trotzdem eine <i>verfügbare</i>
+        /// Sitzung — und wer sich abmeldete, ohne die Verbindung zu beenden,
+        /// verlor die Zusage stillschweigend: Sein <c>&lt;resume/&gt;</c>
+        /// bekam ein <c>&lt;failed/&gt;</c>, und alles Unbestätigte war fort.
+        ///
+        /// Aufgefallen ist das nicht an diesem Fall, sondern an einem Test, der
+        /// gelegentlich in die Zeitüberschreitung lief: Er riss die Verbindung
+        /// ab, sobald die Wiederaufnahme zugesagt war — und das ist im Aufbau
+        /// des Clients <i>vor</i> seiner ersten Presence. Auf einer ruhigen
+        /// Maschine kam die Presence rechtzeitig, unter Last nicht immer.
+        /// </remarks>
+        [Test]
+        public async Task AnInvisibleClient_KeepsItsResumableStream()
+        {
+
+            var alice   = await ConnectClientAsync("alice", maxReconnectAttempts: 0);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            // Unsichtbar, aber verbunden - der Stream läuft weiter.
+            await alice.SendRawAsync("<presence type='unavailable'/>");
+
+            await WaitFor(() => !sitzung.IsAvailable,
+                          "die abgemeldete, aber offene Sitzung");
+
+            sitzung.Kill();
+
+            await WaitFor(() => Server.ResumableStreamCount == 1,
+                          "den aufgehobenen Stream");
+
+            Assert.That(sitzung.ResumptionId, Is.Not.Null,
+                        "Die Kennung gehört dem Stream und überlebt die Abmeldung.");
+
+        }
+
+        #endregion
+
         #region AStreamWithoutResume_IsAnnouncedAtOnce()
 
         /// <summary>

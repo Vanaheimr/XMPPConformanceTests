@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **540 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **541 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1825,18 +1825,47 @@ Alice hat dort `maxReconnectAttempts: 0`, kommt also nicht zurück und kann den
 Eintrag nicht selbst wieder abräumen; eine Erklärung habe ich nicht. Nach D9
 wäre eine längere Frist genau die falsche Antwort, und eine Vermutung
 aufzuschreiben wäre schlechter als die offene Frage. Steht unter „Später".
+*(Nachtrag: in D11 gefunden — es war kein Testfehler.)*
+
+### D11. Die Wiederaufnahme gehört dem Stream, nicht der Presence ✅
+
+Der offene Punkt aus D10 ist geklärt, und er war kein Testartefakt. `Park`
+verlangte, dass die Sitzung <i>verfügbar</i> ist:
+
+```csharp
+if (session.FullJid is null || !session.IsAvailable)
+    return false;
+```
+
+Damit hingen zwei Dinge aneinander, die nichts miteinander zu tun haben. Die
+Wiederaufnahme wird mit `<enabled resume='true'/>` zugesagt und gehört dem
+Stream; die Presence sagt den Kontakten etwas über den Menschen davor. Wer sich
+unsichtbar machte, ohne die Verbindung zu beenden, verlor die Zusage
+stillschweigend: Beim Abriss wurde sein Stream nicht abgelegt, sein
+`<resume/>` bekam ein `<failed/>`, und alles Unbestätigte war fort — genau der
+Verlust, für den der Puffer aus R2 und R7 überhaupt gebaut wurde.
+
+Dasselbe traf den Client, dessen erste Presence noch unterwegs war. Und genau
+daran hing der wackelige Test: Er riss die Verbindung ab, sobald die
+Wiederaufnahme zugesagt war, und das ist im Aufbau des Clients *vor* seiner
+ersten Presence. Auf einer ruhigen Maschine kam sie rechtzeitig, unter Last
+nicht immer — ein Fehler, der sich als Zeitproblem verkleidet hat.
+
+Die Bedingung ist weg. Für die Abmeldung, in deren Ablauf `Park` sitzt, ändert
+das nichts: `TryMarkUnavailable` lehnt eine nie verfügbare Sitzung von sich aus
+ab, die Unterscheidung war dort längst getroffen. Die Prüfung in `Park` war
+also nicht nur falsch, sondern auch doppelt.
+
+Eine Mutation, erschlagen von `AnInvisibleClient_KeepsItsResumableStream`: die
+Verfügbarkeit wieder verlangen.
+
+Drei von vier Wackelkandidaten waren damit echte Fehler im Code, einer war ein
+Fehler in der Testanlage. Das ist die Ausbeute, wenn man einem einzelnen roten
+Lauf nachgeht, statt ihn zu wiederholen, bis er grün ist.
 
 ---
 
 ## Später
-
-### Tests
-- `AStolenId_DoesNotHandOverTheStream` lief in einem von sieben vollen Läufen
-  in die Zeitüberschreitung: Der Server hatte die abgerissene Sitzung binnen
-  zehn Sekunden nicht als wiederaufnehmbar abgelegt (D10). Ursache offen —
-  Alice kommt dort nicht zurück, kann den Eintrag also nicht selbst abräumen.
-  Erster Schritt wäre, den beobachteten Zählerstand und den Zustand der Sitzung
-  in die Meldung zu nehmen; eine längere Frist wäre nach D9 die falsche Antwort.
 
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden

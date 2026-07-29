@@ -884,7 +884,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private Boolean Park(XMPPSession session)
         {
 
-            if (session.FullJid is null || !session.IsAvailable)
+            // Gebunden muss die Sitzung sein - ohne Resource gibt es nichts,
+            // wohin ein Rückkehrer zurückkehren könnte.
+            //
+            // Verfügbar muss sie *nicht* sein. Hier stand einmal zusätzlich
+            // ein !session.IsAvailable, und das verwechselte zwei Dinge: Die
+            // Wiederaufnahme ist eine Eigenschaft des Streams und wurde mit
+            // <enabled resume='true'/> zugesagt; die Presence sagt den
+            // Kontakten etwas über den Menschen davor. Ein Client, der sich
+            // unsichtbar gemacht hat oder seine erste Presence noch nicht
+            // geschickt hat, verlor damit stillschweigend die Zusage: Sein
+            // <resume/> bekam ein <failed/>, und alles Unbestätigte war fort.
+            //
+            // Für die Abmeldung, in deren Ablauf diese Funktion sitzt, ist die
+            // Unterscheidung ohnehin schon getroffen - TryMarkUnavailable
+            // weiter unten lehnt eine nie verfügbare Sitzung von sich aus ab.
+            if (session.FullJid is null)
                 return false;
 
             lock (_lock)

@@ -601,8 +601,8 @@ Server-Implementierung:
   abläuft. Ein `<resume/>` wird nur von einem Stream angenommen, der auf
   dasselbe Konto angemeldet ist — die Kennung allein weist niemanden aus. Eine
   ordentliche Abmeldung (`<close/>`) wird nicht aufgehoben.
-  Nicht abgedeckt: eine Stanza, die der Client erfolgreich abschickt und die
-  den Server nie erreicht — im Testaufbau gibt es diesen Fall nicht.
+  Aufgehoben wird unabhängig von der Presence: Die Zusage gehört dem Stream,
+  ein unsichtbarer Client behält sie also.
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
   Server keine Stanza-Fehler; unbekannte IQs bekommen pauschal
   `<service-unavailable/>`.
