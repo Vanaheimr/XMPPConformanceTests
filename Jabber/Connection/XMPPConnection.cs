@@ -1962,15 +1962,22 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         }
 
+        var stand = new List<RosterItem>();
+
         foreach (var itemElement in query.Children(RosterStanzaBuilder.Namespace, "item"))
         {
 
             var jid = itemElement.Attr("jid");
 
             if (!string.IsNullOrEmpty(jid))
-                Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
+                stand.Add(ToRosterItem(itemElement, jid));
 
         }
+
+        // Ersetzen und nicht ergänzen: Das Ergebnis ist der vollständige
+        // Roster (RFC 6121, Abschnitt 2.1.4). Wer hier nur einarbeitet,
+        // behält einen Kontakt, den der Server längst nicht mehr führt.
+        Roster.ReplaceAll(stand);
 
         // Die Fassung gehört zu genau diesem Stand und wird deshalb erst
         // übernommen, nachdem er eingearbeitet ist.

@@ -69,6 +69,48 @@ public sealed class Roster
     }
 
     /// <summary>
+    /// RFC 6121, Abschnitt 2.1.4: Übernimmt das Ergebnis einer Roster-Anfrage
+    /// als den vollständigen Roster.
+    /// </summary>
+    /// <remarks>
+    /// Der Unterschied zu <see cref="ProcessRosterItem"/> ist das Entfernen.
+    /// Ein Roster-Ergebnis ist keine Ergänzung, sondern der Stand: Was nicht
+    /// darin steht, gibt es nicht mehr.
+    ///
+    /// Vorher wurde es hineingemischt, und die Folge war ein Kontakt, den man
+    /// nicht loswird. Wer ihn an einem anderen Gerät löscht, während dieses
+    /// hier abgemeldet ist, bekommt ihn beim nächsten Anmelden zurück - der
+    /// Server schickt ihn nicht mehr, aber niemand nimmt ihn heraus. Beim
+    /// Löschen im laufenden Betrieb fällt das nie auf, weil dann ein Push mit
+    /// <c>subscription='remove'</c> kommt.
+    ///
+    /// Gerufen wird das ausschliesslich für das Ergebnis, nie für einen Push.
+    /// Ein Push trägt genau die geänderten Einträge; ihn so zu behandeln
+    /// löschte bei jeder Änderung den ganzen übrigen Roster.
+    /// </remarks>
+    public void ReplaceAll(IEnumerable<RosterItem> items)
+    {
+
+        var neu       = items.ToList();
+        var behalten  = new HashSet<string>(neu.Select(i => JidUtilities.Bare(i.Jid)),
+                                            StringComparer.OrdinalIgnoreCase);
+
+        List<string> entfallen;
+
+        lock (_lock)
+            entfallen = _items.Keys.Where(k => !behalten.Contains(k)).ToList();
+
+        // Ausserhalb der Sperre: beide Aufrufe nehmen sie selbst, und die
+        // Ereignisse sollen nicht unter ihr laufen.
+        foreach (var item in neu)
+            ProcessRosterItem(item);
+
+        foreach (var jid in entfallen)
+            RemoveItem(jid);
+
+    }
+
+    /// <summary>
     /// RFC 6121, Abschnitt 3: Wendet eine Subscription-Änderung an, die als
     /// Presence-Stanza hereinkommt.
     /// </summary>

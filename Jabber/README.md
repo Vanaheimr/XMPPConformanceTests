@@ -78,7 +78,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Bereich | Status |
 |---------|--------|
 | Roster abrufen, hinzufügen, entfernen, Gruppen | ✅ |
-| Roster-Pushes anwenden | ✅ |
+| Ergebnis ersetzt den Zwischenspeicher (§2.1.4) | ✅ Ein Kontakt, der bei abgemeldetem Client entfernt wurde, ist danach weg — vorher blieb er stehen |
+| Roster-Pushes anwenden | ✅ Ergänzend und nicht ersetzend: Ein Push trägt nur die geänderten Einträge |
 | Absender-Validierung von Roster-Pushes (§2.1.6) | ✅ Nur ohne `from` oder mit dem eigenen Bare-JID; sonst verworfen und als Spoofing gemeldet |
 | Roster-Versionierung (§2.6) | ✅ Client und Server; `<ver/>` wird angekündigt, unveränderte Roster kommen als leeres Ergebnis, Pushes tragen die neue Fassung. Die Fassung ist ein Streuwert über den Inhalt — abschaltbar über `XMPPServer.OfferRosterVersioning` |
 | Presence-Subscription anfragen/annehmen/ablehnen | ✅ |

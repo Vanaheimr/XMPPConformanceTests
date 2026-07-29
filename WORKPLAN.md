@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **535 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
+Aktueller Stand der Suite: **540 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1677,15 +1677,63 @@ zwischengespeicherten hineingemischt statt ihn zu ersetzen. Ein Kontakt, der
 bei abgemeldetem Client entfernt wurde, bleibt damit stehen. Das ist ein
 eigener Fehler mit eigener Gegenprobe und steht unter „Später".
 
+### D8. Der Kontakt, den man nicht loswird ✅
+
+Aufgefallen bei D7, jetzt behoben: Das Ergebnis einer Roster-Anfrage wurde in
+den zwischengespeicherten Roster *hineingemischt*. Es ist aber der Stand und
+keine Ergänzung (RFC 6121, Abschnitt 2.1.4) — was nicht darin steht, gibt es
+nicht mehr.
+
+Der Weg zum Schaden ist alltäglich: Ein Kontakt wird an einem anderen Gerät
+gelöscht, während dieses hier abgemeldet ist. Beim nächsten Anmelden schickt
+der Server ihn nicht mehr — und niemand nimmt ihn heraus. Er kommt zurück und
+lässt sich von diesem Gerät aus nicht mehr entfernen: Ein Löschversuch erzeugt
+einen Push mit `subscription='remove'`, der Eintrag verschwindet, und beim
+übernächsten Anmelden ist er wieder da. Im laufenden Betrieb fällt nichts auf,
+weil dort immer der Push kommt.
+
+`Roster.ReplaceAll` heisst so, wie es sich verhält, und wird ausschliesslich
+für das Ergebnis gerufen — nie für einen Push. Das ist der Punkt, an dem die
+Sache kippen könnte: Auf dem Draht sehen beide gleich aus, ein `<query/>` mit
+`<item/>`. Wer den Push genauso behandelte, löschte bei *jeder* Änderung den
+gesamten übrigen Roster. Dafür steht `ARosterPush_DoesNotReplaceTheWholeRoster`
+da, und die zugehörige Mutation M5 ist die einzige, die genau diesen einen Test
+umwirft.
+
+Fünf Mutationen, alle erschlagen.
+
+Zwei Anläufe brauchte der Push-Test allerdings, und beide Male lag es daran,
+dass ich die Änderung an der falschen Stelle auslöste: Ein Eingriff am Konto
+vorbei (`SetRosterEntry`) erzeugt keinen Push, ein `AddContactAsync` erzeugt
+gleich zwei. Gebraucht wird genau ein Roster-Set vom Client — dann kommt genau
+ein Push mit genau einem Element. Auch das gehört zu der Regel aus D5: Der
+Aufbau muss die Lage herstellen, die geprüft werden soll, und nicht eine, die
+ihr ähnlich sieht.
+
+**Ein bestehender Test musste dafür angefasst werden**, und das ist erwähnenswert,
+weil es nach einer bequemen Anpassung aussieht. `RosterPushAfterBind_IsApplied`
+liess den Server in der Aufbauphase einen Kontakt pushen, den sein eigener
+Roster nicht enthielt. Danach kommt das Ergebnis, und das Ergebnis ist der
+Stand — der Kontakt verschwand also wieder, und der Test wurde rot.
+
+Nicht der Test war zu streng, sondern sein Server war unmöglich: XMPP liefert
+auf einem Stream der Reihe nach, ein Push *vor* dem Ergebnis ist damit älter
+als das Ergebnis. Ein Server, der einen Eintrag ankündigt, den er selbst nicht
+führt, widerspricht sich. Der Kontakt steht jetzt auch im Roster des Kontos;
+geprüft wird weiterhin dasselbe, nämlich dass eine Stanza aus der Aufbauphase
+nicht verlorengeht.
+
+Aufgefallen ist das erst im vollen Durchlauf — die gefilterten Läufe während
+der Arbeit enthielten diesen Test nicht. Drei volle Läufe hintereinander,
+jeder mit demselben Fehlschlag: kein Flackern, sondern ein Regressionsfehler,
+und ohne den vollen Durchlauf wäre er mitgegangen.
+
 ---
 
 ## Später
 
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
-- Ein voller Roster ersetzt den zwischengespeicherten nicht, er wird
-  hineingemischt — ein Kontakt, der bei abgemeldetem Client entfernt wurde,
-  bleibt beim nächsten Anmelden stehen (aufgefallen bei D7)
 - RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
   FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
   den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz

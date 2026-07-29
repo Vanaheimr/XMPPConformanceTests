@@ -125,6 +125,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Ein Roster-Push direkt nach dem Binding. Er trägt kein 'from' und
         /// ist damit nach RFC 6121, Abschnitt 2.1.6 autorisiert.
         /// </summary>
+        /// <remarks>
+        /// Der Kontakt steht auch im Roster des Kontos, und das ist seit dem
+        /// Ersetzen (siehe D8) nötig: Der Push kommt in der Aufbauphase, also
+        /// <i>vor</i> dem Roster-Ergebnis, und das Ergebnis ist der Stand.
+        /// Ein Server, der einen Eintrag pusht, den er selbst nicht führt,
+        /// widerspricht sich - vorher fiel das nicht auf, weil der Client das
+        /// Ergebnis bloss einarbeitete.
+        ///
+        /// Geprüft wird damit weiterhin, was der Test prüfen soll: dass eine
+        /// Stanza aus der Aufbauphase nicht verlorengeht. Früher las der
+        /// Client dort bis zu zehn Rahmen selbst vom Socket und verwarf alles,
+        /// was er nicht erwartete.
+        /// </remarks>
         [Test]
         public async Task RosterPushAfterBind_IsApplied()
         {
@@ -135,7 +148,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 "<item jid='carol@localhost' name='Carol' subscription='both'/>" +
                 "</query></iq>");
 
+            // Der Client zuerst - er legt das Konto an, dessen Roster gleich
+            // gefüllt wird.
             var client = PreparedClient();
+
+            Server.GetAccount($"alice@{Server.Domain}")!
+                  .SetRosterEntry(new RosterEntry("carol@localhost", "Carol", "both"));
 
             await client.ConnectAsync();
 
