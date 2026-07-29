@@ -598,8 +598,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                           "die wiederaufgenommene Sitzung",
                           TimeSpan.FromSeconds(20));
 
+            // Dieselbe Frist wie beim Warten auf die Wiederaufnahme darüber.
+            // Unter Last - die volle Sammlung läuft nebenher - hat die
+            // Vorgabe von zehn Sekunden gelegentlich nicht gereicht; allein
+            // lief dieser Test zwanzigmal ohne Beanstandung durch. Es ist also
+            // eine Frage der Wartezeit und keine der Zustellung.
             await WaitFor(() => alice.StreamManagement.UnackedCount == 0,
-                          "das Leeren der Warteschlange durch das h im <resumed/>");
+                          $"das Leeren der Warteschlange durch das h im <resumed/> " +
+                          $"(offen: {alice.StreamManagement.UnackedCount})",
+                          TimeSpan.FromSeconds(20));
 
             await WaitAgainst(() => { lock (angekommen) return angekommen.Count > 1; },
                               "eine zweite Zustellung derselben Nachricht");

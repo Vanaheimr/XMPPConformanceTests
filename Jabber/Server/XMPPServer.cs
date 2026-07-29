@@ -149,6 +149,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean OfferSubscriptionPreApproval { get; set; } = true;
 
         /// <summary>
+        /// Unterstützt der Server Roster-Versionierung (RFC 6121,
+        /// Abschnitt 2.6)?
+        /// </summary>
+        /// <remarks>
+        /// Wie beim Pre-Approval steuert der Schalter beide Seiten der
+        /// Abmachung: Ohne ihn fehlt die Ankündigung, ein <c>ver</c> an der
+        /// Anfrage wird nicht beachtet, und weder Ergebnis noch Push tragen
+        /// eines. Das ist wichtiger, als es klingt - ein Server, der ein
+        /// <c>ver</c> stillschweigend übergeht und dennoch ein leeres Ergebnis
+        /// schickt, brächte den Client dazu, einen leeren Roster für den
+        /// aktuellen Stand zu halten.
+        /// </remarks>
+        public Boolean OfferRosterVersioning { get; set; } = true;
+
+        /// <summary>
         /// Wie viele unbeantwortete Subscription-Anfragen je Konto aufbewahrt
         /// werden (RFC 6121, Abschnitt 3.1.3).
         /// </summary>
@@ -1171,6 +1186,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     (OfferSubscriptionPreApproval
                          ? "<sub xmlns='urn:xmpp:features:pre-approval'/>"
                          : "") +
+
+                    // RFC 6121, Abschnitt 2.6.1: Ohne diese Ankündigung darf
+                    // ein Client kein 'ver' an seine Roster-Anfrage hängen -
+                    // er wüsste sonst nicht, ob ein leeres Ergebnis
+                    // „unverändert" heisst oder „leerer Roster".
+                    (OfferRosterVersioning
+                         ? "<ver xmlns='urn:xmpp:features:rosterver'/>"
+                         : "") +
                     "</stream:features>");
 
         }
@@ -1494,6 +1517,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (type == "get")
             {
 
+                var fassung = account.RosterVersion;
+
+                // RFC 6121, Abschnitt 2.6.2: Kennt der Client bereits diese
+                // Fassung, kommt ein leeres Ergebnis ganz ohne <query/>. Sein
+                // Zwischenspeicher stimmt, es gibt nichts zu schicken.
+                //
+                // Das Weglassen des <query/> ist dabei die ganze Aussage: Ein
+                // <query/> ohne Kinder hiesse „dein Roster ist leer" und
+                // löschte beim Client alles.
+                if (OfferRosterVersioning &&
+                    QueryAttr(frame, "ver") is String bekannt &&
+                    String.Equals(bekannt, fassung, StringComparison.Ordinal))
+                {
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+                    return;
+                }
+
                 var items = new StringBuilder();
 
                 foreach (var e in account.Roster)
@@ -1508,9 +1548,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     items.Append($" subscription='{e.Subscription}'/>");
                 }
 
+                var verAttribut = OfferRosterVersioning ? $" ver='{fassung}'" : "";
+
                 await session.SendAsync(
                     $"<iq type='result' id='{id}'>" +
-                    $"<query xmlns='jabber:iq:roster'>{items}</query></iq>");
+                    $"<query xmlns='jabber:iq:roster'{verAttribut}>{items}</query></iq>");
 
                 return;
 
@@ -1963,9 +2005,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                        (entry.Approved         ? " approved='true'"      : "") +
                        $" subscription='{entry.Subscription}'/>";
 
+            // RFC 6121, Abschnitt 2.6.3: Auch der Push trägt die neue Fassung.
+            // Ohne sie müsste der Client nach jeder Änderung den ganzen Roster
+            // neu holen, um wieder zu wissen, wo er steht - und genau das soll
+            // die Versionierung ersparen.
+            var verAttribut = OfferRosterVersioning ? $" ver='{account.RosterVersion}'" : "";
+
             foreach (var s in SessionsOf(account.BareJid))
                 await s.SendAsync($"<iq type='set' id='push-{Guid.NewGuid():N}' to='{s.FullJid}'>" +
-                                  $"<query xmlns='jabber:iq:roster'>{item}</query></iq>");
+                                  $"<query xmlns='jabber:iq:roster'{verAttribut}>{item}</query></iq>");
 
         }
 
@@ -2611,6 +2659,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         {
             var m = Regex.Match(xml, @"^<\w+[^>]*?\s" + name + @"=['""]([^'""]*)['""]");
             return m.Success ? m.Groups[1].Value : null;
+        }
+
+        /// <summary>
+        /// Ein Attribut des <c>&lt;query/&gt;</c>-Kindelements.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Attr"/> ist auf das Wurzelelement verankert und liefert
+        /// für ein Attribut am Kindelement stillschweigend null. Das
+        /// <c>ver</c> der Roster-Anfrage sitzt aber am <c>&lt;query/&gt;</c>,
+        /// nicht am <c>&lt;iq/&gt;</c> - eine Prüfung mit <c>Attr</c> sähe
+        /// richtig aus und läse nie etwas.
+        /// </remarks>
+        private static String? QueryAttr(String xml, String name)
+        {
+
+            var m = Regex.Match(xml, @"<query\b([^>]*)>");
+
+            if (!m.Success)
+                return null;
+
+            var a = Regex.Match(m.Groups[1].Value, @"\b" + name + @"\s*=\s*['""]([^'""]*)['""]");
+
+            return a.Success ? a.Groups[1].Value : null;
+
         }
 
         private static String? AttrIn(String attrs, String name)

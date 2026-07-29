@@ -163,6 +163,20 @@ internal static class StreamNegotiation
         => features.Child(StreamManagementManager.Namespace, "sm") is not null;
 
     /// <summary>
+    /// Bietet der Server Roster-Versionierung an (RFC 6121, Abschnitt 2.6.1)?
+    /// </summary>
+    /// <remarks>
+    /// Ohne diese Ankündigung darf ein Client kein <c>ver</c> an seine
+    /// Roster-Anfrage hängen. Der Grund ist nicht Höflichkeit: Ein Server ohne
+    /// Versionierung übergeht das Attribut und antwortet mit dem vollen
+    /// Roster - das ginge noch. Gefährlich wäre der umgekehrte Fall, dass ein
+    /// leeres Ergebnis als „unverändert" gelesen wird, wo es „leerer Roster"
+    /// heisst.
+    /// </remarks>
+    public static bool OffersRosterVersioning(XElement features)
+        => features.Child("urn:xmpp:features:rosterver", "ver") is not null;
+
+    /// <summary>
     /// Muss die Legacy-Session (RFC 3921) angefordert werden?
     ///
     /// Die frühere Prüfung war <c>Contains("&lt;session")</c> und

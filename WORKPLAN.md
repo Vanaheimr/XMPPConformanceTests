@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **529 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **535 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1622,13 +1622,70 @@ Das ist der Nachtrag zu der Regel aus D5: Ein Testaufbau kann eine Lage
 herstellen, die es im gemeinten Ablauf gar nicht gibt — und dann ist nicht der
 Code zu ändern, sondern der Aufbau.
 
+### D7. Roster-Versionierung ✅ — und zwei Tests, die sich selbst betrogen
+
+RFC 6121, Abschnitt 2.6: Der Client nennt die Fassung, die er
+zwischengespeichert hat, und bekommt ein leeres Ergebnis, wenn sie noch
+stimmt. Der Roster ist das Grösste, was beim Anmelden über die Leitung geht,
+und er ändert sich selten.
+
+Die Fassung ist **gerechnet, nicht gezählt** — ein Streuwert über den Inhalt.
+Ein Zähler müsste mit dem Konto gespeichert werden und überstünde einen
+Neustart nur, wenn jemand daran denkt; der Streuwert braucht keinen Speicher
+und bleibt auch dann richtig, wenn jemand den Roster an der Datei vorbei
+ändert. Er hat zudem eine Eigenschaft, die ein Zähler nicht hat: Geht der
+Roster von A nach B und zurück nach A, ist die Fassung wieder die alte — und
+das ist richtig, denn der Zwischenstand des Clients stimmt ja wieder.
+
+Alles hängt an einer Feinheit, die leicht falsch herauskommt: „unverändert" ist
+ein Ergebnis **ganz ohne** `<query/>`. Ein `<query/>` ohne Kinder heisst
+dagegen „dein Roster ist leer". Wer beides verwechselt, löscht dem Nutzer die
+Kontaktliste — die Mutation, die genau das tut, steht als M2 in der Liste.
+
+**Ein Fund noch vor dem Mutationsdurchgang.** Der erste Testlauf war rot, weil
+der Server das `ver` mit `Attr` las — und `Attr` ist auf das Wurzelelement
+verankert. Das Attribut sitzt aber am `<query/>`, nicht am `<iq/>`. Die Prüfung
+sah vollkommen richtig aus und las immer `null`; ohne den Test wäre die
+Versionierung serverseitig wirkungslos geblieben, ohne dass irgendetwas
+aufgefallen wäre. Jetzt gibt es `QueryAttr`, und der Kommentar dort nennt die
+Falle beim Namen.
+
+Dreizehn Mutationen, alle erschlagen — Ankündigung, leeres Ergebnis, Fassung im
+Ergebnis, Fassung im Push, Übernahme auf beiden Wegen, der Verzicht ohne
+Ankündigung, und je ein Feld, das aus der Rechnung fällt.
+
+**Zwei Tests haben sich dabei selbst betrogen, und der zweite Betrug war meine
+Reparatur des ersten.**
+
+`ARosterPush_CarriesTheNewVersion` schlug unter Volllast gelegentlich fehl.
+Ursache: `AddContactAsync` ist zweierlei — ein Roster-Set und ein
+`subscribe` —, also kommen *zwei* Pushes. Der Test hielt beim ersten an und
+verglich dann gegen einen Serverstand, der schon weitergelaufen war.
+
+Meine erste Reparatur — auf Übereinstimmung warten statt auf Änderung — war
+schlimmer als der Fehler: Am Anfang stehen beide Seiten beim leeren Roster,
+sind also bereits einig. Die Wartebedingung war erfüllt, bevor irgendetwas
+geschehen war, und der Test schlug danach *immer* fehl. Richtig ist beides
+zusammen: geändert **und** einig.
+
+Das ist die dritte Ausprägung derselben Sache in vier Commits, und sie hat
+jetzt einen Namen verdient: **Eine Wartebedingung, die der Anfangszustand schon
+erfüllt, wartet nicht.**
+
+Nebenbei aufgefallen und nicht behoben: Ein voller Roster wird in den
+zwischengespeicherten hineingemischt statt ihn zu ersetzen. Ein Kontakt, der
+bei abgemeldetem Client entfernt wurde, bleibt damit stehen. Das ist ein
+eigener Fehler mit eigener Gegenprobe und steht unter „Später".
+
 ---
 
 ## Später
 
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
-- Roster-Versionierung nutzen (`Roster.Version` und `RosterStanzaBuilder.GetRoster` liegen ungenutzt herum)
+- Ein voller Roster ersetzt den zwischengespeicherten nicht, er wird
+  hineingemischt — ein Kontakt, der bei abgemeldetem Client entfernt wurde,
+  bleibt beim nächsten Anmelden stehen (aufgefallen bei D7)
 - RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
   FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
   den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz

@@ -15,6 +15,13 @@
  * limitations under the License.
  */
 
+#region Usings
+
+using System.Security.Cryptography;
+using System.Text;
+
+#endregion
+
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 {
 
@@ -47,6 +54,48 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public IReadOnlyList<RosterEntry> Roster
         {
             get { lock (_lock) return _roster.ToList(); }
+        }
+
+        /// <summary>
+        /// RFC 6121, Abschnitt 2.6: Die Fassung des Rosters - eine
+        /// undurchsichtige Zeichenkette, die sich mit jeder Änderung ändert.
+        /// </summary>
+        /// <remarks>
+        /// Gerechnet statt gezählt. Ein Zähler wäre die naheliegende Wahl,
+        /// müsste aber mit dem Konto gespeichert werden und überstünde einen
+        /// Neustart nur, wenn jemand daran denkt. Ein Streuwert über den Inhalt
+        /// braucht keinen Speicher, ist nach einem Neustart derselbe und bleibt
+        /// auch dann richtig, wenn jemand den Roster an der Datei vorbei
+        /// ändert.
+        ///
+        /// Er hat eine Eigenschaft, die ein Zähler nicht hat: Geht der Roster
+        /// von A nach B und wieder zurück nach A, ist die Fassung wieder die
+        /// alte. Das ist kein Mangel, sondern richtig - der Zwischenstand eines
+        /// Clients, der A zwischengespeichert hat, stimmt ja wieder.
+        ///
+        /// Die Trennzeichen sind Steuerzeichen, die in keinem Feld vorkommen
+        /// können. Ohne sie ergäben ein Kontakt „ab" ohne Namen und ein Kontakt
+        /// „a" mit dem Namen „b" dieselbe Zeichenfolge.
+        /// </remarks>
+        public String RosterVersion
+        {
+            get
+            {
+
+                var sb = new StringBuilder();
+
+                foreach (var e in Roster.OrderBy(e => e.Jid, StringComparer.Ordinal))
+                    sb.Append(e.Jid).         Append('\u001F').
+                       Append(e.Name).        Append('\u001F').
+                       Append(e.Subscription).Append('\u001F').
+                       Append(e.Ask).         Append('\u001F').
+                       Append(e.Approved).    Append('\u001E');
+
+                return Convert.ToBase64String(
+                           SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))
+                       )[..16];
+
+            }
         }
 
         /// <summary>

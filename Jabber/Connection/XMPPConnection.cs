@@ -573,7 +573,7 @@ public sealed class XMPPConnection : IAsyncDisposable
 
                 // Roster laden
                 _logger.LogDebug("Lade Roster ...");
-                await RequestRosterAsync(ct);
+                await RequestRosterAsync(StreamNegotiation.OffersRosterVersioning(features), ct);
 
                 // Online gehen
                 await SendPresenceAsync();
@@ -1676,6 +1676,13 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         }
 
+        // RFC 6121, Abschnitt 2.6.3: Der Push trägt die Fassung, auf der der
+        // Roster nach dieser Änderung steht. Sie zu übernehmen ist der ganze
+        // Zweck der Übung - ohne das fragt der Client beim nächsten Anmelden
+        // mit einer veralteten Fassung und bekommt alles noch einmal.
+        if (query.Attr("ver") is string fassung)
+            Roster.Version = fassung;
+
     }
 
     /// <summary>
@@ -1900,13 +1907,27 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     }
 
-    private async Task RequestRosterAsync(CancellationToken ct)
+    /// <summary>
+    /// Holt den Roster (RFC 6121, Abschnitt 2.1) - versioniert, wenn der
+    /// Server es anbietet.
+    /// </summary>
+    /// <remarks>
+    /// Beim ersten Mal geht ein leeres <c>ver=''</c> hinaus. Das ist kein
+    /// Platzhalter, sondern die Ansage „ich kann Versionierung, habe aber noch
+    /// nichts" (RFC 6121, Abschnitt 2.6.1): Der Server schickt den vollen
+    /// Roster und diesmal mit einer Fassung dazu.
+    /// </remarks>
+    private async Task RequestRosterAsync(Boolean versioniert, CancellationToken ct)
     {
+
+        var ver = versioniert
+                      ? $" ver='{XmlEscaping.Escape(Roster.Version ?? "")}'"
+                      : "";
 
         var response = await SendIqAsync(
                            "roster1",
                            "<iq type='get' id='roster1'>" +
-                           $"<query xmlns='{RosterStanzaBuilder.Namespace}'/>" +
+                           $"<query xmlns='{RosterStanzaBuilder.Namespace}'{ver}/>" +
                            "</iq>",
                            ct);
 
@@ -1924,18 +1945,40 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         var query = response.Child(RosterStanzaBuilder.Namespace, "query");
 
-        if (query is not null)
-            foreach (var itemElement in query.Children(RosterStanzaBuilder.Namespace, "item"))
-            {
+        // RFC 6121, Abschnitt 2.6.2: Ein Ergebnis ganz ohne <query/> heisst
+        // „unverändert" - der Zwischenspeicher bleibt, wie er ist. Das gilt
+        // aber nur, wenn wir überhaupt versioniert gefragt haben; sonst wäre es
+        // schlicht ein Server, der nichts geschickt hat.
+        if (query is null)
+        {
 
-                var jid = itemElement.Attr("jid");
+            if (versioniert)
+                _logger.LogDebug("Roster unverändert (Fassung {Version}), {Count} Kontakte aus dem Zwischenspeicher",
+                                 Roster.Version, Roster.Items.Count);
+            else
+                _logger.LogWarning("Roster-Antwort ohne <query/>");
 
-                if (!string.IsNullOrEmpty(jid))
-                    Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
+            return;
 
-            }
+        }
 
-        _logger.LogInformation("Roster geladen: {Count} Kontakte", Roster.Items.Count);
+        foreach (var itemElement in query.Children(RosterStanzaBuilder.Namespace, "item"))
+        {
+
+            var jid = itemElement.Attr("jid");
+
+            if (!string.IsNullOrEmpty(jid))
+                Roster.ProcessRosterItem(ToRosterItem(itemElement, jid));
+
+        }
+
+        // Die Fassung gehört zu genau diesem Stand und wird deshalb erst
+        // übernommen, nachdem er eingearbeitet ist.
+        if (query.Attr("ver") is string fassung)
+            Roster.Version = fassung;
+
+        _logger.LogInformation("Roster geladen: {Count} Kontakte (Fassung {Version})",
+                               Roster.Items.Count, Roster.Version ?? "ohne");
     }
 
     // ===== PUBLIC API =====
