@@ -1703,7 +1703,10 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     private async Task PerformSaslPlainAsync(CancellationToken ct)
     {
-        var authData = $"\0{_username}\0{_password}";
+        // RFC 4616, Abschnitt 2: Auch PLAIN schickt Benutzername und Passwort
+        // in der SASLprep-Form. Sonst hinge es am Mechanismus, ob dasselbe
+        // Passwort passt - über SCRAM vorbereitet, über PLAIN nicht.
+        var authData = $"\0{SaslPrep.Prepare(_username)}\0{SaslPrep.Prepare(_password)}";
         var authBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(authData));
 
         await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{authBase64}</auth>");

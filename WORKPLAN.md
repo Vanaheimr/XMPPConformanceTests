@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **505 Tests, 0 Fehler** in gut vier Minuten, und
+Aktueller Stand der Suite: **515 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1475,6 +1475,56 @@ Dateien: Ankündigung und Antwort. Stimmen sie nicht überein, ist dieser Client
 für jeden, der nach §5.4 prüft, ein Lügner.
 `AnIdentityWithXmlLang_SurvivesTheRoundTrip` lässt beide gegeneinander laufen.
 
+### D4. SASLprep, vollständig ✅ — Tabellen, die man nicht abschreibt
+
+Die Vorbereitung von Benutzername und Passwort bestand aus einer Zeile: NFKC.
+Das ist einer von vier Schritten. Es fehlten die Abbildungen (ein weiches
+Trennzeichen im Passwort blieb stehen, statt zu verschwinden), die
+Verbotstabellen (ein Steuerzeichen ging durch) und die Bidi-Prüfung ganz.
+
+Die Folge war nicht, dass jemand hereinkam, der nicht sollte, sondern das
+Gegenteil: Ein Passwort ausserhalb von ASCII wurde hier anders vorbereitet als
+bei Prosody oder ejabberd, und die Anmeldung scheiterte, ohne dass jemand hätte
+sagen können warum. Dasselbe getippte Passwort, zwei verschiedene Schlüssel.
+
+Dazu kam eine zweite Fassung derselben Kurzfassung: Client (`SCRAMAuthenticator`)
+und Server (`XMPPCredentials`) normalisierten jeder für sich. Zwei Kopien
+desselben Verfahrens sind zwei Gelegenheiten auseinanderzulaufen; jetzt ist es
+eine.
+
+**Die Tabellen sind nicht abgeschrieben, sondern erzeugt.** RFC 3454 führt rund
+neunhundert Codepoint-Bereiche, davon allein 396 für die in Unicode 3.2 nicht
+zugewiesenen und 360 für die linksläufigen Zeichen. Ein Tippfehler darin wäre
+praktisch nicht zu finden — er fällt erst auf, wenn ein bestimmtes Zeichen in
+einem Passwort vorkommt, und dann als Anmeldung, die grundlos scheitert.
+`tools/stringprep/generate.py` liest den RFC und schreibt
+`Jabber/Auth/StringPrepTables.cs`; wer die Tabellen anzweifelt, lässt ihn
+laufen und vergleicht.
+
+Dass die Tabellen auf Unicode 3.2 festgeschrieben sind, ist dabei kein
+Rückstand, sondern der Sinn der Sache — und
+`UnassignedCodePoints_AreRefused` belegt es an U+0221, den .NET längst als
+lateinischen Kleinbuchstaben kennt und RFC 3454 nicht.
+
+Elf Mutationen, zehn sofort erschlagen. Die elfte ist die lehrreiche: **der
+Client darf PLAIN unvorbereitet schicken, und alles blieb grün.** Der Grund ist,
+dass der Server vorbereitet, was bei ihm ankommt — die Anmeldung gelingt also
+so oder so, und mein Test sah nur auf sie. Gedeckt war damit die Server-Hälfte,
+nicht die des Clients. Gegen einen Server, der sich auf die Vorbereitung des
+Clients verlässt, wären wir aufgelaufen, ohne dass ein Test es gemerkt hätte.
+Jetzt prüft der Test, was auf der Leitung steht, statt was am Ende dabei
+herauskommt.
+
+Zweimal in Folge derselbe Fehler in meinen eigenen Tests: in D3 liess ich den
+Angriff zu früh scheitern, hier den Nachweis über die falsche Hälfte laufen.
+Beides sind Tests, die auf das Ergebnis sehen statt auf den Weg — und beide
+hätten ohne Mutationsdurchgang bestanden.
+
+Am Rande, aber nicht nebensächlich: `Verify` fängt eine misslungene
+Vorbereitung ab und meldet einen Fehlversuch. Was in einem
+PLAIN-`<auth/>` steht, bestimmt die Gegenstelle; ein Steuerzeichen darin darf
+nicht den Server umwerfen.
+
 ---
 
 ## Später
@@ -1482,8 +1532,8 @@ für jeden, der nach §5.4 prüft, ein Lügner.
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden
 - Roster-Versionierung nutzen (`Roster.Version` und `RosterStanzaBuilder.GetRoster` liegen ungenutzt herum)
-- RFC 7622: kein PRECIS, und der Resourcepart wird beim Vergleich fälschlich kleingeschrieben
-- SASLprep ist auf NFKC reduziert — für Nicht-ASCII-Passwörter falsch
+- RFC 7622: kein PRECIS, und der Resourcepart wird beim Vergleich fälschlich
+  kleingeschrieben — die StringPrep-Tabellen dafür lägen seit D4 bereit
 
 ### XEPs
 - XEP-0128: eigene erweiterte Angaben (Software, Version, Betriebssystem) werden

@@ -180,8 +180,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean Verify(String password)
         {
 
-            var mechanism  = SCRAMMechanism.ScramSha256;
-            var candidate  = DeriveKeys(password, _salt, IterationCount, mechanism);
+            var mechanism = SCRAMMechanism.ScramSha256;
+
+            SCRAMKeys candidate;
+
+            try
+            {
+                candidate = DeriveKeys(password, _salt, IterationCount, mechanism);
+            }
+            catch (AuthenticationException)
+            {
+                // Ein Passwort, das sich nicht nach SASLprep vorbereiten lässt,
+                // kann auf keinen gespeicherten Schlüssel führen. Das ist ein
+                // Fehlversuch und kein Serverfehler - über die Leitung kommt,
+                // was der Gegenüber schickt, und das darf hier nichts umwerfen.
+                return false;
+            }
 
             return CryptographicOperations.FixedTimeEquals(candidate.StoredKey,
                                                            _keys[mechanism].StoredKey);
@@ -219,16 +233,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// SASLprep (RFC 4013) in der Kurzfassung, die für ASCII genügt.
+        /// SASLprep (RFC 4013) - dieselbe Vorbereitung wie auf der Client-Seite.
         /// </summary>
         /// <remarks>
-        /// Vollständig verlangte es StringPrep (RFC 3454) samt Abbildungs- und
-        /// Verbotstabellen. Für ein Passwort ausserhalb von ASCII kann diese
-        /// Fassung ein anderes Ergebnis liefern als eine vollständige - dann
-        /// scheitert die Anmeldung, statt jemanden fälschlich einzulassen.
+        /// Dass hier <see cref="SaslPrep"/> steht und nicht eine eigene
+        /// Rechnung, ist der Punkt: Server und Client müssen aus derselben
+        /// Eingabe denselben Schlüssel gewinnen. Zwei Fassungen desselben
+        /// Verfahrens wären zwei Gelegenheiten auseinanderzulaufen, und
+        /// auffallen würde es erst bei einem Passwort ausserhalb von ASCII.
         /// </remarks>
         internal static String Normalize(String input)
-            => input.Normalize(NormalizationForm.FormKC);
+            => SaslPrep.Prepare(input);
 
         internal static HashAlgorithmName HashOf(SCRAMMechanism mechanism)
             => mechanism == SCRAMMechanism.ScramSha256

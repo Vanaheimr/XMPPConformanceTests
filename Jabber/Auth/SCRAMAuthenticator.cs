@@ -247,10 +247,10 @@ public sealed class SCRAMAuthenticator
             .Replace(",", "=2C");
     }
 
+    /// <summary>
+    /// RFC 5802, Abschnitt 5.1: Benutzername und Passwort gehen durch
+    /// SASLprep, bevor daraus ein Schlüssel wird.
+    /// </summary>
     private static string SaslPrep(string input)
-    {
-        // Vereinfachte SASLprep - für ASCII reicht das
-        // Volle Implementierung würde StringPrep (RFC 3454) brauchen
-        return input.Normalize(NormalizationForm.FormKC);
-    }
+        => XMPP.SaslPrep.Prepare(input);
 }

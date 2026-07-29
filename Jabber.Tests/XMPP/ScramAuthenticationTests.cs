@@ -31,13 +31,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
     ///
     /// Der Client beherrschte SCRAM von Anfang an, aber der Testserver bot nur
     /// PLAIN an - der ganze Pfad war deshalb nur gegen die Testvektoren aus dem
-    /// RFC geprüft, nie im Gespräch. Insbesondere die zweite Hälfte, in der der
-    /// Client die Signatur des Servers prüft, hatte keinen einzigen Test, der
+    /// RFC gepr\u00FCft, nie im Gespräch. Insbesondere die zweite Hälfte, in der der
+    /// Client die Signatur des Servers pr\u00FCft, hatte keinen einzigen Test, der
     /// sie beim Versagen erwischt hätte.
     ///
     /// Jetzt spricht der Server SCRAM, und weil der Client von sich aus den
-    /// stärksten angebotenen Mechanismus wählt, läuft die gesamte übrige Suite
-    /// ebenfalls darüber.
+    /// stärksten angebotenen Mechanismus wählt, läuft die gesamte \u00FCbrige Suite
+    /// ebenfalls dar\u00FCber.
     /// </summary>
     [TestFixture]
     public class ScramAuthenticationTests : AXMPPTests
@@ -158,7 +158,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// </summary>
         /// <remarks>
         /// Bei SCRAM merkt das der Server erst an der client-final-message -
-        /// das Passwort selbst geht nie über die Leitung, nur ein Beweis, dass
+        /// das Passwort selbst geht nie \u00FCber die Leitung, nur ein Beweis, dass
         /// der Client es kennt.
         /// </remarks>
         [Test]
@@ -216,7 +216,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <summary>
         /// Das <c>&lt;success/&gt;</c> trägt die server-final-message
         /// (RFC 5802, Abschnitt 3) - ohne sie hätte der Client nichts zu
-        /// prüfen.
+        /// pr\u00FCfen.
         /// </summary>
         [Test]
         public async Task Success_CarriesTheServerSignature()
@@ -253,7 +253,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Genau das ist die zweite Hälfte von SCRAM. Ein Zwischenmann, der
         /// das Passwort nicht kennt, kann den Client zwar zu einer
         /// client-final-message bewegen, aber diese Signatur nicht erzeugen.
-        /// Wer sie nicht prüft, hat sich einseitig statt gegenseitig
+        /// Wer sie nicht pr\u00FCft, hat sich einseitig statt gegenseitig
         /// authentifiziert.
         /// </remarks>
         [Test]
@@ -314,14 +314,115 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region ADifferentlyComposedPassword_StillMatches()
+
+        /// <summary>
+        /// Dasselbe Passwort, anders zusammengesetzt, muss dieselbe Anmeldung
+        /// ergeben — \u00FCber SCRAM wie \u00FCber PLAIN.
+        /// </summary>
+        /// <remarks>
+        /// Ein <c>\u00FC</c> kommt je nach Tastatur und Betriebssystem als ein
+        /// Zeichen an oder als <c>u</c> mit angehängten zwei Punkten. F\u00FCr den
+        /// Menschen davor ist das dasselbe Passwort; f\u00FCr einen Byte-Vergleich
+        /// nicht. Genau daf\u00FCr steht SASLprep vor der Schl\u00FCsselableitung — und
+        /// solange es nur aus einem NFKC bestand, hing es zusätzlich am
+        /// Mechanismus: SCRAM normalisierte, PLAIN gar nicht.
+        /// </remarks>
+        [Test]
+        public async Task ADifferentlyComposedPassword_StillMatches()
+        {
+
+            // Einmal zusammengesetzt, einmal zerlegt (u + kombinierendes Trema).
+            const String zusammengesetzt  = "Gr\u00FCße-42";
+            const String zerlegt          = "Gru\u0308ße-42";
+
+            Server.AddAccount("alice", zusammengesetzt);
+
+            var ueberScram = CreateClient("alice", password: zerlegt);
+            await ueberScram.ConnectAsync();
+
+            Assert.That(ueberScram.IsConnected, Is.True,
+                        "Über SCRAM muss die zerlegte Schreibweise passen.");
+
+            // Und dasselbe noch einmal, wenn der Server nur PLAIN anbietet.
+            Server.OfferedSaslMechanisms.Clear();
+            Server.OfferedSaslMechanisms.Add("PLAIN");
+
+            var ueberPlain = CreateClient("alice", password: zerlegt);
+            ueberPlain.Connection.Resource = "zweite";
+            await ueberPlain.ConnectAsync();
+
+            Assert.That(ueberPlain.IsConnected, Is.True,
+                        "Über PLAIN ebenso - sonst hinge es am Mechanismus.");
+
+            // Und hinausgegangen ist die vorbereitete Fassung.
+            //
+            // Dass die Anmeldung gelingt, belegt das nämlich nicht: Der Server
+            // bereitet vor, was bei ihm ankommt, und käme deshalb auch mit der
+            // zerlegten Fassung zurecht. Geprüft werden muss, was auf der
+            // Leitung steht - sonst bliebe die Client-Hälfte ungedeckt, und ein
+            // Server, der selbst nicht vorbereitet, liesse uns nicht mehr herein.
+            var sitzung   = Server.SessionOf(ueberPlain.FullJid)!;
+            var erwartet  = Convert.ToBase64String(
+                                System.Text.Encoding.UTF8.GetBytes($"\0alice\0{zusammengesetzt}"));
+
+            Assert.That(sitzung.Received.Any(f => f.Contains(erwartet, StringComparison.Ordinal)),
+                        Is.True,
+                        "Das <auth/> muss das nach SASLprep vorbereitete Passwort tragen.");
+
+        }
+
+        #endregion
+
+        #region AnUnusablePassword_IsRejectedAndDoesNotThrow()
+
+        /// <summary>
+        /// Ein Passwort, das sich nicht nach SASLprep vorbereiten lässt, ist
+        /// ein Fehlversuch — und kein Serverfehler.
+        /// </summary>
+        /// <remarks>
+        /// Der Weg dahin f\u00FChrt \u00FCber die Leitung: Was in einem
+        /// PLAIN-<c>&lt;auth/&gt;</c> steht, bestimmt die Gegenstelle, und ein
+        /// Steuerzeichen darin darf den Server nicht umwerfen. Die Pr\u00FCfung
+        /// wandert deshalb bewusst in ein <c>false</c> statt in eine Ausnahme.
+        /// </remarks>
+        [Test]
+        public async Task AnUnusablePassword_IsRejectedAndDoesNotThrow()
+        {
+
+            Server.AddAccount("alice");
+            Server.OfferedSaslMechanisms.Clear();
+            Server.OfferedSaslMechanisms.Add("PLAIN");
+
+            var konto = Server.GetAccount($"alice@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(() => konto.Credentials.Verify("pw\u0007"), Throws.Nothing,
+                            "Ein unbrauchbares Passwort darf keine Ausnahme auslösen.");
+
+                Assert.That(konto.Credentials.Verify("pw\u0007"), Is.False);
+
+                // Das richtige Passwort geht weiterhin durch.
+                Assert.That(konto.Credentials.Verify("pw"), Is.True);
+
+            });
+
+            await Task.CompletedTask;
+
+        }
+
+        #endregion
+
         #region ThePasswordNeverGoesOverTheWire()
 
         /// <summary>
-        /// Die Zusage, für die SCRAM überhaupt da ist: das Passwort taucht in
+        /// Die Zusage, f\u00FCr die SCRAM \u00FCberhaupt da ist: das Passwort taucht in
         /// keinem gesendeten Frame auf.
         /// </summary>
         /// <remarks>
-        /// Geprüft wird gegen ein auffälliges Passwort, damit ein zufälliges
+        /// Gepr\u00FCft wird gegen ein auffälliges Passwort, damit ein zufälliges
         /// Vorkommen in einem Base64-Block ausgeschlossen ist.
         /// </remarks>
         [Test]
@@ -339,7 +440,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var imKlartext = session.Received.Where(f => f.Contains(passwort, StringComparison.Ordinal)).ToList();
 
-            // Und dasselbe für die Base64-Fassung, wie PLAIN sie schicken würde.
+            // Und dasselbe f\u00FCr die Base64-Fassung, wie PLAIN sie schicken w\u00FCrde.
             var base64 = Convert.ToBase64String(
                              System.Text.Encoding.UTF8.GetBytes($"\0alice\0{passwort}"));
 

@@ -103,7 +103,7 @@ explizit angegeben werden, z. B. Prosody: `wss://<host>:5281/xmpp-websocket`.
 | Vier-Schritt-Handshake | ✅ |
 | Nonce-Prüfung gegen MITM | ✅ |
 | Server-Signatur-Verifikation (konstante Laufzeit) | ✅ Zwingend — ein `<success/>` ohne server-final-message bricht den Aufbau ab |
-| SASLprep (RFC 4013) | ⚠️ Auf NFKC-Normalisierung reduziert — nur für ASCII zuverlässig |
+| SASLprep (RFC 4013) | ✅ Vollständig: Abbildung, NFKC, Verbotstabellen, nicht zugewiesene Codepoints und die Bidi-Regeln; gegen die Beispieltabelle aus §3 geprüft |
 | Channel Binding (RFC 9266 `tls-exporter`) | ❌ |
 
 ### RFC 7622 — JID-Behandlung
@@ -593,6 +593,8 @@ nicht gegen sich selbst:
 | RFC 7677 §3 | SCRAM-SHA-256: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
 | XEP-0115 §5.2 | Verification String `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ exakt reproduziert |
 | XEP-0115 §5.3 | Verification String `q07IKJEyjvHSyhy//CH0CxmKi8w=` (zwei Sprachen, ein Datenformular) | ✅ exakt reproduziert |
+| RFC 4013 §3 | SASLprep-Beispieltabelle, alle sieben Zeilen | ✅ exakt reproduziert |
+| RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
 | XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 
 Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
