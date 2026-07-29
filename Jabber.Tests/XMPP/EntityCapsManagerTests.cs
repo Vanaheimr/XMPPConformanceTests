@@ -257,6 +257,59 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region SoftwareInfo_OmitsWhatIsNotGiven()
+
+        /// <summary>
+        /// XEP-0232: Was nicht angegeben wird, taucht im Formular nicht auf -
+        /// und zwar für jedes der vier Felder einzeln.
+        /// </summary>
+        /// <remarks>
+        /// Ein leeres Feld ist nicht dasselbe wie ein fehlendes: Es ginge in
+        /// den Verification String ein und machte den Hash von dem einer
+        /// Entity verschieden, die dieselbe Auskunft gibt. „Ich sage nichts
+        /// über mein Betriebssystem" und „mein Betriebssystem heisst
+        /// Leerstring" sind zwei verschiedene Aussagen, und nur die erste ist
+        /// gemeint.
+        ///
+        /// Jedes Feld für sich, weil ein Test, der immer alle vier füllt, die
+        /// Regel nur an dem einen prüft, das er weglässt.
+        /// </remarks>
+        [Test]
+        public void SoftwareInfo_OmitsWhatIsNotGiven()
+        {
+
+            var leer = DiscoForm.SoftwareInfo();
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(leer.Fields, Has.Count.EqualTo(1),
+                            "Ohne jede Angabe bleibt allein das FORM_TYPE-Feld.");
+
+                Assert.That(leer.FormType, Is.EqualTo("urn:xmpp:dataforms:softwareinfo"));
+
+                // Und jedes Feld einzeln: genau das angegebene ist da.
+                Assert.That(Felder(DiscoForm.SoftwareInfo(Software:        "J")),
+                            Is.EqualTo(new[] { "software" }));
+
+                Assert.That(Felder(DiscoForm.SoftwareInfo(SoftwareVersion: "1")),
+                            Is.EqualTo(new[] { "software_version" }));
+
+                Assert.That(Felder(DiscoForm.SoftwareInfo(OperatingSystem: "W")),
+                            Is.EqualTo(new[] { "os" }));
+
+                Assert.That(Felder(DiscoForm.SoftwareInfo(OSVersion:       "11")),
+                            Is.EqualTo(new[] { "os_version" }));
+
+            });
+
+            static String[] Felder(DiscoForm form)
+                => [.. form.Fields.Where(f => !f.IsFormType).Select(f => f.Var)];
+
+        }
+
+        #endregion
+
         #region Forms_FieldsAndValues_AreAllSorted()
 
         /// <summary>

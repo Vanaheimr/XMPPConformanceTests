@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **526 Tests, 0 Fehler** in gut zweieinhalb Minuten, und
+Aktueller Stand der Suite: **529 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1575,6 +1575,53 @@ Behoben mit `juliet@example.com/foo/bar` (der Fall, den Abschnitt 3.4 selbst
 nennt), der Ligatur ﬁ (ein Kleinbuchstabe, der kompatibel in „fi" zerfällt) und
 den beiden leeren Teilen je für sich.
 
+### D6. Die eigenen erweiterten Angaben ✅ — und ein Fenster, das der Test selbst aufriss
+
+Fremde XEP-0128-Formulare las dieser Client seit D3; eigene lieferte er keine.
+`DiscoManager.LocalForms` schliesst die Lücke, und `DiscoForm.SoftwareInfo`
+baut den üblichen Fall aus XEP-0232.
+
+Zwei Dinge daran sind Entscheidungen und keine Selbstverständlichkeiten:
+
+- **Die Liste fängt leer an.** Was dort steht, erfährt jeder Kontakt ungefragt,
+  und Software, Fassung und Betriebssystem sind genau die Angaben, aus denen
+  sich ein Gerät wiedererkennen lässt. Eine Vorgabe, die etwas veröffentlicht,
+  wäre eine Vorgabe gegen den Nutzer. `WithoutOwnForms_NothingIsAnnounced` hält
+  das fest.
+- **Nicht Angegebenes wird kein leeres Feld.** „Ich sage nichts über mein
+  Betriebssystem" und „mein Betriebssystem heisst Leerstring" sind zwei
+  verschiedene Aussagen; nur die erste ist gemeint, und die zweite ergäbe einen
+  anderen Hash.
+
+Sieben Mutationen. Sechs fielen sofort — darunter beide Hälften, die
+zusammengehören: Formular nicht in die Antwort (der Hash stimmt dann nicht) und
+Formular nicht in den Hash (die Antwort stimmt dann nicht). Beide Male wären
+wir für jede prüfende Gegenstelle ein Fälscher gewesen, bei völlig ehrlicher
+Auskunft.
+
+Die siebte überlebte zunächst und ist wieder dieselbe Sorte: „nicht angegeben
+wird zu leerem Feld", angewandt auf `software` — ein Feld, das mein Test immer
+füllte. Geprüft war die Regel nur an dem einen Feld, das ich weggelassen hatte.
+Jetzt prüft ein Test alle vier einzeln.
+
+**Und ein Fund, der nicht aus dem Mutationsdurchgang kam, sondern aus einem
+einzelnen roten Lauf:** `OwnDataForm_SurvivesTheRoundTrip` schlug einmal unter
+etwa fünf Läufen fehl. Die Ursache ist kein Fehler im Code, sondern eine
+Eigenschaft des Protokolls, die der Test selbst herbeigeführt hat. Alice ändert
+ihre Auskunft nach dem Verbinden und schickt eine neue Presence; zwischen
+beidem liegt ein Fenster, in dem der alte `ver`-Wert angekündigt ist und schon
+die neue Antwort gegeben würde. Wer darin fragt, bekommt zu Recht eine
+Abweichung gemeldet — genau das, was D2 eingebaut hat.
+
+Der Test wartet jetzt, bis die neue Presence beim Server steht, bevor Bob
+dazukommt. Derselbe Fenstergriff steckte seit D3 in
+`AnIdentityWithXmlLang_SurvivesTheRoundTrip`, ohne je aufzufallen; er ist
+mitbehoben.
+
+Das ist der Nachtrag zu der Regel aus D5: Ein Testaufbau kann eine Lage
+herstellen, die es im gemeinten Ablauf gar nicht gibt — und dann ist nicht der
+Code zu ändern, sondern der Aufbau.
+
 ---
 
 ## Später
@@ -1588,8 +1635,6 @@ den beiden leeren Teilen je für sich.
   (siehe D5)
 
 ### XEPs
-- XEP-0128: eigene erweiterte Angaben (Software, Version, Betriebssystem) werden
-  nicht ausgeliefert — gelesen werden fremde bereits (siehe D3)
 - XEP-0030: die eigene disco#info-Antwort setzt kein `node`-Attribut
 - XEP-0060: IQ-Ergebnisse korrelieren, Fehler nicht mehr verschlucken
 

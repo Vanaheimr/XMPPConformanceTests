@@ -69,6 +69,23 @@ public sealed class DiscoManager
         "http://jabber.org/protocol/caps"
     ];
 
+    /// <summary>
+    /// XEP-0128: Die eigenen erweiterten Angaben, die an jede
+    /// disco#info-Antwort angehängt werden.
+    /// </summary>
+    /// <remarks>
+    /// Leer als Vorgabe, und das mit Absicht. Was hier steht, erfährt jeder
+    /// Kontakt, ohne zu fragen - Software, Fassung und Betriebssystem sind
+    /// genau die Angaben, aus denen sich ein Gerät wiedererkennen lässt. Wer
+    /// sie veröffentlichen will, tut es; von selbst geschieht es nicht.
+    ///
+    /// Der Inhalt geht in den Verification String nach XEP-0115 ein (siehe
+    /// <see cref="EntityCapsManager"/>). Er wird also mit angekündigt, und die
+    /// Gegenstelle rechnet ihn nach - ändern lässt er sich deshalb nur
+    /// zusammen mit einer neuen Presence.
+    /// </remarks>
+    public List<DiscoForm> LocalForms { get; } = [];
+
     public DiscoManager(Func<string, Task> sendStanza)
     {
         _sendStanza = sendStanza;
@@ -306,6 +323,33 @@ public sealed class DiscoManager
         foreach (var feature in LocalFeatures)
         {
             sb.Append($"<feature var='{feature}'/>");
+        }
+
+        // XEP-0128: die erweiterten Angaben, falls welche hinterlegt sind.
+        foreach (var form in LocalForms)
+        {
+
+            sb.Append($"<x xmlns='{DataFormNamespace}' type='result'>");
+
+            foreach (var field in form.Fields)
+            {
+
+                sb.Append($"<field var='{XmlEscaping.Escape(field.Var)}'");
+
+                if (field.Type is not null)
+                    sb.Append($" type='{XmlEscaping.Escape(field.Type)}'");
+
+                sb.Append('>');
+
+                foreach (var value in field.Values)
+                    sb.Append($"<value>{XmlEscaping.Escape(value)}</value>");
+
+                sb.Append("</field>");
+
+            }
+
+            sb.Append("</x>");
+
         }
 
         sb.Append("</query></iq>");

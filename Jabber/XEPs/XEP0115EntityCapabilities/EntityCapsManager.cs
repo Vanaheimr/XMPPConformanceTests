@@ -74,8 +74,15 @@ public sealed class EntityCapsManager
     /// <summary>
     /// Berechnet den Verification String (SHA-1 Hash der Features)
     /// </summary>
+    /// <remarks>
+    /// Die eigenen Datenformulare gehen mit ein - sie stehen ja auch in der
+    /// eigenen disco#info-Antwort. Blieben sie hier aussen vor, kündigte
+    /// dieser Client einen Hash an, den seine eigene Antwort nicht ergibt, und
+    /// jede Gegenstelle, die nach XEP-0115, Abschnitt 5.4 nachrechnet, hielte
+    /// ihn für einen Fälscher.
+    /// </remarks>
     public string CalculateVerificationString()
-        => VerificationString(_disco.LocalIdentities, _disco.LocalFeatures);
+        => VerificationString(_disco.LocalIdentities, _disco.LocalFeatures, _disco.LocalForms);
 
     /// <summary>
     /// Der Verification String nach XEP-0115, Abschnitt 5.1, über beliebige

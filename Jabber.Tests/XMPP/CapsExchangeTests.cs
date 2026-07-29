@@ -131,13 +131,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await alice.Connection.SendPresenceAsync();
 
+            var neuerVer = alice.Connection.EntityCaps!.CalculateVerificationString();
+
+            // Siehe OwnDataForm_SurvivesTheRoundTrip: erst wenn die neue
+            // Presence beim Server steht, ist die Ankündigung wieder mit der
+            // Antwort in Übereinstimmung.
+            await WaitFor(() => Server.SessionOf(alice.FullJid)?.LastPresence?
+                                      .Contains(neuerVer, StringComparison.Ordinal) == true,
+                          "Alices neue Presence beim Server");
+
             var bob = await ConnectClientAsync("bob");
 
             var abgelehnt = new List<String>();
             bob.Connection.EntityCaps!.OnCapsRejected += (from, grund) => abgelehnt.Add(grund);
 
-            var schluessel = $"{alice.Connection.EntityCaps!.Node}#" +
-                             $"{alice.Connection.EntityCaps!.CalculateVerificationString()}";
+            var schluessel = $"{alice.Connection.EntityCaps!.Node}#{neuerVer}";
 
             await WaitFor(() => bob.Connection.EntityCaps!.GetCachedInfo(schluessel) is not null,
                           "Alices geprüfte Capabilities in Bobs Cache");
@@ -153,6 +161,127 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(abgelegt.Identities[0].Language, Is.EqualTo("en"),
                             "Die Sprache muss in der eigenen Antwort stehen.");
 
+            });
+
+        }
+
+        #endregion
+
+        #region OwnDataForm_SurvivesTheRoundTrip()
+
+        /// <summary>
+        /// XEP-0128: Was in <c>LocalForms</c> steht, geht in die eigene
+        /// disco#info-Antwort <b>und</b> in den angekündigten Hash.
+        /// </summary>
+        /// <remarks>
+        /// Die beiden gehören zusammen, liegen aber in verschiedenen Dateien -
+        /// die Ankündigung im <c>EntityCapsManager</c>, die Antwort im
+        /// <c>DiscoManager</c>. Ginge das Formular nur in eines von beiden ein,
+        /// wären wir für jede Gegenstelle, die nach XEP-0115 §5.4 nachrechnet,
+        /// ein Fälscher: angekündigter und errechneter Hash gingen auseinander,
+        /// und zwar bei völlig ehrlicher Auskunft.
+        ///
+        /// Der Wert mit <c>&amp;</c> und <c>&lt;</c> ist kein Übermut: Er geht
+        /// durch XML und muss unbeschädigt wieder herauskommen. Käme er
+        /// verändert an, stimmte auch der Hash nicht mehr - der Fehler sähe
+        /// dann aus wie eine Fälschung.
+        /// </remarks>
+        [Test]
+        public async Task OwnDataForm_SurvivesTheRoundTrip()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice = await ConnectClientAsync("alice");
+
+            alice.Connection.Disco!.LocalForms.Add(
+                DiscoForm.SoftwareInfo(Software:         "Jabber & Co <Testfassung>",
+                                       SoftwareVersion:  "0.1",
+                                       OperatingSystem:  "Windows"));
+
+            await alice.Connection.SendPresenceAsync();
+
+            var neuerVer = alice.Connection.EntityCaps!.CalculateVerificationString();
+
+            // Bob darf erst danach kommen. Zwischen der geänderten Auskunft und
+            // der neuen Presence liegt ein Fenster, in dem Alice noch den alten
+            // ver-Wert angekündigt hat und schon die neue Antwort gäbe - wer
+            // darin fragt, bekommt zu Recht eine Abweichung gemeldet. Das ist
+            // kein Fehler, sondern der Preis dafür, dass sich Capabilities
+            // ändern können; nur hat er in diesem Test nichts zu suchen.
+            await WaitFor(() => Server.SessionOf(alice.FullJid)?.LastPresence?
+                                      .Contains(neuerVer, StringComparison.Ordinal) == true,
+                          "Alices neue Presence beim Server");
+
+            var bob = await ConnectClientAsync("bob");
+
+            var abgelehnt = new List<String>();
+            bob.Connection.EntityCaps!.OnCapsRejected += (from, grund) => abgelehnt.Add(grund);
+
+            var schluessel = $"{alice.Connection.EntityCaps!.Node}#{neuerVer}";
+
+            await WaitFor(() => bob.Connection.EntityCaps!.GetCachedInfo(schluessel) is not null,
+                          "Alices geprüfte Capabilities in Bobs Cache");
+
+            var abgelegt  = bob.Connection.EntityCaps!.GetCachedInfo(schluessel)!;
+            var formular  = abgelegt.Forms.SingleOrDefault();
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgelehnt, Is.Empty,
+                            $"Die eigene Ankündigung wurde abgelehnt: {String.Join(" | ", abgelehnt)}");
+
+                Assert.That(formular, Is.Not.Null, "Das Formular fehlt in der Antwort.");
+
+                Assert.That(formular!.FormType,
+                            Is.EqualTo("urn:xmpp:dataforms:softwareinfo"));
+
+                Assert.That(formular.Fields.Single(f => f.Var == "software").Values.Single(),
+                            Is.EqualTo("Jabber & Co <Testfassung>"),
+                            "Der Wert muss die XML-Runde unbeschädigt überstehen.");
+
+                Assert.That(formular.Fields.Any(f => f.Var == "os_version"), Is.False,
+                            "Eine nicht angegebene Auskunft darf kein leeres Feld werden.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WithoutOwnForms_NothingIsAnnounced()
+
+        /// <summary>
+        /// Die Gegenprobe zur Vorgabe: Ohne eigenes Zutun veröffentlicht
+        /// dieser Client keine erweiterten Angaben.
+        /// </summary>
+        /// <remarks>
+        /// Software, Fassung und Betriebssystem sind genau die Angaben, aus
+        /// denen sich ein Gerät wiedererkennen lässt, und jeder Kontakt bekommt
+        /// sie ungefragt. Dass die Liste leer anfängt, ist deshalb eine
+        /// Entscheidung und kein Zufall - und gehört abgesichert wie jede
+        /// andere.
+        /// </remarks>
+        [Test]
+        public async Task WithoutOwnForms_NothingIsAnnounced()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice = await ConnectClientAsync("alice");
+            var bob   = await ConnectClientAsync("bob");
+
+            var schluessel = $"{alice.Connection.EntityCaps!.Node}#" +
+                             $"{alice.Connection.EntityCaps!.CalculateVerificationString()}";
+
+            await WaitFor(() => bob.Connection.EntityCaps!.GetCachedInfo(schluessel) is not null,
+                          "Alices geprüfte Capabilities in Bobs Cache");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(alice.Connection.Disco!.LocalForms, Is.Empty);
+                Assert.That(bob.Connection.EntityCaps!.GetCachedInfo(schluessel)!.Forms, Is.Empty);
             });
 
         }

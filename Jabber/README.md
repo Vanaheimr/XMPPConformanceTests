@@ -52,7 +52,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; IQ-Ergebnisse werden nicht korreliert |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
-| XEP-0128 | Service Discovery Extensions | ⚠️ | Formulare werden gelesen und gehen in den ver-String ein; eigene Formulare werden nicht ausgeliefert |
+| XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
@@ -667,11 +667,22 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
 
 ### Architektur
-- **Eigene erweiterte Angaben fehlen.** Fremde XEP-0128-Formulare werden
-  gelesen und gehen in den Verification String ein; die eigene
-  disco#info-Antwort trägt keine. Das ist keine Lücke in der Prüfung, nur eine
-  im Auskunftsumfang — Software, Version und Betriebssystem sagt dieser Client
-  nicht.
+- **Eigene erweiterte Angaben sind abschaltbar und standardmäßig aus.**
+  `DiscoManager.LocalForms` fängt leer an. Was dort steht, erfährt jeder
+  Kontakt ungefragt — Software, Version und Betriebssystem sind genau die
+  Angaben, aus denen sich ein Gerät wiedererkennen lässt. Wer sie
+  veröffentlichen will:
+
+  ```csharp
+  client.Connection.Disco!.LocalForms.Add(
+      DiscoForm.SoftwareInfo(Software: "Jabber", SoftwareVersion: "0.1"));
+  ```
+
+  Der Inhalt geht in den angekündigten `ver`-Wert ein. Er lässt sich deshalb
+  nur zusammen mit einer neuen Presence ändern — in der Zeit dazwischen kündigt
+  der Client einen Hash an, den seine Antwort nicht mehr ergibt, und eine
+  Gegenstelle, die nach XEP-0115 §5.4 nachrechnet, verwirft die Auskunft (zu
+  Recht) als nicht belegt.
 - **Log-Ausgabe und Konsolen-UI überlagern sich.** Der Standard-Konsolenlogger
   schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
   eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
