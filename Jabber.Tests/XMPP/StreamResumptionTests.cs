@@ -96,6 +96,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private static String? EnabledFrame(XMPPSession session)
             => session.Sent.LastOrDefault(f => f.StartsWith("<enabled", StringComparison.Ordinal));
 
+        /// <summary>
+        /// Reisst die Sitzung ab und wartet, bis der Server sie als
+        /// wiederaufnehmbar abgelegt hat.
+        /// </summary>
+        /// <remarks>
+        /// Ohne dieses Warten steht in jedem Test, der eine gelungene
+        /// Wiederaufnahme erwartet, ein Wettlauf: Der Client kommt nach seiner
+        /// Reconnect-Frist wieder, der Server legt die Sitzung in seinem
+        /// eigenen Takt ab. Kommt der Client zuerst, findet sein
+        /// <c>&lt;resume/&gt;</c> nichts vor und bindet neu — was richtig ist,
+        /// nur prüft der Test dann etwas anderes, als er soll.
+        ///
+        /// Aufgefallen als seltener Fehlschlag im vollen Durchlauf, nie allein.
+        /// Die Meldung lautete dann „der Stream wurde neu ausgehandelt" — was
+        /// zutraf und über den geprüften Code nichts aussagte. Mit dieser
+        /// Vorbedingung schlägt stattdessen sie fehl, und zwar mit dem Grund.
+        /// </remarks>
+        private async Task KillAndAwaitParked(XMPPSession session)
+        {
+
+            session.Kill();
+
+            await WaitFor(() => Server.ResumableStreamCount > 0,
+                          "die vom Server abgelegte Sitzung");
+
+        }
+
         #endregion
 
 
@@ -409,7 +436,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                     Interlocked.Increment(ref wiederVerbunden);
             };
 
-            sitzung.Kill();
+            await KillAndAwaitParked(sitzung);
 
             await WaitFor(() => wiederVerbunden > 0,
                           "die wiederaufgenommene Sitzung",
@@ -592,21 +619,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                     Interlocked.Increment(ref wiederVerbunden);
             };
 
-            sitzung.Kill();
+            await KillAndAwaitParked(sitzung);
 
             await WaitFor(() => wiederVerbunden > 0,
                           "die wiederaufgenommene Sitzung",
                           TimeSpan.FromSeconds(20));
 
-            // Dieselbe Frist wie beim Warten auf die Wiederaufnahme darüber.
-            // Unter Last - die volle Sammlung läuft nebenher - hat die
-            // Vorgabe von zehn Sekunden gelegentlich nicht gereicht; allein
-            // lief dieser Test zwanzigmal ohne Beanstandung durch. Es ist also
-            // eine Frage der Wartezeit und keine der Zustellung.
+            // Hier stand in D7 eine verlängerte Frist, weil dieser Test unter
+            // Last gelegentlich rot wurde. Das war die falsche Erklärung: Es
+            // ging nie um Wartezeit, sondern um eine Warteschlange, die von
+            // selbst nicht leer wurde, solange das Nachsenden keine
+            // Bestätigung anforderte (siehe D9). Die Frist steht wieder auf
+            // dem Vorgabewert.
             await WaitFor(() => alice.StreamManagement.UnackedCount == 0,
-                          $"das Leeren der Warteschlange durch das h im <resumed/> " +
-                          $"(offen: {alice.StreamManagement.UnackedCount})",
-                          TimeSpan.FromSeconds(20));
+                          "das Leeren der Warteschlange nach der Wiederaufnahme");
 
             await WaitAgainst(() => { lock (angekommen) return angekommen.Count > 1; },
                               "eine zweite Zustellung derselben Nachricht");
@@ -724,7 +750,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                     Interlocked.Increment(ref wiederVerbunden);
             };
 
-            sitzung.Kill();
+            await KillAndAwaitParked(sitzung);
 
             await WaitFor(() => wiederVerbunden > 0,
                           "die wiederaufgenommene Sitzung",
@@ -738,8 +764,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             // Sequenznummer bereits. Zählte der Client sie ein zweites Mal,
             // liefe sein Ausgangszähler dem Empfangszähler des Servers davon,
             // und ab da bestätigte jedes <a h='…'/> die falschen Stanzas.
-            await alice.StreamManagement.RequestAckAsync();
-
+            //
+            // Hier stand einmal ein RequestAckAsync von Hand. Es war nötig,
+            // weil das Nachsenden selbst nicht nachfragte - und es verdeckte
+            // damit genau den Fehler, den es hätte zeigen können (siehe D9).
             await WaitFor(() => alice.StreamManagement.LastAcknowledged ==
                                 alice.StreamManagement.OutboundCount,
                           "einen Ack über genau den eigenen Stand");

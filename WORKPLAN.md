@@ -1728,9 +1728,81 @@ der Arbeit enthielten diesen Test nicht. Drei volle Läufe hintereinander,
 jeder mit demselben Fehlschlag: kein Flackern, sondern ein Regressionsfehler,
 und ohne den vollen Durchlauf wäre er mitgegangen.
 
+### D9. Das Nachsenden fragt nach ✅ — und die Notlösung aus D7 fällt weg
+
+In D7 wurde `TheResumedCountPreventsADoubleDelivery` einmal unter Volllast rot.
+Ich habe damals die Wartezeit verlängert und offen vermerkt, dass die Ursache
+nicht gefunden ist. Sie ist es jetzt, und die Wartezeit war die falsche
+Antwort.
+
+`ResendUnackedAsync` schickt nach einer Wiederaufnahme alles Offene noch einmal
+hinaus — und fragte danach nach nichts. Das `<resumed h='…'/>` hat die
+Warteschlange nur bis zum Stand des Servers geleert; was darüber hinaus offen
+war, wartete auf ein `<a/>`, das von selbst nie kam. Der Server bestätigt, wenn
+er gefragt wird, und gefragt hat allein der Keepalive.
+
+Damit gab es zwei Fassungen desselben Fehlers:
+
+- **Keepalive an** (die Vorgabe): Die Warteschlange bleibt bis zum nächsten
+  `<r/>` stehen, also bis zu 25 Sekunden. Ärgerlich, aber begrenzt.
+- **Keepalive aus**: Sie bleibt für immer stehen. Und bei jeder weiteren
+  Wiederaufnahme geht alles darin noch einmal hinaus.
+
+Warum das nur unter Last auffiel: Ob nach dem `<resumed/>` überhaupt etwas
+offen bleibt, hängt davon ab, ob der Server beim Abriss schon alles verarbeitet
+hatte. Bei ruhiger Maschine hatte er das — und die Warteschlange war ohne
+Zutun leer.
+
+**Der Test, der es hätte zeigen können, hat es verdeckt.** In R7 stand in
+`StanzasLostInFlight_GoOutAgainAfterResumption` ein `RequestAckAsync` von Hand.
+Ich hatte es dort hingeschrieben, weil die Warteschlange sonst nicht leer wurde
+— und genau das war der Befund, den ich als Testbedarf gelesen habe statt als
+Fehler. Der Aufruf ist weg; ohne die Korrektur ist der Test rot, mit ihr grün.
+
+Zwei Mutationen, beide von diesem Test erschlagen: gar nicht nachfragen, und
+vor dem Nachsenden fragen statt danach. Die zweite ist die feinere — ein `<r/>`
+vor den nachgesendeten Stanzas holt eine Bestätigung über den Stand *davor*,
+und die Warteschlange bleibt genauso stehen.
+
+Die verlängerte Frist aus D7 steht wieder auf dem Vorgabewert.
+
+Die Lehre ist unbequemer als die aus D3 bis D5. Dort haben Tests etwas nicht
+gemessen; hier hat ein Test einen echten Fehler **umschifft**, und ich habe die
+Umschiffung selbst geschrieben und im Commit sogar begründet. Wenn ein Test
+eine Handreichung braucht, damit er durchläuft, ist die erste Frage nicht, wie
+man sie am besten formuliert, sondern warum er sie braucht.
+
+**Ein zweiter, davon unabhängiger Wettlauf** kam bei der Prüfung ans Licht und
+ist mitbehoben: `TheClientResumesInsteadOfBindingAnew` wurde in einem von vier
+vollen Läufen rot, mit der Meldung „der Stream wurde neu ausgehandelt". Das
+traf zu und sagte über den geprüften Code nichts. Ursache ist die Reihenfolge
+zwischen zwei Uhren: Der Client kommt nach seiner Reconnect-Frist wieder, der
+Server legt die abgerissene Sitzung in seinem eigenen Takt ab. Ist er noch
+nicht so weit, findet das `<resume/>` nichts vor und der Client bindet neu —
+richtig gehandelt, nur nicht das, was der Test prüfen wollte.
+
+`KillAndAwaitParked` wartet jetzt an den drei Stellen, an denen eine gelungene
+Wiederaufnahme die Voraussetzung ist, auf `ResumableStreamCount > 0`. Schlägt
+es doch fehl, steht der Grund in der Meldung.
+
+Ob dieser Wettlauf schon vorher bestand, ist offen: Vier Läufe auf dem Stand
+von D8 blieben grün, vier mit der Korrektur ergaben einen roten — bei einem
+einzigen Ereignis lässt sich das nicht auseinanderhalten. Ein Zusammenhang mit
+dem zusätzlichen `<r/>` ist nicht zu erkennen (es wird als Nonza nicht
+mitgezählt und geht erst nach dem Start der Empfangsschleife hinaus),
+ausgeschlossen ist er damit aber nicht.
+
 ---
 
 ## Später
+
+### Tests
+- `IqWithoutId_IsNotAnswered` ist nach Konstruktion wackelig und wurde in einem
+  von vier vollen Läufen rot (D9). Er wartet eine Sekunde darauf, dass die Zahl
+  der vom Client empfangenen Rahmen *überhaupt* nicht steigt — und zählt damit
+  auch alles mit, was mit dem geprüften IQ nichts zu tun hat. Richtig wäre, auf
+  eine Antwort mit dem fraglichen Inhalt zu warten statt auf Stille. Nicht
+  behoben, weil es nicht zur Wiederaufnahme gehört.
 
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden

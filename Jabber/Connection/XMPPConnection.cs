@@ -832,6 +832,18 @@ public sealed class XMPPConnection : IAsyncDisposable
         foreach (var stanza in offen)
             await SendAsync(stanza, track: false);
 
+        // Und danach nach einer Bestätigung fragen.
+        //
+        // Ohne das bleibt die Warteschlange stehen. Das <resumed h='…'/> hat
+        // sie nur bis zum Stand des Servers geleert; was darüber hinaus
+        // offen war, ist gerade noch einmal hinausgegangen und wartet nun auf
+        // ein <a/>, das von selbst nie kommt: Der Server bestätigt, wenn er
+        // gefragt wird, und der Keepalive fragt nur, wenn er eingeschaltet
+        // ist. Aus einer Störung wurde so eine Warteschlange, die bis zum
+        // Ende der Sitzung nicht mehr leer wird - und bei jeder weiteren
+        // Wiederaufnahme noch einmal komplett hinausging.
+        await StreamManagement!.RequestAckAsync();
+
     }
 
     private async Task SendAsync(string xml, bool track = true)

@@ -54,7 +54,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme |
+| XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
