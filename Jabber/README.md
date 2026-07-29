@@ -51,7 +51,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0030 | Service Discovery | ⚠️ | Abfrage + Antwort; Antwort setzt kein `node`-Attribut |
 | XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; IQ-Ergebnisse werden nicht korreliert |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
-| XEP-0115 | Entity Capabilities | ⚠️ | Antwort-Hash wird nach §5.4 geprüft, sonst kein Cache-Eintrag; XEP-0128-Datenformulare fehlen im ver-String und werden deshalb nicht gecacht |
+| XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
+| XEP-0128 | Service Discovery Extensions | ⚠️ | Formulare werden gelesen und gehen in den ver-String ein; eigene Formulare werden nicht ausgeliefert |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
@@ -591,6 +592,7 @@ nicht gegen sich selbst:
 | RFC 5802 §5 | SCRAM-SHA-1: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
 | RFC 7677 §3 | SCRAM-SHA-256: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
 | XEP-0115 §5.2 | Verification String `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ exakt reproduziert |
+| XEP-0115 §5.3 | Verification String `q07IKJEyjvHSyhy//CH0CxmKi8w=` (zwei Sprachen, ein Datenformular) | ✅ exakt reproduziert |
 | XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 
 Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
@@ -638,14 +640,11 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
 
 ### Architektur
-- **Caps-Hash deckt keine XEP-0128-Datenformulare ab.** XEP-0115 §5.1 nimmt
-  `FORM_TYPE`-Felder mit in den Verification String auf;
-  `VerificationString` verarbeitet nur Identitäten und Features. Für die eigene
-  Ankündigung stimmt der Hash trotzdem, weil die eigene disco#info-Antwort keine
-  Formulare enthält. Für fremde ist die Folge, dass eine Antwort **mit**
-  Formular nicht geprüft werden kann und deshalb ungecacht bleibt — richtig, aber
-  es kostet den Nutzen von XEP-0115 gegenüber genau diesen Gegenstellen. Das ist
-  der nächste Schritt an dieser Stelle.
+- **Eigene erweiterte Angaben fehlen.** Fremde XEP-0128-Formulare werden
+  gelesen und gehen in den Verification String ein; die eigene
+  disco#info-Antwort trägt keine. Das ist keine Lücke in der Prüfung, nur eine
+  im Auskunftsumfang — Software, Version und Betriebssystem sagt dieser Client
+  nicht.
 - **Log-Ausgabe und Konsolen-UI überlagern sich.** Der Standard-Konsolenlogger
   schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
   eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,

@@ -20,7 +20,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// <summary>
 /// XEP-0030: Identität einer Entity (category/type/name).
 /// </summary>
-public sealed record DiscoIdentity(string Category, string Type, string? Name = null)
+/// <param name="Language">
+/// Das <c>xml:lang</c> der Identität. Eine Entity darf denselben Namen in
+/// mehreren Sprachen führen; im Verification String steht die Sprache zwischen
+/// Typ und Name (XEP-0115, Abschnitt 5.1), und ohne sie ergibt eine solche
+/// Antwort einen anderen Hash als bei ihrem Urheber.
+///
+/// Steht bewusst hinter <c>Name</c> statt an der Stelle, an die sie im Hash
+/// gehört: So bleibt jeder bestehende Aufruf gültig.
+/// </param>
+public sealed record DiscoIdentity(string   Category,
+                                   string   Type,
+                                   string?  Name       = null,
+                                   string?  Language   = null)
 {
     public override string ToString() => Name != null ? $"{Category}/{Type} ({Name})" : $"{Category}/{Type}";
 }

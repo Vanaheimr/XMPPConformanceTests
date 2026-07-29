@@ -79,7 +79,7 @@ public sealed class EntityCapsManager
 
     /// <summary>
     /// Der Verification String nach XEP-0115, Abschnitt 5.1, über beliebige
-    /// Identitäten und Features.
+    /// Angaben.
     /// </summary>
     /// <remarks>
     /// Die Rechnung war bis dahin nur auf die eigenen Angaben anwendbar - und
@@ -89,17 +89,19 @@ public sealed class EntityCapsManager
     /// sondern der Hash über das, was sie auf disco#info antwortet.
     /// </remarks>
     public static string VerificationString(IEnumerable<DiscoIdentity>  Identities,
-                                            IEnumerable<string>         Features)
+                                            IEnumerable<string>         Features,
+                                            IEnumerable<DiscoForm>?     Forms   = null)
     {
 
         var sb = new StringBuilder();
 
         // Identitäten als category/type/xml:lang/name - jeder Schrägstrich steht
         // auch ohne Wert da (XEP-0115, Abschnitt 5.1). Sortiert wird über genau
-        // die Zeichenkette, die auch ausgegeben wird, damit name mitsortiert;
-        // der xml:lang-Platz bleibt leer, weil DiscoIdentity kein xml:lang trägt.
+        // die Zeichenkette, die auch ausgegeben wird: Weil '/' (0x2F) unter allen
+        // Zeichen liegt, die in Kategorie, Typ und Sprache vorkommen, fällt das
+        // mit der im XEP verlangten Sortierung über die vier Felder zusammen.
         foreach (var identity in Identities
-                                     .Select(id => $"{id.Category}/{id.Type}//{id.Name ?? ""}")
+                                     .Select(id => $"{id.Category}/{id.Type}/{id.Language ?? ""}/{id.Name ?? ""}")
                                      .Order(StringComparer.Ordinal))
         {
             sb.Append(identity).Append('<');
@@ -110,6 +112,32 @@ public sealed class EntityCapsManager
         foreach (var feature in Features.Order(StringComparer.Ordinal))
         {
             sb.Append($"{feature}<");
+        }
+
+        // XEP-0128-Datenformulare, sortiert nach ihrem FORM_TYPE. Formulare
+        // ohne gültiges FORM_TYPE bleiben aussen vor - XEP-0115, Abschnitt 5.4
+        // sagt ausdrücklich "ignore the form but continue processing", und das
+        // ist der Unterschied ums Ganze: Sie machen die Antwort nicht ungültig,
+        // sie zählen nur nicht mit.
+        foreach (var form in (Forms ?? [])
+                                 .Where  (f => f.FormType is not null)
+                                 .OrderBy(f => f.FormType, StringComparer.Ordinal))
+        {
+
+            sb.Append(form.FormType).Append('<');
+
+            foreach (var field in form.Fields
+                                      .Where  (f => !f.IsFormType)
+                                      .OrderBy(f => f.Var, StringComparer.Ordinal))
+            {
+
+                sb.Append(field.Var).Append('<');
+
+                foreach (var value in field.Values.Order(StringComparer.Ordinal))
+                    sb.Append(value).Append('<');
+
+            }
+
         }
 
         var hash = SHA1.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
@@ -202,19 +230,57 @@ public sealed class EntityCapsManager
         if (Hash != Sha1Algorithm)
             return $"Unbekannter Hash-Algorithmus '{Hash}'; nachrechnen lässt sich nur {Sha1Algorithm}.";
 
-        // XEP-0128-Datenformulare gehen nach XEP-0115, Abschnitt 5.1 in den
-        // Verification String ein. Diese Rechnung kennt sie noch nicht, also
-        // ergäbe sie für eine solche Antwort zwangsläufig einen anderen Wert.
-        // Das ist ein Grund, sie nicht abzulegen - aber keiner, sie einer
-        // Fälschung gleichzusetzen.
-        if (Info.HasExtendedInfo)
-            return "Die Antwort enthält ein Datenformular (XEP-0128); der Verification String " +
-                   "darüber wird noch nicht berechnet.";
+        if (IllFormed(Info) is string mangel)
+            return mangel;
 
-        var errechnet = VerificationString(Info.Identities, Info.Features);
+        var errechnet = VerificationString(Info.Identities, Info.Features, Info.Forms);
 
         if (!String.Equals(errechnet, Ver, StringComparison.Ordinal))
             return $"Der Hash der Antwort ist {errechnet}, angekündigt war {Ver}.";
+
+        return null;
+
+    }
+
+    /// <summary>
+    /// Die Antwort ist in sich mehrdeutig (XEP-0115, Abschnitt 5.4) - oder
+    /// null, wenn sie es nicht ist.
+    /// </summary>
+    /// <remarks>
+    /// Diese drei Regeln sind keine Formstrenge. Der Verification String
+    /// entsteht dadurch, dass eine Antwort in genau eine Zeichenkette
+    /// überführt wird; wo Doppelungen stehen, gibt es mehr als eine solche
+    /// Zeichenkette, und damit lässt sich zu einem gegebenen Hash eine zweite
+    /// Antwort bauen. Das XEP verlangt deshalb, die ganze Antwort zu verwerfen,
+    /// statt sich für eine Lesart zu entscheiden.
+    /// </remarks>
+    private static string? IllFormed(DiscoInfo Info)
+    {
+
+        if (Info.Identities.Count != Info.Identities.Distinct().Count())
+            return "Die Antwort führt dieselbe Identität mehrfach auf.";
+
+        if (Info.Features.Count != Info.Features.Distinct(StringComparer.Ordinal).Count())
+            return "Die Antwort führt dasselbe Feature mehrfach auf.";
+
+        // Ein FORM_TYPE mit mehreren verschiedenen Werten - welcher davon soll
+        // das Formular einsortieren?
+        foreach (var form in Info.Forms)
+        {
+
+            var werte = form.FormTypeField?.Values.Distinct(StringComparer.Ordinal).ToList();
+
+            if (werte is not null && werte.Count > 1)
+                return $"Ein Datenformular trägt {werte.Count} verschiedene FORM_TYPE-Werte.";
+
+        }
+
+        var typen = Info.Forms.Select(f => f.FormType)
+                              .Where (t => t is not null)
+                              .ToList();
+
+        if (typen.Count != typen.Distinct(StringComparer.Ordinal).Count())
+            return "Die Antwort enthält mehrere Datenformulare mit demselben FORM_TYPE.";
 
         return null;
 

@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **497 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **505 Tests, 0 Fehler** in gut vier Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1430,6 +1430,51 @@ Begründung zu prüfen; der Test prüft sie jetzt. Ein Zweig, dessen einziger
 Zweck eine Aussage ist, muss über diese Aussage abgesichert sein — sonst ist er
 Zierde.
 
+### D3. Der Verification String, vollständig ✅ — und vier Regeln, die nichts prüften
+
+D2 machte aus einem erzeugten Hash einen geprüften. Damit wurde erst sichtbar,
+was an der Rechnung fehlte: Sie ging über Identitäten und Features, und
+XEP-0115 §5.1 lässt noch zwei Dinge einfliessen — das `xml:lang` einer
+Identität und die XEP-0128-Datenformulare. Beides fiel vorher nie auf, weil ein
+Wert, den niemand nachrechnet, auch nicht falsch sein kann. Nach D2 war die
+Folge konkret: Jede Gegenstelle, die ihren Namen in einer Sprache führt oder
+ihre Software-Angaben veröffentlicht, wurde abgelehnt — nicht als Fälscher,
+aber eben auch nicht geglaubt.
+
+Beides ist jetzt drin, und der Beweis dafür ist nicht selbstgemacht: XEP-0115
+§5.3 druckt genau dafür einen zweiten Vektor ab („Complex Generation Example",
+zwei Identitäten, die sich nur in `xml:lang` und Name unterscheiden, plus ein
+softwareinfo-Formular mit einem mehrwertigen Feld). Er wird exakt reproduziert,
+und wie beim einfachen Vektor prüft ein zweiter Test, dass der abgedruckte
+`ver`-Wert wirklich der SHA-1-Hash des abgedruckten S-Strings ist.
+
+Dazu kommen die drei Ungültigkeitsregeln aus §5.4: dieselbe Identität zweimal,
+dasselbe Feature zweimal, zwei Formulare mit demselben `FORM_TYPE` oder ein
+`FORM_TYPE` mit mehreren Werten. Das ist keine Formstrenge. Der Verification
+String entsteht dadurch, dass eine Antwort in *genau eine* Zeichenkette
+überführt wird; wo Doppelungen stehen, gibt es mehr als eine — und damit lässt
+sich zu einem gegebenen Hash eine zweite Antwort bauen. Der mehrwertige
+`FORM_TYPE` ist der deutlichste Fall: Das Feld selbst wird nicht mit angehängt,
+der zweite Wert verschwindet also spurlos aus der Rechnung.
+
+Vierzehn Mutationen. Zehn fielen sofort. **Die vier Regeln aus §5.4 überlebten
+alle vier** — und der Grund ist die Sorte Selbsttäuschung, für die dieses
+Verfahren da ist: Mein Test kündigte einen `ver`-Wert an, zu dem die
+mehrdeutige Antwort ohnehin nicht passte. Also erschlug sie schon der
+Hash-Vergleich, und die Regeln, um die es ging, liefen nie. Der Test kündigt
+jetzt den Wert an, den die mehrdeutige Antwort *wirklich* ergibt — womit nur
+noch diese Regeln sie aufhalten können. Danach fielen alle vier.
+
+Ein Test, der einen Angriff nachstellt, muss den Angriff auch gelingen lassen
+bis zu der Stelle, die ihn abfangen soll. Sonst prüft er den Wachposten davor.
+
+Und einer, der ohne Mutationsdurchgang gar nicht entstanden wäre:
+`RespondInfoAsync` gibt das `xml:lang` einer Identität aus — geprüft hat das
+nichts, weil die eigene Identität keines trägt. Der Weg dorthin führt über zwei
+Dateien: Ankündigung und Antwort. Stimmen sie nicht überein, ist dieser Client
+für jeden, der nach §5.4 prüft, ein Lügner.
+`AnIdentityWithXmlLang_SurvivesTheRoundTrip` lässt beide gegeneinander laufen.
+
 ---
 
 ## Später
@@ -1441,8 +1486,8 @@ Zierde.
 - SASLprep ist auf NFKC reduziert — für Nicht-ASCII-Passwörter falsch
 
 ### XEPs
-- XEP-0115: XEP-0128-Datenformulare fehlen im Verification String — Antworten
-  mit Formular sind deshalb nicht prüfbar und bleiben ungecacht (siehe D2)
+- XEP-0128: eigene erweiterte Angaben (Software, Version, Betriebssystem) werden
+  nicht ausgeliefert — gelesen werden fremde bereits (siehe D3)
 - XEP-0030: die eigene disco#info-Antwort setzt kein `node`-Attribut
 - XEP-0060: IQ-Ergebnisse korrelieren, Fehler nicht mehr verschlucken
 

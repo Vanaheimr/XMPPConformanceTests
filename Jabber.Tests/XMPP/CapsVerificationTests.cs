@@ -118,6 +118,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                String.Concat(features.Select(f => $"<feature var='{f}'/>")) +
                "</query>";
 
+        /// <summary>
+        /// Eine disco#info-Antwort mit einem softwareinfo-Formular, dessen
+        /// <c>os</c>-Feld diesen Wert trägt.
+        /// </summary>
+        private static String AntwortMitFormular(String os)
+            => "<query xmlns='http://jabber.org/protocol/disco#info'>" +
+               $"<identity category='{Identitaet.Category}' type='{Identitaet.Type}' " +
+               $"name='{Identitaet.Name}'/>" +
+               String.Concat(Echt.Select(f => $"<feature var='{f}'/>")) +
+               "<x xmlns='jabber:x:data' type='result'>" +
+               "<field var='FORM_TYPE' type='hidden'>" +
+               "<value>urn:xmpp:dataforms:softwareinfo</value></field>" +
+               $"<field var='os'><value>{os}</value></field>" +
+               "</x></query>";
+
+        /// <summary>Der dazu passende Verification String.</summary>
+        private static String VerMitFormular(String os)
+            => EntityCapsManager.VerificationString(
+                   [Identitaet],
+                   Echt,
+                   [new DiscoForm([
+                        new DiscoField("FORM_TYPE", "hidden", ["urn:xmpp:dataforms:softwareinfo"]),
+                        new DiscoField("os",        null,     [os])
+                    ])]);
+
         private Int32 Abfragen
         {
             get { lock (gesendet) return gesendet.Count; }
@@ -347,56 +372,220 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region AnAnswerWithADataForm_IsNotCached()
+        #region AnAnswerWithADataForm_IsVerifiedIncludingTheForm()
 
         /// <summary>
-        /// Eine ehrliche Antwort, die ein Datenformular trägt, wird ebenfalls
-        /// nicht abgelegt — nicht weil sie falsch wäre, sondern weil diese
-        /// Rechnung sie nicht nachvollziehen kann.
+        /// Eine Antwort mit XEP-0128-Datenformular wird geprüft und abgelegt —
+        /// das Formular geht in den Hash ein.
         /// </summary>
         /// <remarks>
-        /// XEP-0115, Abschnitt 5.1 lässt XEP-0128-Datenformulare in den
-        /// Verification String eingehen; hier gehen sie es noch nicht. Der
-        /// errechnete Wert wäre also zwangsläufig ein anderer als der
-        /// angekündigte. Ihn dennoch abzulegen hiesse, eine Prüfung zu
-        /// behaupten, die nicht stattgefunden hat — und ihn stumm als Fälschung
-        /// zu behandeln wäre ebenso falsch, deshalb nennt der Grund den
-        /// Unterschied.
+        /// Der Rahmen wird durch das Gegenstück gleich darunter geschlossen:
+        /// Hier steht, dass ein Formular nicht mehr im Weg ist; dort, dass es
+        /// wirklich mitgerechnet wird. Ohne beides zusammen liesse sich der
+        /// Test auch bestehen, indem man Formulare schlicht übergeht.
         /// </remarks>
         [Test]
-        public async Task AnAnswerWithADataForm_IsNotCached()
+        public async Task AnAnswerWithADataForm_IsVerifiedIncludingTheForm()
         {
 
-            var ver = VerOf(Echt);
+            var ver     = VerMitFormular("Mac");
+            var laeuft  = caps.ProcessCapsAsync(Alice, Knoten, ver, EntityCapsManager.Sha1Algorithm);
 
-            var mitFormular =
+            await WaitForQueries(1);
+            Answer(Alice, AntwortMitFormular("Mac"));
+            await laeuft;
+
+            var abgelegt = caps.GetCachedInfo($"{Knoten}#{ver}");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgelehnt, Is.Empty,
+                            $"Ohne Grund abgelehnt: {String.Join(" | ", abgelehnt)}");
+
+                Assert.That(abgelegt, Is.Not.Null,
+                            "Eine Antwort mit Formular gehört genauso in den Cache wie eine ohne.");
+
+                Assert.That(abgelegt!.Forms, Has.Count.EqualTo(1),
+                            "Das Formular muss erhalten bleiben.");
+
+                Assert.That(abgelegt.Forms[0].FormType,
+                            Is.EqualTo("urn:xmpp:dataforms:softwareinfo"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AnAnswerWhoseFormWasChanged_IsNotCached()
+
+        /// <summary>
+        /// Und die Gegenprobe: Wird am Formular etwas geändert, passt der Hash
+        /// nicht mehr.
+        /// </summary>
+        /// <remarks>
+        /// Ohne diesen Test wäre „Formulare einfach übergehen" eine bestehende
+        /// Lösung — und damit stünde genau die Lücke wieder offen, um die es
+        /// geht: Zwei Entities, die sich allein in ihren erweiterten Angaben
+        /// unterscheiden, hätten denselben <c>ver</c>-Wert, und die Antwort
+        /// der einen liesse sich der anderen zuschreiben.
+        /// </remarks>
+        [Test]
+        public async Task AnAnswerWhoseFormWasChanged_IsNotCached()
+        {
+
+            var ver     = VerMitFormular("Mac");
+            var laeuft  = caps.ProcessCapsAsync(Mallory, Knoten, ver, EntityCapsManager.Sha1Algorithm);
+
+            await WaitForQueries(1);
+            Answer(Mallory, AntwortMitFormular("Windows"));
+            await laeuft;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(caps.GetCachedInfo($"{Knoten}#{ver}"), Is.Null);
+                Assert.That(abgelehnt, Is.Not.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region XmlLangOfAnIdentity_GoesIntoTheHash()
+
+        /// <summary>
+        /// Das <c>xml:lang</c> einer Identität geht in den Hash ein — und muss
+        /// dafür erst einmal beim Zerlegen der Antwort erhalten bleiben.
+        /// </summary>
+        /// <remarks>
+        /// Eine Entity darf denselben Namen in mehreren Sprachen führen; im
+        /// Verification String steht die Sprache zwischen Typ und Name. Wer sie
+        /// beim Zerlegen verliert, errechnet für jede solche Gegenstelle einen
+        /// anderen Wert als sie selbst — und lehnt sie ab, obwohl sie ehrlich
+        /// ist.
+        /// </remarks>
+        [Test]
+        public async Task XmlLangOfAnIdentity_GoesIntoTheHash()
+        {
+
+            var ver = EntityCapsManager.VerificationString(
+                          [new DiscoIdentity("client", "pc", "Psi 0.11", "en")],
+                          Echt);
+
+            var antwort =
                 "<query xmlns='http://jabber.org/protocol/disco#info'>" +
-                $"<identity category='{Identitaet.Category}' type='{Identitaet.Type}' " +
-                $"name='{Identitaet.Name}'/>" +
+                "<identity xml:lang='en' category='client' type='pc' name='Psi 0.11'/>" +
                 String.Concat(Echt.Select(f => $"<feature var='{f}'/>")) +
-                "<x xmlns='jabber:x:data' type='result'>" +
-                "<field var='FORM_TYPE' type='hidden'>" +
-                "<value>urn:xmpp:dataforms:softwareinfo</value>" +
-                "</field></x>" +
                 "</query>";
 
             var laeuft = caps.ProcessCapsAsync(Alice, Knoten, ver, EntityCapsManager.Sha1Algorithm);
 
             await WaitForQueries(1);
-            Answer(Alice, mitFormular);
+            Answer(Alice, antwort);
             await laeuft;
+
+            var abgelegt = caps.GetCachedInfo($"{Knoten}#{ver}");
 
             Assert.Multiple(() =>
             {
 
-                Assert.That(caps.GetCachedInfo($"{Knoten}#{ver}"), Is.Null);
+                Assert.That(abgelehnt, Is.Empty,
+                            $"Ohne Grund abgelehnt: {String.Join(" | ", abgelehnt)}");
 
-                Assert.That(abgelehnt.Any(g => g.Contains("XEP-0128", StringComparison.Ordinal)),
-                            Is.True,
-                            $"Der Grund muss das Datenformular benennen. Gemeldet wurde: " +
-                            $"{String.Join(" | ", abgelehnt)}");
+                Assert.That(abgelegt, Is.Not.Null);
+                Assert.That(abgelegt!.Identities[0].Language, Is.EqualTo("en"));
 
             });
+
+        }
+
+        #endregion
+
+        #region AnAmbiguousAnswer_IsNotCached()
+
+        /// <summary>
+        /// XEP-0115, Abschnitt 5.4: Eine Antwort, die sich nicht eindeutig in
+        /// eine Zeichenkette überführen lässt, wird als ganze verworfen.
+        /// </summary>
+        /// <remarks>
+        /// Das ist keine Formstrenge. Wo Doppelungen stehen, gibt es mehr als
+        /// eine mögliche Zeichenkette zu derselben Antwort — und damit lässt
+        /// sich zu einem gegebenen Hash eine zweite Antwort bauen. Sich für
+        /// eine Lesart zu entscheiden hiesse, dem Angreifer die Wahl zu lassen,
+        /// welche er meint.
+        /// </remarks>
+        [Test]
+        public async Task AnAmbiguousAnswer_IsNotCached()
+        {
+
+            const String Ich = "<identity category='client' type='pc' name='Exodus 0.9.1'/>";
+
+            String Query(String inhalt)
+                => $"<query xmlns='http://jabber.org/protocol/disco#info'>{inhalt}</query>";
+
+            DiscoForm Formular(params String[] typen)
+                => new([new DiscoField("FORM_TYPE", "hidden", typen)]);
+
+            const String FormularXml =
+                "<x xmlns='jabber:x:data' type='result'>" +
+                "<field var='FORM_TYPE' type='hidden'><value>urn:test:form</value></field></x>";
+
+            // Entscheidend ist, dass der angekündigte ver-Wert zu der
+            // mehrdeutigen Antwort *passt*: Sonst schlüge schon der
+            // Hash-Vergleich zu, und diese Regeln wären ungeprüft.
+            var faelle = new (String Name, String Antwort, String Ver)[]
+            {
+
+                ("dasselbe Feature zweimal",
+                 Query(Ich + "<feature var='urn:test:a'/><feature var='urn:test:a'/>"),
+                 EntityCapsManager.VerificationString([Identitaet], ["urn:test:a", "urn:test:a"])),
+
+                ("dieselbe Identität zweimal",
+                 Query(Ich + Ich),
+                 EntityCapsManager.VerificationString([Identitaet, Identitaet], [])),
+
+                ("zwei Formulare mit demselben FORM_TYPE",
+                 Query(Ich + FormularXml + FormularXml),
+                 EntityCapsManager.VerificationString([Identitaet], [],
+                                                      [Formular("urn:test:form"),
+                                                       Formular("urn:test:form")])),
+
+                // Der zweite Wert verschwindet spurlos aus der Rechnung - das
+                // FORM_TYPE-Feld selbst wird ja nicht mit angehängt. Zwei
+                // verschiedene Antworten ergäben damit denselben Hash.
+                ("ein FORM_TYPE mit zwei Werten",
+                 Query(Ich + "<x xmlns='jabber:x:data' type='result'>" +
+                             "<field var='FORM_TYPE' type='hidden'>" +
+                             "<value>urn:test:a</value><value>urn:test:b</value></field></x>"),
+                 EntityCapsManager.VerificationString([Identitaet], [],
+                                                      [Formular("urn:test:a", "urn:test:b")]))
+
+            };
+
+            foreach (var (name, antwort, ver) in faelle)
+            {
+
+                Setup();
+
+                var laeuft = caps.ProcessCapsAsync(Mallory, Knoten, ver, EntityCapsManager.Sha1Algorithm);
+
+                await WaitForQueries(1);
+                Answer(Mallory, antwort);
+                await laeuft;
+
+                Assert.Multiple(() =>
+                {
+
+                    Assert.That(caps.GetCachedInfo($"{Knoten}#{ver}"), Is.Null,
+                                $"Mehrdeutig, aber der Hash stimmte - und abgelegt: {name}.");
+
+                    Assert.That(abgelehnt, Is.Not.Empty,
+                                $"Ohne Meldung durchgelassen: {name}.");
+
+                });
+
+            }
 
         }
 

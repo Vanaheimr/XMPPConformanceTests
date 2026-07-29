@@ -54,6 +54,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             "http://jabber.org/protocol/disco#items<" +
             "http://jabber.org/protocol/muc<";
 
+        // XEP-0115, Abschnitt 5.3 ("Complex Generation Example") - zwei
+        // Identitäten, die sich nur in xml:lang und Name unterscheiden, und ein
+        // XEP-0128-Datenformular.
+        private const String Xep0115_ComplexVer =
+            "q07IKJEyjvHSyhy//CH0CxmKi8w=";
+
+        private const String Xep0115_ComplexS =
+            "client/pc/el/Ψ 0.11<" +
+            "client/pc/en/Psi 0.11<" +
+            "http://jabber.org/protocol/caps<" +
+            "http://jabber.org/protocol/disco#info<" +
+            "http://jabber.org/protocol/disco#items<" +
+            "http://jabber.org/protocol/muc<" +
+            "urn:xmpp:dataforms:softwareinfo<" +
+            "ip_version<ipv4<ipv6<" +
+            "os<Mac<" +
+            "os_version<10.5.1<" +
+            "software<Psi<" +
+            "software_version<0.11<";
+
         #endregion
 
         #region Hilfsfunktionen
@@ -95,6 +115,35 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         private static String Sha1Base64(String s)
             => Convert.ToBase64String(SHA1.HashData(Encoding.UTF8.GetBytes(s)));
+
+        /// <summary>Ein Feld eines Datenformulars.</summary>
+        private static DiscoField Field(String var, params String[] values)
+            => new(var, null, values);
+
+        /// <summary>Das softwareinfo-Formular aus XEP-0115, Abschnitt 5.3.</summary>
+        private static DiscoForm SoftwareInfo()
+            => new([
+                   new DiscoField("FORM_TYPE", "hidden", ["urn:xmpp:dataforms:softwareinfo"]),
+                   Field("ip_version",       "ipv4", "ipv6"),
+                   Field("os",               "Mac"),
+                   Field("os_version",       "10.5.1"),
+                   Field("software",         "Psi"),
+                   Field("software_version", "0.11")
+               ]);
+
+        /// <summary>Die beiden Identitäten aus XEP-0115, Abschnitt 5.3.</summary>
+        private static DiscoIdentity[] PsiIdentities()
+            => [
+                   new("client", "pc", "Psi 0.11", "en"),
+                   new("client", "pc", "Ψ 0.11",   "el")
+               ];
+
+        private static readonly String[] PsiFeatures = [
+            "http://jabber.org/protocol/caps",
+            "http://jabber.org/protocol/disco#info",
+            "http://jabber.org/protocol/disco#items",
+            "http://jabber.org/protocol/muc"
+        ];
 
         #endregion
 
@@ -161,6 +210,132 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                            "http://jabber.org/protocol/muc"]);
 
             Assert.That(ver, Is.EqualTo(Xep0115_SimpleVer));
+
+        }
+
+        #endregion
+
+        #region Xep0115_ComplexGenerationExample_ProducesExpectedVer()
+
+        /// <summary>
+        /// Der Testvektor aus XEP-0115 Abschnitt 5.3 - zwei Identitäten, die
+        /// sich nur in <c>xml:lang</c> und Name unterscheiden, und ein
+        /// XEP-0128-Datenformular.
+        /// </summary>
+        /// <remarks>
+        /// Der Vektor deckt beides zusammen ab, was der einfache aus 5.2 nicht
+        /// zeigt: dass die Sprache zwischen Typ und Name in den Hash eingeht,
+        /// und dass die Formularfelder in der vom XEP verlangten Ordnung
+        /// angehängt werden. Ohne ihn wäre die Rechnung nur gegen sich selbst
+        /// geprüft.
+        /// </remarks>
+        [Test]
+        public void Xep0115_ComplexGenerationExample_ProducesExpectedVer()
+        {
+
+            var ver = EntityCapsManager.VerificationString(PsiIdentities(),
+                                                           PsiFeatures,
+                                                           [SoftwareInfo()]);
+
+            Assert.That(ver, Is.EqualTo(Xep0115_ComplexVer));
+
+        }
+
+        #endregion
+
+        #region Xep0115_ComplexTestVector_MatchesIndependentlyComputedHash()
+
+        /// <summary>
+        /// Gegenprobe wie beim einfachen Vektor: Der abgedruckte ver-Wert ist
+        /// der SHA-1-Hash des abgedruckten S-Strings.
+        /// </summary>
+        [Test]
+        public void Xep0115_ComplexTestVector_MatchesIndependentlyComputedHash()
+        {
+            Assert.That(Sha1Base64(Xep0115_ComplexS), Is.EqualTo(Xep0115_ComplexVer));
+        }
+
+        #endregion
+
+        #region Forms_FieldsAndValues_AreAllSorted()
+
+        /// <summary>
+        /// Formulare, Felder und Werte werden sortiert - die Reihenfolge, in
+        /// der sie ankommen, darf den Hash nicht ändern.
+        /// </summary>
+        /// <remarks>
+        /// Sonst berechneten zwei Entities mit demselben Funktionsumfang
+        /// verschiedene Werte, je nachdem, wie ihr Server die Antwort
+        /// zusammensetzt - und jede Prüfung schlüge bei ehrlichen
+        /// Gegenstellen fehl.
+        /// </remarks>
+        [Test]
+        public void Forms_FieldsAndValues_AreAllSorted()
+        {
+
+            DiscoForm Formular(String typ, params DiscoField[] felder)
+                => new([new DiscoField("FORM_TYPE", "hidden", [typ]), .. felder]);
+
+            var vorwaerts = EntityCapsManager.VerificationString(
+                                [new DiscoIdentity("client", "pc", "Test")],
+                                [],
+                                [Formular("urn:test:a", Field("x", "1", "2")),
+                                 Formular("urn:test:b", Field("y", "3"), Field("z", "4"))]);
+
+            // Dieselben Angaben, überall rückwärts eingetragen.
+            var rueckwaerts = EntityCapsManager.VerificationString(
+                                  [new DiscoIdentity("client", "pc", "Test")],
+                                  [],
+                                  [Formular("urn:test:b", Field("z", "4"), Field("y", "3")),
+                                   Formular("urn:test:a", Field("x", "2", "1"))]);
+
+            Assert.That(rueckwaerts, Is.EqualTo(vorwaerts));
+
+        }
+
+        #endregion
+
+        #region AFormWithoutAHiddenFormType_IsIgnored()
+
+        /// <summary>
+        /// Ein Formular ohne gültiges FORM_TYPE zählt nicht mit - XEP-0115
+        /// Abschnitt 5.4: „ignore the form but continue processing".
+        /// </summary>
+        /// <remarks>
+        /// Das ist der Unterschied ums Ganze: Ein solches Formular macht die
+        /// Antwort nicht ungültig, es geht nur nicht in den Hash ein. Wer es
+        /// stattdessen mitrechnet, kommt bei einer Gegenstelle, die sich ans
+        /// XEP hält, auf einen anderen Wert; wer die ganze Antwort verwirft,
+        /// verweigert ihr grundlos die Auskunft.
+        /// </remarks>
+        [Test]
+        public void AFormWithoutAHiddenFormType_IsIgnored()
+        {
+
+            var ohne = EntityCapsManager.VerificationString(
+                           [new DiscoIdentity("client", "pc", "Test")],
+                           ["urn:test:a"]);
+
+            // Ganz ohne FORM_TYPE.
+            var ohneTyp = EntityCapsManager.VerificationString(
+                              [new DiscoIdentity("client", "pc", "Test")],
+                              ["urn:test:a"],
+                              [new DiscoForm([Field("os", "Mac")])]);
+
+            // Mit FORM_TYPE, aber nicht als hidden deklariert.
+            var falscherTyp = EntityCapsManager.VerificationString(
+                                  [new DiscoIdentity("client", "pc", "Test")],
+                                  ["urn:test:a"],
+                                  [new DiscoForm([
+                                       new DiscoField("FORM_TYPE", "text-single", ["urn:test:form"]),
+                                       Field("os", "Mac")
+                                   ])]);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ohneTyp,     Is.EqualTo(ohne));
+                Assert.That(falscherTyp, Is.EqualTo(ohne));
+            });
 
         }
 

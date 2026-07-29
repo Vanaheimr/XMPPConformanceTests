@@ -97,6 +97,68 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnIdentityWithXmlLang_SurvivesTheRoundTrip()
+
+        /// <summary>
+        /// Führt eine Entity ihren Namen in einer Sprache, muss sie das in
+        /// ihrer eigenen Antwort auch sagen.
+        /// </summary>
+        /// <remarks>
+        /// Angekündigt wird ein Hash über <c>category/type/lang/name</c>.
+        /// Bliebe das <c>xml:lang</c> in der disco#info-Antwort weg, errechnete
+        /// die Gegenstelle einen anderen Wert als den angekündigten und lehnte
+        /// uns ab — wir wären für jeden, der nach XEP-0115 §5.4 prüft, ein
+        /// Lügner.
+        ///
+        /// Der Weg dorthin führt über zwei Stellen in verschiedenen Dateien
+        /// (Ankündigung und Antwort); nur zusammen ergeben sie einen Sinn, und
+        /// nur hier laufen sie gegeneinander.
+        /// </remarks>
+        [Test]
+        public async Task AnIdentityWithXmlLang_SurvivesTheRoundTrip()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice = await ConnectClientAsync("alice");
+
+            // Die Identität wechselt nach dem Verbinden - die Manager
+            // entstehen erst dort. Die Presence muss deshalb noch einmal
+            // hinaus, sonst steht bei Bob der alte ver-Wert.
+            alice.Connection.Disco!.LocalIdentities.Clear();
+            alice.Connection.Disco!.LocalIdentities.Add(
+                new DiscoIdentity("client", "pc", "Psi 0.11", "en"));
+
+            await alice.Connection.SendPresenceAsync();
+
+            var bob = await ConnectClientAsync("bob");
+
+            var abgelehnt = new List<String>();
+            bob.Connection.EntityCaps!.OnCapsRejected += (from, grund) => abgelehnt.Add(grund);
+
+            var schluessel = $"{alice.Connection.EntityCaps!.Node}#" +
+                             $"{alice.Connection.EntityCaps!.CalculateVerificationString()}";
+
+            await WaitFor(() => bob.Connection.EntityCaps!.GetCachedInfo(schluessel) is not null,
+                          "Alices geprüfte Capabilities in Bobs Cache");
+
+            var abgelegt = bob.Connection.EntityCaps!.GetCachedInfo(schluessel)!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgelehnt, Is.Empty,
+                            $"Die eigene Ankündigung wurde abgelehnt: {String.Join(" | ", abgelehnt)}");
+
+                Assert.That(abgelegt.Identities[0].Language, Is.EqualTo("en"),
+                            "Die Sprache muss in der eigenen Antwort stehen.");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

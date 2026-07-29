@@ -197,7 +197,8 @@ public sealed class DiscoManager
             foreach (var identity in query.Children(InfoNamespace, "identity"))
                 info.Identities.Add(new DiscoIdentity(identity.Attr("category") ?? "",
                                                       identity.Attr("type")     ?? "",
-                                                      identity.Attr("name")));
+                                                      identity.Attr("name"),
+                                                      identity.Attribute(XNamespace.Xml + "lang")?.Value));
 
             foreach (var feature in query.Children(InfoNamespace, "feature"))
             {
@@ -206,12 +207,38 @@ public sealed class DiscoManager
                     info.Features.Add(var);
             }
 
-            // XEP-0128: erweiterte Angaben als Datenformular. Ausgewertet wird
-            // der Inhalt nicht - nur festgehalten, dass er da war, weil der
-            // Verification String nach XEP-0115 über ihn mitgeht.
-            info.HasExtendedInfo = query.Elements()
-                                        .Any(child => child.Name.NamespaceName == DataFormNamespace &&
-                                                      child.Name.LocalName     == "x");
+            // XEP-0128: erweiterte Angaben als Datenformular. Übernommen wird,
+            // was dasteht - welche Formulare für den Verification String
+            // zählen und welche nach XEP-0115, Abschnitt 5.4 zu übergehen
+            // sind, entscheidet der EntityCapsManager. Ein Parser, der schon
+            // aussortiert, nimmt der Prüfung die Grundlage.
+            foreach (var form in query.Elements()
+                                      .Where(child => child.Name.NamespaceName == DataFormNamespace &&
+                                                      child.Name.LocalName     == "x"))
+            {
+
+                var fields = new List<DiscoField>();
+
+                foreach (var field in form.Elements()
+                                          .Where(child => child.Name.LocalName == "field"))
+                {
+
+                    var var = field.Attr("var");
+
+                    if (var is null)
+                        continue;
+
+                    fields.Add(new DiscoField(var,
+                                              field.Attr("type"),
+                                              [.. field.Elements()
+                                                       .Where (v => v.Name.LocalName == "value")
+                                                       .Select(v => v.Value)]));
+
+                }
+
+                info.Forms.Add(new DiscoForm(fields));
+
+            }
 
         }
 
@@ -269,6 +296,10 @@ public sealed class DiscoManager
             sb.Append($"<identity category='{identity.Category}' type='{identity.Type}'");
             if (identity.Name != null)
                 sb.Append($" name='{XmlEscaping.Escape(identity.Name)}'");
+            // Ohne dieses Attribut ergäbe unsere Antwort bei der Gegenstelle
+            // einen anderen Hash als den, den wir ankündigen.
+            if (identity.Language != null)
+                sb.Append($" xml:lang='{XmlEscaping.Escape(identity.Language)}'");
             sb.Append("/>");
         }
 

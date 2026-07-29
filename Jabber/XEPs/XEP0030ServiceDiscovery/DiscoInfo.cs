@@ -28,16 +28,20 @@ public sealed class DiscoInfo
     public List<string> Features { get; } = [];
 
     /// <summary>
-    /// Trug die Antwort ein Datenformular (XEP-0128)?
+    /// XEP-0128: Die Datenformulare der Antwort, ungefiltert und in der
+    /// vorgefundenen Reihenfolge.
     /// </summary>
     /// <remarks>
-    /// Der Inhalt wird nicht ausgewertet; gemerkt wird nur, dass er da war.
-    /// Das genügt für den einen Zweck, den es hat: XEP-0115, Abschnitt 5.1
-    /// lässt Datenformulare in den Verification String eingehen, und wer sie
-    /// nicht mitrechnet, darf über einen Hash, der über sie geht, auch keine
-    /// Aussage treffen (siehe <see cref="EntityCapsManager"/>).
+    /// Sie gehören zur Antwort und nicht nur zur Zierde: XEP-0115,
+    /// Abschnitt 5.1 lässt sie in den Verification String eingehen. Wer sie
+    /// wegwirft, kann den Hash einer Entity, die welche führt, nicht
+    /// nachrechnen - und muss ihr dann entweder blind glauben oder ihr
+    /// grundlos misstrauen.
     /// </remarks>
-    public bool HasExtendedInfo { get; internal set; }
+    public List<DiscoForm> Forms { get; } = [];
+
+    /// <summary>Trug die Antwort ein Datenformular (XEP-0128)?</summary>
+    public bool HasExtendedInfo => Forms.Count > 0;
 
     public bool HasFeature(string feature) => Features.Contains(feature);
     public bool SupportsReceipts => HasFeature("urn:xmpp:receipts");
