@@ -128,7 +128,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var eingang = new ConcurrentQueue<XMPPMessage>();
             bob.OnMessage += m => eingang.Enqueue(m);
 
-            await alice.SendMessageAsync(bob.BareJid, "Aus dem Raum", MessageType.GroupChat);
+            await alice.SendMessageAsync(bob.FullJid!, "Aus dem Raum", MessageType.GroupChat);
 
             await WaitFor(() => !eingang.IsEmpty, "die Zustellung");
 
@@ -177,7 +177,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             // Bestätigung mehr anfordert - hier soll gerade der Empfänger
             // entscheiden.
             await alice.SendRawAsync(
-                      $"<message to='{bob.BareJid}' type='groupchat' id='raum-1'>" +
+                      $"<message to='{bob.FullJid}' type='groupchat' id='raum-1'>" +
                       "<body>Aus dem Raum</body>" +
                       "<request xmlns='urn:xmpp:receipts'/>" +
                       "<markable xmlns='urn:xmpp:chat-markers:0'/>" +
@@ -228,7 +228,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             bob.OnMessage += m => eingang.Enqueue(m);
 
             await alice.SendRawAsync(
-                      $"<message to='{bob.BareJid}' type='headline' id='zuruf-1'>" +
+                      $"<message to='{bob.FullJid}' type='headline' id='zuruf-1'>" +
                       "<body>Kurs gefallen</body>" +
                       "<request xmlns='urn:xmpp:receipts'/>" +
                       "</message>");

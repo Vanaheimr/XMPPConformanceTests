@@ -1667,10 +1667,79 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             }
 
-            // Zustellung an den Empfänger
-            var recipients = to.Contains('/')
-                                 ? (SessionOf(to) is { } one ? [one] : Array.Empty<XMPPSession>())
-                                 : SessionsOf(to).ToArray();
+            // RFC 6121, Abschnitt 8.5: Wohin eine Nachricht geht, hängt an
+            // ihrer Art *und* an der Form der Adresse. Bis hierher ging alles
+            // denselben Weg.
+            var messageType = MessageTypeExtensions.Parse(Attr(frame, "type"));
+
+            XMPPSession[] recipients;
+
+            if (to.Contains('/'))
+            {
+
+                // Abschnitt 8.5.3.1: Passt die Resource, wird zugestellt - und
+                // zwar unabhängig von der Art. So liefert ein Raum seine
+                // groupchat-Nachrichten aus, und so erreicht eine Fehlerantwort
+                // genau die Resource, die den Fehler verursacht hat.
+                //
+                // Auch die Priorität steht hier nicht im Weg: Wer sie negativ
+                // setzt, will nichts mehr abbekommen, was bloss an sein Konto
+                // ging - gerichtet ansprechbar bleibt er.
+                var match = SessionOf(to);
+
+                if (match is null)
+                    // Abschnitt 8.5.3.2.1: Keine passende Resource. Ohne
+                    // Ablage für Abwesende bleibt nur das stille Verwerfen,
+                    // das der Abschnitt für normal, groupchat und headline
+                    // ausdrücklich zulässt - für chat verlangt er eigentlich
+                    // Ablage oder Fehler (siehe README).
+                    return;
+
+                await match.SendAsync(stamped);
+
+                if (!DeliverCarbons)
+                    return;
+
+                await SendSentCarbonsAsync(session, stamped);
+
+                return;
+
+            }
+
+            // Ab hier: an den Bare-JID gerichtet (Abschnitt 8.5.2).
+
+            // Eine Fehler-Stanza wird stillschweigend übergangen. Auf sie zu
+            // antworten hiesse, einen Fehler mit einem Fehler zu beantworten.
+            if (messageType == MessageType.Error)
+                return;
+
+            // Ein groupchat gehört in einen Raum. An ein Konto gerichtet ist
+            // er nie zustellbar, weder an eine noch an alle Resourcen, und der
+            // Absender bekommt es gesagt.
+            if (messageType == MessageType.GroupChat)
+            {
+                await SendServiceUnavailableAsync(session, "message", Attr(frame, "id"), to);
+                return;
+            }
+
+            // Eine Resource mit negativer Priorität bekommt nichts, was bloss
+            // an das Konto gerichtet war - für jede Art von Nachricht.
+            recipients = [.. SessionsOf(to).Where(r => r.PresencePriority >= 0)];
+
+            // Ein headline geht an *alle* nicht-negativen Resourcen: Er ist
+            // eine Meldung an den Menschen und nicht an ein Gerät, und welches
+            // davon er gerade ansieht, weiss niemand. Ist keine da, wird er
+            // stillschweigend verworfen - er ist vergänglich und lohnt kein
+            // Aufheben.
+            if (messageType == MessageType.Headline)
+            {
+
+                foreach (var target in recipients)
+                    await target.SendAsync(stamped);
+
+                return;
+
+            }
 
             XMPPSession? primary = null;
 
@@ -2558,6 +2627,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// bis einer aufgibt. Diese Prüfung steht bei den Aufrufern, weil nur
         /// dort der Typ der eingehenden Stanza bekannt ist.
         /// </remarks>
+        /// <summary>
+        /// RFC 6121, Abschnitt 8.5: Die Stanza war an dieser Adresse nicht
+        /// zustellbar.
+        /// </summary>
+        private async Task SendServiceUnavailableAsync(XMPPSession  session,
+                                                       String       kind,
+                                                       String?      id,
+                                                       String       intendedRecipient)
+        {
+
+            await session.SendAsync(
+                $"<{kind} type='error'" +
+                (id is not null ? $" id='{id}'" : "") +
+                $" from='{intendedRecipient}' to='{session.FullJid}'>" +
+                "<error type='cancel'>" +
+                "<service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                "</error>" +
+                $"</{kind}>");
+
+        }
+
         private async Task SendRemoteServerNotFoundAsync(XMPPSession  session,
                                                          String       kind,
                                                          String?      id,

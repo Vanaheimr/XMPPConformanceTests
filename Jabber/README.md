@@ -85,6 +85,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
 | Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Ändern den Subscription-Zustand und gelten nicht als Anwesenheit |
 | Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
+| Zustellregeln nach Typ (§8.5) | ⚠️ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). Was fehlt: Ohne erreichbare Resource verlangt §8.5.2.2.1 für `normal`/`chat` Ablage oder Fehler — dieser Server hat keine Ablage und verwirft still |
+| Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar |
 
 ### RFC 7395 — XMPP über WebSocket
 

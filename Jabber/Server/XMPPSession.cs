@@ -17,6 +17,8 @@
 
 #region Usings
 
+using System.Text.RegularExpressions;
+
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 #endregion
@@ -111,9 +113,42 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean IsAvailable { get; private set; }
 
         /// <summary>
+        /// Die Priorität aus der letzten ungerichteten Presence (RFC 6121,
+        /// Abschnitt 4.7.2.3) - Vorgabe 0.
+        /// </summary>
+        /// <remarks>
+        /// Sie ist keine Zierde: Nach Abschnitt 8.5.2.1.1 darf der Server an
+        /// eine Resource mit <b>negativer</b> Priorität überhaupt keine
+        /// Nachricht zustellen. Genau dafür setzt ein Client sie - das Gerät
+        /// bleibt erreichbar für gerichtete Nachrichten an seine Full-JID,
+        /// bekommt aber nichts mehr ab, was nur an den Bare-JID ging.
+        /// </remarks>
+        public Int32 PresencePriority { get; private set; }
+
+        /// <summary>
         /// Übernimmt eine ungerichtete Presence des Clients.
         /// </summary>
         /// <returns>War es die erste dieser Sitzung?</returns>
+        /// <summary>
+        /// Liest die Priorität aus einer Presence-Stanza.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 4.7.2.3: eine ganze Zahl von -128 bis +127.
+        /// Fehlt sie oder ist sie unbrauchbar, gilt 0 - und nicht etwa ein
+        /// Fehler: Die Zahl ist ein Wunsch des Clients, kein Vertrag, und eine
+        /// unlesbare darf keine Zustellung verhindern.
+        /// </remarks>
+        internal static Int32 ReadPriority(String stanza)
+        {
+
+            var m = Regex.Match(stanza, @"<priority[^>]*>\s*(-?\d+)\s*</priority>");
+
+            return m.Success && Int32.TryParse(m.Groups[1].Value, out var wert)
+                       ? Math.Clamp(wert, -128, 127)
+                       : 0;
+
+        }
+
         internal Boolean RecordPresence(String stanza, Boolean available)
         {
 
@@ -131,6 +166,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 LastPresence            = available ? stanza : null;
                 HasSentInitialPresence  = true;
                 IsAvailable             = available;
+                PresencePriority        = available ? ReadPriority(stanza) : 0;
 
                 return erste;
 

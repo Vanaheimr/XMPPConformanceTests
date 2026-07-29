@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **547 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **553 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1900,15 +1900,57 @@ der Empfänger hinausschickt, und damit der Weg statt der Wirkung.
 Nicht angefasst: die typabhängigen Zustellregeln des *Servers* aus Abschnitt 8.
 Der Testserver stellt weiterhin für alle Typen gleich zu. Steht unter „Später".
 
+### D13. Die Zustellregeln des Servers ✅ — und die Adresse entscheidet mit
+
+Die Client-Hälfte aus D12 hat die Server-Hälfte sichtbar gemacht: RFC 6121,
+Abschnitt 8.5 macht die Zustellung von der Art der Nachricht abhängig, und
+dieser Server stellte alles gleich zu.
+
+Vier Regeln, zwei davon MUSS:
+
+| An den Bare-JID | Verhalten |
+|---|---|
+| `groupchat` | nie zustellen, `<service-unavailable/>` an den Absender |
+| `error` | still verwerfen — ein Fehler auf einen Fehler wäre der Anfang einer Schleife |
+| `headline` | an **alle** Resourcen mit nicht-negativer Priorität |
+| `normal`/`chat` | an eine Resource |
+
+Dazu die Priorität, die es vorher gar nicht gab: Eine Resource mit negativer
+Priorität bekommt nichts, was bloss an das Konto ging. Genau dafür setzt ein
+Client sie — das Zweitgerät bleibt gerichtet ansprechbar und hält sich aus dem
+Übrigen heraus.
+
+**Die Adresse entscheidet mit, und das hat mich einen Anlauf gekostet.** Meine
+erste Fassung lehnte `groupchat` und `error` unbesehen ab. Abschnitt 8.5.3.1
+sagt aber für eine *passende Resource*: „For a message stanza, the server MUST
+deliver the stanza to the resource" — ohne Unterscheidung nach Art. Und das ist
+kein Sonderfall, sondern der Normalfall: Ein Raum liefert an
+`nutzer@server/resource` aus, nicht an das Konto. Meine Regel hätte die
+Raumfunktion unbenutzbar gemacht und jede Fehlerantwort verschluckt.
+
+Aufgefallen ist es daran, dass zwei Tests aus D12 rot wurden — jene, die eine
+Raum-Nachricht an einen Bare-JID schickten. Auch sie waren falsch: Diese
+Adressierung gibt es bei einem regelkonformen Server nicht. Sie gehen jetzt an
+die Full-JID, so wie ein Raum es täte.
+
+Acht Mutationen, alle erschlagen — darunter die feinste: die Priorität auch für
+gerichtete Nachrichten anzuwenden. Sie sieht nach Gründlichkeit aus und nimmt
+der negativen Priorität genau das, was sie ausmacht.
+
+Nicht behoben und vermerkt: Ohne erreichbare Resource verlangt Abschnitt
+8.5.2.2.1 für `normal` und `chat` Ablage oder Fehler. Dieser Server hat keine
+Ablage für Abwesende und verwirft still — für die drei übrigen Arten ist das
+richtig, für diese beiden nicht.
+
 ---
 
 ## Später
 
 ### Protokoll
-- RFC 6121 §8: die typabhängigen Zustellregeln des *Servers* — ein `headline`
-  an den Bare-JID geht an alle Resourcen mit nicht-negativer Priorität, ein
-  `groupchat` an keine. Der Testserver stellt weiterhin für alle Typen gleich
-  zu; unterschieden wird bisher nur auf der Client-Seite (siehe D12)
+- RFC 6121 §8.5.2.2.1: Ohne erreichbare Resource verlangt der Abschnitt für
+  `normal` und `chat` Ablage oder Fehler. Der Testserver hat keine Ablage für
+  Abwesende und verwirft still — für `groupchat`, `headline` und `error` ist
+  das richtig, für die beiden übrigen nicht (siehe D13)
 - RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
   FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
   den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz
