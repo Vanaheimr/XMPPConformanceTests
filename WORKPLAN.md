@@ -1792,17 +1792,51 @@ dem zusätzlichen `<r/>` ist nicht zu erkennen (es wird als Nonza nicht
 mitgezählt und geht erst nach dem Start der Empfangsschleife hinaus),
 ausgeschlossen ist er damit aber nicht.
 
+### D10. Warten auf ein Ereignis statt auf Stille ✅
+
+`IqWithoutId_IsNotAnswered` war der dritte wackelige Test dieser Reihe und der
+einzige, dessen Wackeln von Anfang an in der Anlage steckte: Er wartete eine
+Sekunde darauf, dass die Zahl der vom Client empfangenen Rahmen *überhaupt*
+nicht steigt. Damit zählte er alles mit, was mit dem geprüften IQ nichts zu tun
+hatte — jeden Aufbaurahmen, der noch unterwegs war —, und unter Last war
+irgendwann einer darunter.
+
+Ein negativer Nachweis braucht keine Wartezeit, wenn es ein Ereignis gibt, an
+dem man ihn festmachen kann. Auf einem Stream wird der Reihe nach verarbeitet:
+Nach dem IQ ohne `id` geht jetzt ein zweites hinaus, das beantwortet werden
+*muss*. Ist dessen Antwort da, hat der Client das erste bereits in der Hand
+gehabt und sich entschieden — und dann genügt die Feststellung, dass kein
+`type='error'` dabei ist. Kein `WaitUntil` über eine Sekunde, keine
+Lastabhängigkeit, und der Test ist nebenbei schneller.
+
+Eine Mutation, erschlagen: die Prüfung auf das fehlende `id` fallen lassen und
+mit `id=''` antworten.
+
+Zwei der drei Wackelkandidaten aus D7 bis D9 waren echte Fehler im Code, dieser
+ist einer in der Testanlage. Die Regel dahinter: **Wer prüfen will, dass etwas
+ausbleibt, braucht ein Ereignis, nach dem es ausgeblieben sein muss.** Eine
+Frist ist dafür nur ein Ersatz, und ein schlechter.
+
+Bei der Absicherung kam ein vierter dazu, der hier ausdrücklich <b>nicht</b>
+behoben ist: `AStolenId_DoesNotHandOverTheStream` lief in einem von sieben
+Läufen in die Zeitüberschreitung beim Warten auf `ResumableStreamCount == 1` —
+der Server hatte die abgerissene Sitzung binnen zehn Sekunden nicht abgelegt.
+Alice hat dort `maxReconnectAttempts: 0`, kommt also nicht zurück und kann den
+Eintrag nicht selbst wieder abräumen; eine Erklärung habe ich nicht. Nach D9
+wäre eine längere Frist genau die falsche Antwort, und eine Vermutung
+aufzuschreiben wäre schlechter als die offene Frage. Steht unter „Später".
+
 ---
 
 ## Später
 
 ### Tests
-- `IqWithoutId_IsNotAnswered` ist nach Konstruktion wackelig und wurde in einem
-  von vier vollen Läufen rot (D9). Er wartet eine Sekunde darauf, dass die Zahl
-  der vom Client empfangenen Rahmen *überhaupt* nicht steigt — und zählt damit
-  auch alles mit, was mit dem geprüften IQ nichts zu tun hat. Richtig wäre, auf
-  eine Antwort mit dem fraglichen Inhalt zu warten statt auf Stille. Nicht
-  behoben, weil es nicht zur Wiederaufnahme gehört.
+- `AStolenId_DoesNotHandOverTheStream` lief in einem von sieben vollen Läufen
+  in die Zeitüberschreitung: Der Server hatte die abgerissene Sitzung binnen
+  zehn Sekunden nicht als wiederaufnehmbar abgelegt (D10). Ursache offen —
+  Alice kommt dort nicht zurück, kann den Eintrag also nicht selbst abräumen.
+  Erster Schritt wäre, den beobachteten Zählerstand und den Zustand der Sitzung
+  in die Meldung zu nehmen; eine längere Frist wäre nach D9 die falsche Antwort.
 
 ### Protokoll
 - Message-Typen `chat`/`error`/`groupchat` unterscheiden

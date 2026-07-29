@@ -202,17 +202,40 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         {
 
             var session = await ConnectedSessionAsync();
-            var before  = session.Received.Count;
 
+            // Das IQ, um das es geht: ohne 'id' und mit einem Namensraum, für
+            // den es keinen Handler gibt. Beantwortet werden dürfte es nur mit
+            // einem <service-unavailable/> - und genau das verbietet das
+            // fehlende Attribut.
             await session.SendAsync(
                 $"<iq type='get' from='{Server.Domain}' to='{session.FullJid}'>" +
                 "<query xmlns='urn:example:does-not-exist'/></iq>");
 
-            var answered = await XMPPServer.WaitUntilAsync(() => session.Received.Count > before,
-                                                           TimeSpan.FromSeconds(1));
+            // Und direkt danach eines, das beantwortet werden *muss*.
+            //
+            // Das ist der Kern der Sache: Auf einem Stream wird der Reihe nach
+            // verarbeitet. Ist die Antwort auf das zweite da, hat der Client
+            // das erste bereits in der Hand gehabt und sich entschieden. Damit
+            // braucht dieser Test keine Wartezeit mehr, innerhalb derer nichts
+            // passieren darf.
+            var antwort = await AskAsync(session, "probe-danach",
+                              "<iq type='get' id='probe-danach' " +
+                              $"from='{Server.Domain}' to='{session.FullJid}'>" +
+                              "<query xmlns='http://jabber.org/protocol/disco#info'/></iq>");
 
-            Assert.That(answered, Is.False,
-                        "Ein IQ ohne 'id' ist nicht beantwortbar und darf keine Antwort auslösen.");
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(antwort, Does.Contain("type='result'"),
+                            "Vorbedingung: das zweite IQ muss beantwortet worden sein.");
+
+                // Ein <service-unavailable/> hätte nur das erste auslösen
+                // können - das zweite ist beantwortbar und beantwortet.
+                Assert.That(session.Received.Any(f => f.Contains("type='error'", StringComparison.Ordinal)),
+                            Is.False,
+                            "Ein IQ ohne 'id' ist nicht beantwortbar und darf keine Antwort auslösen.");
+
+            });
 
         }
 
