@@ -84,7 +84,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Roster-Versionierung (§2.6) | ✅ Client und Server; `<ver/>` wird angekündigt, unveränderte Roster kommen als leeres Ergebnis, Pushes tragen die neue Fassung. Die Fassung ist ein Streuwert über den Inhalt — abschaltbar über `XMPPServer.OfferRosterVersioning` |
 | Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
 | Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Ändern den Subscription-Zustand und gelten nicht als Anwesenheit |
-| Message-Typen (`chat`/`error`/`groupchat`) | ❌ Nicht unterschieden |
+| Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
 
 ### RFC 7395 — XMPP über WebSocket
 

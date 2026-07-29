@@ -224,12 +224,12 @@ public sealed class XMPPClient : IAsyncDisposable
     private void WireUpConnection()
     {
 
-        _connection.OnMessage += (from, to, body, id) =>
+        _connection.OnMessage += (from, to, body, id, type) =>
         {
             if (!string.IsNullOrEmpty(id))
                 LastReceivedMessageId = id;
 
-            OnMessage?.Invoke(new XMPPMessage(from, to, body, id, DateTime.Now));
+            OnMessage?.Invoke(new XMPPMessage(from, to, body, id, DateTime.Now, type));
         };
 
         _connection.OnCarbonMessage   += c            => OnCarbonMessage?.Invoke(c);
@@ -379,8 +379,9 @@ public sealed class XMPPClient : IAsyncDisposable
     /// Sendet eine Nachricht an einen beliebigen JID, ohne den aktuellen
     /// Chatpartner zu ändern.
     /// </summary>
-    public Task<string> SendMessageAsync(string to, string body)
-        => _connection.SendMessageAsync(to, body);
+    public Task<string> SendMessageAsync(string to, string body,
+                                         MessageType type = MessageType.Chat)
+        => _connection.SendMessageAsync(to, body, type: type);
 
     /// <summary>
     /// XEP-0085: Sendet einen Tippstatus an den aktuellen Chatpartner.

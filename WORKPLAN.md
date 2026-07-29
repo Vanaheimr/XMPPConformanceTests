@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **541 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **547 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — acht Föderationstests
 gegen Prosody und ejabberd, vier XEP-0198-Tests gegen Prosody — sowie einer,
@@ -1863,12 +1863,52 @@ Drei von vier Wackelkandidaten waren damit echte Fehler im Code, einer war ein
 Fehler in der Testanlage. Das ist die Ausbeute, wenn man einem einzelnen roten
 Lauf nachgeht, statt ihn zu wiederholen, bis er grün ist.
 
+### D12. Die Art einer Nachricht ✅ — und die Quittung vor Publikum
+
+RFC 6121, Abschnitt 5.2.2 kennt fünf Arten von Nachrichten. Dieser Client kannte
+eine: Alles kam gleich an, und der Empfänger konnte den Zuruf einer
+Nachrichtenquelle nicht von der Zeile eines Bekannten unterscheiden — und die
+aus einem Raum nicht von einer an ihn allein gerichteten. Nur `error` war schon
+getrennt, weil eine Fehler-Stanza sonst als Chatzeile durchgelaufen wäre.
+
+Wo das nicht die Anzeige betrifft, sondern das Verhalten, wird es unangenehm:
+**Der Client quittierte jede Nachricht, auch die aus einem Raum.** Der Absender
+ist dort der Raum und nicht ein Mensch; die Quittung ginge an den Raum, und der
+reicht sie an alle weiter. Aus einer stillen Bestätigung würde eine Wortmeldung
+vor Publikum — bei zwanzig Anwesenden vierhundert Quittungen für zwanzig
+Zeilen. Beim Zuruf sagt es der RFC selbst: „no reply is expected".
+
+`MessageType` trägt die Art jetzt bis in die Anwendung, und `ExpectsAReply`
+entscheidet an einer Stelle, ob von selbst geantwortet wird — in beide
+Richtungen: Wer in einen Raum schreibt, fordert auch keine Bestätigung mehr an
+(XEP-0184, Abschnitt 5.3 rät dem Absender ausdrücklich davon ab).
+
+Die Vorgabe ist ein MUSS und kein Geschmack: Fehlt das Attribut **oder ist sein
+Wert unbekannt**, gilt die Nachricht als `normal`. Der Grund liegt in der
+Zukunft — eine spätere Erweiterung soll bei alten Empfängern als gewöhnliche
+Nachricht ankommen und nicht verschwinden.
+
+Sieben Mutationen, alle erschlagen.
+
+Der Test brauchte einen zweiten Anlauf, und der Fehler war ein alter Bekannter
+in neuem Gewand: Ich beobachtete die Quittung über `OnReceiptReceived` beim
+Absender — und das Ereignis feuert nur für Nachrichten, die der Client selbst
+über `SendMessageAsync` abgeschickt hat. Bei einer rohen Stanza gilt die
+Quittung als Fälschungsversuch und wird verworfen. Beobachtet wird jetzt, was
+der Empfänger hinausschickt, und damit der Weg statt der Wirkung.
+
+Nicht angefasst: die typabhängigen Zustellregeln des *Servers* aus Abschnitt 8.
+Der Testserver stellt weiterhin für alle Typen gleich zu. Steht unter „Später".
+
 ---
 
 ## Später
 
 ### Protokoll
-- Message-Typen `chat`/`error`/`groupchat` unterscheiden
+- RFC 6121 §8: die typabhängigen Zustellregeln des *Servers* — ein `headline`
+  an den Bare-JID geht an alle Resourcen mit nicht-negativer Priorität, ein
+  `groupchat` an keine. Der Testserver stellt weiterhin für alle Typen gleich
+  zu; unterschieden wird bisher nur auf der Client-Seite (siehe D12)
 - RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
   FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
   den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz

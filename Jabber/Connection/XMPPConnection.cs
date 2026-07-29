@@ -248,7 +248,7 @@ public sealed class XMPPConnection : IAsyncDisposable
     #region Events
 
     // Events - Core
-    public event Action<string, string, string, string?>? OnMessage;  // from, to, body, id
+    public event Action<string, string, string, string?, MessageType>? OnMessage;  // from, to, body, id, type
     public event Action<string, string>? OnPresence;
     public event Action<string, ChatState>? OnChatState;
     public event Action<string, string>? OnReceiptReceived;
@@ -1369,7 +1369,16 @@ public sealed class XMPPConnection : IAsyncDisposable
         var body = element.ChildValue("body");
         if (!string.IsNullOrEmpty(body))
         {
-            OnMessage?.Invoke(from, to, body, msgId);
+
+            var messageType = MessageTypeExtensions.Parse(element.Attr("type"));
+
+            OnMessage?.Invoke(from, to, body, msgId, messageType);
+
+            // Von selbst geantwortet wird nur, wo eine Antwort hingehört.
+            // Einem Zuruf ist nicht zu quittieren, und in einen Raum schon gar
+            // nicht - dort bekämen alle Anwesenden die Quittung zu sehen.
+            if (!messageType.ExpectsAReply())
+                return;
 
             // Auto-Receipt (XEP-0184)
             if (ReceiptBuilder.HasReceiptRequest(element) && msgId != null)
@@ -2021,13 +2030,40 @@ public sealed class XMPPConnection : IAsyncDisposable
         await SendAsync(sb.ToString());
     }
 
-    public async Task<string> SendMessageAsync(string to, string body, bool requestReceipt = true, bool markable = true)
+    /// <summary>
+    /// Schickt eine Nachricht.
+    /// </summary>
+    /// <param name="type">
+    /// Die Art der Nachricht (RFC 6121, Abschnitt 5.2.2). Vorgabe ist
+    /// <see cref="MessageType.Chat"/> - dieser Client ist einer für Gespräche
+    /// unter vier Augen.
+    /// </param>
+    /// <param name="requestReceipt">
+    /// Eine Empfangsbestätigung anfordern (XEP-0184). Wird für Nachrichten
+    /// übergangen, bei denen keine Antwort zu erwarten ist: In einem Raum
+    /// bekämen alle Anwesenden die Quittungen zu sehen, und ein Zuruf will
+    /// keine.
+    /// </param>
+    public async Task<string> SendMessageAsync(string       to,
+                                               string       body,
+                                               bool         requestReceipt  = true,
+                                               bool         markable        = true,
+                                               MessageType  type            = MessageType.Chat)
     {
         var messageId = GenerateMessageId();
 
+        var typeAttr = type.AsAttribute() is string t ? $" type='{t}'" : "";
+
         var sb = new StringBuilder();
-        sb.Append($"<message to='{XmlEscaping.Escape(to)}' type='chat' id='{messageId}'>");
+        sb.Append($"<message to='{XmlEscaping.Escape(to)}'{typeAttr} id='{messageId}'>");
         sb.Append($"<body>{XmlEscaping.Escape(body)}</body>");
+
+        // Was keine Antwort erwartet, bekommt auch keine angefordert.
+        if (!type.ExpectsAReply())
+        {
+            requestReceipt  = false;
+            markable        = false;
+        }
 
         // XEP-0184: Receipt Request
         if (requestReceipt)

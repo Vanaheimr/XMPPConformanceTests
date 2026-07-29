@@ -25,11 +25,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// <param name="Body">Nachrichtentext</param>
 /// <param name="MessageId">Stanza-ID, falls der Absender eine gesetzt hat</param>
 /// <param name="Timestamp">Zeitpunkt des Empfangs (lokale Uhr)</param>
-public sealed record XMPPMessage(string    From,
-                                 string    To,
-                                 string    Body,
-                                 string?   MessageId,
-                                 DateTime  Timestamp)
+/// <param name="Type">
+/// Die Art der Nachricht (RFC 6121, Abschnitt 5.2.2). Ohne sie liesse sich
+/// die Zeile aus einem Raum nicht von der eines Bekannten unterscheiden -
+/// und beim Raum ist der Absender nicht einmal ein Mensch, sondern der Raum
+/// selbst.
+/// </param>
+public sealed record XMPPMessage(string       From,
+                                 string       To,
+                                 string       Body,
+                                 string?      MessageId,
+                                 DateTime     Timestamp,
+                                 MessageType  Type = MessageType.Normal)
 {
 
     /// <summary>
