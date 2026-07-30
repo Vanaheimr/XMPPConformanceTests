@@ -1182,6 +1182,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     await HandleSaslResponseAsync(session, frame);
                     return;
 
+                case "abort":
+                    await HandleSaslAbortAsync(session);
+                    return;
+
                 case "iq":
                     await HandleIqAsync(session, frame);
                     return;
@@ -1520,6 +1524,38 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             await session.SendAsync(
                 $"<challenge xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{exchange.Challenge}</challenge>");
+
+        }
+
+        /// <summary>
+        /// RFC 6120, Abschnitt 6.4.4: Der Client bricht die SASL-Aushandlung
+        /// ab.
+        /// </summary>
+        /// <remarks>
+        /// Der Abbruch ist ein <b>vorgesehener</b> Schritt und kein
+        /// Protokollverstoss - deshalb ein SASL-Fehlschlag und kein
+        /// Stream-Fehler, und deshalb bleibt der Stream stehen. Seit D26 endete
+        /// er hier mit <c>&lt;unsupported-stanza-type/&gt;</c>: wörtlich nicht
+        /// falsch, denn der Server unterstützte das Element nicht, aber die
+        /// schlechtere von zwei Antworten. Sie zwang den Client zu einer neuen
+        /// Verbindung für etwas, das der RFC innerhalb der bestehenden vorsieht.
+        ///
+        /// Der halbe Austausch wird verworfen, und das ist der eigentliche
+        /// Inhalt eines Abbruchs. Bliebe er liegen, liesse er sich mit einer
+        /// später nachgeschobenen <c>&lt;response/&gt;</c> noch zu Ende führen -
+        /// der Abbruch wäre dann eine Höflichkeitsfloskel und keine Aussage.
+        ///
+        /// Beantwortet wird er in jedem Zustand, auch nach abgeschlossener
+        /// Anmeldung. Abschnitt 6.4.4 knüpft die Antwort an keine Bedingung,
+        /// und ein Abbruch ohne laufenden Austausch bricht eben nichts ab.
+        /// </remarks>
+        private static async Task HandleSaslAbortAsync(XMPPSession session)
+        {
+
+            session.Scram = null;
+
+            await session.SendAsync(
+                "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><aborted/></failure>");
 
         }
 

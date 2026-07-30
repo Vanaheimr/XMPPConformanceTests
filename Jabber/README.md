@@ -69,6 +69,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 |---------|--------|
 | TLS (§5) | ⚠️ `wss://` über den WebSocket-Transport; `XMPPConnection.ServerCertificateValidator` erlaubt eine eigene Zertifikatsprüfung, `null` überlässt sie dem Betriebssystem. Kein STARTTLS (§5.4) — WebSocket bringt TLS unter sich mit, ein Klartext-`ws://` wird aber nicht verweigert |
 | SASL-Aushandlung und -Durchführung (§6) | ✅ Client und Server; der Client nimmt den stärksten angebotenen Mechanismus und nie einen schwächeren als beim letzten Mal, der Server lehnt einen nicht angebotenen ab |
+| SASL-Abbruch (§6.4.4) | ✅ `<abort/>` wird mit `<failure><aborted/></failure>` beantwortet, der halb begonnene SCRAM-Austausch verworfen und der Stream **nicht** beendet — ein Abbruch ist ein vorgesehener Schritt, kein Verstoss. Auf der Client-Verbindung und auf dem S2S-Stream; der Initiator eines S2S-Streams beantwortet ihn nicht, er wäre der Absender |
 | Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |

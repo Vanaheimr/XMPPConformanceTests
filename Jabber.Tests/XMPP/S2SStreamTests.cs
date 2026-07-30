@@ -1071,6 +1071,87 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnAbort_IsAnsweredWithAborted()
+
+        /// <summary>
+        /// RFC 6120, Abschnitt 6.4.4 gilt auch hier: Bricht die Gegenstelle
+        /// die SASL-Aushandlung ab, folgt
+        /// <c>&lt;failure&gt;&lt;aborted/&gt;&lt;/failure&gt;</c> und kein
+        /// Stream-Fehler.
+        /// </summary>
+        /// <remarks>
+        /// Diese Lücke ist in D27 entstanden und nicht vorgefunden: Vorher
+        /// blieb ein <c>&lt;abort/&gt;</c> hier schlicht liegen, seit der
+        /// Strenge beendete es den Stream. Wer eine Weiche streng macht, erbt
+        /// jede Antwort, die sie noch nicht kennt — und muss sie nachreichen,
+        /// nicht abwarten, bis jemand darüber stolpert.
+        /// </remarks>
+        [Test]
+        public async Task AnAbort_IsAnsweredWithAborted()
+        {
+
+            var stream = Eingehend();
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            _gesendet.Clear();
+
+            var behandelt = await stream.ProcessFrameAsync(
+                                $"<abort xmlns='{S2SStream.SaslNamespace}'/>");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Gesendet("<aborted/>"), Is.True);
+
+                Assert.That(Gesendet("unsupported-stanza-type"), Is.False,
+                            "Ein Abbruch ist ein vorgesehener Schritt, kein Verstoss.");
+
+                Assert.That(stream.IsClosed, Is.False,
+                            "Der Abbruch beendet die Aushandlung, nicht den Stream.");
+
+                Assert.That(behandelt, Is.True);
+
+            });
+
+        }
+
+        #endregion
+
+        #region AnAbortAtTheInitiator_IsNotAnswered()
+
+        /// <summary>
+        /// Umgekehrt nicht: Wer selbst angewählt hat, beantwortet keinen
+        /// Abbruch — er wäre der, der ihn schickt.
+        /// </summary>
+        /// <remarks>
+        /// Dieselbe Asymmetrie wie bei <c>&lt;auth/&gt;</c>: Die Rollen in der
+        /// SASL-Aushandlung sind verteilt, und beide Seiten dieselbe Antwort
+        /// geben zu lassen hiesse, sie als austauschbar zu behandeln.
+        /// </remarks>
+        [Test]
+        public async Task AnAbortAtTheInitiator_IsNotAnswered()
+        {
+
+            var stream = S2SStream.Initiate("links.example", "rechts.example", Senden);
+
+            await stream.OpenAsync();
+
+            _gesendet.Clear();
+
+            var behandelt = await stream.ProcessFrameAsync(
+                                $"<abort xmlns='{S2SStream.SaslNamespace}'/>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("<aborted/>"), Is.False);
+                Assert.That(behandelt,              Is.False, "Zuständig ist er dafür nicht.");
+            });
+
+        }
+
+        #endregion
+
         #region AFrameWithoutAnElement_IsIgnored()
 
         /// <summary>

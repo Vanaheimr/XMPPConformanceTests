@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **692 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **697 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2901,6 +2901,69 @@ die vorgefundene Kodierung, statt einer LF-Datei stillschweigend ein BOM zu
 verpassen. Immerhin war dieser Fehlschlag laut; die drei stillen aus D25 waren
 teurer.
 
+### D28. Ein Abbruch ist kein Verstoss ✅ — Abschnitt 6.4.4
+
+Der Punkt aus D26: Ein `<abort/>` aus der SASL-Aushandlung bekam seit D26 einen
+Stream-Fehler. Wörtlich war das nicht falsch — der Server unterstützte das
+Element nicht, und Abschnitt 4.9.3.24 passt auf jedes Element, das er nicht
+kennt. Es war die schlechtere von zwei Antworten.
+
+**Der Unterschied ist keine Feinheit.** Der Abbruch ist ein *vorgesehener*
+Schritt der Aushandlung, kein Protokollverstoss: Abschnitt 6.4.4 sieht ihn
+ausdrücklich vor und verlangt `<failure><aborted/></failure>`. Wer ihn mit dem
+Ende des Streams beantwortet, zwingt den Client zu einer neuen Verbindung für
+etwas, das der RFC innerhalb der bestehenden vorsieht.
+
+Der halbe SCRAM-Austausch wird dabei verworfen, und das ist der eigentliche
+Inhalt eines Abbruchs. Bliebe er liegen, liesse er sich mit einer später
+nachgeschobenen `<response/>` noch zu Ende führen — der Abbruch wäre dann eine
+Höflichkeitsfloskel und keine Aussage. Ein eigener Test hält das fest.
+
+**Der S2S-Stream hatte dieselbe Lücke, und die ist meine eigene aus D27.** Vor
+der Strenge blieb ein `<abort/>` dort liegen, danach beendete es den Stream.
+Dieselbe Antwort ist nachgezogen — mit einem Unterschied: Zu verwerfen ist
+nichts, weil SASL-EXTERNAL ein einziger Zug ist und keinen halben Austausch
+kennt. Und wer selbst angewählt hat, beantwortet keinen Abbruch; er wäre der,
+der ihn schickt.
+
+**Die Lehre gehört zu D26 und D27 und schliesst sie ab:** Wer eine Weiche streng
+macht, erbt jede Antwort, die sie noch nicht kennt. Vorher fiel Unbekanntes
+stillschweigend hinten heraus, und jede fehlende Antwort war eine Lücke ohne
+Folgen; danach ist jede fehlende Antwort ein beendeter Stream. Die Strenge war
+richtig — aber sie verwandelt Unterlassungen in Schäden, und die Liste dessen,
+was noch fehlt, gehört ab da abgearbeitet und nicht nur geführt.
+
+Geprüft wird über einen rohen `ClientWebSocket` nach dem Vorbild aus
+`WebSocketFederationTests`: Der Abbruch gehört **mitten** in die Aushandlung, und
+dort führt der richtige Client sein eigenes Gespräch. Nur von Hand lässt sich ein
+halb begonnener SCRAM-Austausch überhaupt herstellen.
+
+Fünf Mutationen, alle erschlagen — zwei davon erst nach einer Korrektur an den
+Tests.
+
+Die eine war eine Lücke: Für die Gegenrichtung — ein Initiator, der einen
+Abbruch bekommt — gab es keinen Test. Statt sie als bekannten Überlebenden zu
+vermerken, ist der Test nachgetragen.
+
+**Die andere ist die lehrreichere, und sie ist wieder die Falle aus D20 und
+D24.** Die Mutation lässt den halben SCRAM-Austausch nach dem Abbruch stehen —
+und mein Test dafür bestand trotzdem. Er schob nach dem Abbruch eine
+**unsinnige** `<response/>` nach und prüfte auf `not-authorized`. Nur ergibt
+eine unsinnige Antwort `not-authorized`, ob der Austausch nun verworfen wurde
+oder nicht: Beide Welten geben dieselbe Antwort, und der Test prüfte nichts.
+
+Erst eine Antwort, die **durchginge**, trennt die Fälle. Sie wird jetzt mit dem
+echten `SCRAMAuthenticator` des Clients gebaut — mit ihr führte der liegen
+gebliebene Austausch zu `<success/>`, mit verworfenem zu einer Absage. Der Test
+prüft seitdem auch, dass **kein** `<success/>` kommt, und das ist die Hälfte, um
+die es eigentlich geht.
+
+Das Muster wiederholt sich damit zum dritten Mal, und es ist immer dasselbe:
+Ein Test stellt eine Lage her, in der die richtige und die falsche Fassung
+dasselbe antworten. Er sieht dann aus wie ein Nachweis und ist keiner. Die
+Gegenprobe dafür ist billig und gehört zur Gewohnheit — **welche Antwort gäbe
+der Server ohne diese Zeile?** Ist es dieselbe, prüft der Test die Zeile nicht.
+
 ---
 
 ## Später
@@ -2910,10 +2973,6 @@ teurer.
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
   Client-Sitzung (siehe D16)
-- Ein `<abort/>` aus der SASL-Aushandlung (RFC 6120 §6.4.4) beantwortet dieser
-  Server nicht mit `<failure><aborted/></failure>`, sondern beendet den Stream
-  seit D26 mit `<unsupported-stanza-type/>`. Die Bedingung ist wörtlich erfüllt
-  („not supported by the server"), die eigene Antwort wäre trotzdem besser
 - Ein unbekanntes Element im XEP-0198-Namensraum fällt in
   `HandleStreamManagementAsync` weiterhin stillschweigend hinten heraus; nur die
   Client-Weiche darüber ist seit D26 streng (siehe D26)

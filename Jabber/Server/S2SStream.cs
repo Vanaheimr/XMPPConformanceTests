@@ -524,6 +524,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (StanzaElement.Is(frame, "auth"))
                 return await ProcessSaslAuthAsync(frame, cancellationToken);
 
+            if (StanzaElement.Is(frame, "abort"))
+                return await ProcessSaslAbortAsync(cancellationToken);
+
             if (StanzaElement.Is(frame, "success"))
                 return await ProcessSaslSuccessAsync(cancellationToken);
 
@@ -965,6 +968,36 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Stream-Kopfs bezogen - eine andere Wahl gäbe es nicht, ohne zu
         /// raten.
         /// </remarks>
+        /// <summary>
+        /// RFC 6120, Abschnitt 6.4.4: Die Gegenstelle bricht die
+        /// SASL-Aushandlung ab.
+        /// </summary>
+        /// <remarks>
+        /// Ein vorgesehener Schritt und kein Protokollverstoss - deshalb ein
+        /// SASL-Fehlschlag und kein Stream-Fehler, und deshalb bleibt der
+        /// Stream stehen. Zu verwerfen ist hier nichts: SASL-EXTERNAL ist ein
+        /// einziger Zug, es gibt keinen halben Austausch wie bei SCRAM.
+        ///
+        /// Diese Lücke ist in D27 entstanden: Vor der Strenge blieb ein
+        /// <c>&lt;abort/&gt;</c> hier liegen, danach beendete es den Stream.
+        /// Wer eine Weiche streng macht, erbt jede Antwort, die sie noch nicht
+        /// kennt.
+        /// </remarks>
+        private async Task<Boolean> ProcessSaslAbortAsync(CancellationToken cancellationToken)
+        {
+
+            // Wer selbst angewählt hat, bekommt keinen Abbruch geschickt - er
+            // wäre der, der ihn schickt.
+            if (IsInitiator)
+                return false;
+
+            await sendFrame($"<failure xmlns='{SaslNamespace}'><aborted/></failure>",
+                            cancellationToken);
+
+            return true;
+
+        }
+
         private async Task<Boolean> ProcessSaslAuthAsync(String             frame,
                                                          CancellationToken  cancellationToken)
         {
