@@ -194,6 +194,42 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// Gibt die Empfänger gerichteter Presence heraus und leert die Liste -
+        /// aufzurufen, wenn diese Resource unverfügbar wird.
+        /// </summary>
+        /// <remarks>
+        /// Zwei Aufgaben in einem Schritt, und das ist Absicht. Abschnitt 4.6.1
+        /// verlangt das Leeren beim Abmelden, Abschnitt 4.6.3, Regel 2 verlangt,
+        /// die Abmeldung vorher an genau diese Empfänger zu schicken. Wären es
+        /// zwei Aufrufe, liesse sich der zweite vergessen - und dann bliebe
+        /// entweder die Liste über das Ende der Anwesenheit hinaus stehen oder
+        /// die Abmeldung unterwegs. So kommt niemand an die Empfänger, ohne die
+        /// Liste zu leeren, und niemand leert sie, ohne sie in der Hand zu
+        /// halten.
+        ///
+        /// Herausgegeben werden Bare-JIDs; ob ein Empfänger noch eine Abmeldung
+        /// braucht, entscheidet der Server - wer im Roster mit <c>from</c> oder
+        /// <c>both</c> steht, bekommt sie schon über die gewöhnliche Verteilung.
+        /// </remarks>
+        internal IReadOnlyCollection<String> TakeDirectedPresenceTargets()
+        {
+
+            lock (_lock)
+            {
+
+                if (_directedPresence.Count == 0)
+                    return [];
+
+                var entnommen = _directedPresence.ToList();
+                _directedPresence.Clear();
+
+                return entnommen;
+
+            }
+
+        }
+
+        /// <summary>
         /// Übernimmt eine ungerichtete Presence des Clients.
         /// </summary>
         /// <returns>War es die erste dieser Sitzung?</returns>
@@ -236,18 +272,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 IsAvailable             = available;
                 PresencePriority        = available ? ReadPriority(stanza) : 0;
 
-                // Abschnitt 4.6.1: „...then clearing the list when the user goes
-                // offline (e.g., by sending a broadcast presence stanza of type
-                // 'unavailable')". Gerichtete Presence ist eine Zusage für die
-                // Dauer der Anwesenheit; wer sich abmeldet, nimmt sie mit zurück.
-                //
-                // Ohne diese Zeile bliebe die Zusage über die Abmeldung hinaus
-                // stehen, und ein Fremder dürfte eine abgemeldete Resource
-                // weiterhin befragen - genau das, was Abschnitt 8.5.3.1
-                // verhindern soll.
-                if (!available)
-                    _directedPresence.Clear();
-
+                // Das Leeren der Liste gerichteter Presence steht nicht hier,
+                // sondern in TakeDirectedPresenceTargets: Abschnitt 4.6.3,
+                // Regel 2 verlangt, die Abmeldung vorher an genau diese
+                // Empfänger zu schicken, und wer hier leerte, nähme dem
+                // Aufrufer die Liste weg, die er dafür braucht.
                 return erste;
 
             }

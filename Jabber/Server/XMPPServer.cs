@@ -944,6 +944,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (session.FullJid is null || !session.TryMarkUnavailable())
                 return;
 
+            // Vor dem Wächter unten abgeholt, nicht dahinter: Die Anwesenheit
+            // dieser Resource ist zu Ende, und damit auch jede Zusage, die sie
+            // über gerichtete Presence gegeben hat (Abschnitt 4.6.1). Stünde das
+            // erst nach dem Wächter, bliebe die Liste stehen, sobald einmal
+            // nicht verteilt wird - und ein Fremder dürfte eine abgemeldete
+            // Resource weiter befragen (Abschnitt 8.5.3.1).
+            var gerichtete = session.TakeDirectedPresenceTargets();
+
             // Beim Herunterfahren des Servers geht es an niemanden mehr.
             if (!RouteStanzas || !BroadcastPresence || _cts.IsCancellationRequested)
                 return;
@@ -955,6 +963,59 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             foreach (var remote in RemotePresenceTargetsOf(session))
                 await RouteToAsync(remote, StampTo(stanza, remote));
+
+            await SendUnavailableToDirectedTargetsAsync(session, gerichtete, stanza);
+
+        }
+
+        /// <summary>
+        /// Reicht die Abmeldung an die Empfänger gerichteter Presence nach
+        /// (RFC 6121, Abschnitt 4.6.3, Regel 2).
+        /// </summary>
+        /// <param name="targets">
+        /// Die Empfänger, wie sie
+        /// <see cref="XMPPSession.TakeDirectedPresenceTargets"/> herausgegeben
+        /// hat.
+        /// </param>
+        /// <param name="unavailable">
+        /// Die Abmeldung - entweder die des Clients selbst oder die, die der
+        /// Server in seinem Namen erzeugt hat.
+        /// </param>
+        /// <remarks>
+        /// Die Regel schliesst eine Lücke, die sonst niemandem auffällt: Wer
+        /// einem Fremden seine Anwesenheit gezeigt hat, steht deswegen nicht in
+        /// dessen Roster - und bekäme ohne diesen Weg nie ein Ende. Der Fremde
+        /// führte die Resource für immer als anwesend, und weil ein Gespräch mit
+        /// einem Nichtkontakt genau so beginnt (Abschnitt 5.1), ist das der
+        /// Regelfall und nicht die Ausnahme.
+        ///
+        /// Übersprungen wird, wer im Roster mit <c>from</c> oder <c>both</c>
+        /// steht: Der hat die Abmeldung schon über die gewöhnliche Verteilung
+        /// bekommen. Ohne diese Einschränkung käme sie zweimal - und ein Client,
+        /// der Presence zählt statt sie zu ersetzen, käme durcheinander. Der RFC
+        /// grenzt Regel 2 aus demselben Grund auf Entitäten ein, die
+        /// <b>nicht</b> mit <c>from</c> oder <c>both</c> im Roster stehen.
+        ///
+        /// Wer schon eine gerichtete Abmeldung bekommen hat, steht gar nicht
+        /// mehr in der Liste - das erledigt
+        /// <see cref="XMPPSession.RecordDirectedPresence"/>, und genau darauf
+        /// zielt der Klammerzusatz der Regel („if the user has not yet sent
+        /// directed unavailable presence to that entity").
+        /// </remarks>
+        private async Task SendUnavailableToDirectedTargetsAsync(XMPPSession                 session,
+                                                                IReadOnlyCollection<String>  targets,
+                                                                String                       unavailable)
+        {
+
+            foreach (var ziel in targets)
+            {
+
+                if (session.Account?.IsPresenceSubscriber(ziel) == true)
+                    continue;
+
+                await RouteToAsync(ziel, StampTo(unavailable, ziel));
+
+            }
 
         }
 
@@ -2307,6 +2368,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // und der Unterschied zwischen "war schon" und "ist gerade
             // geworden" wäre nicht mehr zu sehen.
             var wurdeVerfuegbar  = type is null && !session.IsAvailable;
+
+            // RFC 6121, Abschnitt 4.6.3, Regel 2: Meldet sich die Resource ab,
+            // bekommen auch die Empfänger gerichteter Presence die Abmeldung -
+            // und die Liste ist damit erledigt (Abschnitt 4.6.1). Beides holt
+            // ein Aufruf, siehe TakeDirectedPresenceTargets.
+            var gerichtete       = type is null
+                                       ? []
+                                       : session.TakeDirectedPresenceTargets();
+
             var initial          = session.RecordPresence(stamped, available: type is null);
 
             // RFC 6121, Abschnitt 3.1.3, Regel 4: "deliver the request when
@@ -2342,6 +2412,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // wird nicht mit Fehlern beantwortet.
             foreach (var remote in RemotePresenceTargetsOf(session))
                 await RouteToAsync(remote, StampTo(stamped, remote));
+
+            await SendUnavailableToDirectedTargetsAsync(session, gerichtete, stamped);
 
             // RFC 6121, Abschnitt 4.3.1: Nach der ersten Presence fragt der
             // Server für den Client den Zustand von dessen Kontakten ab. Weil

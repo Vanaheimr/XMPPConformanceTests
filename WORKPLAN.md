@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **599 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **605 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2375,6 +2375,67 @@ mit genau zwei gewollten Ausnahmen — der Server der Basis, der in der Folgezei
 bewacht wird, und die Hilfsvariable des Tests, der die Rückgabe von `Watched`
 prüft.
 
+### D20. Eine Zusage, die endet ✅ — Abschnitt 4.6.3, Regel 2
+
+Der offene Punkt aus D17: Wird eine Resource unverfügbar, geht die Abmeldung auch
+an die Empfänger ihrer gerichteten Presence.
+
+Die Regel schliesst eine Lücke, die sonst niemandem auffällt. Wer einem Fremden
+seine Anwesenheit zeigt, steht deswegen **nicht** in dessen Roster — und bekäme
+ohne diesen Weg nie ein Ende. Der Fremde führte die Resource für immer als
+anwesend. Und das ist der Regelfall, nicht die Ausnahme: Ein Gespräch mit
+jemandem, der nicht im Roster steht, beginnt nach Abschnitt 5.1 genau damit. Seit
+D17 hängt an derselben Liste ausserdem, wer diese Resource überhaupt etwas fragen
+darf (Abschnitt 8.5.3.1) — eine Zusage, die nie endet, wäre damit doppelt
+unangenehm.
+
+**Zwei Wege führen in die Unverfügbarkeit, und der zweite ist der häufigere.** Die
+eigene Abmeldung des Clients, und der Verbindungsabriss, bei dem der Server sie in
+seinem Namen erzeugt (Abschnitt 4.5.2). Ein Client verschwindet meist, ohne sich
+zu verabschieden; ginge die Abmeldung nur an den Roster, bliebe genau dann der
+Fremde zurück.
+
+**Die Roster-Einschränkung ist keine Formsache.** Wer mit `from` oder `both` im
+Roster steht, bekommt die Abmeldung schon über die gewöhnliche Verteilung. Der RFC
+grenzt Regel 2 aus demselben Grund auf Entitäten ein, die *nicht* so im Roster
+stehen — käme sie zweimal, käme ein Client durcheinander, der Presence zählt statt
+sie zu ersetzen.
+
+**Der Klammerzusatz fällt mit der Liste zusammen.** „if the user has not yet sent
+directed unavailable presence to that entity": Eine gerichtete Abmeldung nimmt den
+Empfänger aus der Liste (Abschnitt 4.6.1), und was nicht darin steht, wird nicht
+benachrichtigt. Zwei Vorschriften, eine Umsetzung — und ein Test, der beide
+zugleich hält.
+
+**Herausgeben und Leeren in einem Aufruf**, `TakeDirectedPresenceTargets`. Das ist
+der Kern des Entwurfs: Abschnitt 4.6.1 verlangt das Leeren beim Abmelden, Regel 2
+verlangt, die Abmeldung vorher an genau diese Empfänger zu schicken. Wären es zwei
+Aufrufe, liesse sich der zweite vergessen — so kommt niemand an die Empfänger,
+ohne die Liste zu leeren, und niemand leert sie, ohne sie in der Hand zu halten.
+
+Damit ist auch eine Nachlässigkeit aus D17 behoben: Das Leeren stand dort in
+`RecordPresence`, also **vor** der Stelle, die die Liste braucht — und der Weg
+über den Verbindungsabriss leerte sie überhaupt nicht. Ein Fremder durfte eine
+abgerissene Resource weiter befragen.
+
+Sechs Mutationen, alle erschlagen — eine erst im zweiten Anlauf, und sie ist die
+lehrreiche: **die Liste bei *jeder* Presence abzuholen statt nur bei der
+Abmeldung.** Kein Test überlebte das nicht, weil keiner nach der gerichteten
+Presence noch eine gewöhnliche schickte — die Reihenfolge, die im Betrieb die
+Regel ist. Ein Client meldet bei jedem Wechsel auf „abwesend" eine neue Presence;
+wer dabei die Liste leert, nimmt dem Gegenüber mitten im Gespräch beides, die
+Abmeldung am Ende und das Fragerecht.
+
+Die Lehre dazu: **Meine Tests liessen den Client je Abschnitt genau eine Sache
+tun, und die Mutation lebte in der Lücke zwischen den Abschnitten.** Ein Test, der
+nur die Reihenfolge prüft, die er selbst gebaut hat, prüft nicht die, die
+vorkommt.
+
+Ein eigenes Fixture, `DirectedPresenceTests`. Zuerst standen die Tests in
+`IqDeliveryRulesTests`, weil die Liste dort entstanden war — sie prüfen aber die
+Zustellung von Presence und nicht die von IQ, und ein Test gehört dorthin, wovon
+er handelt.
+
 ---
 
 ## Später
@@ -2383,9 +2444,6 @@ prüft.
 - RFC 6121 §4.6.1 (SOLL): Eine Entität, die dem Nutzer `unavailable`-Presence
   schickt, soll aus dessen Liste gerichteter Presence verschwinden. Bis dahin
   darf sie nach einer Rückkehr weiter fragen (siehe D17)
-- RFC 6121 §4.6.3 Regel 2: Wird eine Resource unverfügbar, soll die Abmeldung an
-  jede Entität gehen, der sie gerichtete Presence geschickt hat. Die Liste dafür
-  gibt es seit D17, das Verschicken fehlt
 - Eine IQ-Anfrage von einer Gegenstelle an die eigene Serveradresse
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
