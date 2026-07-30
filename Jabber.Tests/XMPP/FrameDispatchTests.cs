@@ -260,6 +260,156 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnUnknownElementInAKnownNamespace_IsRefusedToo()
+
+        /// <summary>
+        /// Ein bekannter Namensraum macht das Element nicht bekannt.
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 4.9.3.24 nennt ausdrücklich beides: „because the receiving
+        /// entity does not understand the namespace <b>or</b> because the
+        /// receiving entity does not understand the element name for the
+        /// applicable namespace". Der Zweig für XEP-0198 prüfte bisher nur den
+        /// Namensraum und liess alles darin fallen, was er nicht kannte — die
+        /// letzte Stelle im Haus, an der ein Rahmen noch stillschweigend hinten
+        /// herausfiel.
+        ///
+        /// Der zweite Fall ist der interessantere: <c>&lt;enabled/&gt;</c> ist
+        /// ein <b>richtiges</b> Element aus XEP-0198 — nur schickt es der
+        /// Server an den Client und nicht umgekehrt. Bekannt heisst nicht
+        /// „bekannt in dieser Richtung".
+        /// </remarks>
+        [Test]
+        [TestCase("<quatsch xmlns='urn:xmpp:sm:3'/>",
+                  TestName = "AnInventedElementInTheSmNamespace_IsRefused")]
+        [TestCase("<enabled xmlns='urn:xmpp:sm:3' id='x'/>",
+                  TestName = "AServerToClientElement_IsRefusedFromAClient")]
+        public async Task AnUnknownElementInAKnownNamespace_IsRefusedToo(String rahmen)
+        {
+
+            var alice   = await EinzelnAsync();
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+            var fehler  = Fehlerkorb(alice);
+
+            await alice.SendRawAsync(rahmen);
+
+            await WaitFor(() => !fehler.IsEmpty, "den Stream-Fehler");
+
+            fehler.TryDequeue(out var gemeldet);
+
+            Assert.That(gemeldet!.Condition, Is.EqualTo("unsupported-stanza-type"));
+
+            await WaitFor(() => !sitzung.IsOpen, "das Ende des Streams");
+
+        }
+
+        #endregion
+
+        #region TheKnownSmElements_StillReachTheirHandler()
+
+        /// <summary>
+        /// Die Gegenprobe: Was XEP-0198 für diese Richtung vorsieht, wird
+        /// weiterhin beantwortet.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie bestünde die Sammlung auch dann, wenn der Zweig
+        /// <b>alles</b> im Namensraum abwiese — und Stream Management wäre
+        /// unbenutzbar, ohne dass ein Test es merkte.
+        /// </remarks>
+        [Test]
+        public async Task TheKnownSmElements_StillReachTheirHandler()
+        {
+
+            var alice   = await EinzelnAsync();
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            var bestaetigungen = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<",         StringComparison.Ordinal) &&
+                    x.Contains("<a ",           StringComparison.Ordinal) &&
+                    x.Contains("urn:xmpp:sm:3", StringComparison.Ordinal))
+                {
+                    bestaetigungen.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync("<r xmlns='urn:xmpp:sm:3'/>");
+
+            await WaitFor(() => !bestaetigungen.IsEmpty, "die Bestätigung des Servers");
+
+            Assert.That(sitzung.IsOpen, Is.True);
+
+        }
+
+        #endregion
+
+        #region AnAckFromTheClient_IsProcessedAndClearsTheQueue()
+
+        /// <summary>
+        /// Die Bestätigung des Clients kommt an: Sie wird vermerkt und räumt
+        /// die Warteschlange der unbestätigten Stanzas.
+        /// </summary>
+        /// <remarks>
+        /// Dieser Test fehlte, und aufgefallen ist es an einer Mutation: Sie
+        /// erklärte den <c>&lt;a/&gt;</c>-Zweig für unzuständig — womit die
+        /// Bestätigung des Clients seit D29 den Stream beendet hätte —, und
+        /// <b>kein einziger Test</b> fiel darüber. Über eine echte Verbindung
+        /// hat nie ein Client ein <c>&lt;a/&gt;</c> an den Server geschickt;
+        /// geprüft war nur der Zähler für sich, in
+        /// <see cref="StanzaCountingTests"/>.
+        ///
+        /// Die Lücke ist älter als die Zeile, die sie sichtbar gemacht hat. Der
+        /// Zweig gab vorher nichts zurück, und ob er lief, war deshalb von
+        /// aussen nicht zu sehen — ein Zweig, dessen Wirkung niemand beobachtet,
+        /// sieht aus wie einer, den niemand braucht.
+        ///
+        /// Beide Hälften gehören zusammen: <c>LastAckFromClient</c> zeigt, dass
+        /// die Zahl gelesen wurde, die Warteschlange, dass sie auch angewandt
+        /// wurde.
+        /// </remarks>
+        [Test]
+        public async Task AnAckFromTheClient_IsProcessedAndClearsTheQueue()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var alice = await EinzelnAsync();
+            var bob   = await ConnectClientAsync("bob");
+
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            // Etwas, das der Server an Alice schickt und das unbestätigt
+            // liegen bleibt.
+            await bob.SendMessageAsync(alice.Connection.BareJid, "Hallo");
+
+            await WaitFor(() => sitzung.UnacknowledgedToClient > 0,
+                          "eine unbestätigte Stanza beim Server");
+
+            var offen = sitzung.UnacknowledgedToClient;
+
+            await alice.SendRawAsync(
+                      $"<a xmlns='urn:xmpp:sm:3' h='{sitzung.PendingToClient[^1].Seq}'/>");
+
+            await WaitFor(() => sitzung.LastAckFromClient is not null,
+                          "die Bestätigung des Clients beim Server");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(sitzung.UnacknowledgedToClient, Is.LessThan(offen),
+                            "Die Bestätigung muss die Warteschlange räumen.");
+
+                Assert.That(sitzung.IsOpen, Is.True,
+                            "Und sie ist ein bekanntes Element, kein Grund zum Abbruch.");
+
+            });
+
+        }
+
+        #endregion
+
         #region AFrameWithoutAnElement_IsIgnored()
 
         /// <summary>

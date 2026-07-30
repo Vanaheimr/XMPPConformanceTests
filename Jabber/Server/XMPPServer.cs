@@ -1200,9 +1200,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             }
 
-            if (frame.Contains("urn:xmpp:sm:3", StringComparison.Ordinal))
+            // Der Namensraum allein entscheidet nicht: Was er nicht kennt,
+            // fällt weiter nach unten und bekommt dieselbe Antwort wie jedes
+            // andere unbekannte Element. Bis D29 endete der Zweig hier - er
+            // war die letzte Stelle, an der ein Rahmen stillschweigend hinten
+            // herausfiel.
+            if (frame.Contains("urn:xmpp:sm:3", StringComparison.Ordinal) &&
+                await HandleStreamManagementAsync(session, frame))
             {
-                await HandleStreamManagementAsync(session, frame);
                 return;
             }
 
@@ -1253,7 +1258,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>
         /// XEP-0198: <c>&lt;enable/&gt;</c>, <c>&lt;r/&gt;</c> und <c>&lt;a/&gt;</c>.
         /// </summary>
-        private async Task HandleStreamManagementAsync(XMPPSession session, String frame)
+        /// <returns>
+        /// false, wenn das Element in diesem Namensraum nicht vorgesehen ist -
+        /// dann behandelt es der Aufrufer wie jedes andere unbekannte.
+        /// </returns>
+        private async Task<Boolean> HandleStreamManagementAsync(XMPPSession session, String frame)
         {
 
             if (StanzaElement.Is(frame, "enable"))
@@ -1264,7 +1273,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     await session.SendAsync(
                         "<failed xmlns='urn:xmpp:sm:3'>" +
                         "<feature-not-implemented xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></failed>");
-                    return;
+                    return true;
                 }
 
                 // XEP-0198, Abschnitt 5: nur zusagen, wonach gefragt wurde.
@@ -1285,7 +1294,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                      $"resume='true' max='{(Int32) ResumptionTimeout.TotalSeconds}'/>"
                                    : $"<enabled xmlns='urn:xmpp:sm:3' id='sm-{s.ConnectionNumber}'/>");
 
-                return;
+                return true;
 
             }
 
@@ -1295,7 +1304,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (StanzaElement.Is(frame, "resume"))
             {
                 await HandleResumeAsync(session, frame);
-                return;
+                return true;
             }
 
             // Der Client fragt unseren Empfangszähler ab.
@@ -1313,7 +1322,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     await session.SendAsync(
                         $"<a xmlns='urn:xmpp:sm:3' h='{session.StanzasReceivedFromClient}'/>");
 
-                return;
+                return true;
 
             }
 
@@ -1326,9 +1335,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (h.Success && UInt32.TryParse(h.Groups[1].Value, out var value))
                     session.AcknowledgeToClient(value);
 
-                return;
+                return true;
 
             }
+
+            // Alles andere in diesem Namensraum kennt dieser Server nicht -
+            // auch <enabled/>, <resumed/> und <failed/>, die es zwar gibt, die
+            // aber der Server an den Client schickt und nicht umgekehrt.
+            // Bekannt heisst nicht "bekannt in dieser Richtung".
+            return false;
 
         }
 

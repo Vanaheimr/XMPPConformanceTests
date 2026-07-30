@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **697 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **701 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2964,6 +2964,74 @@ dasselbe antworten. Er sieht dann aus wie ein Nachweis und ist keiner. Die
 Gegenprobe dafür ist billig und gehört zur Gewohnheit — **welche Antwort gäbe
 der Server ohne diese Zeile?** Ist es dieselbe, prüft der Test die Zeile nicht.
 
+### D29. Ein bekannter Namensraum macht das Element nicht bekannt ✅
+
+Die letzte Stelle im Haus, an der ein Rahmen noch stillschweigend hinten
+herausfiel: Der Zweig für XEP-0198 prüfte den **Namensraum** und liess alles
+darin fallen, was er nicht kannte.
+
+Abschnitt 4.9.3.24 nennt ausdrücklich beides — „because the receiving entity
+does not understand the namespace **or** because the receiving entity does not
+understand the element name for the applicable namespace". Der zweite Halbsatz
+ist genau dieser Fall, und er war der einzige, der noch offen stand.
+
+**Der interessantere der beiden geprüften Fälle ist nicht das erfundene
+Element, sondern `<enabled/>`.** Das ist ein *richtiges* Element aus XEP-0198 —
+nur schickt es der Server an den Client und nicht umgekehrt. Bekannt heisst
+nicht „bekannt in dieser Richtung", und ein Zweig, der nur den Namensraum
+ansieht, kann diesen Unterschied gar nicht machen.
+
+Umgesetzt ist es als Rückgabewert statt als zweiter Prüfung: Der Zweig sagt
+jetzt, ob er zuständig war, und was er nicht kennt, fällt weiter nach unten und
+bekommt dieselbe Antwort wie jedes andere unbekannte Element. Eine zweite Liste
+der bekannten Namen neben der ersten wäre die naheliegende Lösung gewesen und
+die schlechtere — zwei Aufzählungen, die auseinanderlaufen können, für eine
+Frage, die der Zweig ohnehin schon beantwortet.
+
+Sechs Mutationen, alle erschlagen — je eine für jeden der vier Zweige, die
+Weiche selbst und den Rückfall am Ende. Eine davon erst nach einem
+nachgetragenen Test, und die ist der eigentliche Fund dieses Punktes.
+
+**Der `<a/>`-Zweig war von keinem Test erreicht.** Die Mutation erklärte ihn für
+unzuständig — womit die Bestätigung des Clients seit dieser Änderung den Stream
+beendet hätte —, und kein einziger Test fiel darüber. Über eine echte Verbindung
+hat nie ein Client ein `<a/>` an den Server geschickt: Geprüft war nur der
+Zähler für sich, in `StanzaCountingTests`, nie sein Weg durch den Server.
+
+**Die Lücke ist älter als die Zeile, die sie sichtbar gemacht hat.** Der Zweig
+gab vorher nichts zurück; ob er lief, war von aussen nicht zu sehen. Erst der
+Rückgabewert hat ihn beobachtbar gemacht — und eine Mutation daran konnte
+überhaupt erst auffallen. Ein Zweig, dessen Wirkung niemand beobachtet, sieht
+aus wie einer, den niemand braucht.
+
+Das ist dasselbe Muster wie in D26, nur andersherum: Dort machte eine neue
+Antwort eine alte Nachlässigkeit sichtbar, hier macht ein neuer Rückgabewert
+eine alte Testlücke sichtbar. **Beobachtbarkeit ist keine Nebenwirkung einer
+Änderung, sondern manchmal ihr grösserer Teil.**
+
+**Und der Punkt aus D25 hat heute zum vierten Mal zugeschlagen.** Jede Mutation,
+die die Aushandlung zerbricht — `set` aus der Typliste (D25), `iq` aus der
+Weiche (D26), `<abort/>` ohne Antwort, `<enable/>` als unbehandelt (hier) —,
+lässt den Lauf **hängen** statt scheitern: `XMPPConnection.ConnectAsync` wartet
+ohne eigene Frist auf eine Antwort, die nie kommt. Viermal derselbe Befund aus
+vier verschiedenen Richtungen ist kein Zufall mehr, sondern eine Eigenschaft.
+
+Der Umgang damit ist inzwischen eingespielt und hat selbst zwei Lehren gekostet:
+`--blame-hang` macht aus dem Hänger einen Fehlschlag, und **der Filter bleibt
+dabei unverändert** — eine Verengung hat in D25 aus einem erschlagenen Mutanten
+einen überlebenden gemacht. Abgeschossen wird das Skript und nicht der
+Testprozess; in D26 lief sonst der alte Durchgang neben dem neuen weiter.
+Beim Abbruch hier trug die Datei wieder eine Mutation, und gefunden hat sie —
+zum zweiten Mal — der Hash-Vergleich gegen die Sicherung und nicht meine
+Aufmerksamkeit.
+
+Damit ist die Reihe D26 bis D29 abgeschlossen: Erst riet die Weiche (D26), dann
+wurde sie streng (D26, D27), dann kamen die Antworten nach, die sie durch die
+Strenge schuldig wurde (D28, D29). **Der Bogen ist die eigentliche Lehre.** Eine
+Nachlässigkeit, die nichts tut, kostet nichts — bis eine Verschärfung daneben
+sie in einen Schaden verwandelt. Wer verschärft, übernimmt damit auch alles,
+was vorher folgenlos fehlte.
+
 ---
 
 ## Später
@@ -2973,9 +3041,6 @@ der Server ohne diese Zeile?** Ist es dieselbe, prüft der Test die Zeile nicht.
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
   Client-Sitzung (siehe D16)
-- Ein unbekanntes Element im XEP-0198-Namensraum fällt in
-  `HandleStreamManagementAsync` weiterhin stillschweigend hinten heraus; nur die
-  Client-Weiche darüber ist seit D26 streng (siehe D26)
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
@@ -2994,6 +3059,13 @@ der Server ohne diese Zeile?** Ist es dieselbe, prüft der Test die Zeile nicht.
   ablehnt — entweder echt implementieren oder entfernen
 
 ### Testsammlung
+- Ein Vollauf in D29 meldete **einen** Fehlschlag, der unmittelbar folgende,
+  gleiche Lauf war grün. Welcher Test es war, ist unbekannt: Der erste Lauf
+  schnitt nur die Zusammenfassung mit, und der Name stand in der verworfenen
+  Ausgabe. Daraus zwei Dinge — der Fehlschlag bleibt unaufgeklärt vermerkt, und
+  ein Vollauf wird von nun an vollständig in eine Datei geschrieben, nicht
+  gefiltert. **Ein Fehlschlag ohne Namen ist ein Fehlschlag, den man nicht
+  wiederfindet** (siehe D29)
 - `TheStreamSurvivesABrokenConnection` gegen einen Fremdserver scheiterte in
   einem von vier Vollläufen mit einer Zeitüberschreitung, allein aber 4 von 4
   Mal grün. Verdacht: 15 Sekunden für Wiederverbindung samt Wiederaufnahme sind
