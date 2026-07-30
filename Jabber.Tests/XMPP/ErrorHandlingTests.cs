@@ -250,12 +250,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var connectionsBefore = Server.ConnectionCount;
 
+            // Schliesst den Stream selbst (RFC 6120, Abschnitt 4.9.1.1) - hier
+            // stand bis D23 ein Kill() dahinter, das genau das von Hand nachholte.
             await session.SendStreamErrorAsync("conflict", "Resource doppelt vergeben.");
 
             await WaitFor(() => reported is not null, "gemeldeter Stream-Fehler");
 
             // Dem Client Zeit geben, einen Reconnect zu versuchen - er darf keinen machen.
-            session.Kill();
             await Task.Delay(TimeSpan.FromSeconds(2));
 
             Assert.Multiple(() =>
@@ -290,11 +291,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var connectionsBefore = Server.ConnectionCount;
 
+            // Schliesst den Stream selbst; der Reconnect folgt daraus und nicht
+            // aus einem zusätzlichen Abriss von Hand.
             await session.SendStreamErrorAsync("system-shutdown");
 
             await WaitFor(() => reported is not null, "gemeldeter Stream-Fehler");
-
-            session.Kill();
 
             await WaitFor(() => Server.ConnectionCount > connectionsBefore,
                           "Reconnect nach wiederholbarem Stream-Fehler");

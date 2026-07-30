@@ -856,7 +856,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // ist der Sinn eines unwiederbringlichen Fehlers.
                 try
                 {
-                    await session.FailStreamAsync("internal-server-error");
+                    await session.SendStreamErrorAsync("internal-server-error");
                 }
                 catch (Exception beimSchliessen)
                 {

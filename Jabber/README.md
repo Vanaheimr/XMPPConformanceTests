@@ -515,7 +515,9 @@ miteinander sprechen:
   Zählung — der Server benutzt bewusst nicht dieselbe Hilfsfunktion wie der
   Client, sonst prüften die Tests beide Seiten mit derselben Logik
 - Stanza- und Stream-Fehler auf Zuruf: `StanzaErrorIq(…)` und
-  `session.SendStreamErrorAsync(condition)`
+  `session.SendStreamErrorAsync(condition)` — das Letztere beendet den Stream
+  auch, wie RFC 6120 §4.9.1.1 es verlangt: Fehler schicken, `<close/>` nach
+  RFC 7395 §3.6, Verbindung niederlegen
 - Offline-Ablage nach RFC 6121 §8.5.2.2.1 und XEP-0160, mit XEP-0203-Stempel;
   `StoreOfflineMessages` schaltet auf den gleichrangig erlaubten Gegenweg um
   (`<service-unavailable/>` an den Absender)
@@ -613,10 +615,6 @@ Server-Implementierung:
   unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
   Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei
   S2S nicht gibt. RFC 6120 §8.2.3 Regel 3 verlangt eine Antwort.
-- **`SendStreamErrorAsync` schliesst den Stream nicht.** RFC 6120 §4.9.1.1
-  verlangt beides — Fehler schicken und sofort schliessen. Die Aufrufer in
-  `S2SStream` und in den Tests nutzen die Trennung bewusst; wer den Stream
-  wirklich beenden will, nimmt `XMPPSession.FailStreamAsync`.
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide

@@ -633,44 +633,46 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             => SendAsync("<r xmlns='urn:xmpp:sm:3'/>");
 
         /// <summary>
-        /// RFC 6120, Abschnitt 4.9: Schickt einen Stream-Fehler.
+        /// RFC 6120, Abschnitt 4.9: Beendet den Stream mit einem Fehler - Fehler
+        /// schicken, Stream schliessen, Verbindung niederlegen.
         /// </summary>
         /// <param name="condition">Bedingung aus Abschnitt 4.9.3, etwa <c>conflict</c>.</param>
         /// <param name="text">Optionaler erläuternder Text.</param>
         /// <remarks>
-        /// Nur der Fehler, ohne den Abschluss. Wer den Stream wirklich beenden
-        /// will - und das verlangt Abschnitt 4.9.1.1 für jeden Stream-Fehler -,
-        /// nimmt <see cref="FailStreamAsync"/>.
-        /// </remarks>
-        public Task SendStreamErrorAsync(String condition, String? text = null)
-
-            => SendAsync("<stream:error xmlns:stream='http://etherx.jabber.org/streams'>" +
-                         $"<{condition} xmlns='urn:ietf:params:xml:ns:xmpp-streams'/>" +
-                         (text is not null
-                              ? $"<text xmlns='urn:ietf:params:xml:ns:xmpp-streams'>{text}</text>"
-                              : "") +
-                         "</stream:error>");
-
-        /// <summary>
-        /// RFC 6120, Abschnitt 4.9.1.1: Schickt einen Stream-Fehler und beendet
-        /// den Stream unmittelbar danach.
-        /// </summary>
-        /// <remarks>
-        /// „Stream-level errors are unrecoverable" - der Abschnitt lässt keine
-        /// Wahl: Wer den Fehler erkennt, schickt ihn und schliesst dann sofort.
-        /// Ein Stream, der nach einem Stream-Fehler weiterläuft, ist keiner mehr:
-        /// Beide Seiten haben verschiedene Vorstellungen davon, was noch gilt.
+        /// Beides in einem Aufruf, weil Abschnitt 4.9.1.1 keine Wahl lässt:
+        /// „Stream-level errors are unrecoverable. Therefore, if an error occurs
+        /// at the level of the stream, the entity that detects the error MUST
+        /// send an &lt;error/&gt; element ... and then <b>immediately close the
+        /// stream</b>." Ein Stream, der nach einem Stream-Fehler weiterläuft, ist
+        /// keiner mehr: Beide Seiten haben verschiedene Vorstellungen davon, was
+        /// noch gilt.
+        ///
+        /// Es waren bis D23 zwei Methoden - diese ohne Abschluss und ein
+        /// <c>FailStreamAsync</c> mit. Die Trennung hatte keinen Aufrufer, der sie
+        /// brauchte: Beide Nutzer waren Tests, und beide holten das Schliessen
+        /// unmittelbar danach von Hand nach. Eine Wahl, die es nicht gibt, sollte
+        /// die Schnittstelle auch nicht anbieten.
         ///
         /// Drei Schritte, und der mittlere ist der, den man über WebSocket
         /// leicht vergisst: Nach RFC 7395, Abschnitt 3.6 steht
         /// <c>&lt;close/&gt;</c> für das <c>&lt;/stream:stream&gt;</c> - ohne es
         /// sieht der Client einen Socket, der ohne Abschied zufällt, und das ist
         /// ein Netzwerkausfall und kein Stream-Fehler.
+        ///
+        /// <see cref="S2SStream.SendStreamErrorAsync"/> tut dasselbe für einen
+        /// Server-zu-Server-Stream und hiess von Anfang an so; dass die
+        /// gleichnamige Methode hier etwas anderes tat, war die eigentliche
+        /// Falle.
         /// </remarks>
-        public async Task FailStreamAsync(String condition, String? text = null)
+        public async Task SendStreamErrorAsync(String condition, String? text = null)
         {
 
-            await SendStreamErrorAsync(condition, text);
+            await SendAsync("<stream:error xmlns:stream='http://etherx.jabber.org/streams'>" +
+                            $"<{condition} xmlns='urn:ietf:params:xml:ns:xmpp-streams'/>" +
+                            (text is not null
+                                 ? $"<text xmlns='urn:ietf:params:xml:ns:xmpp-streams'>{text}</text>"
+                                 : "") +
+                            "</stream:error>");
 
             await SendAsync(WebSocketFraming.Instance.StreamClose());
 

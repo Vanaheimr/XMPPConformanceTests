@@ -2524,7 +2524,47 @@ Sechs Mutationen, alle erschlagen — eine erst im zweiten Anlauf (das `<close/>
 Nicht behoben und vermerkt: `SendStreamErrorAsync` schickt weiterhin nur den
 Fehler, ohne zu schliessen. Abschnitt 4.9.1.1 verlangt beides, und die
 Unterscheidung zu `FailStreamAsync` ist eine Bequemlichkeit für die Aufrufer in
-`S2SStream` und in den Tests.
+`S2SStream` und in den Tests. *(Der Halbsatz über `S2SStream` war falsch — siehe
+D23.)*
+
+### D23. Eine Wahl, die es nicht gibt ✅
+
+Der Punkt aus D22: `SendStreamErrorAsync` schickte den Stream-Fehler, ohne den
+Stream zu schliessen. Abschnitt 4.9.1.1 verlangt beides, und zwar in einem Zug.
+
+**Erst die Bestandsaufnahme, und sie hat meinen eigenen Vermerk widerlegt.** In
+D22 hatte ich geschrieben, die Trennung sei „eine Bequemlichkeit für die Aufrufer
+in `S2SStream` und in den Tests". `S2SStream` hat eine **eigene** Methode
+gleichen Namens und ruft die der Sitzung nie — und die eigene schliesst den Stream
+seit immer (`MarkClosed`). Die Sitzungs-Variante war die einzige Ausnahme im
+Haus, und ausgerechnet sie trug denselben Namen wie die richtige Fassung daneben.
+Das war die eigentliche Falle.
+
+Übrig blieben zwei Aufrufer, beide Tests — und beide holten das Schliessen
+unmittelbar danach mit `session.Kill()` von Hand nach. **Es gab also keinen
+einzigen Aufrufer, der die Trennung brauchte.** Eine Wahl, die niemand trifft,
+sollte die Schnittstelle nicht anbieten.
+
+Deshalb keine dritte Methode, sondern eine weniger: `SendStreamErrorAsync` tut
+jetzt beides, und `FailStreamAsync` aus D22 ist wieder weg. Damit heissen die
+gleichnamigen Methoden in `XMPPSession` und `S2SStream` nicht nur gleich, sie tun
+auch dasselbe.
+
+Die zwei Tests sind um ihr `Kill()` leichter — und wahrer: Sie stellen jetzt einen
+regelkonformen Server nach und nicht einen, der einen Fehler schickt und danach
+getrennt den Socket wegzieht.
+
+Drei Mutationen, alle erschlagen. Die aufschlussreiche ist die erste: Dass das
+Schliessen wirklich geschieht, hält kein eigener Test, sondern
+`RecoverableStreamError_IsReportedButAllowsReconnect` — ein Reconnect setzt
+voraus, dass die Verbindung weg ist. Der Test stand lange da und hat seinen
+zweiten Zweck erst jetzt bekommen.
+
+**Die Lehre steht schon in D19 und wiederholt sich hier wörtlich:** Eine Liste,
+die man aus dem Kopf schreibt, ist keine Bestandsaufnahme. Damals waren es neun
+Fixtures statt elf, diesmal ein Aufrufer, den es nicht gab. Beide Male hätte ein
+`grep` gereicht, und beide Male stand die falsche Angabe erst einmal im
+Repository.
 
 ---
 
@@ -2565,11 +2605,6 @@ Unterscheidung zu `FailStreamAsync` ist eine Bequemlichkeit für die Aufrufer in
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
-- `SendStreamErrorAsync` schickt den Fehler, ohne den Stream zu schliessen —
-  Abschnitt 4.9.1.1 verlangt beides. Die Aufrufer in `S2SStream` und die Tests
-  nutzen es bewusst so; wer den Stream beenden will, nimmt `FailStreamAsync`.
-  Sauber wäre, die Aufrufer durchzusehen und die Trennung dann zu entfernen
-  (siehe D22)
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
   gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
   fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein
