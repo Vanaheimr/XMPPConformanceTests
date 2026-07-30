@@ -1559,6 +1559,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var type  = Attr(frame, "type");
             var to    = Attr(frame, "to");
 
+            // RFC 6120, Abschnitt 8.2.3, Regel 2: Ohne einen der vier
+            // vorgesehenen Werte ist diese Stanza weder Frage noch Antwort.
+            //
+            // Vor der Weiche und nicht dahinter: Was an den Server selbst geht,
+            // kommt am Zustellweg nie vorbei und fiele sonst hinten heraus.
+            if (!IqTypes.IsKnown(type))
+            {
+                await session.SendAsync(BadRequestIq(id));
+                return;
+            }
+
             // An eine andere Entity gerichtet? Dann weiterleiten.
             if (RouteStanzas &&
                 to is not null &&
@@ -1730,9 +1741,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             }
 
-            // Ab hier: eine Anfrage (get, set - oder ein unbekannter Wert, den
-            // dieser Weg wie eine Anfrage behandelt, weil eine Antwort mehr
-            // taugt als Schweigen).
+            // Ab hier: eine Anfrage, also get oder set. Ein anderer Wert kommt
+            // hier nicht mehr an - beide Eingänge weisen ihn nach RFC 6120,
+            // Abschnitt 8.2.3, Regel 2 ab, bevor sie zustellen.
             //
             // Eine Verzweigung, wo der RFC zwei Abschnitte hat: Abschnitt
             // 8.5.3.1 lässt eine passende Resource zustellen, 8.5.3.2.3 (keine
@@ -3071,6 +3082,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (!RouteStanzas)
                 return RemoteStanzaResult.RoutingDisabled;
 
+            // RFC 6120, Abschnitt 8.2.3, Regel 2, hier in der Rolle des
+            // Empfängers. Ein Client dieses Servers kommt nie so weit - sein
+            // eigener Server weist ihn schon als Router ab -, eine fremde
+            // Implementierung, die die Regel nicht kennt, sehr wohl.
+            //
+            // Vor allen Zustellzweigen: Der Weg für Anfragen unterscheidet nur
+            // Antwort und Anfrage und hielte alles Unbekannte für eine Anfrage.
+            if (stanza.StartsWith("<iq", StringComparison.Ordinal) &&
+                !IqTypes.IsKnown(Attr(stanza, "type")))
+            {
+
+                await RouteToAsync(from, BadRequestIq(Attr(stanza, "id")));
+
+                return RemoteStanzaResult.Accepted;
+
+            }
+
             // RFC 6121, Abschnitt 3: eine Subscription-Presence ist keine
             // Nachricht, die nur weitergereicht wird - sie ändert den Roster
             // der hiesigen Seite. Ohne diesen Schritt käme die Anfrage zwar
@@ -3481,6 +3509,36 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         #endregion
 
         #region Hilfsfunktionen
+
+        /// <summary>
+        /// Die Ablehnung nach RFC 6120, Abschnitt 8.2.3, Regel 2.
+        /// </summary>
+        /// <remarks>
+        /// Die <c>id</c> geht mit, wenn es eine gibt, und fehlt sonst - ein
+        /// leeres Attribut gehört zu keiner Frage und ist schlechter als
+        /// keines.
+        ///
+        /// Geschickt wird die Ablehnung trotzdem, auch ohne <c>id</c>. Regel 2
+        /// stellt sie unter keinen Vorbehalt, und der Grund trägt: Wo eine
+        /// unbeantwortete Anfrage den Absender nur warten lässt, sagt diese
+        /// Antwort etwas über die Stanza selbst - dass ihre Form nicht stimmt.
+        /// Das kann er auch dann brauchen, wenn er sie keiner offenen Frage
+        /// zuordnen kann.
+        ///
+        /// Absender ist dieser Server. <c>&lt;service-unavailable/&gt;</c>
+        /// antwortet im Namen des gemeinten Empfängers, weil der Server dort
+        /// für ihn geantwortet hat; hier hat er die Stanza gar nicht erst
+        /// angenommen, und ein Empfänger als Absender behauptete, jemand habe
+        /// hineingesehen.
+        /// </remarks>
+        private String BadRequestIq(String? id)
+
+            => "<iq type='error'" +
+               (id is not null ? $" id='{id}'" : "") +
+               $" from='{Domain}'>" +
+               "<error type='modify'>" +
+               "<bad-request xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+               "</error></iq>";
 
         /// <summary>
         /// Baut ein <c>iq type='error'</c> nach RFC 6120, Abschnitt 8.3.

@@ -929,6 +929,155 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnIqWithAnUnknownType_DoesNotCrossTheBorder()
+
+        /// <summary>
+        /// RFC 6120, Abschnitt 8.2.3, Regel 2: Eine IQ-Stanza mit einem
+        /// unbekannten <c>type</c> weist schon der eigene Server ab — „the
+        /// recipient <b>or an intermediate router</b>".
+        /// </summary>
+        /// <remarks>
+        /// Der Absender des Fehlers ist hier die ganze Aussage. Käme er von
+        /// <c>rechts.example</c>, wäre die Stanza über die Grenze gegangen und
+        /// erst drüben abgewiesen worden — der Test bestünde, und die Regel für
+        /// den Router wäre trotzdem nicht umgesetzt. Nur <c>links.example</c>
+        /// beweist, dass sie den eigenen Server nicht verlassen hat.
+        ///
+        /// Warum ein Router überhaupt urteilen soll, statt weiterzureichen: Eine
+        /// Stanza, die weder Frage noch Antwort ist, kann am Ziel niemand
+        /// beantworten. Reicht jeder sie weiter, wandert sie durch das Netz, und
+        /// der Absender erfährt nie, was aus ihr wurde.
+        /// </remarks>
+        [Test]
+        public async Task AnIqWithAnUnknownType_DoesNotCrossTheBorder()
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            var bob   = await VerbindeAsync(_rechts, "bob");
+
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "from"));
+
+            var beiAlice = new ConcurrentQueue<String>();
+            var beiBob   = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='fremder-typ'", StringComparison.Ordinal))
+                {
+                    beiAlice.Enqueue(x);
+                }
+            };
+
+            bob.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='fremder-typ'", StringComparison.Ordinal))
+                {
+                    beiBob.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync(
+                      $"<iq type='vielleicht' id='fremder-typ' to='{bob.FullJid}'>" +
+                      "<ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WarteAuf(() => !beiAlice.IsEmpty, "die Ablehnung von Alices eigenem Server");
+
+            beiAlice.TryDequeue(out var abgelehnt);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgelehnt, Does.Contain("<bad-request "));
+
+                Assert.That(abgelehnt, Does.Contain($"from='{_links.Domain}'"),
+                            "Abgewiesen hat der eigene Server, nicht der der Gegenstelle.");
+
+                Assert.That(beiBob, Is.Empty,
+                            "Und angekommen ist sie nirgends.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AnIqWithAnUnknownTypeFromAnotherServer_IsRefused()
+
+        /// <summary>
+        /// Dieselbe Regel für die andere Rolle: als Empfänger einer Stanza von
+        /// der Gegenstelle.
+        /// </summary>
+        /// <remarks>
+        /// Eingespeist wird hier von Hand, und das ist kein Kunstgriff, sondern
+        /// die einzige Möglichkeit: Ein Client dieser Sammlung käme nie so weit,
+        /// weil sein eigener Server ihn schon abweist (siehe der Test darüber).
+        /// Der Fall ist trotzdem echt — eine fremde Serverimplementierung, die
+        /// Regel 2 nicht kennt, reicht genau das über die Grenze.
+        ///
+        /// Bob ist angemeldet und lässt Alice seinen Zustand sehen. Ohne beides
+        /// wäre der Test wertlos: Die Stanza käme dann auch ohne jede Prüfung
+        /// nicht bei ihm an, und der Nachweis „erreicht keinen Client" bewiese
+        /// nur, dass niemand da war.
+        /// </remarks>
+        [Test]
+        public async Task AnIqWithAnUnknownTypeFromAnotherServer_IsRefused()
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            var bob   = await VerbindeAsync(_rechts, "bob");
+
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "from"));
+
+            var beiAlice = new ConcurrentQueue<String>();
+            var beiBob   = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='von-drueben'", StringComparison.Ordinal))
+                {
+                    beiAlice.Enqueue(x);
+                }
+            };
+
+            bob.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='von-drueben'", StringComparison.Ordinal))
+                {
+                    beiBob.Enqueue(x);
+                }
+            };
+
+            await _rechts.AcceptFromRemoteAsync(
+                      _links.Domain,
+                      $"<iq type='vielleicht' id='von-drueben' " +
+                      $"from='{alice.FullJid}' to='{bob.FullJid}'>" +
+                      "<ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WarteAuf(() => !beiAlice.IsEmpty, "die Ablehnung über die Grenze zurück");
+
+            beiAlice.TryDequeue(out var abgelehnt);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgelehnt, Does.Contain("<bad-request "));
+
+                Assert.That(abgelehnt, Does.Contain($"from='{_rechts.Domain}'"),
+                            "Abgewiesen hat der Server des Empfängers.");
+
+                Assert.That(beiBob, Is.Empty,
+                            "Bob bekommt sie nicht zu sehen.");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

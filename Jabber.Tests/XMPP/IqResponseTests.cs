@@ -342,6 +342,132 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnIqWithAnUnknownType_IsRefusedWithBadRequest()
+
+        /// <summary>
+        /// RFC 6120, Abschnitt 8.2.3, Regel 2: Ein <c>type</c>, der keiner der
+        /// vier vorgesehenen Werte ist, bekommt
+        /// <c>&lt;bad-request/&gt;</c> — von „the recipient", und das ist hier
+        /// der Client.
+        /// </summary>
+        /// <remarks>
+        /// Nicht dieselbe Prüfung wie im Server, sondern die zweite Rolle
+        /// derselben Regel. Der Server weist ab, was er weiterreichen soll; der
+        /// Client weist ab, was bei ihm ankommt. Beide werden gebraucht: Gegen
+        /// diesen Server käme eine solche Stanza nie beim Client an, gegen eine
+        /// fremde Implementierung ohne Regel 2 sehr wohl.
+        ///
+        /// Vorher fiel sie hier stillschweigend durch: Der Fallback am Ende von
+        /// <c>ProcessIq</c> fragt nach <c>get</c> oder <c>set</c>, und ein
+        /// fünfter Wert ist keins von beidem.
+        /// </remarks>
+        [Test]
+        [TestCase("vielleicht", TestName = "AnIqWithAnUnknownType_IsRefusedWithBadRequest")]
+        [TestCase(null,         TestName = "AnIqWithoutAType_IsRefusedWithBadRequest")]
+        public async Task AnIqWithABrokenType_IsRefusedWithBadRequest(String? type)
+        {
+
+            var session = await ConnectedSessionAsync();
+
+            var reply = await AskAsync(session, "probe-typ",
+                            "<iq" +
+                            (type is not null ? $" type='{type}'" : "") +
+                            $" id='probe-typ' from='{Server.Domain}' to='{session.FullJid}'>" +
+                            "<query xmlns='urn:example:does-not-exist'/></iq>");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(reply, Does.Contain("type='error'"));
+                Assert.That(reply, Does.Contain("<bad-request "));
+                Assert.That(reply, Does.Contain("urn:ietf:params:xml:ns:xmpp-stanzas"));
+
+                // Abschnitt 8.3.3.1: modify und nicht cancel - der Absender
+                // kann es richtig gestellt noch einmal versuchen.
+                Assert.That(reply, Does.Contain("type='modify'"));
+
+                Assert.That(reply, Does.Contain($"to='{Server.Domain}'"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheRefusalComesEvenWithoutAnId()
+
+        /// <summary>
+        /// Ohne <c>id</c> wird die Ablehnung trotzdem geschickt — anders als
+        /// bei einer unbehandelten, aber wohlgeformten Anfrage.
+        /// </summary>
+        /// <remarks>
+        /// Der Unterschied ist der Inhalt der Antwort. Ein
+        /// <c>&lt;service-unavailable/&gt;</c> beantwortet eine Frage, und eine
+        /// Antwort ohne <c>id</c> lässt sich keiner Frage zuordnen — sie nützt
+        /// niemandem, deshalb schweigt der Client dort (siehe
+        /// <see cref="IqWithoutId_IsNotAnswered"/>).
+        ///
+        /// <c>&lt;bad-request/&gt;</c> sagt etwas über die Stanza selbst: dass
+        /// ihre Form nicht stimmt. Das kann der Absender auch dann brauchen,
+        /// wenn er es keiner offenen Frage zuordnen kann — zumal die fehlende
+        /// <c>id</c> nach Regel 1 selbst zu dem gehört, was nicht stimmt.
+        ///
+        /// Ein leeres <c>id=''</c> wäre der schlechteste Ausgang: Es gehört zu
+        /// keiner Frage und sieht aus, als gehörte es zu einer.
+        /// </remarks>
+        [Test]
+        public async Task TheRefusalComesEvenWithoutAnId()
+        {
+
+            var session = await ConnectedSessionAsync();
+
+            await session.SendAsync(
+                      $"<iq type='vielleicht' from='{Server.Domain}' to='{session.FullJid}'>" +
+                      "<query xmlns='urn:example:does-not-exist'/></iq>");
+
+            await WaitFor(() => session.Received.Any(f => f.Contains("bad-request", StringComparison.Ordinal)),
+                          "die Ablehnung ohne id");
+
+            var reply = session.Received.First(f => f.Contains("bad-request", StringComparison.Ordinal));
+
+            Assert.That(reply, Does.Not.Contain("id="),
+                        "Was keine id hatte, bekommt auch keine leere zurück.");
+
+        }
+
+        #endregion
+
+        #region TheRefusalWithoutASenderCarriesNoTo()
+
+        /// <summary>
+        /// Ohne <c>from</c> kam die Stanza vom eigenen Server (RFC 6120,
+        /// Abschnitt 8.1.1.1) — die Ablehnung geht dann ohne <c>to</c> zurück.
+        /// </summary>
+        /// <remarks>
+        /// Und das ist der Regelfall, nicht die Ausnahme: Was ein Server seinem
+        /// eigenen Client schickt, trägt oft kein <c>from</c>. Ein <c>to=''</c>
+        /// wäre hier eine Adresse, die es nicht gibt.
+        /// </remarks>
+        [Test]
+        public async Task TheRefusalWithoutASenderCarriesNoTo()
+        {
+
+            var session = await ConnectedSessionAsync();
+
+            var reply = await AskAsync(session, "probe-ohne-absender",
+                            "<iq type='vielleicht' id='probe-ohne-absender'>" +
+                            "<query xmlns='urn:example:does-not-exist'/></iq>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(reply, Does.Contain("<bad-request "));
+                Assert.That(reply, Does.Not.Contain(" to='"));
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

@@ -1487,6 +1487,20 @@ public sealed class XMPPConnection : IAsyncDisposable
         var id = element.Attr("id");
         var from = element.Attr("from");
 
+        // RFC 6120, Abschnitt 8.2.3, Regel 2: Ohne einen der vier vorgesehenen
+        // Werte ist diese Stanza weder Frage noch Antwort - hier trifft die
+        // Regel den Client in der Rolle "the recipient".
+        //
+        // Ganz vorn, weil jede Zeile darunter den Typ schon voraussetzt: Die
+        // Zuordnung zu einer offenen Frage nimmt nur result und error, und der
+        // Fallback am Ende fragt nach get oder set. Ein fünfter Wert fiel damit
+        // stillschweigend hinten heraus.
+        if (!IqTypes.IsKnown(type))
+        {
+            RefuseMalformedIq(id, from);
+            return;
+        }
+
         // Wartet jemand auf genau diese Antwort? Die Zuordnung über die id geht
         // allem anderen vor - auch dem Fehlerpfad, denn für den Wartenden ist
         // ein 'error' genauso eine Antwort wie ein 'result'.
@@ -1623,6 +1637,41 @@ public sealed class XMPPConnection : IAsyncDisposable
         // abschliessend beantwortet.
         if (type is "get" or "set")
             RespondUnhandledIq(id, from);
+    }
+
+    /// <summary>
+    /// Weist eine IQ-Stanza zurück, deren <c>type</c> fehlt oder keiner der
+    /// vier vorgesehenen Werte ist (RFC 6120, Abschnitt 8.2.3, Regel 2).
+    /// </summary>
+    /// <remarks>
+    /// <c>modify</c> und nicht <c>cancel</c>: Abschnitt 8.3.3.1 sieht es für
+    /// <c>&lt;bad-request/&gt;</c> so vor, und die Art ist eine Auskunft -
+    /// richtig gestellt kann der Absender es noch einmal versuchen.
+    ///
+    /// Anders als <see cref="RespondUnhandledIq"/> geht diese Antwort auch ohne
+    /// <c>id</c> hinaus. Dort wäre sie eine Antwort auf eine Frage, die sich
+    /// ohne <c>id</c> keiner zuordnen lässt und deshalb niemandem nützt; hier
+    /// sagt sie etwas über die Stanza selbst - dass ihre Form nicht stimmt.
+    /// Zumal die fehlende <c>id</c> nach Regel 1 selbst dazugehört. Was sie
+    /// nicht bekommt, ist ein leeres <c>id=''</c>: Das gehört zu keiner Frage
+    /// und sähe aus, als gehörte es zu einer.
+    /// </remarks>
+    private void RefuseMalformedIq(string? id, string? from)
+    {
+
+        _logger.LogDebug("IQ mit unbrauchbarem 'type' von {From} mit <bad-request/> beantwortet",
+                         from ?? "(Server)");
+
+        // Ohne 'from' kam die Stanza vom eigenen Server; die Antwort geht dann
+        // ohne 'to' implizit dorthin zurück (Abschnitt 8.1.1.1).
+        var idAttr  = id   != null ? $" id='{XmlEscaping.Escape(id)}'"   : "";
+        var toAttr  = from != null ? $" to='{XmlEscaping.Escape(from)}'" : "";
+
+        _ = SendAsync($"<iq type='error'{idAttr}{toAttr}>" +
+                       "<error type='modify'>" +
+                       "<bad-request xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                       "</error></iq>");
+
     }
 
     /// <summary>

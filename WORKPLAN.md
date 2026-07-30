@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **613 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **629 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2619,6 +2619,130 @@ Nicht behoben und vermerkt: Eine Probe an ein unbekanntes Konto bleibt
 unbeantwortet. Abschnitt 8.5.1 stellt `<unsubscribed/>` und Schweigen frei;
 Schweigen verrät nicht, ob es das Konto gibt, und dabei bleibt es.
 
+### D25. Weder Frage noch Antwort ✅ — Abschnitt 8.2.3, Regel 2
+
+Der Punkt aus D16: Eine IQ-Stanza ohne `type` oder mit einem anderen Wert als
+`get`, `set`, `result`, `error` bekommt `<bad-request/>`. Der eigentliche Inhalt
+der Regel steckt in ihrem Nebensatz — sie verpflichtet „the recipient **or an
+intermediate router**". Bei jeder anderen Stanza darf ein Server durchreichen und
+den Empfänger urteilen lassen; hier nicht. Der Grund liegt in der Natur von IQ:
+Ein Frage-Antwort-Paar hängt an `type` und `id`, und was keinen der vier Werte
+trägt, ist weder Frage noch Antwort. Reicht jeder es weiter, wandert es durch das
+Netz, und der Absender erfährt nie, was daraus wurde.
+
+**Der Bestand war in drei Rollen verschieden falsch, und nur eine davon war
+Schweigen.** An die Serveradresse gerichtet fiel die Stanza hinten aus
+`HandleIqAsync` heraus. An eine fremde Domain ging sie hinaus — die Rolle des
+Routers, ungeprüft. Und an einen hiesigen Empfänger wurde sie **zugestellt**:
+`DeliverIqLocallyAsync` fragte nur, ob der Typ `result` oder `error` ist, und
+behandelte alles übrige als Anfrage. Der Empfänger bekam damit etwas vorgelegt,
+worauf er nach Regel 3 antworten müsste und worauf keine Antwort passt. Das war
+der schlimmste der drei Fälle und zugleich der, der am ordentlichsten aussah.
+
+Die Prüfung steht deshalb an beiden Eingängen ganz vorn — in `HandleIqAsync` vor
+der Zustellweiche, in `AcceptFromRemoteAsync` vor allen Zustellzweigen. Ein Test
+hält genau diese Stelle fest: `AnIqToTheServerItselfWithoutAType_IsRefused`
+bestünde nicht, wenn die Prüfung im Zustellweg sässe, denn was an den Server
+selbst geht, kommt dort nie vorbei.
+
+**Und der Client hat dieselbe Regel in der anderen Rolle.** Er ist „the
+recipient", und er tat gar nichts: Die Zuordnung zu einer offenen Frage nimmt nur
+`result` und `error`, der Fallback am Ende fragt nach `get` oder `set` — ein
+fünfter Wert fiel stillschweigend hindurch. Gegen diesen Server käme so etwas nie
+bei ihm an; gegen eine fremde Implementierung ohne Regel 2 sehr wohl.
+
+Die vier Werte stehen deshalb **einmal** im Haus, in `Jabber/Common/IqTypes.cs`.
+Zwei Aufzählungen könnten auseinanderlaufen, und die Wirkung wäre still: Ein
+Wert, den die eine Seite kennt und die andere nicht, käme je nach Weg durch oder
+nicht.
+
+**Zwei Entscheidungen, die keine Förmlichkeiten sind.**
+
+Die Ablehnung geht auch **ohne `id`** hinaus und trägt dann keine. Das ist
+bewusst anders als bei `RespondUnhandledIq`, das ohne `id` schweigt, und der
+Unterschied liegt im Inhalt: Ein `<service-unavailable/>` beantwortet eine Frage,
+und eine Antwort ohne `id` lässt sich keiner zuordnen — sie nützt niemandem.
+`<bad-request/>` sagt etwas über die Stanza selbst, nämlich dass ihre Form nicht
+stimmt, und das kann der Absender auch ohne Zuordnung brauchen; zumal die
+fehlende `id` nach Regel 1 selbst dazugehört. Ein leeres `id=''` wäre der
+schlechteste Ausgang — es gehört zu keiner Frage und sähe aus, als gehörte es zu
+einer.
+
+Absender ist **dieser Server**, nicht der gemeinte Empfänger.
+`<service-unavailable/>` antwortet im Namen des Empfängers, weil der Server dort
+für ihn geantwortet hat; hier hat er die Stanza gar nicht erst angenommen. Ein
+Empfänger als Absender behauptete, jemand habe hineingesehen.
+
+**Ein Kommentar wurde durch die Änderung falsch, und das ist die D21-Lehre in
+ihrer harmloseren Form.** In `DeliverIqLocallyAsync` stand „oder ein unbekannter
+Wert, den dieser Weg wie eine Anfrage behandelt, weil eine Antwort mehr taugt als
+Schweigen". Das war richtig, solange es keine Prüfung davor gab, und mit ihr
+beschreibt es einen Fall, der dort nicht mehr ankommt. Anders als in D21 war die
+Begründung nicht schon beim Schreiben falsch — sie ist es geworden. Ein Kommentar
+altert mit dem Code darunter, und beim Ändern gehört er mitgelesen.
+
+Siebzehn Mutationen — je eine für jeden der vier Werte, die Prüfung an jedem der
+drei Eingänge, die Antwort selbst, die beiden Attribute und die Fehlerart auf
+beiden Seiten.
+
+**Drei Nachträge aus dem Werkzeug, alle zum selben Thema — eine Messung, die
+nicht misst, was sie zu messen vorgibt.**
+
+Der Rücksetz-Check des Mutationsskripts prüfte gegen `HEAD`. Für eine **neue,
+noch nicht getrackte** Datei zeigt `git diff` nie etwas, und die Prüfung meldete
+deshalb auch nach einer sauberen Rücksetzung „PRUEFEN" — ausgerechnet bei der
+einen Datei, die dieser Commit neu anlegt. Er vergleicht jetzt den Streuwert
+gegen die Sicherung, und das ist die Frage, um die es geht: Steht wieder das da,
+was vor der Mutation dastand?
+
+Und die zweite Mutation lief 35 Minuten und musste abgebrochen werden. Fällt
+`set` aus der Liste, bleibt das Resource Binding unbeantwortet — und
+`ConnectAsync` wartet darauf **ohne eigene Frist**. Ein hängender Lauf ist kein
+Ergebnis: Er sagt nicht, ob die Mutation überlebt hat, sondern nur, dass niemand
+mehr antwortet. Die betroffenen Läufe bekommen jetzt `--blame-hang`, das daraus
+einen Fehlschlag macht. Dass ein Client ohne Frist auf das Binding wartet, steht
+unter „Später" — hier fiel es nur auf, weil eine Mutation den Fall erzeugt hat,
+den ein Test nie erzeugt.
+
+Und der dritte, der schlimmste: Nachdem ich den hängenden Lauf abgeschossen
+hatte, blieb ein `testhost` zurück und **sperrte die Test-DLL**. Der nächste
+`dotnet test` scheiterte damit nicht im Lauf, sondern schon im *Bau* (MSB3027) —
+und das Skript filterte die Ausgabe auf „Fehler:" und „Bestanden!", fand nichts
+und schrieb nichts. Sechs Mutationen sahen dadurch aus wie erledigt und waren
+gar nicht gemessen. Aufgefallen ist es nur, weil eine Zeile ohne Urteil neben
+Zeilen mit Urteil stand.
+
+Zwei Änderungen daraus, und die erste ist die wichtigere: Findet das Skript keine
+Zusammenfassung, gibt es die Rohausgabe aus, statt zu schweigen. **Ein Lauf ohne
+Urteil darf nicht aussehen wie ein bestandener.** Und vor jedem Lauf räumt es
+übriggebliebene `testhost`-Prozesse weg.
+
+Die sechs sind wiederholt worden. Alle siebzehn Mutationen sind erschlagen.
+
+**Und der vierte Nachtrag ist der lehrreichste, weil er kein Werkzeugfehler war,
+sondern meiner.** Eine Mutation entfernt `result` aus der Liste. Ich habe ihren
+Lauf auf **einen einzelnen Test** verengt — aus Vorsicht gegen einen Hänger wie
+bei `set`. Ergebnis: bestanden, 21 Sekunden. Der Mutant hatte überlebt.
+
+Nur stimmte die Vorsicht nicht. `set` hängt, weil der **Server** das Binding
+ablehnt; `result` betrifft beim Client nur den Empfangspfad, und der
+Verbindungsaufbau läuft daran vorbei — was die 21 Sekunden selbst bewiesen
+haben. Die Verengung war also nicht nur unnötig, sie hatte genau den Test
+entfernt, der die Mutation erschlägt: `TheFourKnownTypes_ReachTheResource` mit
+dem Wert `result`. Mit dem vollen Filter fällt sie mit fünf Fehlern.
+
+Damit hat ein *überlebender* Mutant eine fünfte Bedeutung bekommen, die in D14
+bis D24 noch nicht vorkam: **Der Lauf hat den Test nicht ausgeführt, der ihn
+erschlägt.** Die vier bekannten Bedeutungen — fehlende Prüfung, überflüssiger
+Code, ein Test mit einer Reihenfolge, die nicht vorkommt, eine falsche Begründung
+— setzen alle voraus, dass gemessen wurde, was gemessen werden sollte. Ein
+verengter Filter verletzt genau diese Voraussetzung, und er tut es lautlos: Der
+Lauf meldet „bestanden", nicht „nicht geprüft".
+
+Der Preis für die Ehrlichkeit war hier hoch: Der volle Lauf brauchte 18 Minuten,
+weil mit abgelehntem `result` fast jeder Test in seine Wartezeit läuft. Er war
+ihn wert. Eine Abkürzung, die die Antwort ändert, ist keine Abkürzung.
+
 ---
 
 ## Später
@@ -2628,10 +2752,14 @@ Schweigen verrät nicht, ob es das Konto gibt, und dabei bleibt es.
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
   Client-Sitzung (siehe D16)
-- RFC 6120 §8.2.3 Regel 2: Eine IQ-Stanza mit fehlendem oder unbekanntem `type`
-  soll mit `<bad-request/>` beantwortet werden, ausdrücklich auch von einem
-  „intermediate router". Der Zustellweg behandelt sie wie eine Anfrage; eine
-  vollständige Antwort gehört an die Frame-Ebene für alle IQs (siehe D16)
+- Die Weiche für eingehende Frames vergleicht Präfixe: `StartsWith("<iq")`
+  trifft auch `<iqbogus/>`, `StartsWith("<message")` auch `<messages/>`. Was
+  der Elementname wirklich ist, prüft nur `StreamManagementManager.
+  IsCountableStanza` — und die beantwortet eine andere Frage. Seit D25 ist die
+  Nachlässigkeit sichtbarer: Ein `<iqbogus/>` bekommt jetzt `<bad-request/>`,
+  also eine Auskunft über ein IQ, das es nicht ist. Richtig wäre nach RFC 6120
+  §4.8.1 ein Stream-Fehler `<unsupported-stanza-type/>`; das ist eine eigene
+  Änderung an allen vier Zweigen und braucht eigene Tests (siehe D25)
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
@@ -2658,6 +2786,10 @@ Schweigen verrät nicht, ob es das Konto gibt, und dabei bleibt es.
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
+- `XMPPConnection.ConnectAsync` wartet ohne eigene Frist auf die Antwort zum
+  Resource Binding. Bleibt sie aus, hängt der Aufruf unbegrenzt — aufgefallen an
+  einer Mutation, die genau diesen Fall erzeugte, und von keinem Test erzeugt
+  (siehe D25)
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
   gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
   fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein

@@ -72,7 +72,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
-| Antwort auf unbehandelte IQs (§8.2.3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
+| Antwort auf unbehandelte IQs (§8.2.3 Regel 3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
+| Prüfung des IQ-Typs (§8.2.3 Regel 2) | ✅ Fehlt das `type`-Attribut oder trägt es einen anderen Wert als `get`, `set`, `result` oder `error`, folgt `<bad-request/>` mit der Fehlerart `modify` (§8.3.3.1). Geprüft wird in beiden Rollen, die der Abschnitt nennt: vom Client als Empfänger und vom Server als „intermediate router" — dort **vor** jeder Zustellung, also auch für das, was an die Serveradresse selbst geht, an einen hiesigen Empfänger oder über die Grenze. Ebenso für das, was von einer Gegenstelle hereinkommt. Ohne `id` geht die Ablehnung trotzdem hinaus und trägt dann keine |
 | Stream-Fehler (§4.9) | ✅ Geparst; nach einer nicht wiederholbaren Bedingung unterbleibt der Reconnect |
 
 ### RFC 6121 — Instant Messaging und Presence
