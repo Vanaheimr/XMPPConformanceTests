@@ -248,6 +248,40 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         }
 
+        /// <summary>
+        /// Ein Verbindungsaufbau, der scheitern <b>soll</b> — und gibt den
+        /// Fehler zurück, statt ihn nach oben durchzulassen.
+        /// </summary>
+        /// <remarks>
+        /// Seit D31 wirft <c>ConnectAsync</c> bei einem gescheiterten Aufbau.
+        /// Elf Tests prüften bis dahin einen erwarteten Fehlschlag mit einem
+        /// blossen <c>await</c> und den Zusicherungen danach; das ging nur, weil
+        /// der Aufruf stillschweigend zurückkam.
+        ///
+        /// Dieser Helfer macht die Erwartung ausdrücklich, statt sie in jedem
+        /// Test einzeln in ein <c>try</c> zu verpacken: <b>Hier muss es
+        /// scheitern.</b> Damit prüfen die elf Tests seitdem eine Zusicherung
+        /// mehr als vorher — dass der Fehlschlag überhaupt beim Aufrufer
+        /// ankommt.
+        /// </remarks>
+        protected static async Task<Exception> FailingConnectAsync(XMPPClient client)
+        {
+
+            try
+            {
+                await client.ConnectAsync();
+            }
+            catch (Exception e)
+            {
+                return e;
+            }
+
+            Assert.Fail("Der Verbindungsaufbau hätte scheitern müssen, kam aber durch.");
+
+            return null!;
+
+        }
+
     }
 
 }

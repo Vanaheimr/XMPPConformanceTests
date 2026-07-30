@@ -115,7 +115,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var errors = new List<String>();
             client.OnError += e => errors.Add(e);
 
-            await client.ConnectAsync();
+            await FailingConnectAsync(client);
 
             Assert.Multiple(() =>
             {
@@ -151,7 +151,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             client.Connection.MaxReconnectAttempts       = 0;
             client.Connection.ServerCertificateValidator = null;
 
-            await client.ConnectAsync();
+            await FailingConnectAsync(client);
 
             Assert.That(client.IsConnected, Is.False,
                         "Ein selbst signiertes Zertifikat darf die Standardprüfung nicht bestehen.");

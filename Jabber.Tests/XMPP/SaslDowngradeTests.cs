@@ -290,7 +290,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var errors = new List<String>();
             client.OnError += e => errors.Add(e);
 
-            await client.ConnectAsync();
+            await FailingConnectAsync(client);
 
             Assert.Multiple(() =>
             {

@@ -50,17 +50,18 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **704 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **706 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
 prüft, die es nur im STARTTLS-Betrieb gibt.
-Fünf benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Sechs benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar), die Slot-Identität im Verbindungs-Cache
-(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1) und die Abkürzung
-über die leere Offline-Ablage (siehe D14). Es waren sechs: Die Herkunftsfrage
+(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1), die Abkürzung
+über die leere Offline-Ablage (siehe D14) und das Zurücksetzen von
+`_lastConnectError` (siehe D31). Es waren sechs: Die Herkunftsfrage
 vor den `<sent>`-Carbons im Offline-Zweig (D15) überlebte nur, weil ihr Wurf im
 `catch` beim Verarbeiten eines Frames verschwand — seit D18 wird er gemeldet,
 und sechs Tests erschlagen die Mutation.
@@ -3082,6 +3083,54 @@ nicht zurückkam**. Geprüft wird jetzt die Rückkehr und die Meldung. Ob ein
 stillschweigend zurückkehrendes `ConnectAsync` eine gute Schnittstelle ist, ist
 eine andere Frage, betrifft jeden Aufrufer und steht unter „Später".
 
+### D31. Ein Aufruf, der nichts sagt ✅
+
+Der Punkt aus D30, und er war ausdrücklich als **Entwurfsentscheidung** vermerkt
+und nicht als Fehler: `ConnectAsync` kehrte bei einem gescheiterten Aufbau
+stillschweigend zurück. Der Fehler ging an `OnError` und an den Zustand — wer
+nichts abonniert hatte, sah zwischen gelungen und gescheitert keinen
+Unterschied und arbeitete auf einer Verbindung weiter, die es nicht gibt.
+
+Dasselbe Übel wie in D30, eine Ebene höher: **Dort kam gar keine Antwort, hier
+kommt eine, die nichts sagt.**
+
+Ein Rückgabewert hätte es nicht behoben. Einen kann man ignorieren, und ein
+ignorierter Rückgabewert ist wieder Schweigen — genau die Eigenschaft, um die es
+geht. Also wirft der Aufruf.
+
+**Geworfen wird der ursprüngliche Fehler**, nicht eine Hülle darum: Ein falsches
+Passwort bleibt eine `AuthenticationException`, eine Zeitüberschreitung eine
+`XMPPProtocolException`, und der Aufrufer unterscheidet sie, ohne in einer
+Meldung zu lesen. Der Stapel bleibt der des Fehlers und nicht der dieser Stelle.
+
+**Und nur der ausdrückliche Aufruf wirft.** Der Wiederverbindungsversuch im
+Hintergrund läuft durch dieselbe `ConnectInternalAsync`, hat aber keinen
+Aufrufer, dem er etwas schulden könnte; er meldet weiterhin über Ereignisse.
+Deshalb steht die Entscheidung in `ConnectAsync` und nicht dort, wo der Fehler
+entsteht — der Unterschied ist nicht die Art des Fehlers, sondern ob jemand auf
+eine Antwort wartet.
+
+**Der Preis war messbar, und er ist der eigentliche Ertrag.** Elf Tests fielen,
+und es waren genau die elf, die einen erwarteten Fehlschlag prüfen: falsches
+Passwort, unbekanntes Konto, verfälschte Serversignatur, abgelehntes Zertifikat,
+abgelehntes Binding, Downgrade-Schutz. Alle elf standen auf einem blossen
+`await` und den Zusicherungen danach — was nur ging, weil der Aufruf schwieg.
+
+Sie laufen jetzt über einen gemeinsamen Helfer, `FailingConnectAsync`, der die
+Erwartung ausdrücklich macht: **hier muss es scheitern.** Damit prüfen die elf
+eine Zusicherung mehr als vorher — dass der Fehlschlag überhaupt beim Aufrufer
+ankommt. Der Radius einer Entwurfsänderung ist selten nur Aufwand; hier war er
+die Liste der Stellen, die von der stillen Rückkehr gelebt haben.
+
+Fünf Mutationen, vier erschlagen. Die fünfte ist eine **benannte Ausnahme**: Das
+Zurücksetzen von `_lastConnectError` zu Beginn ist heute unbeobachtbar. Gelesen
+wird das Feld nur, wenn der Zustand nicht `Connected` ist — und dorthin führt
+kein Weg, der nicht vorher durch einen der beiden `catch` gelaufen wäre, die es
+frisch setzen. Die Zeile bleibt trotzdem stehen: Sie verhindert, dass ein
+künftiger Pfad, der ohne `catch` scheitert, einen Fehler von vorgestern wirft.
+Vorkehrung, nicht Wirkung — wie die Abkürzung über die leere Offline-Ablage aus
+D14.
+
 ---
 
 ## Später
@@ -3124,12 +3173,6 @@ eine andere Frage, betrifft jeden Aufrufer und steht unter „Später".
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
-- `XMPPConnection.ConnectAsync` kehrt bei einem gescheiterten Aufbau
-  **stillschweigend** zurück: `ConnectInternalAsync` fängt jeden Fehler ab und
-  meldet ihn nur über `OnError` und den Zustand. Wer nichts abonniert hat, sieht
-  keinen Unterschied zwischen gelungen und gescheitert. Das ist die Bauart des
-  Hauses und war nie der Mangel aus D30 — es zu ändern beträfe jeden Aufrufer
-  und gehört für sich entschieden (siehe D30)
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
   gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
   fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein

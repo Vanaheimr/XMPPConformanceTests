@@ -274,6 +274,16 @@ Keepalive Status:
 **Methoden:** Ist Stream Management aktiv, wird ein `<r/>` gesendet
 (leichtgewichtig), sonst ein XEP-0199 Ping.
 
+## Verbindungsaufbau: gelungen oder geworfen
+
+`ConnectAsync` **wirft**, wenn der Aufbau scheitert — den ursprünglichen Fehler,
+nicht eine Hülle darum: `AuthenticationException` bei abgelehnter Anmeldung,
+`XMPPProtocolException` bei einer gescheiterten Aushandlung. Wer den Aufruf
+überlebt, hat eine Verbindung.
+
+Nur der ausdrückliche Aufruf wirft. Der Wiederverbindungsversuch im Hintergrund
+hat keinen Aufrufer und meldet weiterhin über `OnError` und `OnStateChanged`.
+
 ## Fristen beim Verbindungsaufbau
 
 Jeder Lese-Schritt der Aushandlung — Stream-Kopf, Features, jede SASL-Runde —

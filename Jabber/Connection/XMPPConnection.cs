@@ -19,6 +19,7 @@
 
 using System.Net.Security;
 using System.Net.WebSockets;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -116,6 +117,13 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// Nachricht mit dieser Zeichenfolge im Text die Antwort auch ersetzen.
     /// </summary>
     private readonly Dictionary<string, TaskCompletionSource<XElement>> _pendingIqs = new();
+
+    /// <summary>
+    /// Der letzte Fehler aus <see cref="ConnectInternalAsync"/> - damit
+    /// <see cref="ConnectAsync"/> ihn dem Aufrufer weiterreichen kann, statt
+    /// ihn nur zu melden.
+    /// </summary>
+    private Exception? _lastConnectError;
     private readonly object _iqLock = new();
 
     /// <summary>
@@ -357,6 +365,31 @@ public sealed class XMPPConnection : IAsyncDisposable
         return conn;
     }
 
+    /// <summary>
+    /// Baut die Verbindung auf und meldet sich an.
+    /// </summary>
+    /// <exception cref="AuthenticationException">
+    /// Die Anmeldung wurde abgelehnt.
+    /// </exception>
+    /// <exception cref="XMPPProtocolException">
+    /// Die Aushandlung ist gescheitert - etwa durch eine Zeitüberschreitung.
+    /// </exception>
+    /// <remarks>
+    /// Ein gescheiterter Aufbau <b>wirft</b> und kehrt nicht stillschweigend
+    /// zurück. Bis D31 tat er genau das: Der Fehler ging an <c>OnError</c> und
+    /// an den Zustand, und wer nichts abonniert hatte, sah zwischen gelungen
+    /// und gescheitert keinen Unterschied - und arbeitete auf einer Verbindung
+    /// weiter, die es nicht gibt.
+    ///
+    /// Geworfen wird der ursprüngliche Fehler und keine Hülle darum: Ein
+    /// falsches Passwort ist etwas anderes als eine Zeitüberschreitung, und der
+    /// Aufrufer soll das unterscheiden können, ohne in einer Meldung zu lesen.
+    ///
+    /// Nur dieser Weg wirft. Der Wiederverbindungsversuch im Hintergrund läuft
+    /// durch dieselbe <see cref="ConnectInternalAsync"/>, hat aber keinen
+    /// Aufrufer, dem er etwas schulden könnte - er meldet weiterhin über
+    /// Ereignisse. Deshalb steht die Entscheidung hier und nicht dort.
+    /// </remarks>
     public async Task ConnectAsync(CancellationToken ct = default)
     {
         _intentionalDisconnect = false;
@@ -366,7 +399,25 @@ public sealed class XMPPConnection : IAsyncDisposable
         // Stream-Fehler auf: der Aufrufer weiss, was er tut.
         _fatalStreamError = false;
 
+        _lastConnectError = null;
+
         await ConnectInternalAsync(ct);
+
+        if (State == ConnectionState.Connected)
+            return;
+
+        // Den ursprünglichen Fehler mit seinem eigenen Stapel weiterwerfen -
+        // nicht neu verpacken. Für den Aufrufer ist die Stelle interessant, an
+        // der es schiefging, und nicht diese hier.
+        if (_lastConnectError is not null)
+            ExceptionDispatchInfo.Capture(_lastConnectError).Throw();
+
+        // Ohne festgehaltenen Fehler bleibt nur der Befund selbst: Das kommt
+        // vor, wenn die Wiederverbindungsversuche aufgebraucht sind, ohne dass
+        // der letzte Versuch überhaupt begonnen hätte.
+        throw new XMPPProtocolException(
+                  $"Der Verbindungsaufbau zu {_wsUri} ist gescheitert, Zustand: {State}.");
+
     }
 
     /// <summary>
@@ -614,6 +665,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         catch (AuthenticationException ex)
         {
             // Auth-Fehler sind permanent - kein Reconnect sinnvoll
+            _lastConnectError = ex;
             SetState(ConnectionState.Disconnected);
             _logger.LogError(ex, "Authentifizierungsfehler");
             OnError?.Invoke($"Authentifizierungsfehler: {ex.Message}");
@@ -621,6 +673,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            _lastConnectError = ex;
             SetState(ConnectionState.Disconnected);
             _logger.LogError(ex, "Verbindungsfehler");
             OnError?.Invoke($"Verbindungsfehler: {ex.Message}");

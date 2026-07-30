@@ -260,7 +260,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             client.OnError += e => errors.Add(e);
 
-            await client.ConnectAsync();
+            await FailingConnectAsync(client);
 
             Assert.Multiple(() =>
             {
