@@ -274,6 +274,18 @@ Keepalive Status:
 **Methoden:** Ist Stream Management aktiv, wird ein `<r/>` gesendet
 (leichtgewichtig), sonst ein XEP-0199 Ping.
 
+## Fristen beim Verbindungsaufbau
+
+Jeder Lese-Schritt der Aushandlung — Stream-Kopf, Features, jede SASL-Runde —
+hat **10 Sekunden**, ebenso das Resource Binding. Läuft eine Frist ab, scheitert
+der Aufbau mit einer Meldung, die den Schritt nennt („Auf den Stream-Kopf kam
+innerhalb von 10 Sekunden keine Antwort").
+
+Der Grund ist der eine Fall, den ein Fehler nicht abdeckt: Eine Gegenstelle, die
+die Verbindung annimmt und dann **schweigt**. Ein Fehler kommt an, ein
+geschlossener Socket kommt an — Schweigen kommt nicht an, und ohne Frist kehrte
+`ConnectAsync` nie zurück.
+
 ## Spoofing-Schutz
 
 Der Client prüft bei drei Nachrichtenarten den Absender, bevor er sie

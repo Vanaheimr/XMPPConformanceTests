@@ -308,6 +308,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean SwallowClientStanzas { get; set; }
 
         /// <summary>
+        /// Testschalter: Der Server schweigt auf die Stream-Eröffnung.
+        /// </summary>
+        /// <remarks>
+        /// Stellt den einen Fall her, den ein Fehlschlag nicht herstellt: eine
+        /// Gegenstelle, die die Verbindung annimmt und dann <b>nichts</b> sagt.
+        /// Ein Fehler kommt an, ein geschlossener Socket kommt an — Schweigen
+        /// kommt nicht an, und genau darauf hat die Aushandlung des Clients
+        /// unbegrenzt gewartet.
+        ///
+        /// Kein erfundener Fall: Ein Server hinter einer Zustandstabelle, die
+        /// den Rückweg vergessen hat, verhält sich genau so, und es ist der
+        /// unangenehmste Ausgang von allen — der Aufrufer erfährt nie, dass
+        /// etwas nicht stimmt.
+        /// </remarks>
+        public Boolean AnswerStreamOpen { get; set; } = true;
+
+        /// <summary>
         /// XEP-0198, Abschnitt 5: Sagt der Server die Wiederaufnahme eines
         /// abgerissenen Streams zu?
         /// </summary>
@@ -1416,6 +1433,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         private async Task HandleStreamOpenAsync(XMPPSession session, Int32 openCount)
         {
+
+            if (!AnswerStreamOpen)
+                return;
 
             await session.SendAsync(
                 $"<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' from='{Domain}' id='stream-{session.ConnectionNumber}' version='1.0'/>");

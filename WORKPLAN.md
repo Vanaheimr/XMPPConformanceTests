@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **701 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **704 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -3032,6 +3032,56 @@ Nachlässigkeit, die nichts tut, kostet nichts — bis eine Verschärfung danebe
 sie in einen Schaden verwandelt. Wer verschärft, übernimmt damit auch alles,
 was vorher folgenlos fehlte.
 
+### D30. Schweigen kommt nicht an ✅ — und mein Vermerk war falsch
+
+Der Punkt, der heute fünfmal zugeschlagen hat: Jede Mutation, die die
+Aushandlung zerbricht, liess den Lauf **hängen** statt scheitern. Fünfmal
+derselbe Befund aus fünf Richtungen ist keine Beobachtung mehr, sondern eine
+Eigenschaft.
+
+**Und die erste Handlung war, den eigenen Vermerk zu widerlegen.** Er lautete
+seit D25: „`ConnectAsync` wartet ohne eigene Frist auf die Antwort zum Resource
+Binding". Das Binding hat sehr wohl eine Frist — `SendIqAsync` setzt sie seit
+jeher, zehn Sekunden. Ohne Frist waren die **Lese-Schritte** davor: Stream-Kopf,
+Features und jede SASL-Runde gehen über `ReceiveStanzaAsync`, und das wartete
+allein auf dem Token des Aufrufers.
+
+Dieselbe Lehre wie in D19 und D23, diesmal an einer Diagnose statt an einer
+Liste: Ein aus dem Kopf geschriebener Vermerk ist keine Bestandsaufnahme. Hätte
+ich ihn geglaubt, hätte ich eine Frist an eine Stelle gesetzt, die schon eine
+hat, und den Fehler behalten.
+
+**Was ein Fehlschlag nicht herstellt, ist Schweigen.** Ein Fehler kommt an, ein
+geschlossener Socket kommt an — beides bringt die Aushandlung zum Abschluss.
+Schweigen kommt nicht an. Deshalb liess sich der Fall mit keinem der
+vorhandenen Testschalter nachstellen, und deshalb gibt es jetzt
+`XMPPServer.AnswerStreamOpen`: eine Gegenstelle, die die Verbindung annimmt und
+dann nichts mehr sagt. Kein erfundener Fall — ein Server hinter einer
+Zustandstabelle, die den Rückweg vergessen hat, verhält sich genau so, und es
+ist der unangenehmste Ausgang von allen, weil der Aufrufer nie erfährt, dass
+etwas nicht stimmt.
+
+Die Frist gilt dem **Schritt** und nicht dem einzelnen Lesevorgang: Ein Rahmen,
+der in Stücken ankommt, darf zusammen nicht länger brauchen als einer am Stück.
+Und sie nennt, worauf gewartet wurde — „auf den Stream-Kopf", „auf die
+SCRAM-Challenge". Eine abgelaufene Frist ohne diese Angabe verschiebt die Suche
+nur: Der Aufrufer weiss dann, dass etwas nicht kam, aber nicht, was. Genau daran
+habe ich heute mehrfach Zeit verloren.
+
+Vier Mutationen, alle erschlagen — die Frist selbst, beide Hälften der Meldung
+und der neue Testschalter. Eine brach zuerst ab, weil **PowerShell 5.1 ein
+Skript ohne BOM in der ANSI-Codepage liest** und das „ü" im Suchmuster
+verstümmelt ankam. Die Mutationsskripte tragen jetzt ein BOM. Immerhin war
+dieser Fehlschlag laut; die stillen aus D25 waren teurer.
+
+**Ein zweiter Irrtum steckte im eigenen Test.** Er erwartete zuerst eine
+Ausnahme aus `ConnectAsync` — die kommt nicht, weil `ConnectInternalAsync` jeden
+Verbindungsfehler abfängt und über `OnError` und den Zustand meldet. Das ist die
+Bauart des Hauses und war nie der Mangel: Der Mangel war, dass der Aufruf **gar
+nicht zurückkam**. Geprüft wird jetzt die Rückkehr und die Meldung. Ob ein
+stillschweigend zurückkehrendes `ConnectAsync` eine gute Schnittstelle ist, ist
+eine andere Frage, betrifft jeden Aufrufer und steht unter „Später".
+
 ---
 
 ## Später
@@ -3074,14 +3124,12 @@ was vorher folgenlos fehlte.
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
-- `XMPPConnection.ConnectAsync` wartet ohne eigene Frist auf die Antwort zum
-  Resource Binding. Bleibt sie aus, hängt der Aufruf unbegrenzt — aufgefallen an
-  einer Mutation, die genau diesen Fall erzeugte, und von keinem Test erzeugt.
-  In D26 ein zweites Mal aufgetreten, an einer anderen Mutation: Der Server
-  beendete den Stream mit einem Fehler, und der Client wartete trotzdem weiter.
-  **Beide Male stand die Antwort nicht aus, weil sie unterwegs war, sondern weil
-  es sie nie geben würde** — der Stream war schon zu. Ein Wartender, der das
-  Ende seines eigenen Streams nicht bemerkt, wartet für immer (siehe D25, D26)
+- `XMPPConnection.ConnectAsync` kehrt bei einem gescheiterten Aufbau
+  **stillschweigend** zurück: `ConnectInternalAsync` fängt jeden Fehler ab und
+  meldet ihn nur über `OnError` und den Zustand. Wer nichts abonniert hat, sieht
+  keinen Unterschied zwischen gelungen und gescheitert. Das ist die Bauart des
+  Hauses und war nie der Mangel aus D30 — es zu ändern beträfe jeden Aufrufer
+  und gehört für sich entschieden (siehe D30)
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
   gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
   fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein

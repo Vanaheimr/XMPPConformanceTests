@@ -640,10 +640,16 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// <summary>
     /// Liest den nächsten Rahmen der Aushandlung und gibt ihn geparst zurück.
     /// </summary>
-    private async Task<XElement> ReceiveElementAsync(CancellationToken ct)
+    /// <param name="erwartet">
+    /// Worauf gewartet wird - erscheint in der Meldung, wenn die Frist abläuft.
+    /// Eine abgelaufene Frist ohne Angabe verschiebt die Suche nur: Der
+    /// Aufrufer weiss dann, dass etwas nicht kam, aber nicht, was.
+    /// </param>
+    private async Task<XElement> ReceiveElementAsync(CancellationToken ct,
+                                                     string            erwartet = "der Aushandlung")
     {
 
-        var xml = await ReceiveStanzaAsync(ct);
+        var xml = await ReceiveStanzaAsync(ct, erwartet);
 
         try
         {
@@ -665,10 +671,10 @@ public sealed class XMPPConnection : IAsyncDisposable
     private async Task<XElement> ReceiveFeaturesAsync(CancellationToken ct)
     {
 
-        var element = await ReceiveElementAsync(ct);
+        var element = await ReceiveElementAsync(ct, "den Stream-Kopf");
 
         if (StreamNegotiation.IsStreamOpen(element))
-            element = await ReceiveElementAsync(ct);
+            element = await ReceiveElementAsync(ct, "die Stream-Features");
 
         if (!StreamNegotiation.IsFeatures(element))
             throw new XMPPProtocolException(
@@ -1004,15 +1010,40 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     }
 
-    private async Task<string> ReceiveStanzaAsync(CancellationToken ct)
+    private async Task<string> ReceiveStanzaAsync(CancellationToken ct, string erwartet = "der Aushandlung")
     {
         var buffer = new byte[8192];
         var sb = new StringBuilder();
 
+        // Eine Frist für den Schritt, nicht für den einzelnen Lesevorgang: Ein
+        // Rahmen, der in Stücken ankommt, darf zusammen nicht länger brauchen
+        // als einer am Stück.
+        //
+        // Ohne sie wartete die Aushandlung unbegrenzt. Ein Fehler kommt an, ein
+        // geschlossener Socket kommt an - Schweigen kommt nicht an, und dann
+        // kehrte ConnectAsync nie zurück. Aufgefallen ist das an fünf
+        // Mutationen quer durch D25 bis D29, die alle den Lauf haengen liessen
+        // statt ihn scheitern zu lassen: ein Ergebnis, das keines ist.
+        //
+        // Das Resource Binding war nie betroffen - SendIqAsync hat seine Frist
+        // seit jeher. Betroffen war alles davor, was hier liest.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(SetupTimeout);
+
         WebSocketReceiveResult result;
         do
         {
-            result = await _webSocket!.ReceiveAsync(buffer, ct);
+
+            try
+            {
+                result = await _webSocket!.ReceiveAsync(buffer, cts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new XMPPProtocolException(
+                          $"Zeitüberschreitung in der Aushandlung: Auf {erwartet} kam " +
+                          $"innerhalb von {SetupTimeout.TotalSeconds:0} Sekunden keine Antwort.");
+            }
 
             if (result.MessageType == WebSocketMessageType.Close)
             {
@@ -1805,7 +1836,7 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{authBase64}</auth>");
 
-        var response = await ReceiveElementAsync(ct);
+        var response = await ReceiveElementAsync(ct, "die Antwort auf SASL PLAIN");
 
         if (StreamNegotiation.IsSasl(response, "success"))
             _logger.LogInformation("Authentifizierung erfolgreich (PLAIN)");
@@ -1829,7 +1860,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         await SendAsync($"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='{scram.MechanismName}'>{clientFirst}</auth>");
 
         // Schritt 2: server-first-message (challenge)
-        var challenge = await ReceiveElementAsync(ct);
+        var challenge = await ReceiveElementAsync(ct, "die SCRAM-Challenge");
 
         if (!StreamNegotiation.IsSasl(challenge, "challenge"))
         {
@@ -1853,7 +1884,7 @@ public sealed class XMPPConnection : IAsyncDisposable
         await SendAsync($"<response xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{clientFinal}</response>");
 
         // Schritt 4: server-final-message (success oder failure)
-        var final = await ReceiveElementAsync(ct);
+        var final = await ReceiveElementAsync(ct, "die SCRAM-Serversignatur");
 
         if (StreamNegotiation.IsSasl(final, "success"))
         {
