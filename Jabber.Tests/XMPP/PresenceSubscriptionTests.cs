@@ -265,7 +265,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var (bob, atBobs) = await WatcherAsync("bob");
 
-            // Die Sammlung leeren: die Anmeldung selbst bringt schon Presence mit.
+            // Erst abwarten, was die Anmeldung selbst mitbringt (Abschnitt
+            // 4.3.1), und *dann* leeren. Nur zu leeren ist ein Wettlauf: Kommt
+            // die Zustellung der Anmeldung erst danach an, zählt sie als Antwort
+            // auf die Probe — und der Test bestünde auch bei einem Server, der
+            // Proben überhaupt nicht beantwortet.
+            await WaitFor(() => Saw(atBobs, alice), "Alices Zustand nach der Anmeldung");
+
             atBobs.Clear();
 
             await bob.SendRawAsync($"<presence type='probe' to='{alice.BareJid}'/>");

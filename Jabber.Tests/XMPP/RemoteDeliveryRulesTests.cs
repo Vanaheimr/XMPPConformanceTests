@@ -765,6 +765,115 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AProbeFromAnotherServer_IsAnsweredNotDelivered()
+
+        /// <summary>
+        /// RFC 6121, Abschnitt 4.3: Eine Presence-Probe beantwortet der Server
+        /// selbst — sie erreicht keinen Client.
+        /// </summary>
+        /// <remarks>
+        /// Bis hierher ging sie ins Routing und landete bei Bobs Client. Das war
+        /// in beide Richtungen falsch: Der Client bekam eine Stanza zu sehen, die
+        /// nicht für ihn bestimmt ist und auf die er nichts antworten kann, und
+        /// Alices Server bekam nie eine Antwort — er fragt nach Bobs Zustand und
+        /// erhält Schweigen, obwohl Bobs Server die Auskunft hat.
+        ///
+        /// Dieselbe Asymmetrie wie bei Nachricht und IQ, und die letzte ihrer
+        /// Art: Für einen hiesigen Client wurde die Probe seit jeher beantwortet.
+        ///
+        /// Beide Hälften stehen im Test. „Kommt an" allein wäre auch erfüllt,
+        /// wenn die Probe zusätzlich durchgereicht würde; „erreicht den Client
+        /// nicht" allein wäre auch erfüllt, wenn sie spurlos verschwände.
+        /// </remarks>
+        [Test]
+        public async Task AProbeFromAnotherServer_IsAnsweredNotDelivered()
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            var bob   = await VerbindeAsync(_rechts, "bob");
+
+            // Erst warten, bis Bobs *erste* Presence verarbeitet ist, und dann
+            // den Roster setzen. Andersherum ist es ein Wettlauf: Trifft die
+            // erste Presence den Eintrag schon an, geht sie über die gewöhnliche
+            // Verteilung an Alice - und der Test bestünde, ohne dass je eine
+            // Probe beantwortet wurde. Genau das hat er zuerst getan.
+            await WarteAuf(() => _rechts.SessionOf(bob.FullJid!)?.IsAvailable == true,
+                           "Bobs erste Presence auf seinem Server");
+
+            // Bob lässt Alice seinen Zustand sehen - ohne das bleibt jede Probe
+            // unbeantwortet, und der Test prüfte nur das Schweigen.
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "from"));
+
+            var beiAlice = new ConcurrentQueue<(String From, String? Type)>();
+            var beiBob   = new ConcurrentQueue<(String From, String? Type)>();
+
+            alice.Connection.OnPresence += (from, type) => beiAlice.Enqueue((from, type));
+            bob.Connection.OnPresence   += (from, type) => beiBob.Enqueue((from, type));
+
+            await alice.SendRawAsync($"<presence to='{Bob}' type='probe'/>");
+
+            await WarteAuf(() => beiAlice.Any(p => p.From.StartsWith(Bob, StringComparison.Ordinal)),
+                           "Bobs Zustand als Antwort auf die Probe");
+
+            // Der Probe Zeit geben, doch noch bei Bob aufzuschlagen.
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.That(beiBob.Any(p => p.Type == "probe"), Is.False,
+                        "Eine Probe darf keinen Client erreichen.");
+
+        }
+
+        #endregion
+
+        #region AProbeWithoutPermission_IsNotAnswered()
+
+        /// <summary>
+        /// Ohne Berechtigung bleibt die Probe unbeantwortet — und verrät auch
+        /// nicht, dass es das Konto gibt.
+        /// </summary>
+        /// <remarks>
+        /// Gefragt wird der Roster des <b>Befragten</b> nach <c>from</c> oder
+        /// <c>both</c>: „der darf mich sehen". Dieselbe Hälfte wie bei der
+        /// IQ-Prüfung aus Abschnitt 8.5.3.1 — und dieselbe Verwechslungsgefahr,
+        /// weshalb hier ein einseitiger Roster steht: Alice darf Bobs Zustand
+        /// <i>nicht</i> sehen, Bob aber Alices.
+        ///
+        /// Abschnitt 8.5.1 stellt für ein unbekanntes Konto
+        /// <c>&lt;unsubscribed/&gt;</c> und Schweigen frei; dieser Server
+        /// schweigt, und damit sieht ein unbekanntes Konto genauso aus wie ein
+        /// vorhandenes ohne Berechtigung. Das ist der Sinn der Wahl.
+        /// </remarks>
+        [Test]
+        public async Task AProbeWithoutPermission_IsNotAnswered()
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            var bob   = await VerbindeAsync(_rechts, "bob");
+
+            await WarteAuf(() => _rechts.SessionOf(bob.FullJid!)?.IsAvailable == true,
+                           "Bobs erste Presence auf seinem Server");
+
+            // Die falsche Hälfte: Bob sieht Alice, Alice sieht Bob nicht.
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "to"));
+
+            var beiAlice = new ConcurrentQueue<(String From, String? Type)>();
+            alice.Connection.OnPresence += (from, type) => beiAlice.Enqueue((from, type));
+
+            await alice.SendRawAsync($"<presence to='{Bob}' type='probe'/>");
+
+            await WarteGegen(() => beiAlice.Any(p => p.From.StartsWith(Bob, StringComparison.Ordinal)),
+                             "eine Antwort auf eine unberechtigte Probe");
+
+            // Und für ein Konto, das es nicht gibt, dasselbe Bild.
+            await alice.SendRawAsync($"<presence to='gibtsnicht@{_rechts.Domain}' type='probe'/>");
+
+            await WarteGegen(() => beiAlice.Count > 0,
+                             "eine Antwort auf die Probe an ein unbekanntes Konto");
+
+        }
+
+        #endregion
+
         #region PresenceAcrossTheBorder_StillTakesTheDirectPath()
 
         /// <summary>

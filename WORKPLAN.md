@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **611 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **613 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2565,6 +2565,59 @@ die man aus dem Kopf schreibt, ist keine Bestandsaufnahme. Damals waren es neun
 Fixtures statt elf, diesmal ein Aufrufer, den es nicht gab. Beide Male hätte ein
 `grep` gereicht, und beide Male stand die falsche Angabe erst einmal im
 Repository.
+
+### D24. Die Probe gehört dem Server ✅ — und zwei Tests, die nichts prüften
+
+Der letzte Punkt an Abschnitt 8.5: Presence von einem anderen Server. Für
+verfügbare und unverfügbare Presence tut `RouteToAsync` bereits das Richtige — an
+einen Bare-JID alle Resourcen (8.5.2.1.2), an eine Full-JID die passende
+(8.5.3.1), sonst still ins Leere (8.5.1 und 8.5.3.2.2). Der Fehler steckte
+woanders: **bei der Probe.**
+
+Alle vier Abschnitte verweisen für `type='probe'` auf Abschnitt 4.3: Der Server
+beantwortet sie selbst. Von der Gegenstelle kommend ging sie ins Routing und
+landete beim Client — der bekam eine Stanza zu sehen, die nicht für ihn bestimmt
+ist, und die fragende Gegenstelle bekam nie eine Antwort. Für einen hiesigen
+Client wurde die Probe seit jeher beantwortet; dieselbe Asymmetrie wie bei
+Nachricht (D15) und IQ (D16), und die letzte ihrer Art.
+
+**Und die Gegenrichtung war ebenso kaputt, was ich vorher nicht wusste.** Der
+lokale Probe-Zweig griff für *jedes* Ziel, fand für eine fremde Adresse kein
+Konto und kehrte zurück — eine Probe an einen Kontakt auf einem anderen Server
+verliess diesen Server also nie. Abschnitt 4.3.1 lässt den Server des Nutzers die
+Probe hinausschicken; jetzt tut er das.
+
+Aufgefallen ist das nur, weil ein Test scheiterte, den ich für richtig hielt.
+
+**Zwei Tests haben bestanden, ohne zu prüfen, was ihr Name sagt — und beide aus
+demselben Grund.** Mein neuer Test wartete darauf, dass Alice Bobs Zustand sieht,
+nachdem sie eine Probe geschickt hat. Er bestand auch, bevor es die Umsetzung
+gab. Der Grund ist ein Wettlauf: Bobs *erste* Presence wird verarbeitet, während
+der Test den Roster-Eintrag setzt. Trifft sie ihn schon an, geht sie über die
+gewöhnliche Verteilung an Alice — und der Test sieht Bobs Zustand, ohne dass je
+eine Probe beantwortet wurde. Er wartet jetzt erst darauf, dass Bobs erste
+Presence verarbeitet ist, und setzt den Roster danach.
+
+Derselbe Wettlauf steckte im **vorhandenen** lokalen Probe-Test aus S-Zeiten:
+`atBobs.Clear()` räumt weg, was die Anmeldung mitbringt — kommt es verspätet an,
+zählt es als Antwort auf die Probe. Auch er bestünde bei einem Server, der Proben
+gar nicht beantwortet. Er wartet jetzt erst auf die Zustellung der Anmeldung und
+leert danach.
+
+Sechs Mutationen, alle erschlagen — zwei davon erst nach diesen beiden
+Testkorrekturen.
+
+**Und eine Selbstkorrektur, die hierher gehört:** Auf dem Weg dahin habe ich das
+Mutationsskript verdächtigt, weil dieselbe Mutation einmal als erschlagen und
+einmal als überlebend gemeldet wurde, und ihm einen Zeitstempel-Fehler
+unterstellt. Das war falsch — die Schwankung kam aus dem Wettlauf im Test. Ein
+Werkzeug, das zweimal verschieden antwortet, ist ein naheliegender Verdächtiger;
+naheliegend ist nicht dasselbe wie schuldig, und die Messung hat es geklärt, nicht
+die Vermutung.
+
+Nicht behoben und vermerkt: Eine Probe an ein unbekanntes Konto bleibt
+unbeantwortet. Abschnitt 8.5.1 stellt `<unsubscribed/>` und Schweigen frei;
+Schweigen verrät nicht, ob es das Konto gibt, und dabei bleibt es.
 
 ---
 

@@ -92,7 +92,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | IQ-Zustellregeln (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ⚠️ Eine Anfrage an einen Bare-JID wird nicht zugestellt, sondern vom Server mit `<service-unavailable/>` beantwortet — genau einmal, und für ein unbekanntes Konto ebenso, damit die Antwort keine Konten verrät. An eine passende Resource wird zugestellt; ohne passende Resource antwortet der Server. Ein `result` oder `error` wird nie beantwortet (RFC 6120 §8.2.3 Regel 4) und an einen Bare-JID nicht verteilt. Gilt für beide Herkünfte. Was fehlt: Eine Anfrage von einer Gegenstelle an die Serveradresse selbst bleibt unbeantwortet |
 | IQ-Prüfung gegen Presence-Lecks (§8.5.3.1) | ✅ Eine Anfrage an eine Resource wird nur zugestellt, wenn der Empfänger seine Presence mit dem Fragenden teilt — über den Roster (`from` oder `both` in **seiner** Hälfte) oder über gerichtete Presence (§4.6). Sonst dieselbe Antwort wie für eine Resource, die es nicht gibt; aus der Ablehnung lässt sich also nichts herauslesen. Für `result` und `error` gilt sie nicht — die muss der Server nach demselben Abschnitt zustellen |
 | Gerichtete Presence (§4.6) | ✅ Je Resource vermerkt, geleert bei der Abmeldung, zurückgenommen bei gerichtetem `unavailable`, und ebenso, wenn der Empfänger uns seinerseits eine Abmeldung schickt (§4.6.1, MUSS und SOLL). Wird die Resource unverfügbar — durch eigene Abmeldung oder Verbindungsabriss —, geht die Abmeldung an alle Empfänger gerichteter Presence, die sie nicht schon über den Roster bekommen (§4.6.3 Regel 2). Eine Statusänderung mitten in der Sitzung beendet die Zusage nicht |
-| Presence-Zustellregeln (§8.5.2.1.2) | ⚠️ Presence von einem anderen Server geht unmittelbar an die Resourcen statt über die Zustellregeln; der Unterschied ist klein, aber er ist da |
+| Presence-Zustellregeln (§8.5.2.1.2, §8.5.3.1) | ✅ Verfügbare und unverfügbare Presence geht an den Bare-JID an alle Resourcen, an eine Full-JID an die passende, sonst still ins Leere (§8.5.1, §8.5.3.2.2) — für beide Herkünfte |
+| Presence-Probe (§4.3) | ✅ Beantwortet der Server selbst und stellt sie keinem Client zu, gleich ob sie von einem hiesigen Client oder von einer Gegenstelle kommt. Eine Probe an eine fremde Domain schickt er hinaus (§4.3.1). Geantwortet wird nur, wenn der Fragende im Roster des Befragten mit `from` oder `both` steht; sonst Schweigen, das auch ein unbekanntes Konto nicht verrät (§8.5.1 lässt die Wahl) |
 | Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
 
 ### RFC 7395 — XMPP über WebSocket
@@ -608,9 +609,9 @@ Server-Implementierung:
   abholen, statt sie beim Anmelden über sich hereinbrechen zu lassen) und die
   Regel aus XEP-0160, eine Nachricht mit ausschliesslich Tippstatus-Inhalt
   nicht abzulegen.
-- **Presence von anderen Servern nimmt die Zustellregeln nicht.** Nachrichten und
-  IQ tun es, Presence geht unmittelbar an die Resourcen. Der Unterschied ist
-  klein, aber er ist da.
+- **Eine Probe an ein unbekanntes Konto bleibt unbeantwortet.** RFC 6121 §8.5.1
+  stellt `<unsubscribed/>` und Schweigen frei; dieser Server schweigt, damit ein
+  unbekanntes Konto genauso aussieht wie ein vorhandenes ohne Berechtigung.
 - **Eine Anfrage von einer Gegenstelle an die Serveradresse bleibt
   unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
   Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei

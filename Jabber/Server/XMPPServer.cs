@@ -2377,10 +2377,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             // Presence-Probe: die Frage nach dem Zustand eines Kontakts
             // (RFC 6121, Abschnitt 4.3).
-            if (type == "probe" && to is not null)
+            //
+            // Nur für ein hiesiges Konto beantwortet der Server sie selbst
+            // (Abschnitt 4.3.2). Geht sie über die Grenze, ist er nicht der
+            // Befragte, sondern der Übermittler: Abschnitt 4.3.1 lässt den
+            // Server des Nutzers die Probe an den Server des Kontakts schicken,
+            // und dort wird sie beantwortet.
+            //
+            // Diese Unterscheidung fehlte. Der Zweig griff für *jedes* Ziel,
+            // fand für eine fremde Adresse kein Konto und kehrte zurück - eine
+            // Probe an einen Kontakt auf einem anderen Server verliess diesen
+            // Server also nie. Aufgefallen ist es erst, als ein Test die
+            // Gegenrichtung prüfen sollte und die Probe nie ankam.
+            if (type == "probe" && to is not null && session.BareJid is not null)
             {
-                await AnswerPresenceProbeAsync(session, to);
+
+                if (IsLocal(to))
+                    await AnswerPresenceProbeAsync(session.BareJid, session.FullJid, to);
+
+                else
+                    await RouteToAsync(to, stamped);
+
                 return;
+
             }
 
             // Der Subscription-Handshake (RFC 6121, Abschnitt 3).
@@ -2852,25 +2871,43 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>
         /// Beantwortet eine Presence-Probe (RFC 6121, Abschnitt 4.3.2).
         /// </summary>
+        /// <param name="proberBareJid">Wer fragt - ohne Resource.</param>
+        /// <param name="replyTo">
+        /// Wohin die Antwort geht: die Full-JID einer hiesigen Sitzung, sonst
+        /// der Bare-JID des Fragenden auf der fremden Domain.
+        /// </param>
+        /// <param name="to">Nach wessen Zustand gefragt wird.</param>
         /// <remarks>
-        /// Fehlt die Berechtigung, bleibt die Probe unbeantwortet. Der Abschnitt
-        /// stellt dem Server <c>&lt;unsubscribed/&gt;</c> und Schweigen frei -
-        /// Schweigen verrät nicht einmal, ob es das Konto überhaupt gibt.
+        /// Fehlt die Berechtigung, bleibt die Probe unbeantwortet. Abschnitt
+        /// 8.5.1 stellt dem Server für ein unbekanntes Konto
+        /// <c>&lt;unsubscribed/&gt;</c> und Schweigen frei - Schweigen verrät
+        /// nicht einmal, ob es das Konto überhaupt gibt, und deshalb bleibt es
+        /// dabei.
+        ///
+        /// Gefragt wird der Roster des <b>Befragten</b> nach <c>from</c> oder
+        /// <c>both</c>: „der darf mich sehen". Dieselbe Hälfte wie bei der
+        /// IQ-Prüfung aus Abschnitt 8.5.3.1, und dieselbe Verwechslungsgefahr.
+        ///
+        /// Ein Weg für beide Herkünfte, über <see cref="RouteToAsync"/>. Eine
+        /// eigene Verzweigung für den hiesigen Fragenden wäre eine zweite
+        /// Antwort auf die Frage „hier oder woanders", die die Weiche schon
+        /// beantwortet.
         /// </remarks>
-        private async Task AnswerPresenceProbeAsync(XMPPSession prober, String to)
+        private async Task AnswerPresenceProbeAsync(String proberBareJid,
+                                                    String replyTo,
+                                                    String to)
         {
 
             var account = GetAccount(BareOf(to));
 
             if (account is null ||
-                prober.BareJid is null ||
-                !account.IsPresenceSubscriber(prober.BareJid))
+                !account.IsPresenceSubscriber(proberBareJid))
             {
                 return;
             }
 
             foreach (var s in SessionsOf(account.BareJid).Where(s => s.LastPresence is not null))
-                await prober.SendAsync(s.LastPresence!);
+                await RouteToAsync(replyTo, StampTo(s.LastPresence!, replyTo));
 
         }
 
@@ -3073,9 +3110,38 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return RemoteStanzaResult.Accepted;
             }
 
-            // Presence nimmt weiterhin den geraden Weg, und eine Anfrage an die
-            // Domain ebenso - was der Server für sich selbst beantworten müsste,
-            // beantwortet er noch nicht (siehe „Später").
+            // Eine Presence-Probe beantwortet der Server selbst und stellt sie
+            // nicht zu (RFC 6121, Abschnitte 8.5.2.1.2, 8.5.2.2.2, 8.5.3.1 und
+            // 8.5.3.2.2 - alle vier verweisen dafür auf Abschnitt 4.3).
+            //
+            // Bis hierher ging sie ins Routing und landete beim Client. Das war
+            // in beide Richtungen falsch: Der Client bekam eine Stanza zu sehen,
+            // die für ihn nicht bestimmt ist und auf die er nichts antworten
+            // kann, und die Gegenstelle bekam nie eine Antwort - sie fragt nach
+            // dem Zustand eines Kontakts und erhält Schweigen, obwohl der Server
+            // die Auskunft hat. Genau dieselbe Asymmetrie wie bei Nachricht und
+            // IQ: Für einen hiesigen Client wurde die Probe seit jeher
+            // beantwortet.
+            if (art is null &&
+                stanza.StartsWith("<presence", StringComparison.Ordinal) &&
+                Attr(stanza, "type") == "probe")
+            {
+
+                await AnswerPresenceProbeAsync(BareOf(from), BareOf(from), to);
+
+                return RemoteStanzaResult.Accepted;
+
+            }
+
+            // Verfügbare und unverfügbare Presence nimmt den geraden Weg, und
+            // der ist hier auch der richtige: An einen Bare-JID geht sie an alle
+            // Resourcen (Abschnitt 8.5.2.1.2), an eine Full-JID an die passende
+            // (8.5.3.1), und ohne Konto oder ohne passende Resource still ins
+            // Leere (8.5.1 und 8.5.3.2.2). Genau das tut RouteToAsync.
+            //
+            // Eine Anfrage an die Domain selbst nimmt ihn ebenso - was der Server
+            // für sich beantworten müsste, beantwortet er noch nicht (siehe
+            // „Später").
             await RouteToAsync(to, stanza);
 
             return RemoteStanzaResult.Accepted;
