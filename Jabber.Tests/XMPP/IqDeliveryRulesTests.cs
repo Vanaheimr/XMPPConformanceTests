@@ -273,6 +273,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Verständigung zwischen zwei Clients unmöglich. Ein Ping zwischen
         /// zwei Menschen, eine Versionsabfrage, eine Dateiübertragung: alles
         /// geht an eine Full-JID.
+        ///
+        /// Die beiden sind Kontakte, und das ist nicht Beiwerk: Abschnitt
+        /// 8.5.3.1 lässt die Anfrage nur durch, wenn der Fragende die Presence
+        /// des Empfängers sehen darf. Der Gegenprobe zu dieser Gegenprobe steht
+        /// weiter unten.
         /// </remarks>
         [Test]
         public async Task AnIqToAResource_IsDelivered()
@@ -281,11 +286,259 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var alice = await ConnectClientAsync("alice");
             var (bob, beiBob) = await ResourceAsync("bob", "Handy");
 
+            MakeContacts("alice", "bob");
+
             await alice.SendRawAsync(Anfrage(bob.FullJid!, "an-die-resource"));
 
             await WaitFor(() => !beiBob.IsEmpty, "die Anfrage bei der Resource");
 
             Assert.Pass();
+
+        }
+
+        #endregion
+
+        #region AnIqFromAStranger_IsRefusedEvenThoughTheResourceExists()
+
+        /// <summary>
+        /// Abschnitt 8.5.3.1: Wer die Presence des Empfängers nicht sehen darf,
+        /// bekommt die Anfrage nicht zugestellt — auch wenn die Resource da ist.
+        /// </summary>
+        /// <remarks>
+        /// Der Grund steht in Abschnitt 11 und ist feiner, als er zuerst
+        /// aussieht: <b>Schon die Antwort ist eine Auskunft.</b> Wer eine
+        /// Full-JID anfragt und ein Ergebnis bekommt, weiss, dass genau diese
+        /// Resource in diesem Augenblick angemeldet ist. Ohne diese Prüfung
+        /// liesse sich die Anwesenheit eines Menschen abfragen, ohne ihn je um
+        /// Erlaubnis gefragt zu haben — und Resourcenamen liessen sich
+        /// durchprobieren, bis einer antwortet.
+        ///
+        /// Geprüft wird deshalb auch, dass die Antwort <b>dieselbe</b> ist wie
+        /// für eine Resource, die es nicht gibt. Wären die beiden verschieden,
+        /// wäre die Prüfung wirkungslos: Der Fragende läse aus der Art der
+        /// Ablehnung heraus, was sie ihm verschweigen soll.
+        /// </remarks>
+        [Test]
+        public async Task AnIqFromAStranger_IsRefusedEvenThoughTheResourceExists()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var (bob, beiBob) = await ResourceAsync("bob", "Handy");
+
+            var fehler = Fehlerkorb(alice);
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "von-einem-fremden"));
+            await WaitFor(() => !fehler.IsEmpty, "die Ablehnung");
+
+            fehler.TryDequeue(out var anDieVorhandene);
+
+            // Und dieselbe Frage an eine Resource, die es nicht gibt.
+            await alice.SendRawAsync(Anfrage($"{Bob}/gibtsnichtmehr", "an-die-erfundene"));
+            await WaitFor(() => !fehler.IsEmpty, "die Ablehnung für die erfundene Resource");
+
+            fehler.TryDequeue(out var anDieErfundene);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(anDieVorhandene!.Condition, Is.EqualTo("service-unavailable"));
+
+                Assert.That(anDieErfundene!.Condition, Is.EqualTo(anDieVorhandene.Condition),
+                            "Eine vorhandene und eine erfundene Resource müssen dieselbe " +
+                            "Antwort geben - sonst verrät die Ablehnung, was sie verschweigt.");
+
+                Assert.That(beiBob, Is.Empty,
+                            "Die Anfrage darf die Resource nicht erreichen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheRosterHalfThatCountsIsTheRecipients()
+
+        /// <summary>
+        /// Gefragt wird der Roster des <b>Empfängers</b> nach <c>from</c> oder
+        /// <c>both</c> — „der darf mich sehen".
+        /// </summary>
+        /// <remarks>
+        /// Die Richtung ist leicht zu verwechseln, und <c>both</c> verdeckt die
+        /// Verwechslung vollständig: Dort stimmen beide Hälften, und eine
+        /// Umsetzung, die die falsche liest, fällt nicht auf. Deshalb steht hier
+        /// ein einseitiger Zustand.
+        ///
+        /// <c>to</c> in Bobs Roster heisst: <b>Bob</b> sieht Alices Presence,
+        /// Alice aber nicht die von Bob. Wer diese Hälfte liest, gibt die
+        /// Auskunft an genau die falsche Seite — an jeden, den der Empfänger
+        /// beobachtet, statt an jeden, der ihn beobachten darf. Das ist keine
+        /// halbe Prüfung, sondern die Umkehrung der gemeinten.
+        /// </remarks>
+        [Test]
+        public async Task TheRosterHalfThatCountsIsTheRecipients()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var (bob, beiBob) = await ResourceAsync("bob", "Handy");
+
+            // Bob sieht Alice - Alice sieht Bob nicht.
+            SetServerRoster("bob", "alice", "to");
+
+            var fehler = Fehlerkorb(alice);
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "falsche-haelfte"));
+
+            await WaitFor(() => !fehler.IsEmpty,
+                          "die Abweisung trotz Roster-Eintrags");
+
+            fehler.TryDequeue(out var abgelehnt);
+
+            // Und nun die Hälfte, die zählt.
+            SetServerRoster("bob", "alice", "from");
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "richtige-haelfte"));
+
+            await WaitFor(() => !beiBob.IsEmpty,
+                          "die Anfrage nach dem richtigen Roster-Zustand");
+
+            Assert.That(abgelehnt!.Condition, Is.EqualTo("service-unavailable"));
+
+        }
+
+        #endregion
+
+        #region DirectedPresence_OpensTheDoorForAStranger()
+
+        /// <summary>
+        /// Der zweite Weg aus Abschnitt 8.5.3.1: gerichtete Presence
+        /// (Abschnitt 4.6) statt eines Roster-Eintrags.
+        /// </summary>
+        /// <remarks>
+        /// Ohne diesen Weg wäre die Prüfung zu streng, und zwar für den
+        /// häufigsten Fall überhaupt: Ein Gespräch mit jemandem, der nicht im
+        /// Roster steht, beginnt damit, dass man ihm seine Anwesenheit zeigt
+        /// (Abschnitt 5.1). Wer seine Presence von selbst gezeigt hat, kann
+        /// durch eine Antwort nichts mehr verlieren — der Fragende weiss schon,
+        /// dass die Resource da ist.
+        ///
+        /// Beide Hälften stehen im Test: erst die Abweisung ohne gerichtete
+        /// Presence, dann die Zustellung mit. Ohne die erste bewiese die zweite
+        /// nichts, weil die Anfrage auch bei ausgeschalteter Prüfung ankäme.
+        ///
+        /// Bob schreibt Alices <b>Full-JID</b> an, und das ist der übliche Fall:
+        /// Ein Gespräch beginnt mit der Resource, von der man gerade gehört hat.
+        /// Vermerkt werden muss trotzdem der Bare-JID — sonst zählte die Zusage
+        /// nur für dieses eine Gerät, und Alices Anfrage von derselben Resource
+        /// wäre reiner Zufall.
+        /// </remarks>
+        [Test]
+        public async Task DirectedPresence_OpensTheDoorForAStranger()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var (bob, beiBob) = await ResourceAsync("bob", "Handy");
+
+            var fehler = Fehlerkorb(alice);
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "vorher"));
+            await WaitFor(() => !fehler.IsEmpty, "die Abweisung ohne gerichtete Presence");
+
+            // Bob zeigt Alice seine Anwesenheit - an ihre Full-JID.
+            await bob.SendRawAsync($"<presence to='{alice.FullJid}'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "nachher"));
+
+            await WaitFor(() => !beiBob.IsEmpty,
+                          "die Anfrage nach der gerichteten Presence");
+
+        }
+
+        #endregion
+
+        #region DirectedUnavailablePresence_ClosesTheDoorAgain()
+
+        /// <summary>
+        /// Abschnitt 4.6.1: „The server MUST remove from the directed presence
+        /// list ... any entity to which the user sends directed unavailable
+        /// presence."
+        /// </summary>
+        /// <remarks>
+        /// Ein MUSS, und der Grund ist genau die Prüfung aus 8.5.3.1: Bliebe der
+        /// Vermerk stehen, dürfte der Fremde weiter fragen, nachdem der Nutzer
+        /// seine Zusage ausdrücklich widerrufen hat. Eine Erlaubnis, die man
+        /// nicht zurücknehmen kann, ist keine.
+        /// </remarks>
+        [Test]
+        public async Task DirectedUnavailablePresence_ClosesTheDoorAgain()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var (bob, beiBob) = await ResourceAsync("bob", "Handy");
+
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "waehrend"));
+            await WaitFor(() => !beiBob.IsEmpty, "die Anfrage bei offener Tür");
+
+            // Bob nimmt seine Anwesenheit gegenüber Alice zurück.
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}' type='unavailable'/>");
+
+            await WaitFor(() => !Server.SessionOf(bob.FullJid!)!
+                                       .HasDirectedPresenceTo(alice.BareJid),
+                          "das Zurücknehmen des Vermerks");
+
+            var fehler = Fehlerkorb(alice);
+
+            await alice.SendRawAsync(Anfrage(bob.FullJid!, "danach"));
+
+            await WaitFor(() => !fehler.IsEmpty,
+                          "die Abweisung nach dem Widerruf");
+
+        }
+
+        #endregion
+
+        #region GoingUnavailable_ClearsTheDirectedPresenceList()
+
+        /// <summary>
+        /// Abschnitt 4.6.1: „...then clearing the list when the user goes
+        /// offline".
+        /// </summary>
+        /// <remarks>
+        /// Gerichtete Presence ist eine Zusage für die Dauer der Anwesenheit.
+        /// Bliebe sie über die Abmeldung hinaus stehen, dürfte ein Fremder eine
+        /// abgemeldete Resource weiter befragen — und aus der Antwort schliessen,
+        /// dass sie noch verbunden ist, obwohl sie sich abgemeldet hat. Das ist
+        /// genau die Auskunft, die Abschnitt 8.5.3.1 verhindern soll.
+        /// </remarks>
+        [Test]
+        public async Task GoingUnavailable_ClearsTheDirectedPresenceList()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var (bob, _) = await ResourceAsync("bob", "Handy");
+
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            // Nicht gerichtet an Alice, sondern die eigene Abmeldung.
+            await bob.SendRawAsync("<presence type='unavailable'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)?.IsAvailable == false,
+                          "die Abmeldung am Server");
+
+            Assert.That(Server.SessionOf(bob.FullJid!)!.DirectedPresenceTargets,
+                        Is.Empty,
+                        "Die Abmeldung nimmt jede gerichtete Presence mit zurück.");
 
         }
 

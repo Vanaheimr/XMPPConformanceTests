@@ -1593,12 +1593,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // sondern von einem Test: Er meldet zwei Resourcen an und besteht
             // nur, wenn keine die Anfrage sieht.
             //
-            // Was noch fehlt, ist die zweite Hälfte von 8.5.3.1: Wer die
-            // Presence des Empfängers nicht sehen darf, soll die Anfrage nicht
-            // zugestellt bekommen, weil schon die Antwort verrät, dass die
-            // Resource existiert. Das braucht die Aufzeichnung gerichteter
-            // Presence und steht unter „Später".
-            //
             // Der Fehler geht auch an ein Konto, das es hier nicht gibt:
             // Abschnitt 8.5.1 lässt bei einer Nachricht das stille Übergehen zu,
             // bei einer Anfrage nicht. Preisgegeben wird damit nichts - die
@@ -1611,13 +1605,60 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // define a reply that the server can provide on behalf of the user" -
             // und andernfalls ausdrücklich diesen Fehler. Dieser Server kennt
             // keinen solchen Namensraum; käme einer hinzu, ist dies die Stelle.
-            if (SessionOf(to) is { } match)
+            if (SessionOf(to) is { } match && SharesPresenceWith(match, sender))
                 await match.SendAsync(stanza);
 
             else
                 await SendServiceUnavailableAsync("iq", id, to, sender);
 
         }
+
+        /// <summary>
+        /// Darf der Fragende die Presence dieser Resource sehen (RFC 6121,
+        /// Abschnitt 8.5.3.1)?
+        /// </summary>
+        /// <remarks>
+        /// Die Prüfung, die Abschnitt 8.5.3.1 vor die Zustellung einer Anfrage
+        /// stellt: „if the intended recipient does not share presence with the
+        /// requesting entity either by means of a presence subscription of type
+        /// 'both' or 'from' or by means of directed presence, then the server
+        /// SHOULD NOT deliver the IQ stanza".
+        ///
+        /// Der Grund steht in Abschnitt 11 und ist feiner, als er zuerst
+        /// aussieht: <b>Schon die Antwort ist eine Auskunft.</b> Wer eine
+        /// Full-JID anfragt und ein Ergebnis bekommt, weiss, dass genau diese
+        /// Resource in diesem Augenblick angemeldet ist - und wer
+        /// <c>&lt;service-unavailable/&gt;</c> bekommt, weiss es nicht. Ohne
+        /// diese Prüfung liesse sich die Anwesenheit eines Menschen abfragen,
+        /// ohne ihn je um Erlaubnis gefragt zu haben, und Resourcenamen liessen
+        /// sich durchprobieren.
+        ///
+        /// Zwei Wege hinein, und die Richtung ist bei beiden leicht zu
+        /// verwechseln:
+        /// <list type="bullet">
+        ///   <item>
+        ///     Der Roster des <b>Empfängers</b> trägt den Fragenden mit
+        ///     <c>from</c> oder <c>both</c> - „der darf mich sehen". Ein
+        ///     <c>to</c> hiesse das Gegenteil und gäbe die Auskunft an genau die
+        ///     falsche Hälfte des Rosters.
+        ///   </item>
+        ///   <item>
+        ///     Oder die Resource hat dem Fragenden gerichtete Presence
+        ///     geschickt (Abschnitt 4.6) - dann hat sie ihre Anwesenheit von
+        ///     selbst gezeigt, und die Antwort verrät nichts, was der Fragende
+        ///     nicht schon weiss.
+        ///   </item>
+        /// </list>
+        ///
+        /// Die gerichtete Presence hängt an der <b>Sitzung</b> und nicht am
+        /// Konto: Sie ist die Zusage einer Resource und endet mit ihr. Ein
+        /// Roster-Eintrag gilt für alle Resourcen, eine gerichtete Presence nur
+        /// für die, die sie geschickt hat.
+        /// </remarks>
+        private static Boolean SharesPresenceWith(XMPPSession recipient, String requester)
+
+            => recipient.Account?.IsPresenceSubscriber(BareOf(requester)) == true ||
+               recipient.HasDirectedPresenceTo(BareOf(requester));
 
         private async Task HandleBindAsync(XMPPSession session, String frame, String? id)
         {
@@ -2193,11 +2234,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            // Sonstige gerichtete Presence geht genau dorthin.
+            // Sonstige gerichtete Presence geht genau dorthin - und wird
+            // vermerkt.
             if (to is not null)
             {
+
+                // RFC 6121, Abschnitt 4.6: Wer einem Fremden seine Anwesenheit
+                // zeigt, lässt ihn damit auch fragen (Abschnitt 8.5.3.1). Ohne
+                // diesen Vermerk wäre gerichtete Presence eine Einbahnstrasse:
+                // Der Empfänger sähe, dass die Resource da ist, dürfte sie aber
+                // nichts fragen - und genau darauf baut ein Gespräch mit einem
+                // Nichtkontakt auf.
+                session.RecordDirectedPresence(BareOf(to), type is null);
+
                 await RouteToAsync(to, stamped);
                 return;
+
             }
 
             // Vor dem Aufzeichnen gefragt: danach ist die Sitzung verfügbar,

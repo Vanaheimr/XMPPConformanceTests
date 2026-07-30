@@ -667,6 +667,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Versionsabfrage, ein Ping, eine Dateiübertragung gehen an eine
         /// Full-JID. Ohne diese Gegenprobe bestünde die Sammlung auch dann, wenn
         /// über die Grenze jede Anfrage abgewiesen würde.
+        ///
+        /// Die beiden sind Kontakte, weil Abschnitt 8.5.3.1 die Anfrage nur
+        /// durchlässt, wenn der Fragende die Presence des Empfängers sehen darf.
+        /// Gepflegt wird dafür der Roster auf Bobs Server: Dort fällt die
+        /// Entscheidung, und dort steht die Hälfte, die zählt.
         /// </remarks>
         [Test]
         public async Task AnIqAcrossTheBorder_ToAResource_IsDelivered()
@@ -674,6 +679,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var alice = await VerbindeAsync(_links,  "alice");
             var bob   = await VerbindeAsync(_rechts, "bob");
+
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "both"));
 
             var antworten = new ConcurrentQueue<String>();
 

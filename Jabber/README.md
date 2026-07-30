@@ -89,7 +89,9 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
 | Zustellregeln nach Typ (§8.5) | ✅ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). An eine Resource, die es nicht gibt: `chat` wie an das Konto (§8.5.3.2.1), alles andere still verworfen. Gilt für Nachrichten von hiesigen Clients **und** von anderen Servern — der Abschnitt spricht von einer „inbound stanza" und unterscheidet die Herkunft nicht. Eine Ablehnung findet den Rückweg über die Grenze |
 | Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Auch für Nachrichten von anderen Servern, und das ist der Regelfall. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
-| IQ-Zustellregeln (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ⚠️ Eine Anfrage an einen Bare-JID wird nicht zugestellt, sondern vom Server mit `<service-unavailable/>` beantwortet — genau einmal, und für ein unbekanntes Konto ebenso, damit die Antwort keine Konten verrät. An eine passende Resource wird zugestellt; ohne passende Resource antwortet der Server. Ein `result` oder `error` wird nie beantwortet (RFC 6120 §8.2.3 Regel 4) und an einen Bare-JID nicht verteilt. Gilt für beide Herkünfte. Was fehlt: die Presence-Prüfung aus §8.5.3.1, und eine Anfrage von einer Gegenstelle an die Serveradresse selbst bleibt unbeantwortet |
+| IQ-Zustellregeln (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ⚠️ Eine Anfrage an einen Bare-JID wird nicht zugestellt, sondern vom Server mit `<service-unavailable/>` beantwortet — genau einmal, und für ein unbekanntes Konto ebenso, damit die Antwort keine Konten verrät. An eine passende Resource wird zugestellt; ohne passende Resource antwortet der Server. Ein `result` oder `error` wird nie beantwortet (RFC 6120 §8.2.3 Regel 4) und an einen Bare-JID nicht verteilt. Gilt für beide Herkünfte. Was fehlt: Eine Anfrage von einer Gegenstelle an die Serveradresse selbst bleibt unbeantwortet |
+| IQ-Prüfung gegen Presence-Lecks (§8.5.3.1) | ✅ Eine Anfrage an eine Resource wird nur zugestellt, wenn der Empfänger seine Presence mit dem Fragenden teilt — über den Roster (`from` oder `both` in **seiner** Hälfte) oder über gerichtete Presence (§4.6). Sonst dieselbe Antwort wie für eine Resource, die es nicht gibt; aus der Ablehnung lässt sich also nichts herauslesen. Für `result` und `error` gilt sie nicht — die muss der Server nach demselben Abschnitt zustellen |
+| Gerichtete Presence (§4.6) | ⚠️ Je Resource vermerkt, geleert bei der Abmeldung, zurückgenommen bei gerichtetem `unavailable` (beides MUSS-Regeln aus §4.6.1). Was fehlt: der SOLL-Teil (eine Entität, die uns `unavailable` schickt, soll verschwinden) und §4.6.3 Regel 2 (die Abmeldung an alle Empfänger gerichteter Presence nachschicken) |
 | Presence-Zustellregeln (§8.5.2.1.2) | ⚠️ Presence von einem anderen Server geht unmittelbar an die Resourcen statt über die Zustellregeln; der Unterschied ist klein, aber er ist da |
 | Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
 
@@ -599,11 +601,12 @@ Server-Implementierung:
 - **Presence von anderen Servern nimmt die Zustellregeln nicht.** Nachrichten und
   IQ tun es, Presence geht unmittelbar an die Resourcen. Der Unterschied ist
   klein, aber er ist da.
-- **Die IQ-Prüfung gegen Presence-Lecks fehlt.** RFC 6121 §8.5.3.1 verlangt, eine
-  Anfrage an eine Resource nur zuzustellen, wenn der Fragende die Presence des
-  Empfängers sehen darf — schon die Antwort verrät sonst, dass die Resource
-  existiert. Das braucht die Aufzeichnung gerichteter Presence, die es hier nicht
-  gibt.
+- **Gerichtete Presence wird vermerkt, aber nicht nachgereicht.** Die Liste nach
+  RFC 6121 §4.6.1 gibt es (sie trägt die Presence-Prüfung aus §8.5.3.1), samt
+  ihren beiden MUSS-Regeln. Offen bleiben der SOLL-Teil desselben Abschnitts —
+  eine Entität, die uns `unavailable` schickt, soll verschwinden — und §4.6.3
+  Regel 2: Wird die Resource unverfügbar, gehört die Abmeldung an jede Entität
+  geschickt, der sie gerichtete Presence gezeigt hat.
 - **Eine Anfrage von einer Gegenstelle an die Serveradresse bleibt
   unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
   Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei

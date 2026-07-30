@@ -279,12 +279,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// XEP-0199: Ein Client kann einen anderen anpingen; die Gegenstelle
         /// antwortet automatisch.
         /// </summary>
+        /// <remarks>
+        /// Die beiden müssen einander kennen. RFC 6121, Abschnitt 8.5.3.1 lässt
+        /// eine Anfrage an eine Resource nur durch, wenn der Fragende die
+        /// Presence des Empfängers sehen darf - sonst verrät schon die Antwort,
+        /// dass diese Resource gerade angemeldet ist. Ein Ping zwischen zwei
+        /// Fremden ist genau der Fall, den die Regel abweist; er stand hier nur,
+        /// weil der Server die Regel noch nicht kannte.
+        /// </remarks>
         [Test]
         public async Task PingBetweenClients_MeasuresRoundTrip()
         {
 
             var alice = await ConnectClientAsync("alice");
             var bob   = await ConnectClientAsync("bob");
+
+            MakeContacts("alice", "bob");
 
             var rtt = await alice.PingAsync(bob.FullJid);
 

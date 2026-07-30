@@ -40,6 +40,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly SemaphoreSlim _sendLock = new(1, 1);
         private readonly List<String> _received = [];
         private readonly List<String> _sent = [];
+        private readonly HashSet<String> _directedPresence = new(StringComparer.OrdinalIgnoreCase);
         private readonly Lock _lock = new();
 
         /// <summary>
@@ -126,6 +127,73 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Int32 PresencePriority { get; private set; }
 
         /// <summary>
+        /// Die Entitäten, denen diese Resource gerichtete Presence geschickt hat
+        /// (RFC 6121, Abschnitt 4.6) - nach Bare-JID.
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 4.6.1 beschreibt genau diese Liste: „keeping a list of the
+        /// entities (bare JIDs or full JIDs) to which a user has sent directed
+        /// presence during the user's current session for a given resource (full
+        /// JID), then clearing the list when the user goes offline".
+        ///
+        /// Sie hängt deshalb an der Sitzung und nicht am Konto: Gerichtete
+        /// Presence ist eine Zusage dieser einen Resource und endet mit ihr.
+        ///
+        /// Aufgehoben wird der Bare-JID des Empfängers, auch wenn eine Full-JID
+        /// angeschrieben wurde. Wer einer Resource seine Anwesenheit zeigt, zeigt
+        /// sie einem Menschen, und dessen anderes Gerät weiss es im nächsten
+        /// Augenblick ohnehin. Feiner zu unterscheiden hiesse, dieselbe Person je
+        /// nach Gerät verschieden zu behandeln - und das Roster, an dem dieselbe
+        /// Frage sonst hängt, kennt ebenfalls nur Bare-JIDs.
+        /// </remarks>
+        public IReadOnlyCollection<String> DirectedPresenceTargets
+        {
+            get { lock (_lock) return _directedPresence.ToList(); }
+        }
+
+        /// <summary>
+        /// Darf diese Entität die Presence dieser Resource sehen, weil ihr
+        /// gerichtete Presence geschickt wurde?
+        /// </summary>
+        public Boolean HasDirectedPresenceTo(String bareJid)
+        {
+            lock (_lock)
+                return _directedPresence.Contains(bareJid);
+        }
+
+        /// <summary>
+        /// Vermerkt eine gerichtete Presence oder nimmt sie zurück
+        /// (RFC 6121, Abschnitt 4.6.1).
+        /// </summary>
+        /// <param name="bareJid">Der Empfänger, ohne Resource.</param>
+        /// <param name="available">
+        /// true für eine verfügbare Presence, false für <c>unavailable</c>.
+        /// </param>
+        /// <remarks>
+        /// Das Zurücknehmen ist ein MUSS des Abschnitts: „The server MUST remove
+        /// from the directed presence list (or its functional equivalent) any
+        /// entity to which the user sends directed unavailable presence." Ohne
+        /// es bliebe die Zusage stehen, nachdem der Nutzer sie ausdrücklich
+        /// widerrufen hat - und daran hängt nach Abschnitt 8.5.3.1, wer ihn
+        /// überhaupt etwas fragen darf.
+        /// </remarks>
+        internal void RecordDirectedPresence(String bareJid, Boolean available)
+        {
+
+            lock (_lock)
+            {
+
+                if (available)
+                    _directedPresence.Add(bareJid);
+
+                else
+                    _directedPresence.Remove(bareJid);
+
+            }
+
+        }
+
+        /// <summary>
         /// Übernimmt eine ungerichtete Presence des Clients.
         /// </summary>
         /// <returns>War es die erste dieser Sitzung?</returns>
@@ -167,6 +235,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 HasSentInitialPresence  = true;
                 IsAvailable             = available;
                 PresencePriority        = available ? ReadPriority(stanza) : 0;
+
+                // Abschnitt 4.6.1: „...then clearing the list when the user goes
+                // offline (e.g., by sending a broadcast presence stanza of type
+                // 'unavailable')". Gerichtete Presence ist eine Zusage für die
+                // Dauer der Anwesenheit; wer sich abmeldet, nimmt sie mit zurück.
+                //
+                // Ohne diese Zeile bliebe die Zusage über die Abmeldung hinaus
+                // stehen, und ein Fremder dürfte eine abgemeldete Resource
+                // weiterhin befragen - genau das, was Abschnitt 8.5.3.1
+                // verhindern soll.
+                if (!available)
+                    _directedPresence.Clear();
 
                 return erste;
 

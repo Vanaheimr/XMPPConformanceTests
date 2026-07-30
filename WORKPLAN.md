@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **589 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **594 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2206,15 +2206,81 @@ gibt. Ebenfalls offen: Eine Anfrage von einer Gegenstelle an die eigene
 Serveradresse (disco#info, Ping) bleibt unbeantwortet; die Antworten dafür stehen
 in `HandleIqAsync` und wollen eine Sitzung, die es bei S2S nicht gibt.
 
+### D17. Schon die Antwort ist eine Auskunft ✅
+
+Der offene Punkt aus D16: die erste Hälfte von Abschnitt 8.5.3.1. Eine IQ-Anfrage
+an eine Resource wird nur zugestellt, wenn der Fragende die Presence des
+Empfängers sehen darf — sonst `<service-unavailable/>`.
+
+Der Grund steht in Abschnitt 11 und ist feiner, als er zuerst aussieht: **Schon
+die Antwort ist eine Auskunft.** Wer eine Full-JID anfragt und ein Ergebnis
+bekommt, weiss, dass genau diese Resource in diesem Augenblick angemeldet ist;
+wer `<service-unavailable/>` bekommt, weiss es nicht. Ohne die Prüfung liesse
+sich die Anwesenheit eines Menschen abfragen, ohne ihn je um Erlaubnis gefragt zu
+haben — und Resourcenamen liessen sich durchprobieren, bis einer antwortet.
+
+Deshalb prüft ein Test auch, dass die Abweisung für eine **vorhandene** Resource
+dieselbe ist wie für eine erfundene. Wären die beiden verschieden, wäre die
+Prüfung wirkungslos: Der Fragende läse aus der Art der Ablehnung heraus, was sie
+ihm verschweigen soll.
+
+**Zwei Wege hinein, und beide waren nötig.** Der Roster des Empfängers mit
+`from` oder `both` — oder gerichtete Presence (Abschnitt 4.6). Nur den Roster zu
+nehmen wäre zu streng für den häufigsten Fall überhaupt: Ein Gespräch mit
+jemandem, der nicht im Roster steht, beginnt damit, dass man ihm seine Anwesenheit
+zeigt (Abschnitt 5.1). Wer das getan hat, verliert durch eine Antwort nichts mehr.
+
+Die Liste dafür ist neu und folgt Abschnitt 4.6.1 wörtlich: je Resource, geleert
+wenn der Nutzer sich abmeldet, und ein Eintrag verschwindet, sobald ihm gerichtete
+`unavailable`-Presence geschickt wird. Beides sind MUSS-Regeln, und beide haben
+denselben Grund wie die Prüfung selbst: Eine Erlaubnis, die man nicht
+zurücknehmen kann, ist keine.
+
+**Die Richtung im Roster ist leicht zu verwechseln, und `both` verdeckt die
+Verwechslung vollständig.** Gefragt wird die Hälfte des **Empfängers**: „der darf
+mich sehen" (`from` oder `both`). Ein `to` heisst das Gegenteil und gäbe die
+Auskunft an genau die falsche Seite — an jeden, den der Empfänger beobachtet,
+statt an jeden, der ihn beobachten darf. Bei `both` stimmen beide Hälften, und
+eine Umsetzung, die die falsche liest, fällt nicht auf. Der Test setzt deshalb
+erst `to` (Abweisung) und dann `from` (Zustellung).
+
+**Drei bestehende Tests haben einen Leck dokumentiert, ohne es zu merken.**
+`PingBetweenClients_MeasuresRoundTrip` pingte einen Fremden an, und zwei Tests aus
+D16 fragten eine fremde Resource. Alle drei bestanden nur, weil der Server die
+Regel nicht kannte — ein Ping zwischen zwei Fremden ist genau der Fall, den sie
+abweist. Sie machen jetzt zuerst Kontakte, was ausserdem der realistischere
+Aufbau ist.
+
+Zehn Mutationen, alle erschlagen. Drei davon hätte die Sammlung vorher nicht
+gehalten:
+
+- Die falsche Roster-Hälfte lesen — erschlagen nur vom neuen einseitigen Test.
+- Die gerichtete Presence mit der Full-JID vermerken statt mit dem Bare-JID —
+  erschlagen nur, weil ein Test die Full-JID anschreibt. Beide Formen kommen
+  jetzt vor, weil ein Client beide schickt.
+- Die Prüfung auch auf `result` und `error` anwenden. Das sieht nach
+  Gründlichkeit aus und verstösst gegen die zweite Hälfte desselben Abschnitts:
+  „For an IQ stanza of type 'result' or 'error', the server MUST deliver the
+  stanza to the resource." Eine Antwort gehört dem, der gefragt hat, und der hat
+  seine Erlaubnis mit der Frage schon gehabt.
+
+Nicht behoben und vermerkt: der SOLL-Teil von Abschnitt 4.6.1 — eine Entität, die
+uns `unavailable` schickt, soll aus der Liste verschwinden. Und Abschnitt 4.6.3,
+Regel 2: Wird die Resource unverfügbar, soll die Abmeldung an jede Entität gehen,
+der sie gerichtete Presence geschickt hat. Die Liste dafür gibt es nun; das
+Verschicken fehlt.
+
 ---
 
 ## Später
 
 ### Protokoll
-- RFC 6121 §8.5.3.1: Eine IQ-Anfrage an eine Resource soll nur zugestellt
-  werden, wenn der Fragende die Presence des Empfängers sehen darf — sonst
-  verrät schon die Antwort, dass die Resource existiert. Braucht die
-  Aufzeichnung gerichteter Presence (siehe D16)
+- RFC 6121 §4.6.1 (SOLL): Eine Entität, die dem Nutzer `unavailable`-Presence
+  schickt, soll aus dessen Liste gerichteter Presence verschwinden. Bis dahin
+  darf sie nach einer Rückkehr weiter fragen (siehe D17)
+- RFC 6121 §4.6.3 Regel 2: Wird eine Resource unverfügbar, soll die Abmeldung an
+  jede Entität gehen, der sie gerichtete Presence geschickt hat. Die Liste dafür
+  gibt es seit D17, das Verschicken fehlt
 - Eine IQ-Anfrage von einer Gegenstelle an die eigene Serveradresse
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
