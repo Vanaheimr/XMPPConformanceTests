@@ -57,11 +57,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public String StreamClose()
             => $"<close xmlns='{Namespace}'/>";
 
+        // Am Elementnamen und nicht am Präfix: <opencast/> ist keine
+        // Stream-Eröffnung, <closet/> kein Abschied.
         public Boolean IsStreamOpen(String frame)
-            => frame.StartsWith("<open", StringComparison.Ordinal);
+            => StanzaElement.Is(frame, "open");
 
         public Boolean IsStreamClose(String frame)
-            => frame.StartsWith("<close", StringComparison.Ordinal);
+            => StanzaElement.Is(frame, "close");
 
         #endregion
 

@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **629 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **685 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2743,6 +2743,107 @@ Der Preis für die Ehrlichkeit war hier hoch: Der volle Lauf brauchte 18 Minuten
 weil mit abgelehntem `result` fast jeder Test in seine Wartezeit läuft. Er war
 ihn wert. Eine Abkürzung, die die Antwort ändert, ist keine Abkürzung.
 
+### D26. Die Weiche riet ✅ — ein Name ist kein Präfix
+
+Der Punkt aus D25, und er war grösser als sein Anlass. Die Weiche für eingehende
+Rahmen verglich Präfixe: `StartsWith("<iq")` trifft auch `<iqbogus/>`,
+`StartsWith("<presence")` auch `<presence-probe/>`, `StartsWith("<open")` auch
+`<opencast/>`.
+
+**Aufgefallen ist es am harmlosesten der drei Fälle.** In D25 fing der Server an,
+einer IQ-Stanza mit unbrauchbarem Typ zu antworten — und antwortete damit auch
+einem `<iqbogus/>`, also einem Element, das gar keine IQ-Stanza ist. Die
+Nachlässigkeit war vorher genauso da, nur tat sie nichts Sichtbares. Eine
+Prüfung, die anfängt zu antworten, macht die Weiche davor zum ersten Mal
+beobachtbar.
+
+Der eigentliche Schaden lag woanders: **Ein `<presence-probe/>` lief in die
+Presence-Behandlung und galt dort als Anwesenheit.** Die liest ein fehlendes
+`type` als „ist da" — ein Mensch wurde seinen Kontakten als online gemeldet, weil
+sein Element zufällig mit denselben acht Zeichen beginnt. Eine Aussage über einen
+Menschen, hergeleitet aus einem Zeichenkettenvergleich. Und ein `<opencast/>`
+zählte als Stream-Eröffnung.
+
+**Das Wissen war im Haus und lag an der falschen Stelle.**
+`StreamManagementManager.IsCountableStanza` liest den Elementnamen seit jeher
+vollständig, samt Behandlung des Namensraum-Präfixes — sie beantwortet nur eine
+andere Frage (zählt der Rahmen für XEP-0198?) und stand deshalb der Weiche nie
+zur Verfügung. Der Leser steht jetzt als `StanzaElement` in `Jabber/Common/`, und
+`IsCountableStanza` ruft ihn auf.
+
+Eine Stelle bleibt bewusst eigenständig: `XMPPSession.IsStanza`. Dort steht seit
+langem der Vermerk, die Serverseite sei **absichtlich** unabhängig vom Client
+implementiert — benutzten beide dieselbe Hilfsfunktion, prüften die Tests, die
+die zwei Zähler gegeneinander halten, beide Seiten mit derselben Logik, und ein
+gemeinsamer Denkfehler bliebe unentdeckt. Der Vermerk trägt, der Präfixvergleich
+trug nicht: `<iqbogus/>` zählte auf der Serverseite mit und beim Client nicht.
+Ausgerechnet die zwei Zähler, die gleich laufen müssen, wären auseinandergelaufen.
+Sie liest den Namen jetzt über einen regulären Ausdruck — ein anderer Weg als
+drüben, dieselbe Antwort — und ein neuer Test hält beide auf derselben Antwort,
+ohne sie auf denselben Weg zu zwingen.
+
+**Und was die Weiche nicht kennt, beendet jetzt den Stream** — RFC 6120,
+Abschnitt 4.9.3.24: „a first-level child of the stream that is not supported by
+the server". Bisher fiel so ein Rahmen stillschweigend hinten heraus, und das war
+die bequeme Antwort und die schlechtere: Wer etwas schickt, das dieser Server
+nicht kennt, wartet sonst auf eine Antwort, die nie kommt.
+
+**Genau diese Strenge hat einen Test umgebracht, und der Fall ist der
+interessanteste des Punktes.** `SendLockTests` schickt 200 Rahmen mit je 40 kB,
+um den Sende-Lock des Clients und die Unversehrtheit der Rahmen zu messen. Als
+Nutzlast diente ein erfundenes `<p/>` — **weil** es unbekannt ist und der Server
+nichts damit tut. Der Gedanke war richtig: Der Rahmen soll folgenlos sein, damit
+der Test misst, was er messen will. Der Weg dorthin trug nicht mehr, denn
+„unbekannt" ist seit diesem Punkt nicht mehr folgenlos: Der erste der 200 Rahmen
+riss die Verbindung für die übrigen 199.
+
+Folgenlos ist jetzt anders erreicht — ein `iq` vom Typ `result` ohne Empfänger,
+also eine Antwort an den Server auf nichts. Regel 4 aus Abschnitt 8.2.3 verbietet,
+darauf zu antworten; sie wird angenommen, aufgezeichnet und fallen gelassen.
+Dieselbe Folgenlosigkeit, mit einem Element, das es im Protokoll gibt.
+
+Beim Umbau kam noch etwas heraus, das der alte Rahmen verdeckt hatte: Der Client
+setzt auf jede **Stanza** den Namensraum `jabber:client` (RFC 7395, Abschnitt
+3.3.3). Das `<p/>` bekam ihn nie, weil es keine Stanza ist — der neue Rahmen
+kommt also anders an, als er abgeschickt wurde. Der Test legt die Reihenfolge der
+Attribute deshalb nicht mehr fest, wohl aber den Rahmen als Ganzes, und das ist
+genau seine Frage.
+
+**Nicht geändert wurde der S2S-Stream.** Er bekommt dieselbe Lesung des
+Elementnamens, aber nicht die neue Endgültigkeit. Der Unterschied ist keine
+Bequemlichkeit, sondern eine Frage der Kenntnis: Auf dem Client-Stream sprechen
+beide Seiten dasselbe, dort steht eine fremde Implementierung gegenüber, und was
+Prosody oder ejabberd sonst noch schicken, ist **nicht erhoben**. Einen Stream
+abzubrechen, weil man ein Element nicht kennt, wäre gegenüber ihnen eine Wette.
+Das steht unter „Später" — zu messen, nicht zu vermuten.
+
+Nebenbei fällt dort eine Verzweigung weg: `<stream:features/>` und `<features/>`
+waren zwei Zweige und sind ein Element; welches Präfix an den Streams-Namensraum
+gebunden ist, steht dem Server frei (Abschnitt 4.8.1).
+
+**Und noch einmal das Thema von D25, diesmal am gröbsten.** Eine Mutation hing —
+ohne `iq` gibt es kein Resource Binding, und der Client wartet ohne eigene Frist
+(derselbe Punkt wie in D25, zum zweiten Mal). Ich habe die `testhost`-Prozesse
+abgeschossen. Das beendet den laufenden `dotnet test`, **nicht das Skript
+darüber**: Der alte Durchgang lief mit der nächsten Mutation weiter, während der
+neue schon mutierte. Zwei Skripte schrieben dieselben Dateien, und die Zahlen
+gingen sichtbar auseinander — 14 Tests hier, 20 dort, für dieselbe Frage.
+
+Der Hash-Vergleich gegen die Sicherung hat danach eine Datei gefunden, die noch
+eine Mutation trug. **Genau dafür ist er da**, und er war es, der den Baum vor
+einem Commit mit angewandter Mutation bewahrt hat — nicht meine Aufmerksamkeit.
+
+Die Lehre ist nicht „besser aufpassen", sondern: Wer einen Prozess abschiesst,
+muss wissen, wer sein Elternteil ist. Ein Kindprozess zu beenden sieht aus wie
+ein Abbruch und ist nur eine Unterbrechung — der Auftrag darüber läuft weiter,
+und ab da misst niemand mehr, was er zu messen glaubt.
+
+Sechzehn Mutationen, alle erschlagen — zehn am Leser, sechs an der Weiche und an
+den beiden Zählern. Die zehn am Leser laufen ohne Netz und brauchen zusammen
+weniger als eine Minute; die Weiche kostet ihre Zeit, weil sie einen Server
+verlangt. Suite: 685 Tests, 0 Fehler, 7 übersprungen, gegen Prosody und
+ejabberd.
+
 ---
 
 ## Später
@@ -2752,14 +2853,17 @@ ihn wert. Eine Abkürzung, die die Antwort ändert, ist keine Abkürzung.
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
   Client-Sitzung (siehe D16)
-- Die Weiche für eingehende Frames vergleicht Präfixe: `StartsWith("<iq")`
-  trifft auch `<iqbogus/>`, `StartsWith("<message")` auch `<messages/>`. Was
-  der Elementname wirklich ist, prüft nur `StreamManagementManager.
-  IsCountableStanza` — und die beantwortet eine andere Frage. Seit D25 ist die
-  Nachlässigkeit sichtbarer: Ein `<iqbogus/>` bekommt jetzt `<bad-request/>`,
-  also eine Auskunft über ein IQ, das es nicht ist. Richtig wäre nach RFC 6120
-  §4.8.1 ein Stream-Fehler `<unsupported-stanza-type/>`; das ist eine eigene
-  Änderung an allen vier Zweigen und braucht eigene Tests (siehe D25)
+- Der S2S-Stream weist ein unbekanntes Element **nicht** ab, sondern gibt es
+  unbeantwortet zurück — anders als die Client-Verbindung seit D26. Was Prosody
+  und ejabberd auf einem S2S-Stream tatsächlich schicken, ist nicht erhoben;
+  vor einer Angleichung gehört das gemessen und nicht vermutet (siehe D26)
+- Ein `<abort/>` aus der SASL-Aushandlung (RFC 6120 §6.4.4) beantwortet dieser
+  Server nicht mit `<failure><aborted/></failure>`, sondern beendet den Stream
+  seit D26 mit `<unsupported-stanza-type/>`. Die Bedingung ist wörtlich erfüllt
+  („not supported by the server"), die eigene Antwort wäre trotzdem besser
+- Ein unbekanntes Element im XEP-0198-Namensraum fällt in
+  `HandleStreamManagementAsync` weiterhin stillschweigend hinten heraus; nur die
+  Client-Weiche darüber ist seit D26 streng (siehe D26)
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
@@ -2788,8 +2892,12 @@ ihn wert. Eine Abkürzung, die die Antwort ändert, ist keine Abkürzung.
 ### Fehlerbehandlung
 - `XMPPConnection.ConnectAsync` wartet ohne eigene Frist auf die Antwort zum
   Resource Binding. Bleibt sie aus, hängt der Aufruf unbegrenzt — aufgefallen an
-  einer Mutation, die genau diesen Fall erzeugte, und von keinem Test erzeugt
-  (siehe D25)
+  einer Mutation, die genau diesen Fall erzeugte, und von keinem Test erzeugt.
+  In D26 ein zweites Mal aufgetreten, an einer anderen Mutation: Der Server
+  beendete den Stream mit einem Fehler, und der Client wartete trotzdem weiter.
+  **Beide Male stand die Antwort nicht aus, weil sie unterwegs war, sondern weil
+  es sie nie geben würde** — der Stream war schon zu. Ein Wartender, der das
+  Ende seines eigenen Streams nicht bemerkt, wartet für immer (siehe D25, D26)
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
   gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
   fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein

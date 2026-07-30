@@ -97,6 +97,53 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheServerCountsTheSameThings()
+
+        /// <summary>
+        /// Dieselbe Frage auf der Serverseite — und dieselbe Antwort.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="XMPPSession.IsStanza"/> ist bewusst unabhängig
+        /// implementiert: Benutzten beide Seiten dieselbe Hilfsfunktion, prüften
+        /// die Tests, die die zwei Zähler gegeneinander halten, beide Seiten mit
+        /// derselben Logik, und ein gemeinsamer Denkfehler bliebe unentdeckt.
+        ///
+        /// Unabhängig heisst aber nicht ungeprüft. Bis D26 verglich die
+        /// Serverseite Präfixe: <c>&lt;iqbogus/&gt;</c> zählte dort mit und beim
+        /// Client nicht — ausgerechnet die zwei Zähler, die gleich laufen
+        /// müssen, wären auseinandergelaufen, und der Gegenüber hätte das
+        /// <c>h</c> als Protokollverletzung gewertet. Dieser Test hält die
+        /// beiden auf derselben Antwort, ohne sie auf denselben Weg zu zwingen.
+        /// </remarks>
+        [Test]
+        [TestCase("<message/>",        true)]
+        [TestCase("<presence/>",       true)]
+        [TestCase("<iq/>",             true)]
+        [TestCase("<iq type='get'/>",  true)]
+        [TestCase("<client:iq/>",      true)]
+        [TestCase("<iqbogus/>",        false)]
+        [TestCase("<messages/>",       false)]
+        [TestCase("<presence-probe/>", false)]
+        [TestCase("<r xmlns='urn:xmpp:sm:3'/>", false)]
+        public void TheServerCountsTheSameThings(String xml, Boolean erwartet)
+        {
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(global::org.GraphDefined.Vanaheimr.Hermod.XMPP.Server.XMPPSession.IsStanza(xml),
+                            Is.EqualTo(erwartet),
+                            "Serverseite");
+
+                Assert.That(StreamManagementManager.IsCountableStanza(xml), Is.EqualTo(erwartet),
+                            "Clientseite");
+
+            });
+
+        }
+
+        #endregion
+
         #region Acknowledgement_UsesModuloArithmetic()
 
         /// <summary>

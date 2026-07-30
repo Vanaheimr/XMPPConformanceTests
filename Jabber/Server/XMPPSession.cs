@@ -438,11 +438,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Bewusst unabhängig vom Client implementiert: würde der Testserver
         /// dieselbe Hilfsfunktion benutzen, prüften die Tests beide Seiten mit
         /// derselben Logik und ein gemeinsamer Denkfehler bliebe unentdeckt.
+        ///
+        /// Deshalb steht hier auch nach D26 nicht <see cref="StanzaElement"/>,
+        /// obwohl es dieselbe Frage beantwortet. Der Präfixvergleich war
+        /// trotzdem falsch — <c>&lt;iqbogus/&gt;</c> zählte hier mit und beim
+        /// Client nicht, und ausgerechnet die Zähler, die gleich laufen müssen,
+        /// wären auseinandergelaufen. Der Weg dorthin ist ein anderer als
+        /// drüben, die Antwort dieselbe.
         /// </summary>
         internal static Boolean IsStanza(String xml)
-            => xml.StartsWith("<message",  StringComparison.Ordinal) ||
-               xml.StartsWith("<presence", StringComparison.Ordinal) ||
-               xml.StartsWith("<iq",       StringComparison.Ordinal);
+            => Regex.IsMatch(xml, @"^\s*<(?:[A-Za-z][\w.-]*:)?(?:message|presence|iq)(?=[\s/>])");
 
         /// <summary>
         /// XEP-0198: Handelt Stream Management aus und setzt beide Zähler auf

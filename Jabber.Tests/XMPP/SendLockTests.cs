@@ -102,8 +102,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region Hilfsfunktionen
 
         /// <summary>Eine Stanza, deren Rumpf aus genau einem wiederholten Zeichen besteht.</summary>
+        /// <remarks>
+        /// Hier stand bis D26 ein erfundenes <c>&lt;p/&gt;</c>. Der Gedanke war
+        /// richtig — der Rahmen soll <b>folgenlos</b> sein, damit dieser Test
+        /// den Sende-Lock und die Unversehrtheit misst und nicht nebenbei die
+        /// Zustellung. Der Weg dorthin trägt nicht mehr: Seit D26 beendet der
+        /// Server einen Stream, auf dem ein unbekanntes Element ankommt (RFC
+        /// 6120, Abschnitt 4.9.3.24), und der erste der 200 Rahmen riss die
+        /// Verbindung für die übrigen 199.
+        ///
+        /// Folgenlos ist jetzt anders erreicht: Ein <c>iq</c> vom Typ
+        /// <c>result</c> ohne Empfänger ist eine <b>Antwort an den Server auf
+        /// nichts</b>. RFC 6120, Abschnitt 8.2.3, Regel 4 verbietet, darauf zu
+        /// antworten; es wird also angenommen, aufgezeichnet und fallen
+        /// gelassen. Genau das, was das <c>&lt;p/&gt;</c> geleistet hat, nur mit
+        /// einem Element, das es im Protokoll gibt.
+        /// </remarks>
         private static String Payload(Int32 i)
-            => $"<p id='burst-{i}'>" + new String((Char) ('A' + i % 26), PayloadSize) + "</p>";
+            => $"<iq type='result' id='burst-{i}'>" +
+               new String((Char) ('A' + i % 26), PayloadSize) +
+               "</iq>";
 
         /// <summary>Zählt vollständige und beschädigte Payload-Frames.</summary>
         private static (Int32 intact, Int32 corrupt) Inspect(IEnumerable<String> frames)
@@ -111,10 +129,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Int32 intact = 0, corrupt = 0;
 
-            foreach (var f in frames.Where(x => x.StartsWith("<p id='burst-", StringComparison.Ordinal)))
+            // Der Rahmen kommt nicht so an, wie er abgeschickt wurde: Der Client
+            // setzt auf jede Stanza den Namensraum jabber:client (RFC 7395,
+            // Abschnitt 3.3.3 - über WebSocket gibt es kein umschliessendes
+            // <stream:stream>, von dem sie ihn erben könnte). Das <p/> von
+            // früher bekam ihn nicht, weil es keine Stanza war.
+            //
+            // Deshalb wird die Reihenfolge der Attribute hier nicht festgelegt,
+            // wohl aber der Rahmen als Ganzes: Anfang, id, Rumpf und Ende. Genau
+            // darum geht es - dass sich zwei gleichzeitige Sends nicht ineinander
+            // schieben.
+            foreach (var f in frames.Where(x => x.Contains("id='burst-", StringComparison.Ordinal)))
             {
 
-                var m = Regex.Match(f, @"^<p id='burst-(\d+)'>(.*)</p>$", RegexOptions.Singleline);
+                var m = Regex.Match(f, @"^<iq\b[^>]*\bid='burst-(\d+)'[^>]*>(.*)</iq>$", RegexOptions.Singleline);
 
                 if (!m.Success)
                 {

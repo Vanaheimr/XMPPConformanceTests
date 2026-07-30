@@ -226,35 +226,16 @@ public sealed class StreamManagementManager
     /// <c>&lt;open/&gt;</c>, SASL-Elemente und so weiter - zählen nicht.
     /// Zählt eine Seite falsch, laufen die Zähler auseinander und der
     /// Gegenüber wertet das <c>h</c> als Protokollverletzung.
+    ///
+    /// Die Lesung des Elementnamens steht seit D26 in
+    /// <see cref="StanzaElement"/> - sie war hier zuerst richtig, wurde
+    /// anderswo aber geraten. Ein Haus, zwei Auffassungen davon, was ein
+    /// <c>&lt;iq&gt;</c> ist: Der Zähler nahm <c>&lt;iqbogus/&gt;</c> nicht
+    /// mit, die Weiche schon.
     /// </summary>
     public static bool IsCountableStanza(string xml)
-    {
-        if (string.IsNullOrEmpty(xml))
-            return false;
 
-        var i = 0;
-        while (i < xml.Length && char.IsWhiteSpace(xml[i]))
-            i++;
-
-        if (i >= xml.Length || xml[i] != '<')
-            return false;
-
-        i++;
-        var start = i;
-
-        while (i < xml.Length &&
-               (char.IsLetterOrDigit(xml[i]) || xml[i] == '-' || xml[i] == '_' || xml[i] == ':'))
-            i++;
-
-        var name = xml[start..i];
-
-        // Ein Namespace-Präfix ändert nichts am Stanza-Typ: <client:message/> zählt.
-        var colon = name.LastIndexOf(':');
-        if (colon >= 0)
-            name = name[(colon + 1)..];
-
-        return name is "message" or "presence" or "iq";
-    }
+        => StanzaElement.IsStanza(xml);
 
     /// <summary>
     /// Trackt eine ausgehende Stanza.

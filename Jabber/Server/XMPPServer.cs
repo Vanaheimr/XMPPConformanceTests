@@ -821,7 +821,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             session.RecordReceived(frame);
             OnStanzaReceived?.Invoke(session, frame);
 
-            if (frame.StartsWith("<open", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "open"))
                 session.OpenCount++;
 
             try
@@ -1161,43 +1161,39 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 throw new InvalidOperationException(
                           "FailFrameHandling: absichtlicher Fehlschlag beim Verarbeiten eines Frames.");
 
-            if (frame.StartsWith("<open", StringComparison.Ordinal))
+            // Entschieden wird am Elementnamen und nicht an einem Präfix. Ein
+            // StartsWith("<iq") trifft auch <iqbogus/>, StartsWith("<presence")
+            // auch <presence-probe/> - und das war kein gedachter Fall: Ein
+            // <presence-probe/> lief in die Presence-Behandlung und galt dort
+            // als Anwesenheit. Ein Mensch wurde seinen Kontakten als online
+            // gemeldet, weil sein Element mit denselben acht Zeichen beginnt.
+            switch (StanzaElement.NameOf(frame))
             {
-                await HandleStreamOpenAsync(session, openCount);
-                return;
-            }
 
-            if (frame.StartsWith("<auth", StringComparison.Ordinal))
-            {
-                await HandleAuthAsync(session, frame);
-                return;
-            }
+                case "open":
+                    await HandleStreamOpenAsync(session, openCount);
+                    return;
 
-            // Steht vor der Stream-Management-Abfrage, aber die prüft ohnehin
-            // auf den Namensraum - sonst hielte sie ein <response/> für ein
-            // <r/>, weil beide mit "<r" beginnen.
-            if (frame.StartsWith("<response", StringComparison.Ordinal))
-            {
-                await HandleSaslResponseAsync(session, frame);
-                return;
-            }
+                case "auth":
+                    await HandleAuthAsync(session, frame);
+                    return;
 
-            if (frame.StartsWith("<iq", StringComparison.Ordinal))
-            {
-                await HandleIqAsync(session, frame);
-                return;
-            }
+                case "response":
+                    await HandleSaslResponseAsync(session, frame);
+                    return;
 
-            if (frame.StartsWith("<message", StringComparison.Ordinal))
-            {
-                await HandleMessageAsync(session, frame);
-                return;
-            }
+                case "iq":
+                    await HandleIqAsync(session, frame);
+                    return;
 
-            if (frame.StartsWith("<presence", StringComparison.Ordinal))
-            {
-                await HandlePresenceAsync(session, frame);
-                return;
+                case "message":
+                    await HandleMessageAsync(session, frame);
+                    return;
+
+                case "presence":
+                    await HandlePresenceAsync(session, frame);
+                    return;
+
             }
 
             if (frame.Contains("urn:xmpp:sm:3", StringComparison.Ordinal))
@@ -1215,11 +1211,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Kontakte sähen den Abgemeldeten so lange als anwesend, und ein
             // erneutes Anmelden knüpfte an einen Stream an, den der Nutzer
             // selbst beendet hat.
-            if (frame.StartsWith("<close", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "close"))
             {
                 session.EndResumption();
                 return;
             }
+
+            // RFC 6120, Abschnitt 4.9.3.24: „The initiating entity has sent a
+            // first-level child of the stream that is not supported by the
+            // server, either because the receiving entity does not understand
+            // the namespace or because the receiving entity does not understand
+            // the element name."
+            //
+            // Bis hierher fiel so ein Rahmen stillschweigend hinten heraus. Das
+            // war die bequeme Antwort und die schlechtere: Wer etwas schickt,
+            // das dieser Server nicht kennt, wartet sonst auf eine Antwort, die
+            // nie kommt, und erfährt nie, warum. Ein Stream-Fehler beendet den
+            // Stream (Abschnitt 4.9.1.1) - und das ist hier die Aussage: Über
+            // diesen Stream sind wir uns nicht mehr einig.
+            //
+            // Er trifft auch das, was ein anderer Server beantworten würde und
+            // dieser nicht - etwa ein <abort/> aus der SASL-Aushandlung
+            // (Abschnitt 6.4.4). Auch dort ist die Bedingung wörtlich erfüllt:
+            // „not supported by the server". Sie steht unter „Später".
+            await session.SendStreamErrorAsync("unsupported-stanza-type");
 
         }
 
@@ -1229,7 +1244,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private async Task HandleStreamManagementAsync(XMPPSession session, String frame)
         {
 
-            if (frame.StartsWith("<enable", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "enable"))
             {
 
                 if (!OfferStreamManagement)
@@ -1265,14 +1280,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // XEP-0198, Abschnitt 5: der Client will an einen früheren Stream
             // anknüpfen. Das kommt vor dem Resource Binding - eine gebundene
             // Resource gibt es hier noch nicht, sie wird gerade übernommen.
-            if (frame.StartsWith("<resume", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "resume"))
             {
                 await HandleResumeAsync(session, frame);
                 return;
             }
 
             // Der Client fragt unseren Empfangszähler ab.
-            if (frame.StartsWith("<r", StringComparison.Ordinal))
+            //
+            // Am vollständigen Namen und nicht am Anfangsbuchstaben: Ein
+            // StartsWith("<r") traf jedes Element, das mit r beginnt, und ein
+            // StartsWith("<a") jedes mit a. Die Reihenfolge der Zweige hielt
+            // das bisher zusammen - <resume/> vor <r/>, <auth/> weit oben in
+            // der Weiche davor. Eine Ordnung, die trägt, solange niemand sie
+            // umstellt, ist keine Prüfung, sondern eine Verabredung.
+            if (StanzaElement.Is(frame, "r"))
             {
 
                 if (AnswerAckRequests)
@@ -1284,7 +1306,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             }
 
             // Der Client meldet seinen Empfangszähler.
-            if (frame.StartsWith("<a", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "a"))
             {
 
                 var h = Regex.Match(frame, @"h=['""](\d+)['""]");
@@ -3007,7 +3029,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private static void ForgetDirectedPresenceFrom(XMPPSession recipient, String stanza)
         {
 
-            if (!stanza.StartsWith("<presence", StringComparison.Ordinal) ||
+            if (!StanzaElement.Is(stanza, "presence") ||
                 Attr(stanza, "type") != "unavailable")
             {
                 return;
@@ -3089,7 +3111,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             //
             // Vor allen Zustellzweigen: Der Weg für Anfragen unterscheidet nur
             // Antwort und Anfrage und hielte alles Unbekannte für eine Anfrage.
-            if (stanza.StartsWith("<iq", StringComparison.Ordinal) &&
+            if (StanzaElement.Is(stanza, "iq") &&
                 !IqTypes.IsKnown(Attr(stanza, "type")))
             {
 
@@ -3118,7 +3140,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // und Typunterscheidung. Bis hierher ging sie unbesehen ins Routing,
             // und das traf gerade den häufigsten Fall: Der Bekannte auf einem
             // anderen Server ist der Regelfall.
-            if (stanza.StartsWith("<message", StringComparison.Ordinal))
+            if (StanzaElement.Is(stanza, "message"))
             {
                 await DeliverMessageLocallyAsync(null, to, stanza);
                 return RemoteStanzaResult.Accepted;
@@ -3131,7 +3153,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // the form <localpart@domainpart>"; eine Anfrage an die Domain
             // selbst richtet sich an den Server und nicht an einen Nutzer, und
             // dafür gilt der Abschnitt nicht.
-            if (stanza.StartsWith("<iq", StringComparison.Ordinal) &&
+            if (StanzaElement.Is(stanza, "iq") &&
                 to.Contains('@'))
             {
                 await DeliverIqLocallyAsync(null, to, stanza);
@@ -3151,7 +3173,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // IQ: Für einen hiesigen Client wurde die Probe seit jeher
             // beantwortet.
             if (art is null &&
-                stanza.StartsWith("<presence", StringComparison.Ordinal) &&
+                StanzaElement.Is(stanza, "presence") &&
                 Attr(stanza, "type") == "probe")
             {
 
@@ -3318,7 +3340,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private static String? SubscriptionTypeOf(String stanza)
         {
 
-            if (!stanza.StartsWith("<presence", StringComparison.Ordinal))
+            if (!StanzaElement.Is(stanza, "presence"))
                 return null;
 
             return Attr(stanza, "type") is "subscribe" or "subscribed" or

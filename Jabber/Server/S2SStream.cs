@@ -501,7 +501,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             // RFC 6120, Abschnitt 4.9: nach einem Stream-Fehler ist der Stream
             // tot; eine Antwort darauf gibt es nicht.
-            if (frame.StartsWith("<stream:error", StringComparison.Ordinal) ||
+            if (StanzaElement.Is(frame, "error") ||
                 frame.Contains(StreamErrorNamespace, StringComparison.Ordinal))
             {
                 MarkClosed($"Stream-Fehler der Gegenstelle: {frame}");
@@ -511,22 +511,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Die Features des Empfängers. Dass Dialback angeboten wird, steht
             // dort drin; verlangt wird es hier aber unabhängig davon, weil ein
             // Angreifer die Ankündigung schlicht weglassen könnte.
-            if (frame.StartsWith("<stream:features", StringComparison.Ordinal) ||
-                frame.StartsWith("<features",        StringComparison.Ordinal))
-            {
+            // Der Elementname trägt hier auch das Präfix ab: Ein Server darf
+            // seine Features als <stream:features/> oder als <features/>
+            // schicken, je nachdem, woran er den Streams-Namensraum gebunden
+            // hat (RFC 6120, Abschnitt 4.8.1). Beides ist dasselbe Element.
+            if (StanzaElement.Is(frame, "features"))
                 return await ProcessFeaturesAsync(frame, cancellationToken);
-            }
 
-            if (frame.StartsWith("<bidi", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "bidi"))
                 return ProcessBidi(frame);
 
-            if (frame.StartsWith("<auth",    StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "auth"))
                 return await ProcessSaslAuthAsync(frame, cancellationToken);
 
-            if (frame.StartsWith("<success", StringComparison.Ordinal))
+            if (StanzaElement.Is(frame, "success"))
                 return await ProcessSaslSuccessAsync(cancellationToken);
 
-            if (frame.StartsWith("<failure", StringComparison.Ordinal) &&
+            if (StanzaElement.Is(frame, "failure") &&
                 frame.Contains(SaslNamespace, StringComparison.Ordinal))
             {
                 return await ProcessSaslFailureAsync(cancellationToken);
@@ -538,13 +539,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (IsDialback(frame, "verify"))
                 return await ProcessDialbackVerifyAsync(frame, cancellationToken);
 
-            if (frame.StartsWith("<message",  StringComparison.Ordinal) ||
-                frame.StartsWith("<presence", StringComparison.Ordinal) ||
-                frame.StartsWith("<iq",       StringComparison.Ordinal))
-            {
+            if (StanzaElement.IsStanza(frame))
                 return await ProcessStanzaAsync(frame, cancellationToken);
-            }
 
+            // Kein Stream-Fehler wie auf der Client-Verbindung, sondern
+            // weiterhin ein blosses „nicht zuständig".
+            //
+            // Der Unterschied ist keine Bequemlichkeit, sondern eine Frage der
+            // Kenntnis: Auf dem Client-Stream sprechen beide Seiten dasselbe,
+            // hier steht eine fremde Implementierung gegenüber, und was sie
+            // sonst noch schickt, ist nicht erhoben. Einen Stream abzubrechen,
+            // weil man ein Element nicht kennt, wäre gegenüber Prosody oder
+            // ejabberd eine Wette. Sie steht unter „Später" - zu messen, nicht
+            // zu vermuten.
             return false;
 
         }
