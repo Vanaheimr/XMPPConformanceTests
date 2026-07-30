@@ -260,6 +260,71 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AFrameWithoutAnElement_IsIgnored()
+
+        /// <summary>
+        /// Ein leerer Rahmen ist kein unbekanntes Element, sondern gar keines —
+        /// und beendet nichts.
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 4.9.3.24 spricht von „a first-level child of the stream
+        /// that is not supported". Ein leerer Rahmen ist kein Kind, das nicht
+        /// unterstützt wird; er ist kein Kind.
+        ///
+        /// In D26 fiel er noch mit unter den Stream-Fehler — eine Zeile zu
+        /// weit, aufgefallen erst, als D27 dieselbe Regel für den S2S-Stream
+        /// aufschrieb und die Frage dort unumgänglich war (Leerraum als
+        /// Keepalive ist nach Abschnitt 4.6.1 erlaubt).
+        ///
+        /// Der Ping danach ist der eigentliche Nachweis: Auf einem Stream wird
+        /// der Reihe nach verarbeitet. Kommt seine Antwort an, hat der Server
+        /// den leeren Rahmen bereits in der Hand gehabt und sich entschieden.
+        /// Damit braucht dieser Test keine Wartezeit, innerhalb derer nichts
+        /// passieren darf.
+        /// </remarks>
+        [Test]
+        public async Task AFrameWithoutAnElement_IsIgnored()
+        {
+
+            var alice   = await EinzelnAsync();
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+            var fehler  = Fehlerkorb(alice);
+
+            var antworten = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<",             StringComparison.Ordinal) &&
+                    x.Contains("id='danach'",       StringComparison.Ordinal))
+                {
+                    antworten.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync("   ");
+
+            await alice.SendRawAsync("<iq type='get' id='danach'><ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WaitFor(() => !antworten.IsEmpty, "die Antwort auf den Ping danach");
+
+            Assert.Multiple(() =>
+            {
+
+                // Ohne diese Vorbedingung prüfte der Test nichts: Käme der
+                // leere Rahmen gar nicht erst an, bestünde er auch dann, wenn
+                // der Server ihn tödlich fände.
+                Assert.That(sitzung.Received.Any(f => f.Trim().Length == 0), Is.True,
+                            "Vorbedingung: der leere Rahmen muss den Server erreicht haben.");
+
+                Assert.That(fehler,          Is.Empty, "Ein leerer Rahmen ist kein Stream-Fehler.");
+                Assert.That(sitzung.IsOpen,  Is.True);
+
+            });
+
+        }
+
+        #endregion
+
         #region TheThreeStanzas_StillReachTheirHandlers()
 
         /// <summary>

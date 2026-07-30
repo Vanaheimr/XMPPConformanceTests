@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **685 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **692 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2844,6 +2844,63 @@ weniger als eine Minute; die Weiche kostet ihre Zeit, weil sie einen Server
 verlangt. Suite: 685 Tests, 0 Fehler, 7 übersprungen, gegen Prosody und
 ejabberd.
 
+### D27. Erst messen, dann streng werden ✅
+
+Der Punkt aus D26, und er war ausdrücklich als **Messung** vermerkt und nicht als
+Änderung: Der S2S-Stream liess ein unbekanntes Element liegen, während die
+Client-Verbindung es seit D26 mit `<unsupported-stanza-type/>` abweist. Der Grund
+für das Zögern stand dabei — auf dem Client-Stream sprechen beide Seiten dasselbe,
+auf dem S2S-Stream steht eine fremde Implementierung gegenüber, und was Prosody
+und ejabberd dort sonst noch schicken, war nicht erhoben. Einen Stream
+abzubrechen, weil man ein Element nicht kennt, wäre eine Wette gewesen.
+
+**Also zuerst der Fühler.** An die Stelle, an der ein Rahmen durch alle Zweige
+fällt, kam eine befristete Aufzeichnung — jeder unbekannte Rahmen mit Richtung
+und Domain in eine Datei. Dann der volle Lauf gegen beide Gegenstellen.
+
+Ergebnis: **kein einziger Rahmen.** 685 Tests, Dialback, SASL-EXTERNAL, Bidi,
+Stream Management, TCP und WebSocket — nichts fiel durch.
+
+**Zwei Dinge haben diese Messung erst brauchbar gemacht, und beide wären leicht
+zu übergehen gewesen.**
+
+Der erste Versuch lief nur gegen Prosody: ejabberd war zwischendurch
+weggefallen, und 15 statt 7 übersprungene Tests haben es verraten. Ohne die
+bekannte Grundlinie hätte „nichts gefunden" wie ein Ergebnis ausgesehen und wäre
+die halbe Messung gewesen. Ebenso die Richtung: Die eingehenden Tests laufen nur
+**innerhalb** von WSL, und genau dort wählt der fremde Server an und spricht
+zuerst. Sie sind einzeln nachgeholt worden.
+
+Und dann die Frage, die den Rest wertlos gemacht hätte: **Schlägt der Fühler
+überhaupt an?** Über die gesamte Sammlung hat er kein einziges Mal ausgelöst —
+das ist genau das Bild, das ein kaputter Fühler auch abgibt. Belegt hat es erst
+der neue Test: Er speist drei unbekannte Elemente ein, und der Fühler hat alle
+drei aufgezeichnet. Ein Nachweis über eine Abwesenheit ist nur so viel wert wie
+der Nachweis, dass die Anwesenheit sichtbar gewesen wäre.
+
+Damit ist die Strenge belegt statt vermutet, und der S2S-Stream hält jetzt
+dieselbe Regel wie die Client-Verbindung. Der volle Lauf gegen beide
+Gegenstellen ist zugleich die stehende Gegenprobe: Schickt eine von ihnen doch
+etwas Unbekanntes, stirbt der Stream und die Föderationstests fallen.
+
+**Eine Zeile aus D26 war dabei zu weit gegriffen.** Dort beendete *jeder* Rahmen
+den Stream, den die Weiche nicht zuordnen konnte — auch ein leerer. Abschnitt
+4.9.3.24 spricht aber von „a first-level child of the stream that is not
+supported", und ein leerer Rahmen ist kein Kind, das nicht unterstützt wird; er
+ist kein Kind. Über TCP fällt das nicht auf, weil `SkipProlog` im Zerleger
+Leerraum, XML-Deklarationen und Kommentare ohnehin schluckt — und Leerraum als
+Keepalive ist auf einem Stream ausdrücklich erlaubt (Abschnitt 4.6.1). Über
+WebSocket wird jeder Frame durchgereicht, und dort hätte ein leerer Frame die
+Verbindung gekostet. Beide Wege unterscheiden jetzt.
+
+Fünf Mutationen, alle erschlagen. Drei davon brachen zuerst ab, und der Abbruch
+war eine Fundstelle: `S2SStream.cs` hat **LF**-Zeilenenden, das Repository ist
+gemischt, und ein mehrzeiliges Suchmuster passte deshalb nur zufällig. Das
+Mutationsskript versucht jetzt beide Varianten — und behält beim Zurückschreiben
+die vorgefundene Kodierung, statt einer LF-Datei stillschweigend ein BOM zu
+verpassen. Immerhin war dieser Fehlschlag laut; die drei stillen aus D25 waren
+teurer.
+
 ---
 
 ## Später
@@ -2853,10 +2910,6 @@ ejabberd.
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
   Client-Sitzung (siehe D16)
-- Der S2S-Stream weist ein unbekanntes Element **nicht** ab, sondern gibt es
-  unbeantwortet zurück — anders als die Client-Verbindung seit D26. Was Prosody
-  und ejabberd auf einem S2S-Stream tatsächlich schicken, ist nicht erhoben;
-  vor einer Angleichung gehört das gemessen und nicht vermutet (siehe D26)
 - Ein `<abort/>` aus der SASL-Aushandlung (RFC 6120 §6.4.4) beantwortet dieser
   Server nicht mit `<failure><aborted/></failure>`, sondern beendet den Stream
   seit D26 mit `<unsupported-stanza-type/>`. Die Bedingung ist wörtlich erfüllt

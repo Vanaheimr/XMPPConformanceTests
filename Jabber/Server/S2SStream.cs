@@ -542,17 +542,35 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (StanzaElement.IsStanza(frame))
                 return await ProcessStanzaAsync(frame, cancellationToken);
 
-            // Kein Stream-Fehler wie auf der Client-Verbindung, sondern
-            // weiterhin ein blosses „nicht zuständig".
+            // Ein Rahmen ohne Element ist kein unbekanntes Element, sondern gar
+            // keines - Abschnitt 4.9.3.24 spricht von „a first-level child of
+            // the stream that is not supported", und ein leerer Rahmen ist kein
+            // Kind. Über TCP kommt so etwas nicht einmal an: SkipProlog im
+            // Zerleger schluckt Leerraum, XML-Deklarationen und Kommentare, und
+            // Leerraum als Keepalive ist ausdrücklich erlaubt (Abschnitt
+            // 4.6.1). Über WebSocket wird jeder Frame durchgereicht.
+            if (StanzaElement.NameOf(frame) is null)
+                return false;
+
+            // RFC 6120, Abschnitt 4.9.3.24, wie auf der Client-Verbindung seit
+            // D26.
             //
-            // Der Unterschied ist keine Bequemlichkeit, sondern eine Frage der
-            // Kenntnis: Auf dem Client-Stream sprechen beide Seiten dasselbe,
-            // hier steht eine fremde Implementierung gegenüber, und was sie
-            // sonst noch schickt, ist nicht erhoben. Einen Stream abzubrechen,
-            // weil man ein Element nicht kennt, wäre gegenüber Prosody oder
-            // ejabberd eine Wette. Sie steht unter „Später" - zu messen, nicht
-            // zu vermuten.
-            return false;
+            // Bis hierher blieb ein unbekanntes Element liegen, und das war
+            // eine offen vermerkte Lücke und keine Nachlässigkeit: Auf dem
+            // Client-Stream sprechen beide Seiten dasselbe, hier steht eine
+            // fremde Implementierung gegenüber. Einen Stream abzubrechen, weil
+            // man ein Element nicht kennt, wäre gegenüber Prosody oder ejabberd
+            // eine Wette gewesen.
+            //
+            // Gemessen wurde deshalb zuerst: über den vollen Lauf gegen beide
+            // Gegenstellen, ausgehend wie eingehend, fiel kein einziger Rahmen
+            // bis hierher durch - und der Fühler dafür hat nachweislich
+            // angeschlagen, sonst hiesse „nichts gemessen" nur „nicht
+            // hingesehen".
+            await SendStreamErrorAsync("unsupported-stanza-type",
+                                       cancellationToken: cancellationToken);
+
+            return true;
 
         }
 

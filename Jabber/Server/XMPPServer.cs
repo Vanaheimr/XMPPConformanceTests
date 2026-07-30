@@ -1217,6 +1217,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
+            // Ein Rahmen ohne Element ist kein unbekanntes Element, sondern gar
+            // keines. Der Abschnitt darunter spricht von einem „first-level
+            // child"; ein leerer Rahmen ist kein Kind, das nicht unterstützt
+            // wird, sondern kein Kind. In D26 fiel er noch mit unter den
+            // Fehler - eine Zeile zu weit.
+            if (StanzaElement.NameOf(frame) is null)
+                return;
+
             // RFC 6120, Abschnitt 4.9.3.24: „The initiating entity has sent a
             // first-level child of the stream that is not supported by the
             // server, either because the receiving entity does not understand

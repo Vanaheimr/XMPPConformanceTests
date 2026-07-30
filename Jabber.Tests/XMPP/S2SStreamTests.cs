@@ -1015,6 +1015,105 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnUnknownElement_EndsTheStream()
+
+        /// <summary>
+        /// RFC 6120, Abschnitt 4.9.3.24: Ein Element, das dieser Server auf
+        /// oberster Ebene nicht kennt, beendet den Stream mit
+        /// <c>&lt;unsupported-stanza-type/&gt;</c>.
+        /// </summary>
+        /// <remarks>
+        /// Die Client-Verbindung hält diese Regel seit D26; hier blieb ein
+        /// unbekanntes Element liegen. Das war <b>nicht</b> Nachlässigkeit,
+        /// sondern eine offen vermerkte Lücke: Ungemessen war, was Prosody und
+        /// ejabberd auf einem S2S-Stream tatsächlich schicken — und einen
+        /// Stream abzubrechen, weil man ein Element nicht kennt, wäre gegenüber
+        /// einer fremden Implementierung eine Wette gewesen.
+        ///
+        /// Gemessen ist es jetzt: über den vollen Lauf gegen beide
+        /// Gegenstellen, in beide Richtungen, fiel kein einziger Rahmen durch
+        /// diese Weiche.
+        ///
+        /// Die drei Fälle sind dieselben wie beim Client — ein erfundenes
+        /// Element und zwei, die nur mit dem Namen einer Stanza
+        /// <b>beginnen</b>.
+        /// </remarks>
+        [Test]
+        [TestCase("<quatsch xmlns='urn:example:nein'/>")]
+        [TestCase("<iqbogus/>")]
+        [TestCase("<messages/>")]
+        public async Task AnUnknownElement_EndsTheStream(String rahmen)
+        {
+
+            var stream = Eingehend();
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            _gesendet.Clear();
+
+            var behandelt = await stream.ProcessFrameAsync(rahmen);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Gesendet("unsupported-stanza-type"), Is.True,
+                            "Der Grund muss über die Leitung gehen.");
+
+                Assert.That(stream.IsClosed, Is.True,
+                            "Ein Stream-Fehler ist unwiederbringlich (Abschnitt 4.9.1.1).");
+
+                Assert.That(behandelt, Is.True,
+                            "Behandelt ist er - mit einem Fehler und nicht mit Schweigen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AFrameWithoutAnElement_IsIgnored()
+
+        /// <summary>
+        /// Ein Rahmen ohne Element ist kein unbekanntes Element, sondern gar
+        /// keines — und beendet nichts.
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 4.9.3.24 spricht von „a first-level child of the stream
+        /// that is not supported". Ein leerer Rahmen ist kein Kind, das nicht
+        /// unterstützt wird; er ist kein Kind.
+        ///
+        /// Über TCP kommt so etwas gar nicht erst an — <c>SkipProlog</c> im
+        /// Zerleger schluckt Leerraum, XML-Deklarationen und Kommentare
+        /// zwischen zwei Elementen, und Leerraum als Keepalive ist auf einem
+        /// Stream ausdrücklich erlaubt (Abschnitt 4.6.1). Über WebSocket wird
+        /// jeder Frame durchgereicht, und dort trägt die Unterscheidung den
+        /// ganzen Fall.
+        /// </remarks>
+        [Test]
+        [TestCase("")]
+        [TestCase("   ")]
+        [TestCase("\r\n")]
+        public async Task AFrameWithoutAnElement_IsIgnored(String rahmen)
+        {
+
+            var stream = Eingehend();
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            _gesendet.Clear();
+
+            await stream.ProcessFrameAsync(rahmen);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gesendet("unsupported-stanza-type"), Is.False);
+                Assert.That(stream.IsClosed,                     Is.False);
+            });
+
+        }
+
+        #endregion
+
     }
 
 }
