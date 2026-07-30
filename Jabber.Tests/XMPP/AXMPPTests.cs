@@ -88,6 +88,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #endregion
 
         /// <summary>
+        /// Stellt einen weiteren Server unter dieselbe Wache und gibt ihn
+        /// zurück - für Tests, die neben <see cref="Server"/> noch eigene
+        /// betreiben.
+        /// </summary>
+        protected XMPPServer Watched(XMPPServer server)
+            => _guard.Watched(server);
+
+        /// <summary>
         /// Sagt der Wache, dass dieser Test einen internen Fehler absichtlich
         /// auslöst.
         /// </summary>

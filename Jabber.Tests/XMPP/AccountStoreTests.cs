@@ -42,6 +42,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         private String _verzeichnis = null!;
         private String _datei = null!;
+        private readonly InternalErrorGuard _guard = new();
 
         #endregion
 
@@ -56,6 +57,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             _datei = Path.Combine(_verzeichnis, "konten.json");
 
+            _guard.Reset();
+
         }
 
         [TearDown]
@@ -63,6 +66,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         {
             try { Directory.Delete(_verzeichnis, recursive: true); }
             catch { /* im Teardown egal */ }
+
+            _guard.AssertClean();
+
         }
 
         #endregion
@@ -404,14 +410,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task Server_LoadsExistingAccountsOnStart()
         {
 
-            await using (var erster = new XMPPServer(accountStore: new FileAccountStore(_datei),
-                                                     useTLS:       false))
+            await using (var erster = _guard.Watched(new XMPPServer(accountStore: new FileAccountStore(_datei),
+                                                            useTLS:       false)))
             {
                 erster.AddAccount("alice", "geheim");
             }
 
-            await using var zweiter = new XMPPServer(accountStore: new FileAccountStore(_datei),
-                                                     useTLS:       false);
+            await using var zweiter = _guard.Watched(new XMPPServer(accountStore: new FileAccountStore(_datei),
+                                                            useTLS:       false));
 
             var account = zweiter.GetAccount("alice@localhost");
 
@@ -440,8 +446,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task Server_PersistsRosterChanges()
         {
 
-            await using var server = new XMPPServer(accountStore: new FileAccountStore(_datei),
-                                                    useTLS:       false);
+            await using var server = _guard.Watched(new XMPPServer(accountStore: new FileAccountStore(_datei),
+                                                           useTLS:       false));
 
             var account = server.AddAccount("alice", "geheim");
 
@@ -466,10 +472,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task InMemoryStore_IsTheDefault()
         {
 
-            await using var erster = new XMPPServer(useTLS: false);
+            await using var erster = _guard.Watched(new XMPPServer(useTLS: false));
             erster.AddAccount("alice", "geheim");
 
-            await using var zweiter = new XMPPServer(useTLS: false);
+            await using var zweiter = _guard.Watched(new XMPPServer(useTLS: false));
 
             Assert.Multiple(() =>
             {

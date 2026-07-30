@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2010-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of Hermod <https://www.github.com/Vanaheimr/Hermod>
  *
@@ -55,10 +55,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private TcpServerLinks  _rechtsS = null!;
 
         private readonly List<XMPPClient> _clients = [];
+        private readonly InternalErrorGuard _guard = new();
 
         #endregion
 
         #region SetUp / TearDown
+
+        /// <summary>Die Wache vor jedem Test scharfstellen.</summary>
+        [SetUp]
+        public void WacheScharfstellen()
+            => _guard.Reset();
 
         [TearDown]
         public async Task Abraeumen()
@@ -74,6 +80,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             if (_links  is not null) await _links.DisposeAsync();
             if (_rechts is not null) await _rechts.DisposeAsync();
 
+            _guard.AssertClean();
+
         }
 
         #endregion
@@ -86,8 +94,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private void EinseitigVerbinden(Boolean bidi)
         {
 
-            _links   = new XMPPServer("links.example");
-            _rechts  = new XMPPServer("rechts.example");
+            _links   = _guard.Watched(new XMPPServer("links.example"));
+            _rechts  = _guard.Watched(new XMPPServer("rechts.example"));
 
             _links.Start();
             _rechts.Start();
@@ -300,10 +308,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task TheReturnPath_GoesToTheRightDomain()
         {
 
-            _links   = new XMPPServer("links.example");
-            _rechts  = new XMPPServer("rechts.example");
+            _links   = _guard.Watched(new XMPPServer("links.example"));
+            _rechts  = _guard.Watched(new XMPPServer("rechts.example"));
 
-            var ferner = new XMPPServer("ferner.example");
+            var ferner = _guard.Watched(new XMPPServer("ferner.example"));
 
             _links.Start();
             _rechts.Start();

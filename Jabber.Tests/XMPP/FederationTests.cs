@@ -58,14 +58,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public void ZweiServer()
         {
 
-            _links   = new XMPPServer("links.example");
-            _rechts  = new XMPPServer("rechts.example");
-
             // Die Wache an beide: Ein Fehler auf dem einen Server entsteht oft
             // durch eine Stanza, die der andere geschickt hat.
             _guard.Reset();
-            _guard.Watch(_links);
-            _guard.Watch(_rechts);
+
+            _links   = _guard.Watched(new XMPPServer("links.example"));
+            _rechts  = _guard.Watched(new XMPPServer("rechts.example"));
 
             _links.Start();
             _rechts.Start();
@@ -378,7 +376,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task ConnectingAServerToItself_IsRefused()
         {
 
-            await using var doppelt = new XMPPServer("links.example");
+            await using var doppelt = _guard.Watched(new XMPPServer("links.example"));
 
             Assert.Throws<ArgumentException>(() => DirectServerLinks.Connect(_links, doppelt));
 

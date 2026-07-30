@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **598 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **599 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2327,7 +2327,53 @@ Nicht behoben und vermerkt: Die Wache hängt an `AXMPPTests` und an den drei
 Fixtures, die Stanzas zwischen zwei eigenen Servern zustellen
 (`FederationTests`, `CrossDomainSubscriptionTests`, `RemoteDeliveryRulesTests`).
 Weitere Fixtures betreiben eigene Server, ohne bewacht zu sein — dort gilt
-weiterhin, dass ein Programmierfehler nur in Hermods Log landet.
+weiterhin, dass ein Programmierfehler nur in Hermods Log landet. *(Behoben in
+D19.)*
+
+### D19. Die restlichen Fixtures ✅ — die Wache dorthin, wo der Server entsteht
+
+Der offene Punkt aus D18. Es waren nicht neun Fixtures, wie dort vermerkt,
+sondern **elf**: `AccountStoreTests` und `AForeignPeerFederationTests` hatte ich
+in der Liste übersehen. Aufgefallen ist es beim Nachzählen der Erzeugungsstellen,
+nicht beim Lesen der eigenen Notiz — eine Liste, die man aus dem Kopf schreibt,
+ist keine Bestandsaufnahme.
+
+Jetzt ist jeder Server in der Sammlung bewacht: `AXMPPTests` plus vierzehn
+Fixtures, die eigene betreiben.
+
+**Verdrahtet über `Watched(…)`, nicht über eine eigene Zeile.** Die drei aus D18
+hatten `_guard.Watch(_links)` getrennt darunter stehen; das ist ein zweiter Ort,
+den man beim nächsten Server vergisst. `Watched(new XMPPServer(…))` gibt den
+Server zurück und stellt ihn unter die Wache — damit steht sie dort, wo er
+entsteht, und die drei aus D18 sind auf dieselbe Form gebracht. Mehrere Fixtures
+erzeugen ihre Server ohnehin nicht im SetUp, sondern mitten im Test; für die gibt
+es keine andere brauchbare Stelle.
+
+**Zwei Fixtures brauchten ein neues `[SetUp]`**, und der Grund ist eine
+Eigenschaft von NUnit, die leicht zu übersehen ist: Eine Fixture-Instanz wird für
+alle ihre Tests wiederverwendet. Ohne `Reset()` nähme der nächste Test die Meldung
+des vorigen mit und scheiterte an einem fremden Fehler.
+
+Drei Mutationen, alle erschlagen — alle drei auf denselben Punkt: dass `Watched`
+kein Durchreicher ist. Keine Wache anhängen, einen anderen Server zurückgeben,
+oder die Weiterleitung in der Testbasis kurzschliessen. Geprüft wird das am
+echten Weg: Ein zweiter Server bekommt einen Client, scheitert absichtlich, und
+die Meldung muss bei der Wache desselben Tests ankommen. Ohne diesen Test wären
+alle elf Fixtures unbewacht, ohne dass ein einziger anderer Test es merkte — wo
+kein Fehler auftritt, sieht eine fehlende Wache wie eine wirksame aus.
+
+**Die dritte Messung, und die vollständigste:** ein Volllauf mit beiden
+Fremdservern, jeder Server der Sammlung bewacht — **keine einzige Meldung.** Der
+alte `catch` war über die ganze Sammlung hinweg toter Ballast, und das steht
+jetzt nicht mehr auf einer Messung, sondern auf drei.
+
+Ehrlich vermerkt: Die Verdrahtung selbst hält kein Test. Nähme jemand in einem
+einzelnen Fixture das `AssertClean()` heraus, fiele es nicht auf — ein Test dafür
+müsste in jedem Fixture einen Fehler auslösen. Gesichert ist sie durch eine
+Quelltextprüfung: Im Testprojekt steht kein `new XMPPServer(` ohne `Watched(…)`,
+mit genau zwei gewollten Ausnahmen — der Server der Basis, der in der Folgezeile
+bewacht wird, und die Hilfsvariable des Tests, der die Rückgabe von `Watched`
+prüft.
 
 ---
 
@@ -2374,12 +2420,15 @@ weiterhin, dass ein Programmierfehler nur in Hermods Log landet.
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
-- Die Wache aus D18 hängt an `AXMPPTests` und an den drei Fixtures, die Stanzas
-  zwischen zwei eigenen Servern zustellen. Die übrigen Fixtures mit eigenen
-  Servern (`BidirectionalFederationTests`, `WebSocketFederationTests`,
-  `WebSocketBidirectionalTests`, `TcpFederationTests`, `DnsFederationTests`,
-  `SaslExternalTests`, `TlsTests`, `TcpStartTlsTests`, `SrvResolutionTests`) sind
-  unbewacht — dort landet ein Programmierfehler nur in Hermods Log (siehe D18)
+- Ein Fehlschlag beim Verarbeiten eines Frames beendet den Stream nicht, sondern
+  wird gemeldet und übergangen. Ein echter Server sollte mit
+  `<internal-server-error/>` schliessen, statt mit unbekanntem Zustand
+  weiterzuarbeiten — für den Testserver ist das Weitermachen eine Entscheidung
+  und keine Lücke, gehört aber entschieden (siehe D18)
+- Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
+  gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
+  fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein
+  `new XMPPServer(` ohne `Watched(…)`" (siehe D19)
 
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).

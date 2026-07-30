@@ -620,9 +620,9 @@ Server-Implementierung:
   Ausnahme — und der Server macht weiter. Das ist eine Entscheidung für den
   Testbetrieb: Ein echter Server sollte den Stream mit einem
   `<internal-server-error/>` beenden, statt mit unbekanntem Zustand
-  weiterzuarbeiten. Die Testsammlung hängt an dieses Ereignis eine Wache, die
-  jede Meldung als Programmierfehler behandelt; ohne Abnehmer verschwindet der
-  Fehlschlag in Hermods Log.
+  weiterzuarbeiten. Die Testsammlung hängt an dieses Ereignis eine Wache — an
+  jeden Server jedes Fixtures —, die jede Meldung als Programmierfehler
+  behandelt; ohne Abnehmer verschwindet der Fehlschlag in Hermods Log.
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide

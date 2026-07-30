@@ -60,6 +60,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private TcpServerLinks _linksLinks = null!;
         private TcpServerLinks _rechtsLinks = null!;
         private readonly List<XMPPClient> _clients = [];
+        private readonly InternalErrorGuard _guard = new();
 
         #endregion
 
@@ -69,8 +70,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task ZweiServerUndEinDNS()
         {
 
-            _links   = new XMPPServer("links.example");
-            _rechts  = new XMPPServer("rechts.example");
+            // Die Wache an beide: Ein Fehler auf dem einen Server entsteht oft
+            // durch eine Stanza, die der andere geschickt hat.
+            _guard.Reset();
+
+            _links   = _guard.Watched(new XMPPServer("links.example"));
+            _rechts  = _guard.Watched(new XMPPServer("rechts.example"));
 
             _links.Start();
             _rechts.Start();
@@ -143,6 +148,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await _links.DisposeAsync();
             await _rechts.DisposeAsync();
+
+            _guard.AssertClean();
 
         }
 

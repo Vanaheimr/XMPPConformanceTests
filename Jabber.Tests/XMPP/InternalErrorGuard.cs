@@ -98,6 +98,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                    => Record(e.GetType().Name + ": " + e.Message, frame);
 
         /// <summary>
+        /// Wie <see cref="Watch"/>, gibt den Server aber zurück - damit sich ein
+        /// <c>new XMPPServer(…)</c> an der Stelle umschliessen lässt, an der er
+        /// steht.
+        /// </summary>
+        /// <remarks>
+        /// Mehrere Fixtures erzeugen ihre Server nicht im SetUp, sondern
+        /// mitten im Test. Für die wäre eine getrennte
+        /// <see cref="Watch"/>-Zeile ein zweiter Ort, den man beim nächsten
+        /// Server vergessen kann; so steht die Wache dort, wo der Server
+        /// entsteht.
+        /// </remarks>
+        public XMPPServer Watched(XMPPServer server)
+        {
+
+            Watch(server);
+
+            return server;
+
+        }
+
+        /// <summary>
         /// Nimmt eine Meldung auf.
         /// </summary>
         /// <remarks>

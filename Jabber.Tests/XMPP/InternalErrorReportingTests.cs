@@ -148,6 +148,63 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region ASecondServer_IsWatchedThroughWatched()
+
+        /// <summary>
+        /// <c>Watched</c> stellt auch einen zweiten Server unter dieselbe Wache -
+        /// und gibt ihn zurück.
+        /// </summary>
+        /// <remarks>
+        /// Elf Fixtures betreiben eigene Server und verdrahten sie über diesen
+        /// einen Weg. Wäre er ein Durchreicher, der nichts anhängt, wären sie
+        /// alle unbewacht, und keiner der übrigen Tests würde es merken: Wo kein
+        /// Fehler auftritt, sieht eine fehlende Wache wie eine wirksame aus -
+        /// dieselbe Falle wie beim alten <c>catch</c>.
+        ///
+        /// Geprüft wird deshalb am echten Weg und nicht bloss die Rückgabe: Der
+        /// zweite Server bekommt einen Client, scheitert absichtlich, und die
+        /// Meldung muss bei der Wache dieses Tests ankommen.
+        /// </remarks>
+        [Test]
+        public async Task ASecondServer_IsWatchedThroughWatched()
+        {
+
+            ExpectInternalErrors();
+
+            var roh = new XMPPServer("zweiter.example");
+
+            await using var zweiter = Watched(roh);
+
+            Assert.That(zweiter, Is.SameAs(roh),
+                        "Watched muss denselben Server zurückgeben - sonst zeigt die " +
+                        "Wache auf einen anderen als der Test benutzt.");
+
+            zweiter.Start();
+            zweiter.AddAccount("carol");
+
+            var verbindung = new XMPPConnection($"carol@{zweiter.Domain}", "pw", zweiter.Uri)
+            {
+                KeepaliveEnabled            = false,
+                MaxReconnectAttempts        = 0,
+                ServerCertificateValidator  = zweiter.IsOwnCertificate
+            };
+
+            await using var carol = new XMPPClient(verbindung);
+            await carol.ConnectAsync();
+
+            Assert.That(zweiter, Is.SameAs(zweiter), "Watched muss den Server zurückgeben.");
+
+            zweiter.FailFrameHandling = true;
+
+            await carol.SendRawAsync("<message to='dave@zweiter.example' id='am-zweiten'/>");
+
+            await WaitFor(() => InternalErrors.Any(e => e.Contains("am-zweiten")),
+                          "die Meldung des zweiten Servers bei derselben Wache");
+
+        }
+
+        #endregion
+
         #region TheGuardItselfFailsAndForgivesAsItShould()
 
         /// <summary>

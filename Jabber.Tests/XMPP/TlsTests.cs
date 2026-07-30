@@ -175,7 +175,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task PinnedCertificate_AcceptsOnlyTheOwnOne()
         {
 
-            await using var anderer = new XMPPServer();
+            await using var anderer = Watched(new XMPPServer());
 
             Assert.Multiple(() =>
             {
@@ -205,7 +205,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         public async Task PlainServer_StillSpeaksWs()
         {
 
-            await using var klartext = new XMPPServer(useTLS: false);
+            await using var klartext = Watched(new XMPPServer(useTLS: false));
 
             klartext.Start();
             klartext.AddAccount("alice");
@@ -250,7 +250,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             using var eigenes = ErzeugeZertifikat("beispiel.test");
 
-            await using var server = new XMPPServer("beispiel.test", certificate: eigenes);
+            await using var server = Watched(new XMPPServer("beispiel.test", certificate: eigenes));
 
             server.Start();
             server.AddAccount("alice");

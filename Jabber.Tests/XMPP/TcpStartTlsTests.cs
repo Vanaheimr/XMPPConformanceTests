@@ -55,6 +55,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         private XMPPServer _server = null!;
         private readonly List<IAsyncDisposable> _aufraeumen = [];
+        private readonly InternalErrorGuard _guard = new();
 
         #endregion
 
@@ -63,7 +64,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         [SetUp]
         public void EinServer()
         {
-            _server = new XMPPServer("links.example");
+            _guard.Reset();
+
+            _server = _guard.Watched(new XMPPServer("links.example"));
             _server.Start();
         }
 
@@ -80,6 +83,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             _aufraeumen.Clear();
 
             await _server.DisposeAsync();
+
+            _guard.AssertClean();
 
         }
 

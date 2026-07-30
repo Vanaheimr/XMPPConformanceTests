@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2010-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of Hermod <https://www.github.com/Vanaheimr/Hermod>
  *
@@ -107,6 +107,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #region Aufbau / Abbau
 
+        private readonly InternalErrorGuard _guard = new();
+
+        /// <summary>Die Wache vor jedem Test scharfstellen.</summary>
+        [SetUp]
+        public void WacheScharfstellen()
+            => _guard.Reset();
+
         /// <summary>
         /// Wo die Test-CA und unser Zertifikat liegen. Ohne sie oder ohne
         /// laufende Gegenstelle hat der Test nichts zu prüfen.
@@ -153,7 +160,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             _ourCert  = X509CertificateLoader.LoadPkcs12FromFile(
                             Path.Combine(verzeichnis, $"{domain}.pfx"), null);
 
-            Server    = new XMPPServer(domain, certificate: _ourCert);
+            Server    = _guard.Watched(new XMPPServer(domain, certificate: _ourCert));
             Server.Start();
             Server.AddAccount("alice");
 
@@ -200,6 +207,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 await Server.DisposeAsync();
                 Server = null;
             }
+
+            _guard.AssertClean();
 
         }
 
