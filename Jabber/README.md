@@ -91,7 +91,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Auch für Nachrichten von anderen Servern, und das ist der Regelfall. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
 | IQ-Zustellregeln (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ⚠️ Eine Anfrage an einen Bare-JID wird nicht zugestellt, sondern vom Server mit `<service-unavailable/>` beantwortet — genau einmal, und für ein unbekanntes Konto ebenso, damit die Antwort keine Konten verrät. An eine passende Resource wird zugestellt; ohne passende Resource antwortet der Server. Ein `result` oder `error` wird nie beantwortet (RFC 6120 §8.2.3 Regel 4) und an einen Bare-JID nicht verteilt. Gilt für beide Herkünfte. Was fehlt: Eine Anfrage von einer Gegenstelle an die Serveradresse selbst bleibt unbeantwortet |
 | IQ-Prüfung gegen Presence-Lecks (§8.5.3.1) | ✅ Eine Anfrage an eine Resource wird nur zugestellt, wenn der Empfänger seine Presence mit dem Fragenden teilt — über den Roster (`from` oder `both` in **seiner** Hälfte) oder über gerichtete Presence (§4.6). Sonst dieselbe Antwort wie für eine Resource, die es nicht gibt; aus der Ablehnung lässt sich also nichts herauslesen. Für `result` und `error` gilt sie nicht — die muss der Server nach demselben Abschnitt zustellen |
-| Gerichtete Presence (§4.6) | ⚠️ Je Resource vermerkt, geleert bei der Abmeldung, zurückgenommen bei gerichtetem `unavailable` (beides MUSS-Regeln aus §4.6.1). Wird die Resource unverfügbar — durch eigene Abmeldung oder Verbindungsabriss —, geht die Abmeldung an alle Empfänger gerichteter Presence, die sie nicht schon über den Roster bekommen (§4.6.3 Regel 2). Eine Statusänderung mitten in der Sitzung beendet die Zusage nicht. Was fehlt: der SOLL-Teil von §4.6.1 — eine Entität, die uns `unavailable` schickt, soll aus der Liste verschwinden |
+| Gerichtete Presence (§4.6) | ✅ Je Resource vermerkt, geleert bei der Abmeldung, zurückgenommen bei gerichtetem `unavailable`, und ebenso, wenn der Empfänger uns seinerseits eine Abmeldung schickt (§4.6.1, MUSS und SOLL). Wird die Resource unverfügbar — durch eigene Abmeldung oder Verbindungsabriss —, geht die Abmeldung an alle Empfänger gerichteter Presence, die sie nicht schon über den Roster bekommen (§4.6.3 Regel 2). Eine Statusänderung mitten in der Sitzung beendet die Zusage nicht |
 | Presence-Zustellregeln (§8.5.2.1.2) | ⚠️ Presence von einem anderen Server geht unmittelbar an die Resourcen statt über die Zustellregeln; der Unterschied ist klein, aber er ist da |
 | Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
 
@@ -605,11 +605,6 @@ Server-Implementierung:
 - **Presence von anderen Servern nimmt die Zustellregeln nicht.** Nachrichten und
   IQ tun es, Presence geht unmittelbar an die Resourcen. Der Unterschied ist
   klein, aber er ist da.
-- **Ein Rückkehrer darf weiter fragen.** RFC 6121 §4.6.1 rät (SOLL), eine Entität
-  aus der Liste gerichteter Presence zu nehmen, die uns `unavailable`-Presence
-  schickt. Das fehlt: Wer sich abmeldet und wiederkommt, steht noch darin — und
-  darf die Resource nach §8.5.3.1 weiter befragen, obwohl ihm niemand mehr etwas
-  gezeigt hat.
 - **Eine Anfrage von einer Gegenstelle an die Serveradresse bleibt
   unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
   Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei

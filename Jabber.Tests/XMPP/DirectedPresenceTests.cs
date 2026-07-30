@@ -312,6 +312,251 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region WhoLeaves_LosesTheirPlaceInTheList()
+
+        /// <summary>
+        /// Abschnitt 4.6.1, SOLL-Teil: Wer dem Nutzer eine Abmeldung schickt,
+        /// verschwindet aus dessen Liste gerichteter Presence.
+        /// </summary>
+        /// <remarks>
+        /// Die beiden Hälften des Satzes sehen ähnlich aus und meinen
+        /// Gegenteiliges. Das MUSS betrifft den <b>eigenen</b> Widerruf — „any
+        /// entity to which the user sends directed unavailable presence" —, das
+        /// SOLL die Gegenrichtung: „any entity that <i>sends</i> unavailable
+        /// presence <i>to</i> the user". Der andere geht, und damit ist die
+        /// vorübergehende Beziehung ebenfalls zu Ende.
+        ///
+        /// Sichtbar wird das erst über Abschnitt 8.5.3.1: Solange Alice in Bobs
+        /// Liste steht, darf sie seine Resource befragen. Geht sie und kommt
+        /// wieder, hätte sie ihr Fragerecht behalten, obwohl Bob ihr nichts mehr
+        /// gezeigt hat — eine Erlaubnis, die den Anlass überlebt.
+        ///
+        /// Kein Roster-Eintrag zwischen den beiden, und das ist der Kern des
+        /// Aufbaus: Wäre Alice Bobs Kontakt, käme ihr Fragerecht über den Roster
+        /// und die Liste wäre gleichgültig. Der Fall ist nur ohne Roster
+        /// beobachtbar.
+        /// </remarks>
+        [Test]
+        public async Task WhoLeaves_LosesTheirPlaceInTheList()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var bob   = await ConnectClientAsync("bob");
+
+            // Bob zeigt Alice seine Anwesenheit - sie darf ihn jetzt fragen.
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            // Alice meldet sich bei Bob ab.
+            await alice.SendRawAsync($"<presence to='{bob.BareJid}' type='unavailable'/>");
+
+            await WaitFor(() => !Server.SessionOf(bob.FullJid!)!
+                                       .HasDirectedPresenceTo(alice.BareJid),
+                          "das Vergessen des Absenders");
+
+            // Und damit ist ihr Fragerecht erloschen.
+            var fehler = new ConcurrentQueue<StanzaError>();
+            alice.Connection.OnStanzaError += (from, e) => fehler.Enqueue(e);
+
+            await alice.SendRawAsync(
+                      $"<iq type='get' id='nach-der-abmeldung' to='{bob.FullJid}'>" +
+                      "<ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WaitFor(() => !fehler.IsEmpty,
+                          "die Abweisung der Anfrage nach der Abmeldung");
+
+            fehler.TryDequeue(out var abgelehnt);
+
+            Assert.That(abgelehnt!.Condition, Is.EqualTo("service-unavailable"));
+
+        }
+
+        #endregion
+
+        #region AnAvailablePresence_DoesNotRemoveTheSender()
+
+        /// <summary>
+        /// Die Gegenprobe: Nur eine <b>Abmeldung</b> nimmt den Absender heraus,
+        /// keine gewöhnliche Presence.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie bestünde die Sammlung auch dann, wenn jede eingehende
+        /// Presence die Liste leerte — und dann wäre die Zusage schon beim ersten
+        /// Lebenszeichen des Gegenübers dahin. Alice zeigt Bob ihre Anwesenheit,
+        /// und genau das darf ihr Fragerecht nicht kosten.
+        /// </remarks>
+        [Test]
+        public async Task AnAvailablePresence_DoesNotRemoveTheSender()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var bob   = await ConnectClientAsync("bob");
+
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            // Alice zeigt Bob ihre Anwesenheit - keine Abmeldung.
+            await alice.SendRawAsync($"<presence to='{bob.BareJid}'/>");
+
+            await WaitAgainst(() => !Server.SessionOf(bob.FullJid!)!
+                                          .HasDirectedPresenceTo(alice.BareJid),
+                              "das Vergessen bei einer gewöhnlichen Presence");
+
+        }
+
+        #endregion
+
+        #region TheTwoRulesCompose_ALeavingTargetIsForgottenThroughRule2()
+
+        /// <summary>
+        /// Die beiden Regeln greifen ineinander: Alices Abmeldung erreicht Bob
+        /// über Regel 2 — und ebendarum vergisst er sie.
+        /// </summary>
+        /// <remarks>
+        /// Ohne Roster hört Bob von Alices Abmeldung nur, wenn <b>er</b> in
+        /// <i>ihrer</i> Liste steht. Genau das stellt Abschnitt 4.6.3, Regel 2
+        /// her (D20). Und weil die Abmeldung dann bei ihm ankommt, greift der
+        /// SOLL-Teil aus 4.6.1 — ohne dass eine der beiden Regeln von der anderen
+        /// wüsste.
+        ///
+        /// Der Test hält diese Verzahnung fest, weil sie leicht zerbricht: Wer
+        /// eine der beiden Regeln auf „nur an Kontakte" einschränkt, macht die
+        /// andere unerreichbar, und beide bestünden weiterhin für sich.
+        /// </remarks>
+        [Test]
+        public async Task TheTwoRulesCompose_ALeavingTargetIsForgottenThroughRule2()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var bob   = await ConnectClientAsync("bob");
+
+            // Beide zeigen einander ihre Anwesenheit - kein Roster im Spiel.
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+            await alice.SendRawAsync($"<presence to='{bob.BareJid}'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid) &&
+                                Server.SessionOf(alice.FullJid!)!
+                                      .HasDirectedPresenceTo(bob.BareJid),
+                          "die Vermerke auf beiden Seiten");
+
+            // Alice meldet sich ganz ab - nicht gerichtet an Bob.
+            await alice.SendRawAsync("<presence type='unavailable'/>");
+
+            await WaitFor(() => !Server.SessionOf(bob.FullJid!)!
+                                       .HasDirectedPresenceTo(alice.BareJid),
+                          "das Vergessen über den Weg aus Regel 2");
+
+        }
+
+        #endregion
+
+        #region AOneSidedRoster_StillForgetsTheLeavingSender()
+
+        /// <summary>
+        /// Auch über den Broadcast-Weg wird vergessen — und dort ist es
+        /// beobachtbar, obwohl es zuerst nicht so aussieht.
+        /// </summary>
+        /// <remarks>
+        /// Die beiden Roster-Hälften sind hier leicht zu verwechseln, und die
+        /// Verwechslung führt zu genau dem falschen Schluss, dieser Weg sei
+        /// gleichgültig:
+        ///
+        /// <list type="bullet">
+        ///   <item>
+        ///     Dass Alices Abmeldung Bob über die gewöhnliche Verteilung
+        ///     erreicht, entscheidet <b>Alices</b> Roster: Dort steht Bob mit
+        ///     <c>from</c> — er darf sie sehen.
+        ///   </item>
+        ///   <item>
+        ///     Ob Alice Bob etwas fragen darf, entscheidet <b>Bobs</b> Roster.
+        ///     Der ist hier leer, und damit hängt ihr Fragerecht allein an der
+        ///     Liste gerichteter Presence.
+        ///   </item>
+        /// </list>
+        ///
+        /// Beides zusammen macht den Fall aus: Die Abmeldung kommt an, ohne dass
+        /// Bob Alice im Roster hätte — und ohne das Vergessen behielte sie ihr
+        /// Fragerecht über ihre eigene Abmeldung hinaus. Ein Mutant, der diese
+        /// Zeile entfernt, überlebte jeden anderen Test dieser Sammlung.
+        /// </remarks>
+        [Test]
+        public async Task AOneSidedRoster_StillForgetsTheLeavingSender()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            var bob   = await ConnectClientAsync("bob");
+
+            // Nur Alices Hälfte: Bob darf ihren Zustand sehen. Bobs Roster
+            // bleibt leer.
+            SetServerRoster("alice", "bob", "from");
+
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            // Alices Abmeldung geht über die gewöhnliche Verteilung an Bob.
+            await alice.SendRawAsync("<presence type='unavailable'/>");
+
+            await WaitFor(() => !Server.SessionOf(bob.FullJid!)!
+                                       .HasDirectedPresenceTo(alice.BareJid),
+                          "das Vergessen über den Broadcast-Weg");
+
+        }
+
+        #endregion
+
+        #region AOneSidedRoster_ForgetsAlsoAfterATornConnection()
+
+        /// <summary>
+        /// Dasselbe, wenn Alices Verbindung abreisst statt sich abzumelden.
+        /// </summary>
+        /// <remarks>
+        /// Der zweite Broadcast-Weg: Die Abmeldung erzeugt dann der Server in
+        /// Alices Namen (Abschnitt 4.5.2). Er ist eine eigene Stelle im Code und
+        /// braucht deshalb einen eigenen Test — ohne ihn behielte Alice ihr
+        /// Fragerecht ausgerechnet in dem Fall, der im Betrieb der häufigere ist.
+        ///
+        /// Ohne Stream Management, denn ein aufgehobener Stream wird nicht
+        /// abgemeldet (XEP-0198, Abschnitt 5).
+        /// </remarks>
+        [Test]
+        public async Task AOneSidedRoster_ForgetsAlsoAfterATornConnection()
+        {
+
+            Server.AddAccount("alice");
+
+            var alice = CreateClient("alice", streamManagement: false);
+            await alice.ConnectAsync();
+
+            var bob = await ConnectClientAsync("bob");
+
+            SetServerRoster("alice", "bob", "from");
+
+            await bob.SendRawAsync($"<presence to='{alice.BareJid}'/>");
+
+            await WaitFor(() => Server.SessionOf(bob.FullJid!)!
+                                      .HasDirectedPresenceTo(alice.BareJid),
+                          "den Vermerk der gerichteten Presence");
+
+            Server.KillSessionsOf(alice.BareJid);
+
+            await WaitFor(() => !Server.SessionOf(bob.FullJid!)!
+                                       .HasDirectedPresenceTo(alice.BareJid),
+                          "das Vergessen nach dem Abriss");
+
+        }
+
+        #endregion
+
         #region AStranger_HearsNothing()
 
         /// <summary>

@@ -958,8 +958,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var stanza = $"<presence type='unavailable' from='{session.FullJid}'/>";
 
+            // Auch hier, nicht nur in RouteToAsync: Die Verteilung an hiesige
+            // Kontakte geht unmittelbar an die Sitzung, ohne die Weiche zu
+            // nehmen.
+            //
+            // Das ist kein Nachziehen der Vollständigkeit halber, sondern nötig -
+            // die beiden Roster-Hälften sind hier leicht zu verwechseln. Wer die
+            // Abmeldung über diesen Weg bekommt, steht in *Alices* Roster mit
+            // 'from' (Bob darf Alice sehen); über sein Fragerecht entscheidet
+            // aber *Bobs* Roster. Ist der leer, hängt es allein an der Liste
+            // gerichteter Presence - und ohne diese Zeile überlebte es Alices
+            // Abmeldung.
             foreach (var target in PresenceTargetsOf(session))
+            {
+                ForgetDirectedPresenceFrom(target, stanza);
                 await target.SendAsync(stanza);
+            }
 
             foreach (var remote in RemotePresenceTargetsOf(session))
                 await RouteToAsync(remote, StampTo(stanza, remote));
@@ -2405,7 +2419,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
 
             foreach (var target in PresenceTargetsOf(session))
+            {
+                ForgetDirectedPresenceFrom(target, stamped);
                 await target.SendAsync(stamped);
+            }
 
             // Kontakte auf fremden Domains bekommen dieselbe Presence - eine
             // nicht erreichbare Gegenstelle bleibt hier folgenlos, Presence
@@ -2874,9 +2891,51 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                               : SessionsOf(to).ToArray();
 
             foreach (var t in targets)
+            {
+                ForgetDirectedPresenceFrom(t, stanza);
                 await t.SendAsync(stanza);
+            }
 
             return true;
+
+        }
+
+        /// <summary>
+        /// Eine eingehende Abmeldung nimmt ihren Absender aus der Liste
+        /// gerichteter Presence des Empfängers (RFC 6121, Abschnitt 4.6.1).
+        /// </summary>
+        /// <remarks>
+        /// Der SOLL-Teil des Abschnitts: „The server MUST remove from the
+        /// directed presence list ... any entity to which the user sends
+        /// directed unavailable presence and SHOULD remove any entity that sends
+        /// unavailable presence to the user."
+        ///
+        /// Die beiden Hälften sehen ähnlich aus und meinen Gegenteiliges. Das
+        /// MUSS betrifft den <b>eigenen</b> Widerruf und steht in
+        /// <see cref="XMPPSession.RecordDirectedPresence"/>; dieses SOLL betrifft
+        /// die Gegenrichtung: Der andere geht, und damit ist die vorübergehende
+        /// Beziehung ebenfalls zu Ende. Seit D17 hängt daran, wer diese Resource
+        /// etwas fragen darf (Abschnitt 8.5.3.1) - ohne diesen Weg behielte ein
+        /// Rückkehrer sein Fragerecht, obwohl ihm niemand mehr etwas gezeigt
+        /// hat.
+        ///
+        /// Angesehen wird der <b>Empfang</b> und nicht das Senden, denn genau so
+        /// ist die Regel formuliert: „any entity that sends unavailable presence
+        /// <i>to the user</i>". Deshalb steht der Aufruf hier, in der einen
+        /// Weiche, durch die jede Stanza an eine hiesige Adresse läuft - und
+        /// nicht bei den Absendern, von denen es mehrere gibt.
+        /// </remarks>
+        private static void ForgetDirectedPresenceFrom(XMPPSession recipient, String stanza)
+        {
+
+            if (!stanza.StartsWith("<presence", StringComparison.Ordinal) ||
+                Attr(stanza, "type") != "unavailable")
+            {
+                return;
+            }
+
+            if (Attr(stanza, "from") is { } from)
+                recipient.RecordDirectedPresence(BareOf(from), available: false);
 
         }
 

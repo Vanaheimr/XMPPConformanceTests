@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **605 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **610 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2436,14 +2436,52 @@ Ein eigenes Fixture, `DirectedPresenceTests`. Zuerst standen die Tests in
 Zustellung von Presence und nicht die von IQ, und ein Test gehört dorthin, wovon
 er handelt.
 
+### D21. Wer geht, verliert seinen Platz ✅ — und eine Begründung, die falsch war
+
+Der letzte offene Punkt an Abschnitt 4.6: der SOLL-Teil von 4.6.1. Wer dem Nutzer
+eine Abmeldung schickt, verschwindet aus dessen Liste gerichteter Presence. Damit
+ist der Abschnitt vollständig.
+
+**Die beiden Hälften des Satzes sehen ähnlich aus und meinen Gegenteiliges.** Das
+MUSS betrifft den *eigenen* Widerruf — „any entity **to which** the user sends
+directed unavailable presence" —, das SOLL die Gegenrichtung: „any entity that
+**sends** unavailable presence **to** the user". Der andere geht, und damit ist die
+vorübergehende Beziehung ebenfalls zu Ende. Sichtbar wird es über Abschnitt
+8.5.3.1: Ohne diesen Weg behielte ein Rückkehrer sein Fragerecht, obwohl ihm
+niemand mehr etwas gezeigt hat.
+
+Angesehen wird der **Empfang** und nicht das Senden, denn genau so ist die Regel
+formuliert. Der Aufruf steht deshalb in `RouteToAsync` — der einen Weiche, durch
+die jede Stanza an eine hiesige Adresse läuft — und zusätzlich in den zwei
+Broadcast-Schleifen, die unmittelbar an die Sitzung senden.
+
+**Und hier lag der lehrreiche Fehler, diesmal nicht im Code, sondern in meiner
+Begründung.** Zwei Mutationen überlebten: die beiden Broadcast-Schleifen. Ich
+hatte in den Code geschrieben, das Vergessen sei für sie ohne sichtbare Folge —
+„wer im Roster steht, behält sein Fragerecht über den Roster". Das war falsch, weil
+ich die beiden Roster-Hälften verwechselt hatte:
+
+- Dass Alices Abmeldung Bob über die gewöhnliche Verteilung erreicht, entscheidet
+  **Alices** Roster: Dort steht Bob mit `from`.
+- Ob Alice Bob etwas fragen darf, entscheidet **Bobs** Roster.
+
+Bei einem einseitigen Roster — Alices Hälfte gefüllt, Bobs leer — kommt die
+Abmeldung also an, während das Fragerecht allein an der Liste hängt. Der Weg ist
+sehr wohl beobachtbar. Zwei neue Tests, beide Mutationen erschlagen.
+
+Die Lehre ist unangenehmer als die üblichen: **Eine plausibel klingende Begründung
+für „nicht beobachtbar" verdient dieselbe Prüfung wie der Code.** Hätte ich sie
+stehen gelassen, wären zwei benannte Ausnahmen in der Liste gelandet — mit einem
+Argument, das schon beim Aufschreiben nicht stimmte. Der Mutationsdurchgang hat
+nicht den Code widerlegt, sondern den Kommentar.
+
+Sieben Mutationen, alle erschlagen.
+
 ---
 
 ## Später
 
 ### Protokoll
-- RFC 6121 §4.6.1 (SOLL): Eine Entität, die dem Nutzer `unavailable`-Presence
-  schickt, soll aus dessen Liste gerichteter Presence verschwinden. Bis dahin
-  darf sie nach einer Rückkehr weiter fragen (siehe D17)
 - Eine IQ-Anfrage von einer Gegenstelle an die eigene Serveradresse
   (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
   Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
