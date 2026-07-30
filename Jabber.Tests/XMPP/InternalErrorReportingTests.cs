@@ -68,7 +68,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             ExpectInternalErrors();
 
-            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("alice");
+
+            // Ohne Reconnect: Der Stream endet nach dem Fehlschlag, und ein
+            // Client, der es erneut versucht, läuft in denselben - solange der
+            // Schalter steht.
+            var alice = CreateClient("alice", maxReconnectAttempts: 0);
+            await alice.ConnectAsync();
 
             var gemeldet = new ConcurrentQueue<(String Frame, Exception Error)>();
             Server.OnInternalError += (session, frame, e) => gemeldet.Enqueue((frame, e));
@@ -100,27 +106,115 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region TheConnectionSurvivesAReportedFailure()
+        #region TheStreamEndsWithInternalServerError()
 
         /// <summary>
-        /// Nach der Meldung geht es weiter: Der Server wirft die Ausnahme nicht
-        /// noch einmal und reisst den Stream nicht ab.
+        /// Nach der Meldung endet der Stream — mit
+        /// <c>&lt;internal-server-error/&gt;</c> (RFC 6120, Abschnitte 4.9.3.8
+        /// und 4.9.1.1).
         /// </summary>
         /// <remarks>
-        /// Das ist die Zusage, die den Umbau ungefährlich macht. Am Verhalten
-        /// des Servers ändert sich nichts — er verarbeitet den nächsten Frame wie
-        /// zuvor; nur erfährt jetzt jemand von dem Fehlschlag. Ohne diesen Test
-        /// bliebe offen, ob die Meldung nicht doch etwas mitreisst, und
-        /// „gemeldet statt verschluckt" wäre ein Versprechen ohne Deckung.
+        /// Bis D21 lief der Stream weiter, und an dieser Stelle stand ein Test,
+        /// der genau das festhielt. Er war nicht falsch, sondern beschrieb eine
+        /// Entscheidung, die nun anders gefallen ist: Was der Frame ändern
+        /// sollte, ist halb geändert, und niemand weiss, wie weit. Der Client
+        /// rechnet mit einem Zustand, den der Server nicht mehr hat — und
+        /// ausgerechnet der Fehler, der am wahrscheinlichsten Zustand
+        /// hinterlässt, blieb der einzige ohne Folgen.
+        ///
+        /// Abschnitt 4.9.1.1 lässt danach keine Wahl: „Stream-level errors are
+        /// unrecoverable." Der Client erfährt den Grund und kann von vorn
+        /// beginnen; das ist mehr, als ein zufallender Socket ihm sagt.
+        ///
+        /// Kein Reconnect in diesem Test — <c>internal-server-error</c> gilt als
+        /// wiederholbar, und der Client würde in denselben Fehlschlag laufen,
+        /// solange der Schalter steht. Was hier geprüft wird, ist der Abschluss
+        /// des <b>ersten</b> Streams.
         /// </remarks>
         [Test]
-        public async Task TheConnectionSurvivesAReportedFailure()
+        public async Task TheStreamEndsWithInternalServerError()
         {
 
             ExpectInternalErrors();
 
-            var alice = await ConnectClientAsync("alice");
-            var bob   = await ConnectClientAsync("bob");
+            Server.AddAccount("alice");
+
+            var alice = CreateClient("alice", maxReconnectAttempts: 0);
+
+            var fehler = new ConcurrentQueue<StreamError>();
+            alice.OnStreamError += e => fehler.Enqueue(e);
+
+            var rohe = new ConcurrentQueue<String>();
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal))
+                    rohe.Enqueue(x);
+            };
+
+            await alice.ConnectAsync();
+
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            Server.FailFrameHandling = true;
+
+            await alice.SendRawAsync("<message to='bob@localhost' id='faellt-aus'><body>Geht schief</body></message>");
+
+            await WaitFor(() => !fehler.IsEmpty, "den Stream-Fehler beim Client");
+
+            fehler.TryDequeue(out var gemeldet);
+
+            await WaitFor(() => !sitzung.IsOpen, "das Ende des Streams");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gemeldet!.Condition, Is.EqualTo("internal-server-error"));
+
+                Assert.That(gemeldet.IsRecoverable, Is.True,
+                            "Der Client darf es erneut versuchen - der Server ist " +
+                            "gestolpert, nicht zerstört.");
+
+                // RFC 7395, Abschnitt 3.6: Über WebSocket steht <close/> für das
+                // </stream:stream>. Ohne es sieht der Client einen Socket, der
+                // ohne Abschied zufällt - ein Netzwerkausfall und kein
+                // beendeter Stream.
+                Assert.That(rohe.Any(x => x.Contains("<close",       StringComparison.Ordinal) &&
+                                          x.Contains("xmpp-framing", StringComparison.Ordinal)),
+                            Is.True,
+                            "Der Stream muss ordentlich geschlossen werden und nicht " +
+                            "bloss die Verbindung wegfallen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheFailedFrameIsNotDeliveredAfterwards()
+
+        /// <summary>
+        /// Der gescheiterte Frame wird nicht doch noch zugestellt.
+        /// </summary>
+        /// <remarks>
+        /// Die Kehrseite des Abschlusses: Dass der Stream endet, darf nicht
+        /// heissen, dass die halb verarbeitete Stanza noch irgendwohin gelangt.
+        /// Bob wartet auf eine Nachricht, die Alices Server nie zu Ende
+        /// verarbeitet hat — sie darf nicht auf einem Umweg doch ankommen, denn
+        /// dann wäre der Fehlschlag für den Absender folgenlos und für den
+        /// Empfänger unsichtbar.
+        /// </remarks>
+        [Test]
+        public async Task TheFailedFrameIsNotDeliveredAfterwards()
+        {
+
+            ExpectInternalErrors();
+
+            Server.AddAccount("alice");
+
+            var alice = CreateClient("alice", maxReconnectAttempts: 0);
+            await alice.ConnectAsync();
+
+            var bob = await ConnectClientAsync("bob");
 
             var eingang = new ConcurrentQueue<XMPPMessage>();
             bob.OnMessage += m => eingang.Enqueue(m);
@@ -132,17 +226,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await WaitFor(() => InternalErrors.Count > 0, "die Meldung");
 
-            // Und nun wieder im Normalbetrieb.
-            Server.FailFrameHandling = false;
-
-            await alice.SendRawAsync($"<message to='{bob.FullJid}' type='chat' id='geht-wieder'>" +
-                                     "<body>Und jetzt wieder</body></message>");
-
-            await WaitFor(() => eingang.Any(m => m.MessageId == "geht-wieder"),
-                          "die Zustellung nach dem Fehlschlag");
-
-            Assert.That(eingang.Any(m => m.MessageId == "faellt-aus"), Is.False,
-                        "Der gescheiterte Frame darf nicht doch noch zugestellt werden.");
+            await WaitAgainst(() => eingang.Any(m => m.MessageId == "faellt-aus"),
+                              "die Zustellung des gescheiterten Frames");
 
         }
 
@@ -164,6 +249,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Geprüft wird deshalb am echten Weg und nicht bloss die Rückgabe: Der
         /// zweite Server bekommt einen Client, scheitert absichtlich, und die
         /// Meldung muss bei der Wache dieses Tests ankommen.
+        ///
+        /// Gewartet wird auf <b>irgendeine</b> Meldung und nicht auf die zu einem
+        /// bestimmten Frame. Nur der zweite Server scheitert absichtlich, also
+        /// kann die Meldung von keinem anderen kommen — und welcher Frame ihn
+        /// zuerst erreicht, hängt seit D21 am Zufall: Der erste gescheiterte
+        /// beendet den Stream, und ob das die eigene Nachricht ist oder ein
+        /// <c>&lt;a/&gt;</c> des Stream Managements, entscheidet die Zeit. Der
+        /// Test prüfte sonst die Reihenfolge der Frames statt die Verdrahtung.
         /// </remarks>
         [Test]
         public async Task ASecondServer_IsWatchedThroughWatched()
@@ -192,13 +285,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await using var carol = new XMPPClient(verbindung);
             await carol.ConnectAsync();
 
-            Assert.That(zweiter, Is.SameAs(zweiter), "Watched muss den Server zurückgeben.");
-
             zweiter.FailFrameHandling = true;
 
             await carol.SendRawAsync("<message to='dave@zweiter.example' id='am-zweiten'/>");
 
-            await WaitFor(() => InternalErrors.Any(e => e.Contains("am-zweiten")),
+            await WaitFor(() => InternalErrors.Count > 0,
                           "die Meldung des zweiten Servers bei derselben Wache");
 
         }

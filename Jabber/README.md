@@ -520,9 +520,13 @@ miteinander sprechen:
   `StoreOfflineMessages` schaltet auf den gleichrangig erlaubten Gegenweg um
   (`<service-unavailable/>` an den Absender)
 - `OnInternalError` meldet, wenn das Verarbeiten eines Frames mit einer Ausnahme
-  endet — samt Frame. Die Testsammlung hängt daran eine Wache, die jede Meldung
-  als Programmierfehler behandelt; `FailFrameHandling` erreicht den Weg
-  absichtlich
+  endet — samt Frame. Danach endet der Stream mit `<internal-server-error/>`
+  (RFC 6120 §4.9.3.8 und §4.9.1.1), gefolgt von `<close/>` nach RFC 7395 §3.6:
+  Was der Frame ändern sollte, ist halb geändert, und ein Stream, über dessen
+  Zustand die beiden Seiten verschiedene Vorstellungen haben, ist keiner mehr.
+  Die Testsammlung hängt an das Ereignis eine Wache — an jeden Server jedes
+  Fixtures —, die jede Meldung als Programmierfehler behandelt;
+  `FailFrameHandling` erreicht den Weg absichtlich
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
   `OfferStreamManagement`, `AnswerAckRequests`, `SwallowClientStanzas`
@@ -609,14 +613,10 @@ Server-Implementierung:
   unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
   Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei
   S2S nicht gibt. RFC 6120 §8.2.3 Regel 3 verlangt eine Antwort.
-- **Ein Fehlschlag beim Verarbeiten eines Frames beendet die Verbindung nicht.**
-  Er wird über `XMPPServer.OnInternalError` gemeldet — mit Sitzung, Frame und
-  Ausnahme — und der Server macht weiter. Das ist eine Entscheidung für den
-  Testbetrieb: Ein echter Server sollte den Stream mit einem
-  `<internal-server-error/>` beenden, statt mit unbekanntem Zustand
-  weiterzuarbeiten. Die Testsammlung hängt an dieses Ereignis eine Wache — an
-  jeden Server jedes Fixtures —, die jede Meldung als Programmierfehler
-  behandelt; ohne Abnehmer verschwindet der Fehlschlag in Hermods Log.
+- **`SendStreamErrorAsync` schliesst den Stream nicht.** RFC 6120 §4.9.1.1
+  verlangt beides — Fehler schicken und sofort schliessen. Die Aufrufer in
+  `S2SStream` und in den Tests nutzen die Trennung bewusst; wer den Stream
+  wirklich beenden will, nimmt `XMPPSession.FailStreamAsync`.
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide

@@ -830,8 +830,39 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             }
             catch (Exception e)
             {
-                // Gemeldet statt verschluckt - siehe OnInternalError.
+
+                // Gemeldet statt verschluckt - siehe OnInternalError. Vor dem
+                // Abschluss, damit ein Abnehmer die Ausnahme auch dann sieht,
+                // wenn das Schliessen selbst schiefgeht.
                 OnInternalError?.Invoke(session, frame, e);
+
+                // RFC 6120, Abschnitt 4.9.3.8: „The server has experienced a
+                // misconfiguration or other internal error that prevents it from
+                // servicing the stream." Genau das ist hier eingetreten - und
+                // Abschnitt 4.9.1.1 lässt danach keine Wahl: Stream-Fehler sind
+                // unwiederbringlich, der Stream wird geschlossen.
+                //
+                // Bis D21 lief der Stream weiter. Das war bequem und falsch: Was
+                // der Frame ändern sollte, ist halb geändert, und niemand weiss,
+                // wie weit. Der Client rechnet mit einem Zustand, den der Server
+                // nicht mehr hat - und ausgerechnet der Fehler, der am
+                // wahrscheinlichsten Zustand hinterlässt, blieb der einzige ohne
+                // Folgen.
+                //
+                // Der Client kommt wieder: <internal-server-error/> gilt als
+                // wiederholbar (RFC 6120, Abschnitt 4.9.3.8 nennt keinen Grund,
+                // es für endgültig zu halten), und ein neuer Stream beginnt mit
+                // einem Zustand, über den beide Seiten sich einig sind. Genau das
+                // ist der Sinn eines unwiederbringlichen Fehlers.
+                try
+                {
+                    await session.FailStreamAsync("internal-server-error");
+                }
+                catch (Exception beimSchliessen)
+                {
+                    OnInternalError?.Invoke(session, frame, beimSchliessen);
+                }
+
             }
 
         }

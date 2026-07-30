@@ -633,10 +633,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             => SendAsync("<r xmlns='urn:xmpp:sm:3'/>");
 
         /// <summary>
-        /// RFC 6120, Abschnitt 4.9: Beendet den Stream mit einem Fehler.
+        /// RFC 6120, Abschnitt 4.9: Schickt einen Stream-Fehler.
         /// </summary>
         /// <param name="condition">Bedingung aus Abschnitt 4.9.3, etwa <c>conflict</c>.</param>
         /// <param name="text">Optionaler erläuternder Text.</param>
+        /// <remarks>
+        /// Nur der Fehler, ohne den Abschluss. Wer den Stream wirklich beenden
+        /// will - und das verlangt Abschnitt 4.9.1.1 für jeden Stream-Fehler -,
+        /// nimmt <see cref="FailStreamAsync"/>.
+        /// </remarks>
         public Task SendStreamErrorAsync(String condition, String? text = null)
 
             => SendAsync("<stream:error xmlns:stream='http://etherx.jabber.org/streams'>" +
@@ -645,6 +650,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                               ? $"<text xmlns='urn:ietf:params:xml:ns:xmpp-streams'>{text}</text>"
                               : "") +
                          "</stream:error>");
+
+        /// <summary>
+        /// RFC 6120, Abschnitt 4.9.1.1: Schickt einen Stream-Fehler und beendet
+        /// den Stream unmittelbar danach.
+        /// </summary>
+        /// <remarks>
+        /// „Stream-level errors are unrecoverable" - der Abschnitt lässt keine
+        /// Wahl: Wer den Fehler erkennt, schickt ihn und schliesst dann sofort.
+        /// Ein Stream, der nach einem Stream-Fehler weiterläuft, ist keiner mehr:
+        /// Beide Seiten haben verschiedene Vorstellungen davon, was noch gilt.
+        ///
+        /// Drei Schritte, und der mittlere ist der, den man über WebSocket
+        /// leicht vergisst: Nach RFC 7395, Abschnitt 3.6 steht
+        /// <c>&lt;close/&gt;</c> für das <c>&lt;/stream:stream&gt;</c> - ohne es
+        /// sieht der Client einen Socket, der ohne Abschied zufällt, und das ist
+        /// ein Netzwerkausfall und kein Stream-Fehler.
+        /// </remarks>
+        public async Task FailStreamAsync(String condition, String? text = null)
+        {
+
+            await SendStreamErrorAsync(condition, text);
+
+            await SendAsync(WebSocketFraming.Instance.StreamClose());
+
+            Kill();
+
+        }
 
         /// <summary>
         /// Sendet eine Stanza an diesen Client.

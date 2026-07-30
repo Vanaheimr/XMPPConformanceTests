@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **610 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **611 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2477,6 +2477,55 @@ nicht den Code widerlegt, sondern den Kommentar.
 
 Sieben Mutationen, alle erschlagen.
 
+### D22. Der Stream endet ✅ — eine Entscheidung, die anders gefallen ist
+
+D18 hat den Fehlschlag beim Verarbeiten eines Frames sichtbar gemacht und das
+Weitermachen ausdrücklich als **Entscheidung** vermerkt, nicht als Lücke. Die
+Entscheidung ist nun anders gefallen: Der Stream endet mit
+`<internal-server-error/>`.
+
+Der Grund ist der Zustand. Was der Frame ändern sollte, ist halb geändert, und
+niemand weiss, wie weit — der Client rechnet mit einem Zustand, den der Server
+nicht mehr hat. Ausgerechnet der Fehler, der am wahrscheinlichsten Zustand
+hinterlässt, blieb der einzige ohne Folgen. Abschnitt 4.9.1.1 lässt danach auch
+keine Wahl: „Stream-level errors are unrecoverable."
+
+Und der Client verliert dabei nichts: `internal-server-error` gilt als
+wiederholbar, er baut den Stream neu auf und beginnt mit einem Zustand, über den
+beide Seiten sich einig sind. Das ist mehr, als ihm ein weiterlaufender Stream mit
+halb verarbeiteter Stanza gibt.
+
+**Drei Schritte, und der mittlere ist der, den man über WebSocket vergisst.**
+Stream-Fehler, dann `<close/>` (RFC 7395, Abschnitt 3.6 — es steht für das
+`</stream:stream>`), dann die Verbindung. Ohne das `<close/>` sieht der Client
+einen Socket, der ohne Abschied zufällt, und das ist ein Netzwerkausfall und kein
+beendeter Stream. Genau diese Zeile überlebte zunächst eine Mutation: Der
+Stream-Fehler war ja schon draussen, und `OnStreamError` feuerte auch ohne sie.
+Jetzt prüft der Test den Rahmen auf dem Draht.
+
+**Ein Test hat sein Gegenteil ersetzt, und das ist kein Widerspruch.**
+`TheConnectionSurvivesAReportedFailure` hielt in D18 fest, dass der Stream
+weiterläuft — richtig für die damalige Entscheidung. An seiner Stelle steht jetzt
+`TheStreamEndsWithInternalServerError`. Was von ihm bleibt, ist die zweite Hälfte
+seiner Aussage: Der gescheiterte Frame darf auch nicht auf einem Umweg doch noch
+zugestellt werden; die steht nun als eigener Test.
+
+**Ein zweiter Test brauchte eine Korrektur, und der Grund ist lehrreich.**
+`ASecondServer_IsWatchedThroughWatched` wartete auf die Meldung zu einem
+*bestimmten* Frame. Seit der Stream nach dem ersten Fehlschlag endet, hängt es am
+Zufall, welcher Frame das ist — die eigene Nachricht oder ein `<a/>` des Stream
+Managements. Der Test prüfte damit die Reihenfolge der Frames statt die
+Verdrahtung und wartet jetzt auf *irgendeine* Meldung; von einem anderen Server
+kann sie nicht kommen. **Ein Test, der genauer hinsieht als nötig, prüft
+irgendwann etwas anderes als gemeint.**
+
+Sechs Mutationen, alle erschlagen — eine erst im zweiten Anlauf (das `<close/>`).
+
+Nicht behoben und vermerkt: `SendStreamErrorAsync` schickt weiterhin nur den
+Fehler, ohne zu schliessen. Abschnitt 4.9.1.1 verlangt beides, und die
+Unterscheidung zu `FailStreamAsync` ist eine Bequemlichkeit für die Aufrufer in
+`S2SStream` und in den Tests.
+
 ---
 
 ## Später
@@ -2516,11 +2565,11 @@ Sieben Mutationen, alle erschlagen.
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
-- Ein Fehlschlag beim Verarbeiten eines Frames beendet den Stream nicht, sondern
-  wird gemeldet und übergangen. Ein echter Server sollte mit
-  `<internal-server-error/>` schliessen, statt mit unbekanntem Zustand
-  weiterzuarbeiten — für den Testserver ist das Weitermachen eine Entscheidung
-  und keine Lücke, gehört aber entschieden (siehe D18)
+- `SendStreamErrorAsync` schickt den Fehler, ohne den Stream zu schliessen —
+  Abschnitt 4.9.1.1 verlangt beides. Die Aufrufer in `S2SStream` und die Tests
+  nutzen es bewusst so; wer den Stream beenden will, nimmt `FailStreamAsync`.
+  Sauber wäre, die Aufrufer durchzusehen und die Trennung dann zu entfernen
+  (siehe D22)
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
   gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
   fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein
