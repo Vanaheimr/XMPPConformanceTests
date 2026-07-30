@@ -38,6 +38,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         private readonly List<XMPPClient> _clients = [];
 
+        /// <summary>
+        /// Die Wache gegen verschluckte Programmierfehler - sie hängt an
+        /// <b>jedem</b> Test und nicht an einem eigenen. Anders wäre sie
+        /// wertlos: Wo ein solcher Fehler auftritt, weiss man vorher nicht, und
+        /// ein einzelner Test bewacht nur den Weg, den er selbst geht.
+        /// </summary>
+        private readonly InternalErrorGuard _guard = new();
+
         /// <summary>Der Testserver des laufenden Tests.</summary>
         protected XMPPServer Server { get; private set; } = null!;
 
@@ -48,8 +56,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         [SetUp]
         public void StartServer()
         {
+
+            _guard.Reset();
+
             Server = new XMPPServer();
+
+            _guard.Watch(Server);
+
             Server.Start();
+
         }
 
         [TearDown]
@@ -66,9 +81,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await Server.DisposeAsync();
 
+            _guard.AssertClean();
+
         }
 
         #endregion
+
+        /// <summary>
+        /// Sagt der Wache, dass dieser Test einen internen Fehler absichtlich
+        /// auslöst.
+        /// </summary>
+        protected void ExpectInternalErrors()
+            => _guard.Expect();
+
+        /// <summary>Die gemeldeten internen Fehler dieses Tests.</summary>
+        protected IReadOnlyList<String> InternalErrors
+            => _guard.Errors;
 
 
         /// <summary>

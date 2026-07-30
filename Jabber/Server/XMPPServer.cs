@@ -332,6 +332,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// Lässt das Verarbeiten eines Frames mit einer Ausnahme scheitern -
+        /// der einzige Weg, den Meldeweg von
+        /// <see cref="OnInternalError"/> zu erreichen.
+        /// </summary>
+        /// <remarks>
+        /// Ein Schalter, dessen ganze Aufgabe ein Fehlschlag ist, sieht seltsam
+        /// aus und ist hier notwendig: Ein Wächter, den nichts auslöst, ist
+        /// selbst unbewacht. Genau daran lag der Fehler, den dieser Schritt
+        /// behebt - der alte <c>catch</c> ohne Filter wurde von keinem Test
+        /// erreicht, und deshalb fiel jahrelang nicht auf, was er verschluckte.
+        ///
+        /// Dieselbe Begründung wie bei
+        /// <see cref="SwallowClientStanzas"/>: Ein Zustand, der im Betrieb
+        /// vorkommen kann, aber von aussen nicht herzustellen ist, wird sonst
+        /// nie geprüft.
+        /// </remarks>
+        public Boolean FailFrameHandling { get; set; } = false;
+
+        /// <summary>
         /// Beantwortet der Server XEP-0199 Pings mit einem Stanza-Fehler statt
         /// mit einem Ergebnis? Für Tests der Fehlerbehandlung.
         /// </summary>
@@ -394,6 +413,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// wurde - mit der Domain der Gegenstelle und dem Grund.
         /// </summary>
         public event Action<String, String>? OnRemoteStanzaRejected;
+
+        /// <summary>
+        /// Wird ausgelöst, wenn das Verarbeiten eines Frames mit einer Ausnahme
+        /// endet - mit der Sitzung, dem Frame und der Ausnahme.
+        /// </summary>
+        /// <remarks>
+        /// Der einzige Zweck ist Sichtbarkeit. Vorher stand an dieser Stelle ein
+        /// <c>catch</c> ohne Filter mit dem Vermerk „Verbindung abgerissen - im
+        /// Test der Normalfall". Der Vermerk stimmte nicht mehr: Eine Messung
+        /// über die gesamte Sammlung fing <b>keine einzige</b> Ausnahme. Was der
+        /// Fang tatsächlich noch leistete, war das lautlose Verschlucken von
+        /// Programmierfehlern - in D15 überlebte eine Mutation nur deshalb, weil
+        /// ihre <c>NullReferenceException</c> hier verschwand.
+        ///
+        /// Gefiltert wird deshalb nicht. Eine Liste von Ausnahmen, die ein
+        /// Abriss „wirklich" erzeugt, wäre geraten - die Messung sagt, dass
+        /// keine davon vorkommt -, und ein Zweig, den kein Test erreicht, ist
+        /// genau die Sorte Vorkehrung, die den Fehler von damals gedeckt hat.
+        /// Gemeldet wird alles; die Testsammlung behandelt jede Meldung als
+        /// Mangel, bis das Gegenteil gezeigt ist.
+        ///
+        /// Die Ausnahme wird nach der Meldung nicht weitergeworfen: Hermod fängt
+        /// oberhalb ohnehin jede und schreibt sie in ein Log, das kein Test
+        /// ansieht. Am Verhalten des Servers ändert sich damit nichts - nur
+        /// daran, ob jemand davon erfährt.
+        /// </remarks>
+        public event Action<XMPPSession, String, Exception>? OnInternalError;
 
         #endregion
 
@@ -782,9 +828,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             {
                 await HandleFrameAsync(session, frame, session.OpenCount);
             }
-            catch
+            catch (Exception e)
             {
-                // Verbindung abgerissen - im Test der Normalfall
+                // Gemeldet statt verschluckt - siehe OnInternalError.
+                OnInternalError?.Invoke(session, frame, e);
             }
 
         }
@@ -1003,6 +1050,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         private async Task HandleFrameAsync(XMPPSession session, String frame, Int32 openCount)
         {
+
+            if (FailFrameHandling)
+                throw new InvalidOperationException(
+                          "FailFrameHandling: absichtlicher Fehlschlag beim Verarbeiten eines Frames.");
 
             if (frame.StartsWith("<open", StringComparison.Ordinal))
             {

@@ -61,6 +61,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private XMPPServer _links   = null!;
         private XMPPServer _rechts  = null!;
         private readonly List<XMPPClient> _clients = [];
+        private readonly InternalErrorGuard _guard = new();
 
         private const String Alice = "alice@links.example";
         private const String Bob   = "bob@rechts.example";
@@ -75,6 +76,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             _links   = new XMPPServer("links.example");
             _rechts  = new XMPPServer("rechts.example");
+
+            // Die Wache an beide: Ein Fehler auf dem einen Server entsteht oft
+            // durch eine Stanza, die der andere geschickt hat.
+            _guard.Reset();
+            _guard.Watch(_links);
+            _guard.Watch(_rechts);
 
             _links.Start();
             _rechts.Start();
@@ -97,6 +104,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await _links.DisposeAsync();
             await _rechts.DisposeAsync();
+
+            _guard.AssertClean();
 
         }
 

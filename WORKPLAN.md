@@ -50,19 +50,20 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **594 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **598 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
 prüft, die es nur im STARTTLS-Betrieb gibt.
-Sechs benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Fünf benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar), die Slot-Identität im Verbindungs-Cache
-(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1), die Abkürzung
-über die leere Offline-Ablage (siehe D14) und die Herkunftsfrage vor den
-`<sent>`-Carbons im Offline-Zweig — dort wirft der Mutant, und der Wurf
-verschwindet im `catch` beim Verarbeiten eines Frames (siehe D15).
+(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1) und die Abkürzung
+über die leere Offline-Ablage (siehe D14). Es waren sechs: Die Herkunftsfrage
+vor den `<sent>`-Carbons im Offline-Zweig (D15) überlebte nur, weil ihr Wurf im
+`catch` beim Verarbeiten eines Frames verschwand — seit D18 wird er gemeldet,
+und sechs Tests erschlagen die Mutation.
 
 ---
 
@@ -2270,6 +2271,64 @@ Regel 2: Wird die Resource unverfügbar, soll die Abmeldung an jede Entität geh
 der sie gerichtete Presence geschickt hat. Die Liste dafür gibt es nun; das
 Verschicken fehlt.
 
+### D18. Ein `catch` ohne Filter ✅ — und eine Messung, die die Aufgabe umgedreht hat
+
+Der Punkt aus D15: Um das Verarbeiten eines Frames stand ein `catch` ohne Filter,
+mit dem Vermerk „Verbindung abgerissen - im Test der Normalfall". Ich wollte ihn
+auf die Ausnahmen einschränken, die ein Abriss wirklich erzeugt — und habe erst
+gemessen.
+
+**Die Messung hat die Aufgabe umgedreht.** Ich habe den Fang durch ein Anhängen
+an eine Datei ersetzt und die ganze Sammlung laufen lassen: **keine einzige
+Ausnahme.** Der Vermerk stimmte nicht mehr; der Abriss wird längst anderswo
+abgefangen (`SendAsync` fragt `IsClosed`, Hermod liefert einen `SentStatus`
+statt zu werfen). Was der Fang noch leistete, war ausschliesslich das Verschlucken
+von Programmierfehlern.
+
+Damit fällt die geplante Lösung weg. Eine Liste von Ausnahmen, die ein Abriss
+„wirklich" erzeugt, wäre geraten — und ein Zweig, den kein Test erreicht, ist
+genau die Sorte Vorkehrung, die den Fehler von damals gedeckt hat. Es gibt nichts
+zu filtern.
+
+**Ersatzlos entfernen wäre auch falsch gewesen**, und das habe ich ebenfalls
+nachgesehen statt vermutet: Hermod fängt oberhalb jede Ausnahme aus
+`ProcessTextMessage` und schreibt sie mit `Logger.LogError` weg. Ohne unseren Fang
+wanderte der Fehler also von „stillschweigend verworfen" nach „in einem Log, das
+kein Test ansieht". Besser, aber nicht die Lösung.
+
+Die Lösung ist **Sichtbarkeit**: `OnInternalError` meldet Sitzung, Frame und
+Ausnahme; geworfen wird nichts weiter, am Verhalten des Servers ändert sich
+nichts. Und in der Testsammlung hängt eine Wache an **jedem** Test, die jede
+Meldung als Mangel behandelt. Wo ein solcher Fehler auftritt, weiss man vorher
+nicht — ein eigener Test dafür bewachte nur den Weg, den er selbst geht.
+
+**Der Nachweis ist die Mutation von damals.** Der D15-Überlebende — die
+Herkunftsfrage vor den `<sent>`-Carbons weglassen, was für eine Nachricht von
+aussen eine `NullReferenceException` wirft — wird jetzt von **sechs** Tests
+erschlagen. Zum ersten Mal in dieser Reihe macht ein Schritt einen früher benannten
+Überlebenden nachträglich sterblich. Die Liste der benannten Ausnahmen geht von
+sechs auf fünf.
+
+Fünf Mutationen auf die eigenen Zeilen, alle erschlagen — eine erst im zweiten
+Anlauf, und sie ist die interessanteste: **Ein Wächter, den nichts auslöst, ist
+selbst unbewacht.** Die Mutation „die Wache gibt immer frei" überlebte jeden
+Test. Sie musste: Wo kein Fehler gemeldet wird, verhält sich eine wirkungslose
+Wache genau wie eine wirksame, und ein Test, der scheitern *muss*, lässt sich
+nicht als bestehender Test schreiben. Erst die Trennung von `Watch` (Verdrahtung)
+und `Record` (Aufnahme) machte die Wache unmittelbar befragbar — dieselbe Falle
+wie beim alten `catch`, nur eine Ebene höher.
+
+Neu und begründet: `FailFrameHandling`, ein Schalter, dessen ganze Aufgabe ein
+Fehlschlag ist. Ohne ihn wäre der Meldeweg von keinem Test erreichbar — dieselbe
+Begründung wie bei `SwallowClientStanzas`, und genau der Mangel, an dem der alte
+Fang so lange unbemerkt blieb.
+
+Nicht behoben und vermerkt: Die Wache hängt an `AXMPPTests` und an den drei
+Fixtures, die Stanzas zwischen zwei eigenen Servern zustellen
+(`FederationTests`, `CrossDomainSubscriptionTests`, `RemoteDeliveryRulesTests`).
+Weitere Fixtures betreiben eigene Server, ohne bewacht zu sein — dort gilt
+weiterhin, dass ein Programmierfehler nur in Hermods Log landet.
+
 ---
 
 ## Später
@@ -2315,12 +2374,12 @@ Verschicken fehlt.
   bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
-- `XMPPServer.HandleFrameAsync` steht in einem `catch` ohne Filter. Gedacht ist
-  es für abgerissene Verbindungen — es verschluckt aber auch jeden
-  Programmierfehler im Zustellweg, und zwar spurlos: In D15 überlebte eine
-  Mutation nur deshalb, weil ihre `NullReferenceException` dort verschwand.
-  Entweder auf die Ausnahmen einschränken, die ein Abriss wirklich erzeugt, oder
-  den Rest melden
+- Die Wache aus D18 hängt an `AXMPPTests` und an den drei Fixtures, die Stanzas
+  zwischen zwei eigenen Servern zustellen. Die übrigen Fixtures mit eigenen
+  Servern (`BidirectionalFederationTests`, `WebSocketFederationTests`,
+  `WebSocketBidirectionalTests`, `TcpFederationTests`, `DnsFederationTests`,
+  `SaslExternalTests`, `TlsTests`, `TcpStartTlsTests`, `SrvResolutionTests`) sind
+  unbewacht — dort landet ein Programmierfehler nur in Hermods Log (siehe D18)
 
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
