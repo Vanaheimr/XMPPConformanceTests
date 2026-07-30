@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **578 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **589 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -2120,14 +2120,109 @@ eine Anfrage an einen Bare-JID soll der Server nach Abschnitt 8.5.2.1.3 selbst
 beantworten; verteilt wird sie derzeit an **alle** Resourcen, und jede antwortet.
 Mehrere Antworten auf eine `id`.
 
+### D16. Die Anfrage an ein Konto ✅ — und zwei Abschnitte, ein Verhalten
+
+Der offene Punkt aus D15, und der einzige der Reihe, der ein Verfahren zerbrach
+statt nur eine Regel zu verletzen.
+
+Abschnitt 8.5.2.1.3 sagt es doppelt: „the server itself MUST reply on behalf of
+the user" **und** „MUST NOT deliver the IQ stanza to any of the user's available
+resources". Die Verdopplung hat einen Grund. IQ ist ein Frage-Antwort-Paar, über
+die `id` zusammengehalten, und jede empfangene Anfrage *muss* beantwortet werden
+(RFC 6120, Abschnitt 8.2.3, Regel 3). Wer sie an alle Resourcen verteilt, bekommt
+von allen eine Antwort — der Fragende hält drei Antworten auf eine `id` in der
+Hand und kann nicht entscheiden, welche gilt.
+
+Genau das tat dieser Server: Jede IQ-Anfrage an eine fremde Adresse ging ins
+Routing, und das verteilte an einen Bare-JID an jede Sitzung, die es fand. Bei
+einer Nachricht wäre mehrfache Zustellung lästig; hier bricht sie das Verfahren.
+
+**Die Antwort ist immer `<service-unavailable/>`, und das ist vollständig und
+nicht halb.** Der Abschnitt verlangt eine eigene Antwort, „if the semantics of
+the qualifying namespace define a reply that the server can provide on behalf of
+the user" — und andernfalls ausdrücklich diesen Fehler. Dieser Server kennt
+keinen Namensraum, den er im Namen eines Nutzers beantworten könnte; die Stelle
+für einen späteren ist markiert.
+
+**Eine Antwort wird nie beantwortet.** Hier standen zwei Vorschriften
+gegeneinander: Abschnitt 8.5.3.2.3 verlangt für „eine IQ-Stanza" ohne passende
+Resource einen Fehler und unterscheidet die Art nicht; RFC 6120, Abschnitt 8.2.3,
+Regel 4 verbietet, ein `result` oder `error` zu beantworten. Regel 4 gewinnt: Ein
+Fehler auf ein `result` ginge an jemanden, der nichts gefragt hat, unter der `id`
+einer Frage, die er selbst beantwortet hat.
+
+**Der Unterschied zum unbekannten Konto ist lehrreich.** Bei einer Nachricht darf
+der Server nach Abschnitt 8.5.1 schweigen und verrät damit nicht, welche Konten
+es gibt; bei einer Anfrage muss er antworten. Preisgegeben wird trotzdem nichts,
+weil die Antwort dieselbe ist wie für ein vorhandenes Konto ohne erreichbare
+Resource. Zwei Tests stehen deshalb nebeneinander — wären die Antworten
+verschieden, hätte der Server ein Verzeichnis seiner Konten ausgeplaudert.
+
+Neun Mutationen, alle erschlagen — nach zwei Runden, und beide haben etwas
+gelehrt:
+
+**Zwei Abschnitte, ein Verhalten.** Ich hatte den Bare-JID-Fall und „Full-JID
+ohne passende Resource" getrennt behandelt, weil der RFC sie in zwei Abschnitten
+behandelt. Eine Mutation, die die Trennung aufhob, überlebte — und musste
+überleben: Die Abschnitte 8.5.2.1.3, 8.5.2.2.3 und 8.5.3.2.3 verlangen alle
+dasselbe. **Wo das vorgeschriebene Verhalten dasselbe ist, kann kein Test die
+Fälle unterscheiden, und eine Verzweigung, die es doch tut, behauptet einen
+Unterschied, den es nicht gibt.** Die Gliederung eines RFC ist kein Bauplan für
+Verzweigungen.
+
+Geblieben ist eine Zeile weniger: `SessionOf` vergleicht ausschliesslich
+Full-JIDs, ein Bare-JID fällt deshalb von selbst in den Fehlerzweig. Das „MUST
+NOT deliver" hängt damit an einer Eigenschaft einer anderen Methode — gehalten
+wird es nicht von einer Prüfung, sondern von einem Test, der zwei Resourcen
+anmeldet und nur besteht, wenn keine die Anfrage sieht. Die Mutation, die genau
+den alten Fehler wiederherstellt (an alle statt an eine), erschlägt er.
+
+**Die Serveradresse ist kein Nutzer.** Eine Mutation, die den Zustellweg für
+Nutzer auch für Anfragen an die Domain selbst nahm, überlebte zunächst. Sie hätte
+`<service-unavailable/>` geantwortet, wo der Server heute schweigt — und das wäre
+schlechter: Schweigen ist eine Lücke, ein Fehler ist eine Aussage, und diese
+Aussage wäre falsch. Eine Gegenstelle, die sie glaubt, fragt nicht wieder. Ein
+Test hält jetzt fest, dass der Nutzer-Zustellweg die Serveradresse nicht anfasst.
+
+**Ein roter Lauf, der nicht dazugehört, und er bleibt vermerkt.** In einem von
+vier Vollläufen scheiterte `TheStreamSurvivesABrokenConnection` gegen einen
+Fremdserver mit „Zeitüberschreitung beim Warten auf: den wiederaufgenommenen
+Stream". Der Test fährt einen Client gegen Prosody bzw. ejabberd; `XMPPServer`
+kommt darin nur als statische Warte-Hilfe vor, der geänderte Zustellweg also gar
+nicht. Allein läuft er 4 von 4 Mal grün, danach zwei weitere Vollläufe ebenso.
+
+Der wahrscheinliche Mechanismus: Der Test reisst die Verbindung ab und gibt dem
+Client 15 Sekunden für Wiederverbindung samt Wiederaufnahme. Unter der Last eines
+vollen Laufs — viele Fixtures gleichzeitig, die Gegenstelle jenseits der
+WSL-Rückschleife — reicht das bei exponentiellem Backoff nicht immer. Bewiesen
+ist das nicht: Ein einzelnes Ereignis kann die Erklärung nicht von einer anderen
+trennen. Deshalb steht es unter „Später" und nicht als erledigt.
+
+Nicht behoben und vermerkt: die zweite Hälfte von Abschnitt 8.5.3.1. Wer die
+Presence des Empfängers nicht sehen darf, soll eine Anfrage an dessen Resource
+nicht zugestellt bekommen — schon die Antwort verrät, dass die Resource
+existiert. Das braucht die Aufzeichnung gerichteter Presence, die es hier nicht
+gibt. Ebenfalls offen: Eine Anfrage von einer Gegenstelle an die eigene
+Serveradresse (disco#info, Ping) bleibt unbeantwortet; die Antworten dafür stehen
+in `HandleIqAsync` und wollen eine Sitzung, die es bei S2S nicht gibt.
+
 ---
 
 ## Später
 
 ### Protokoll
-- RFC 6121 §8.5.2.1.3/§8.5.2.2.3: Eine IQ-Anfrage an einen Bare-JID soll der
-  Server selbst beantworten. Derzeit wird sie an alle Resourcen verteilt, und
-  jede antwortet — mehrere Antworten auf eine `id` (siehe D15)
+- RFC 6121 §8.5.3.1: Eine IQ-Anfrage an eine Resource soll nur zugestellt
+  werden, wenn der Fragende die Presence des Empfängers sehen darf — sonst
+  verrät schon die Antwort, dass die Resource existiert. Braucht die
+  Aufzeichnung gerichteter Presence (siehe D16)
+- Eine IQ-Anfrage von einer Gegenstelle an die eigene Serveradresse
+  (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
+  Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
+  Client-Sitzung (siehe D16)
+- RFC 6120 §8.2.3 Regel 2: Eine IQ-Stanza mit fehlendem oder unbekanntem `type`
+  soll mit `<bad-request/>` beantwortet werden, ausdrücklich auch von einem
+  „intermediate router". Der Zustellweg behandelt sie wie eine Anfrage; eine
+  vollständige Antwort gehört an die Frame-Ebene für alle IQs (siehe D16)
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
@@ -2144,6 +2239,14 @@ Mehrere Antworten auf eine `id`.
 - Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`
 - `XMPPConnection.CreateTcp` erzeugt eine `tcp://`-URI, die `ClientWebSocket`
   ablehnt — entweder echt implementieren oder entfernen
+
+### Testsammlung
+- `TheStreamSurvivesABrokenConnection` gegen einen Fremdserver scheiterte in
+  einem von vier Vollläufen mit einer Zeitüberschreitung, allein aber 4 von 4
+  Mal grün. Verdacht: 15 Sekunden für Wiederverbindung samt Wiederaufnahme sind
+  unter Last des vollen Laufs mit exponentiellem Backoff knapp. Undiagnostiziert
+  — vor einer Änderung der Wartezeit gehört geklärt, ob wirklich der Backoff
+  bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
 
 ### Fehlerbehandlung
 - `XMPPServer.HandleFrameAsync` steht in einem `catch` ohne Filter. Gedacht ist

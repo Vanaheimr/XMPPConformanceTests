@@ -567,6 +567,190 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AnIqAcrossTheBorder_ToAnAccount_IsAnsweredOnce()
+
+        /// <summary>
+        /// Abschnitt 8.5.2.1.3 gilt auch über die Grenze: Eine Anfrage an ein
+        /// Konto wird vom Server des Empfängers beantwortet und an keine
+        /// Resource verteilt.
+        /// </summary>
+        /// <remarks>
+        /// Über die Grenze ist der Schaden grösser als daheim. Ein fremder
+        /// Server, der eine Anfrage an alle Resourcen verteilt, schickt dem
+        /// Fragenden mehrere Antworten auf eine <c>id</c> — und der hat keine
+        /// Möglichkeit, das der Gegenstelle anzulasten: Für ihn sieht es aus, als
+        /// hätte sein eigener Client die Zählung verloren.
+        /// </remarks>
+        [Test]
+        public async Task AnIqAcrossTheBorder_ToAnAccount_IsAnsweredOnce()
+        {
+
+            var alice = await VerbindeAsync(_links, "alice");
+
+            var handy    = Erzeuge(_rechts, "bob", "Handy");
+            var rechner  = Erzeuge(_rechts, "bob", "Rechner");
+
+            var amHandy    = new ConcurrentQueue<String>();
+            var amRechner  = new ConcurrentQueue<String>();
+
+            handy.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("urn:xmpp:ping", StringComparison.Ordinal))
+                {
+                    amHandy.Enqueue(x);
+                }
+            };
+
+            rechner.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("urn:xmpp:ping", StringComparison.Ordinal))
+                {
+                    amRechner.Enqueue(x);
+                }
+            };
+
+            await handy.ConnectAsync();
+            await rechner.ConnectAsync();
+
+            var antworten = new ConcurrentQueue<String>();
+            var fehler    = new ConcurrentQueue<StanzaError>();
+
+            alice.Connection.OnStanzaError += (from, e) => fehler.Enqueue(e);
+            alice.Connection.OnRawXml      += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("<iq",              StringComparison.Ordinal) &&
+                    x.Contains("id='ueber-die-grenze'", StringComparison.Ordinal))
+                {
+                    antworten.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync(
+                      $"<iq type='get' id='ueber-die-grenze' to='{Bob}'>" +
+                      "<ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WarteAuf(() => !fehler.IsEmpty, "die Antwort von Bobs Server");
+
+            // Den Resourcen Zeit geben, die Anfrage doch zu bekommen.
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            fehler.TryDequeue(out var abgelehnt);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgelehnt!.Condition, Is.EqualTo("service-unavailable"));
+
+                Assert.That(antworten, Has.Count.EqualTo(1),
+                            "Genau eine Antwort auf eine id.");
+
+                Assert.That(amHandy,   Is.Empty, "Die Anfrage darf keine Resource erreichen.");
+                Assert.That(amRechner, Is.Empty, "Auch nicht die zweite.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AnIqAcrossTheBorder_ToAResource_IsDelivered()
+
+        /// <summary>
+        /// Die Gegenprobe über die Grenze: An eine passende Resource gerichtet
+        /// kommt die Anfrage an, und die Antwort findet zurück.
+        /// </summary>
+        /// <remarks>
+        /// Das ist der ganze Sinn von IQ zwischen zwei Servern — eine
+        /// Versionsabfrage, ein Ping, eine Dateiübertragung gehen an eine
+        /// Full-JID. Ohne diese Gegenprobe bestünde die Sammlung auch dann, wenn
+        /// über die Grenze jede Anfrage abgewiesen würde.
+        /// </remarks>
+        [Test]
+        public async Task AnIqAcrossTheBorder_ToAResource_IsDelivered()
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            var bob   = await VerbindeAsync(_rechts, "bob");
+
+            var antworten = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("type='result'",         StringComparison.Ordinal) &&
+                    x.Contains("id='an-die-resource'",  StringComparison.Ordinal))
+                {
+                    antworten.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync(
+                      $"<iq type='get' id='an-die-resource' to='{bob.FullJid}'>" +
+                      "<ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WarteAuf(() => !antworten.IsEmpty, "Bobs Antwort zurück über die Grenze");
+
+            Assert.Pass();
+
+        }
+
+        #endregion
+
+        #region AnIqToTheServersOwnAddress_IsNotClaimedByTheUserPath()
+
+        /// <summary>
+        /// Der Zustellweg für Nutzer fasst eine Anfrage an die Serveradresse
+        /// nicht an.
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 8.5.2 handelt von einer Adresse „of the form
+        /// <c>&lt;localpart@domainpart&gt;</c>". Eine Anfrage an die Domain
+        /// selbst richtet sich an den Server und nicht an einen Nutzer.
+        ///
+        /// Dass sie hier <b>unbeantwortet</b> bleibt, ist eine offene Stelle und
+        /// keine Absicht: Der Server beantwortet an seiner eigenen Adresse
+        /// disco#info und Pings, aber nur für hiesige Clients — von der
+        /// Gegenstelle kommend erreichen sie diese Antworten noch nicht. Das
+        /// steht unter „Später".
+        ///
+        /// Wogegen dieser Test schützt, ist die naheliegende Verwechslung: den
+        /// Nutzer-Zustellweg auch für die Serveradresse zu nehmen. Er antwortete
+        /// dann mit <c>&lt;service-unavailable/&gt;</c> — und das wäre schlechter
+        /// als Schweigen. Schweigen ist eine Lücke; ein Fehler ist eine Aussage,
+        /// und diese Aussage wäre falsch. Eine Gegenstelle, die sie glaubt, fragt
+        /// nicht wieder.
+        /// </remarks>
+        [Test]
+        public async Task AnIqToTheServersOwnAddress_IsNotClaimedByTheUserPath()
+        {
+
+            var alice = await VerbindeAsync(_links, "alice");
+
+            var antworten = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("an-den-server", StringComparison.Ordinal))
+                {
+                    antworten.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync(
+                      $"<iq type='get' id='an-den-server' to='{_rechts.Domain}'>" +
+                      "<ping xmlns='urn:xmpp:ping'/></iq>");
+
+            await WarteGegen(() => !antworten.IsEmpty,
+                             "eine Ablehnung des Nutzer-Zustellwegs für die Serveradresse");
+
+        }
+
+        #endregion
+
         #region PresenceAcrossTheBorder_StillTakesTheDirectPath()
 
         /// <summary>

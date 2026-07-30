@@ -1409,11 +1409,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
             {
 
-                if (!await RouteToAsync(to, StampFrom(frame, session.FullJid)) &&
-                    type != "error")
+                var gestempelt = StampFrom(frame, session.FullJid);
+
+                // Fremde Domain: hinaus damit.
+                if (!IsLocal(to))
                 {
-                    await SendRemoteServerNotFoundAsync(session, "iq", id, to);
+
+                    if (!await RouteToAsync(to, gestempelt) &&
+                        type != "error")
+                    {
+                        await SendRemoteServerNotFoundAsync(session, "iq", id, to);
+                    }
+
+                    return;
+
                 }
+
+                await DeliverIqLocallyAsync(session, to, gestempelt);
 
                 return;
 
@@ -1494,6 +1506,116 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     $"<iq type='error' id='{id}'><error type='cancel'>" +
                     "<service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
                     "</error></iq>");
+
+        }
+
+        /// <summary>
+        /// Die Zustellung einer IQ-Stanza an ein hiesiges Konto (RFC 6121,
+        /// Abschnitte 8.5.1, 8.5.2.1.3, 8.5.2.2.3 und 8.5.3.2.3).
+        /// </summary>
+        /// <param name="origin">
+        /// Die Sitzung des Absenders - oder <c>null</c>, wenn die Anfrage über
+        /// die Servergrenze hereinkam.
+        /// </param>
+        /// <remarks>
+        /// Der Unterschied zur Nachricht ist grundlegend und nicht gradweise:
+        /// Eine Anfrage an einen <b>Bare-JID</b> wird nicht zugestellt, sondern
+        /// vom Server selbst beantwortet - Abschnitt 8.5.2.1.3 sagt das doppelt
+        /// („MUST reply on behalf of the user" und „MUST NOT deliver the IQ
+        /// stanza to any of the user's available resources").
+        ///
+        /// Der Grund liegt in der Natur von IQ. Es ist ein Frage-Antwort-Paar,
+        /// über die <c>id</c> zusammengehalten (RFC 6120, Abschnitt 8.2.3), und
+        /// jede empfangene Anfrage <b>muss</b> beantwortet werden. Verteilt man
+        /// sie an alle Resourcen, antworten alle: Der Fragende bekommt drei
+        /// Antworten auf eine <c>id</c> und kann nicht entscheiden, welche
+        /// gilt - genau das tat dieser Server. Bei einer Nachricht wäre
+        /// mehrfache Zustellung höchstens lästig; hier bricht sie die Semantik.
+        ///
+        /// Zwei Fälle, ein Ergebnis: Abschnitt 8.5.2.1.3 (Resourcen da) und
+        /// 8.5.2.2.3 (keine da) verlangen wörtlich dasselbe. Deshalb fragt
+        /// dieser Weg gar nicht erst, ob jemand angemeldet ist - die Antwort
+        /// wäre in beiden Fällen dieselbe, und eine Verzweigung, die nichts
+        /// unterscheidet, behauptet einen Unterschied.
+        /// </remarks>
+        private async Task DeliverIqLocallyAsync(XMPPSession?  origin,
+                                                 String        to,
+                                                 String        stanza)
+        {
+
+            // Wie bei der Nachricht: ohne Absender gibt es keine Adresse für
+            // eine Antwort, und eine Antwort ist hier Pflicht. Der Rücksprung
+            // wird nie erreicht - beide Aufrufer stempeln oder prüfen das
+            // 'from' -, macht aber alles darunter nullfrei.
+            if (Attr(stanza, "from") is not { } sender)
+                return;
+
+            var type  = Attr(stanza, "type");
+            var id    = Attr(stanza, "id");
+
+            // Eine Antwort wird nie beantwortet (RFC 6120, Abschnitt 8.2.3,
+            // Regel 4). Sie gehört genau der Resource, die gefragt hat, und
+            // sonst niemandem; findet sie die nicht, ist sie eine Antwort auf
+            // eine Frage, die niemand mehr stellt, und am besten vergessen.
+            //
+            // Abschnitt 8.5.3.2.3 verlangt für „eine IQ-Stanza" ohne passende
+            // Resource einen Fehler und unterscheidet die Art nicht. Hier gilt
+            // trotzdem Regel 4: Wer eine Antwort mit einem Fehler beantwortet,
+            // schickt sie an jemanden, der nichts gefragt hat, unter der 'id'
+            // einer Frage, die er selbst beantwortet hat.
+            if (type is "result" or "error")
+            {
+
+                if (SessionOf(to) is { } wartender)
+                    await wartender.SendAsync(stanza);
+
+                return;
+
+            }
+
+            // Ab hier: eine Anfrage (get, set - oder ein unbekannter Wert, den
+            // dieser Weg wie eine Anfrage behandelt, weil eine Antwort mehr
+            // taugt als Schweigen).
+            //
+            // Eine Verzweigung, wo der RFC zwei Abschnitte hat: Abschnitt
+            // 8.5.3.1 lässt eine passende Resource zustellen, 8.5.3.2.3 (keine
+            // passende Resource) und 8.5.2.1.3/8.5.2.2.3 (Bare-JID) verlangen
+            // alle drei dasselbe - <service-unavailable/> vom Server. Wo das
+            // Verhalten dasselbe ist, kann kein Test die Fälle unterscheiden,
+            // und eine Verzweigung, die es doch tut, behauptet einen
+            // Unterschied, den es nicht gibt.
+            //
+            // Der Bare-JID fällt dabei von selbst in den Fehlerzweig, weil
+            // SessionOf ausschliesslich Full-JIDs vergleicht (RFC 7622,
+            // Abschnitt 3.4) - und das ist genau, was 8.5.2.1.3 mit „MUST NOT
+            // deliver the IQ stanza to any of the user's available resources"
+            // verlangt. Gehalten wird diese Zusage nicht von einer Prüfung hier,
+            // sondern von einem Test: Er meldet zwei Resourcen an und besteht
+            // nur, wenn keine die Anfrage sieht.
+            //
+            // Was noch fehlt, ist die zweite Hälfte von 8.5.3.1: Wer die
+            // Presence des Empfängers nicht sehen darf, soll die Anfrage nicht
+            // zugestellt bekommen, weil schon die Antwort verrät, dass die
+            // Resource existiert. Das braucht die Aufzeichnung gerichteter
+            // Presence und steht unter „Später".
+            //
+            // Der Fehler geht auch an ein Konto, das es hier nicht gibt:
+            // Abschnitt 8.5.1 lässt bei einer Nachricht das stille Übergehen zu,
+            // bei einer Anfrage nicht. Preisgegeben wird damit nichts - die
+            // Antwort ist dieselbe wie für ein vorhandenes Konto ohne
+            // erreichbare Resource.
+            //
+            // Und es ist immer <service-unavailable/>, was die vollständige
+            // Umsetzung ist und keine halbe: Abschnitt 8.5.2.1.3 verlangt eine
+            // eigene Antwort, „if the semantics of the qualifying namespace
+            // define a reply that the server can provide on behalf of the user" -
+            // und andernfalls ausdrücklich diesen Fehler. Dieser Server kennt
+            // keinen solchen Namensraum; käme einer hinzu, ist dies die Stelle.
+            if (SessionOf(to) is { } match)
+                await match.SendAsync(stanza);
+
+            else
+                await SendServiceUnavailableAsync("iq", id, to, sender);
 
         }
 
@@ -2672,10 +2794,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return RemoteStanzaResult.Accepted;
             }
 
-            // Presence und IQ nehmen weiterhin den geraden Weg. Auch für sie
-            // hat Abschnitt 8.5 Regeln - eine Anfrage an einen Bare-JID soll der
-            // Server selbst beantworten und nicht an alle Resourcen verteilen -
-            // aber das ist ein eigener Schritt und steht unter „Später".
+            // Und dasselbe für die Anfrage an ein Konto: Sie darf nicht an alle
+            // Resourcen verteilt werden, sondern gehört beantwortet.
+            //
+            // Nur mit Lokalteil. Abschnitt 8.5.2 handelt von einer Adresse „of
+            // the form <localpart@domainpart>"; eine Anfrage an die Domain
+            // selbst richtet sich an den Server und nicht an einen Nutzer, und
+            // dafür gilt der Abschnitt nicht.
+            if (stanza.StartsWith("<iq", StringComparison.Ordinal) &&
+                to.Contains('@'))
+            {
+                await DeliverIqLocallyAsync(null, to, stanza);
+                return RemoteStanzaResult.Accepted;
+            }
+
+            // Presence nimmt weiterhin den geraden Weg, und eine Anfrage an die
+            // Domain ebenso - was der Server für sich selbst beantworten müsste,
+            // beantwortet er noch nicht (siehe „Später").
             await RouteToAsync(to, stanza);
 
             return RemoteStanzaResult.Accepted;

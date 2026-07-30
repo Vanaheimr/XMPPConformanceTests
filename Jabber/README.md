@@ -89,7 +89,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
 | Zustellregeln nach Typ (§8.5) | ✅ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). An eine Resource, die es nicht gibt: `chat` wie an das Konto (§8.5.3.2.1), alles andere still verworfen. Gilt für Nachrichten von hiesigen Clients **und** von anderen Servern — der Abschnitt spricht von einer „inbound stanza" und unterscheidet die Herkunft nicht. Eine Ablehnung findet den Rückweg über die Grenze |
 | Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Auch für Nachrichten von anderen Servern, und das ist der Regelfall. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
-| Zustellregeln für Presence und IQ (§8.5.2.1.2/§8.5.2.1.3) | ⚠️ Presence und IQ von einem anderen Server gehen unmittelbar an die Resourcen. Bei Presence ist der Unterschied klein; eine IQ-Anfrage an einen Bare-JID soll der Server dagegen selbst beantworten — verteilt wird sie an alle Resourcen, und jede antwortet |
+| IQ-Zustellregeln (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ⚠️ Eine Anfrage an einen Bare-JID wird nicht zugestellt, sondern vom Server mit `<service-unavailable/>` beantwortet — genau einmal, und für ein unbekanntes Konto ebenso, damit die Antwort keine Konten verrät. An eine passende Resource wird zugestellt; ohne passende Resource antwortet der Server. Ein `result` oder `error` wird nie beantwortet (RFC 6120 §8.2.3 Regel 4) und an einen Bare-JID nicht verteilt. Gilt für beide Herkünfte. Was fehlt: die Presence-Prüfung aus §8.5.3.1, und eine Anfrage von einer Gegenstelle an die Serveradresse selbst bleibt unbeantwortet |
+| Presence-Zustellregeln (§8.5.2.1.2) | ⚠️ Presence von einem anderen Server geht unmittelbar an die Resourcen statt über die Zustellregeln; der Unterschied ist klein, aber er ist da |
 | Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
 
 ### RFC 7395 — XMPP über WebSocket
@@ -595,12 +596,18 @@ Server-Implementierung:
   abholen, statt sie beim Anmelden über sich hereinbrechen zu lassen) und die
   Regel aus XEP-0160, eine Nachricht mit ausschliesslich Tippstatus-Inhalt
   nicht abzulegen.
-- **Presence und IQ von anderen Servern nehmen die Zustellregeln nicht.**
-  Nachrichten tun es seit D15, Presence und IQ nicht. Bei Presence ist der
-  Unterschied klein; eine IQ-Anfrage an einen Bare-JID soll der Server nach
-  RFC 6121 §8.5.2.1.3 dagegen selbst beantworten, statt sie an alle Resourcen zu
-  verteilen — jede antwortet, und der Fragende bekommt mehrere Antworten auf eine
-  `id`.
+- **Presence von anderen Servern nimmt die Zustellregeln nicht.** Nachrichten und
+  IQ tun es, Presence geht unmittelbar an die Resourcen. Der Unterschied ist
+  klein, aber er ist da.
+- **Die IQ-Prüfung gegen Presence-Lecks fehlt.** RFC 6121 §8.5.3.1 verlangt, eine
+  Anfrage an eine Resource nur zuzustellen, wenn der Fragende die Presence des
+  Empfängers sehen darf — schon die Antwort verrät sonst, dass die Resource
+  existiert. Das braucht die Aufzeichnung gerichteter Presence, die es hier nicht
+  gibt.
+- **Eine Anfrage von einer Gegenstelle an die Serveradresse bleibt
+  unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
+  Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei
+  S2S nicht gibt. RFC 6120 §8.2.3 Regel 3 verlangt eine Antwort.
 - **Ein `catch` ohne Filter verschluckt Programmierfehler.** Die Verarbeitung
   eines Frames steht in einem `try/catch`, das für abgerissene Verbindungen
   gedacht ist und alles andere spurlos mitnimmt. Eine `NullReferenceException`
