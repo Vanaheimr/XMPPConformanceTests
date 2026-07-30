@@ -1710,10 +1710,63 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             }
 
+            await DeliverMessageLocallyAsync(session, to, stamped);
+
+        }
+
+        /// <summary>
+        /// Die Zustellung einer Nachricht an eine hiesige Adresse (RFC 6121,
+        /// Abschnitt 8.5).
+        /// </summary>
+        /// <param name="origin">
+        /// Die Sitzung des Absenders - oder <c>null</c>, wenn die Nachricht über
+        /// die Servergrenze hereinkam.
+        /// </param>
+        /// <param name="to">Die Adresse, wie sie in der Stanza steht.</param>
+        /// <param name="stanza">Die Stanza mit gesetztem <c>from</c>.</param>
+        /// <remarks>
+        /// Eine Stelle für beide Herkünfte, und das ist der Kern dieses
+        /// Schritts: Abschnitt 8.5 spricht durchweg von einer „inbound stanza"
+        /// und unterscheidet nicht, ob sie von einem Client oder von einem
+        /// anderen Server kam. Der Empfänger merkt den Unterschied ohnehin
+        /// nicht - für ihn ist es eine Nachricht an sein Konto.
+        ///
+        /// Bis hierher nahm nur der Weg vom Client diese Regeln. Was über die
+        /// Grenze kam, ging unbesehen ins Routing: ohne Offline-Ablage, ohne
+        /// Rücksicht auf negative Prioritäten, ohne Unterscheidung nach Art.
+        /// Das traf gerade den häufigsten Fall - der Bekannte auf einem anderen
+        /// Server ist der Regelfall und nicht die Ausnahme.
+        ///
+        /// Der einzige Unterschied, der bleibt, sind die
+        /// <c>&lt;sent&gt;</c>-Carbons: Sie gehören den anderen Geräten des
+        /// Absenders, und die eines fremden Kontos sind nicht unsere Sache.
+        /// Der Rückweg einer Fehlerantwort ist dagegen <b>kein</b> Unterschied -
+        /// er geht in beiden Fällen über <see cref="RouteToAsync"/>, und die
+        /// weiss selbst, ob eine Adresse hier liegt oder woanders. Eine eigene
+        /// Verzweigung dafür wäre eine zweite Antwort auf eine Frage, die schon
+        /// beantwortet ist.
+        /// </remarks>
+        private async Task DeliverMessageLocallyAsync(XMPPSession?  origin,
+                                                     String        to,
+                                                     String        stanza)
+        {
+
+            // Ohne Absender ist keine der beiden Hälften zu entscheiden: weder
+            // wohin die Nachricht geht noch wohin eine Ablehnung zurückgeht.
+            //
+            // Kein Test hält diese Zeile fest, und es braucht auch keinen: Sie
+            // lässt sich nicht entfernen, ohne dass der Compiler das Übersetzen
+            // verweigert, weil alles darunter mit einer Zeichenkette und nicht
+            // mit einem Vielleicht rechnet. Erreicht wird der Rücksprung
+            // ohnehin nie - der eine Aufrufer stempelt das 'from' selbst, der
+            // andere hat es geprüft, bevor er hierher kommt.
+            if (Attr(stanza, "from") is not { } sender)
+                return;
+
             // RFC 6121, Abschnitt 8.5: Wohin eine Nachricht geht, hängt an
             // ihrer Art *und* an der Form der Adresse. Bis hierher ging alles
             // denselben Weg.
-            var messageType = MessageTypeExtensions.Parse(Attr(frame, "type"));
+            var messageType = MessageTypeExtensions.Parse(Attr(stanza, "type"));
 
             if (to.Contains('/'))
             {
@@ -1729,10 +1782,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (SessionOf(to) is { } match)
                 {
 
-                    await match.SendAsync(stamped);
+                    await match.SendAsync(stanza);
 
-                    if (DeliverCarbons)
-                        await SendSentCarbonsAsync(session, stamped);
+                    if (DeliverCarbons && origin is not null)
+                        await SendSentCarbonsAsync(origin, stanza);
 
                     return;
 
@@ -1757,7 +1810,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             }
 
-            await DeliverToAccountAsync(session, to, stamped, Attr(frame, "id"), messageType);
+            await DeliverToAccountAsync(origin, to, stanza, Attr(stanza, "id"), sender, messageType);
 
         }
 
@@ -1766,11 +1819,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// führen der Bare-JID und, für <c>chat</c>, auch die nicht passende
         /// Resource.
         /// </summary>
-        private async Task DeliverToAccountAsync(XMPPSession  session,
-                                                 String       to,
-                                                 String       stamped,
-                                                 String?      id,
-                                                 MessageType  messageType)
+        /// <param name="sender">
+        /// Das geprüfte <c>from</c> der Stanza - wohin eine Ablehnung
+        /// zurückgeht.
+        /// </param>
+        private async Task DeliverToAccountAsync(XMPPSession?  origin,
+                                                 String        to,
+                                                 String        stamped,
+                                                 String?       id,
+                                                 String        sender,
+                                                 MessageType   messageType)
         {
 
             // Eine Fehler-Stanza wird stillschweigend übergangen. Auf sie zu
@@ -1783,7 +1841,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // Absender bekommt es gesagt.
             if (messageType == MessageType.GroupChat)
             {
-                await SendServiceUnavailableAsync(session, "message", id, to);
+                await SendServiceUnavailableAsync("message", id, to, sender);
                 return;
             }
 
@@ -1817,9 +1875,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // gerade gesagt hat, es wolle sie nicht.
             if (recipients.Length == 0)
             {
-                await StoreOfflineOrRefuseAsync(session, to, stamped, id);
-                await SendSentCarbonsAsync(session, stamped);
+
+                await StoreOfflineOrRefuseAsync(to, stamped, id, sender);
+
+                // Ehrlich vermerkt: Eine Mutation, die hier die Frage nach der
+                // Herkunft fallen lässt, überlebt - obwohl sie für eine
+                // Nachricht von aussen eine NullReferenceException wirft. Der
+                // Grund liegt nicht an dieser Zeile, sondern am `catch` beim
+                // Verarbeiten eines Frames (siehe oben): Es ist für abgerissene
+                // Verbindungen gedacht und verschluckt jeden Programmierfehler
+                // mit. Weil die Ablage vorher geschrieben ist und danach nichts
+                // mehr folgt, bleibt der Wurf ohne sichtbare Folge. Steht unter
+                // „Später".
+                if (origin is not null)
+                    await SendSentCarbonsAsync(origin, stamped);
+
                 return;
+
             }
 
             // Wie ein echter Server: an die zuletzt gebundene Resource zustellen.
@@ -1834,7 +1906,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             foreach (var other in recipients.Where(r => r != primary && r.CarbonsEnabled))
                 await other.SendAsync(CarbonEnvelope("received", other.BareJid!, other.FullJid!, stamped));
 
-            await SendSentCarbonsAsync(session, stamped);
+            if (origin is not null)
+                await SendSentCarbonsAsync(origin, stamped);
 
         }
 
@@ -1855,10 +1928,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Namen einen Fehler machte, gäbe damit Auskunft darüber, welche Konten
         /// es auf diesem Server gibt.
         /// </remarks>
-        private async Task StoreOfflineOrRefuseAsync(XMPPSession  session,
-                                                     String       to,
-                                                     String       stamped,
-                                                     String?      id)
+        private async Task StoreOfflineOrRefuseAsync(String   to,
+                                                     String   stamped,
+                                                     String?  id,
+                                                     String   sender)
         {
 
             if (GetAccount(BareOf(to)) is not { } account)
@@ -1872,7 +1945,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
-            await SendServiceUnavailableAsync(session, "message", id, to);
+            await SendServiceUnavailableAsync("message", id, to, sender);
 
         }
 
@@ -2587,6 +2660,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return RemoteStanzaResult.Accepted;
             }
 
+            // RFC 6121, Abschnitt 8.5 gilt für jede eingehende Stanza und fragt
+            // nicht, woher sie kam. Eine Nachricht nimmt deshalb denselben Weg
+            // wie die eines hiesigen Clients - mit Offline-Ablage, Prioritäten
+            // und Typunterscheidung. Bis hierher ging sie unbesehen ins Routing,
+            // und das traf gerade den häufigsten Fall: Der Bekannte auf einem
+            // anderen Server ist der Regelfall.
+            if (stanza.StartsWith("<message", StringComparison.Ordinal))
+            {
+                await DeliverMessageLocallyAsync(null, to, stanza);
+                return RemoteStanzaResult.Accepted;
+            }
+
+            // Presence und IQ nehmen weiterhin den geraden Weg. Auch für sie
+            // hat Abschnitt 8.5 Regeln - eine Anfrage an einen Bare-JID soll der
+            // Server selbst beantworten und nicht an alle Resourcen verteilen -
+            // aber das ist ein eigener Schritt und steht unter „Später".
             await RouteToAsync(to, stanza);
 
             return RemoteStanzaResult.Accepted;
@@ -2819,6 +2908,48 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// RFC 6121, Abschnitt 8.5: Die Stanza war an dieser Adresse nicht
+        /// zustellbar.
+        /// </summary>
+        /// <param name="intendedRecipient">
+        /// Die Adresse, an die es nicht ging - sie wird zum Absender der
+        /// Antwort. Für den Client ist die Frage „was ist aus meiner Nachricht
+        /// an bob geworden", und genau darauf antwortet sie; dieser Server als
+        /// Absender wäre eine Antwort auf eine andere Frage.
+        /// </param>
+        /// <param name="replyTo">Das geprüfte <c>from</c> der Stanza.</param>
+        /// <remarks>
+        /// Ein Weg zurück, nicht zwei. Ob der Absender hier sitzt oder auf einem
+        /// anderen Server, entscheidet <see cref="RouteToAsync"/> - das ist ihre
+        /// einzige Aufgabe, und sie erledigt dabei auch den Namensraumwechsel.
+        /// Eine eigene Verzweigung für den hiesigen Fall wäre eine zweite
+        /// Antwort auf eine schon beantwortete Frage, und die beiden könnten
+        /// auseinanderlaufen.
+        ///
+        /// Kommt die Antwort nicht an, bleibt es dabei. Ein Fehler, der einen
+        /// Fehler nach sich zöge, wäre der Anfang einer Schleife (RFC 6120,
+        /// Abschnitt 8.3.1) - deshalb wird das Ergebnis der Zustellung hier
+        /// bewusst nicht angesehen.
+        /// </remarks>
+        private async Task SendServiceUnavailableAsync(String   kind,
+                                                       String?  id,
+                                                       String   intendedRecipient,
+                                                       String   replyTo)
+        {
+
+            await RouteToAsync(
+                replyTo,
+                $"<{kind} type='error'" +
+                (id is not null ? $" id='{id}'" : "") +
+                $" from='{intendedRecipient}' to='{replyTo}'>" +
+                "<error type='cancel'>" +
+                "<service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                "</error>" +
+                $"</{kind}>");
+
+        }
+
+        /// <summary>
         /// Meldet dem Absender, dass die Domain des Empfängers nicht erreichbar
         /// ist.
         /// </summary>
@@ -2837,27 +2968,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// bis einer aufgibt. Diese Prüfung steht bei den Aufrufern, weil nur
         /// dort der Typ der eingehenden Stanza bekannt ist.
         /// </remarks>
-        /// <summary>
-        /// RFC 6121, Abschnitt 8.5: Die Stanza war an dieser Adresse nicht
-        /// zustellbar.
-        /// </summary>
-        private async Task SendServiceUnavailableAsync(XMPPSession  session,
-                                                       String       kind,
-                                                       String?      id,
-                                                       String       intendedRecipient)
-        {
-
-            await session.SendAsync(
-                $"<{kind} type='error'" +
-                (id is not null ? $" id='{id}'" : "") +
-                $" from='{intendedRecipient}' to='{session.FullJid}'>" +
-                "<error type='cancel'>" +
-                "<service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
-                "</error>" +
-                $"</{kind}>");
-
-        }
-
         private async Task SendRemoteServerNotFoundAsync(XMPPSession  session,
                                                          String       kind,
                                                          String?      id,

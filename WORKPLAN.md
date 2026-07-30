@@ -50,17 +50,19 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **569 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **578 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
 prüft, die es nur im STARTTLS-Betrieb gibt.
-Fünf benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
+Sechs benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
 im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
 `DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
 funktional nicht beobachtbar), die Slot-Identität im Verbindungs-Cache
-(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1) und die Abkürzung
-über die leere Offline-Ablage (siehe D14).
+(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1), die Abkürzung
+über die leere Offline-Ablage (siehe D14) und die Herkunftsfrage vor den
+`<sent>`-Carbons im Offline-Zweig — dort wirft der Mutant, und der Wurf
+verschwindet im `catch` beim Verarbeiten eines Frames (siehe D15).
 
 ---
 
@@ -2039,14 +2041,93 @@ Ebenfalls vermerkt: XEP-0160 rät, eine Nachricht mit ausschliesslich
 XEP-0085-Inhalt (Tippstatus) nicht abzulegen. Dieser Client schickt keine, also
 gibt es dafür keinen Weg zu prüfen — die Regel bliebe ungetestet.
 
+### D15. Eingehende S2S-Stanzas ✅ — und eine Weiche, die schon da war
+
+Der offene Punkt aus D14, und der grössere von beiden: Abschnitt 8.5 spricht
+durchweg von einer „inbound stanza" und fragt nirgends, ob sie von einem Client
+oder von einem anderen Server kam. Dieser Server fragte es doch. Was über die
+Grenze kam, ging unbesehen ins Routing — ohne Ablage, ohne Prioritäten, ohne
+Typunterscheidung.
+
+Damit lag die Lücke genau im häufigsten Fall. Der Bekannte auf einem anderen
+Server ist der Regelfall und nicht die Ausnahme; zwei Konten auf derselben
+Instanz sind es nicht. Wer eine Offline-Ablage baut, baut sie vor allem für ihn —
+und in D14 tat sie für ihn nichts.
+
+Jetzt nehmen beide Herkünfte eine Strecke, `DeliverMessageLocallyAsync`. Der
+ganze Unterschied steckt in einem Parameter: `XMPPSession? origin` ist `null`,
+wenn die Nachricht von aussen kam, und das entscheidet allein über die
+`<sent>`-Carbons — die gehören den anderen Geräten des Absenders, und die eines
+fremden Kontos sind nicht unsere Sache.
+
+**Zwei meiner Verzweigungen waren überflüssig, und das Aufräumen war der
+lehrreiche Teil.** Ich hatte zuerst zwei Rückwege für eine Fehlerantwort gebaut —
+in den Stream des Absenders, wenn er hier sitzt, sonst über die Grenze hinaus —
+und zwei Wege, den Absender zu bestimmen (`origin.FullJid` oder das `from` der
+Stanza). Beide Paare waren dasselbe:
+
+- `RouteToAsync` **ist** die Weiche zwischen „hier" und „woanders"; ihr eigener
+  Kommentar sagt das seit S4a. Eine Verzweigung daneben war eine zweite Antwort
+  auf eine schon beantwortete Frage — und zwei Antworten laufen mit der Zeit
+  auseinander. Sie erledigt nebenbei auch den Namensraumwechsel.
+- Das `from` ist in beiden Fällen geprüft und nicht behauptet: Bei einem Client
+  stempelt es der Server selbst, bei einer fremden Stanza hat
+  `AcceptFromRemoteAsync` die Absenderdomain gegen die Gegenstelle geprüft.
+  `origin.FullJid` daneben lieferte dieselbe Zeichenkette.
+
+Aufgefallen ist es an den Mutationen: Beide Verzweigungen liessen sich entfernen,
+ohne dass ein Test es merkte — nicht weil die Tests lückenhaft waren, sondern
+weil die Zeilen nichts taten. **Ein überlebender Mutant ist nicht immer eine
+fehlende Prüfung; manchmal ist er überflüssiger Code, der sich als Gründlichkeit
+tarnt.**
+
+Zehn Mutationen, neun erschlagen — zwei davon erst im zweiten Anlauf, und beide
+Male war der Test schuld:
+
+**Der Presence-Wächter stand am falschen Ort.** Er sollte belegen, dass nur
+Nachrichten den neuen Weg nehmen. Bei verbundenem Bob bestand er auch mit der
+Mutation, die *alles* durch die Nachrichtenstrecke schickt — denn einer
+erreichbaren Resource stellt auch die zu. Sichtbar wird der falsche Weg erst
+dort, wo die beiden sich unterscheiden, und das ist die Ablage: Ein
+`<presence/>` hat kein `type`, gälte damit als `normal` und läge beim nächsten
+Anmelden als Anwesenheit von vorgestern bereit. Der Test prüft jetzt mit
+**abwesendem** Bob.
+
+Das ist eine neue Fassung einer alten Regel. „Beobachte den Weg, nicht die
+Wirkung" hiess bisher: Sieh nach, was hinausgeht. Hier heisst es: **Ein Wächter
+gegen den falschen Weg muss dort stehen, wo die Wege sich trennen.** An einer
+Stelle, an der beide dasselbe tun, bewacht er nichts.
+
+**Die Ablehnung kam an, war aber an den Falschen adressiert.** Das `to` der
+Fehlerantwort durch die Empfängeradresse zu ersetzen, überlebte: Zugestellt wird
+sie nach der Routing-Adresse, und die blieb richtig. Über die Grenze fällt es
+ohnehin nicht auf, weil `RouteToAsync` beim Hinausgehen ein `StampTo` setzt und
+das falsche `to` überschreibt — daheim schon. Ein Client, der nach RFC 6120,
+Abschnitt 8.1.1 prüft, ob eine Stanza an ihn adressiert ist, verwürfe sie
+stillschweigend. Der lokale Ablehnungstest aus D13 prüft das jetzt mit.
+
+Der eine Überlebende ist keiner über diesen Code: Lässt man im Offline-Zweig die
+Frage nach der Herkunft weg, wirft der Mutant für eine Nachricht von aussen eine
+`NullReferenceException` — und **kein Test sieht sie**. Das `catch` beim
+Verarbeiten eines Frames ist für abgerissene Verbindungen gedacht und verschluckt
+jeden Programmierfehler mit. Weil die Ablage vorher geschrieben ist und danach
+nichts mehr folgt, bleibt der Wurf ohne Folge. Die Zeile ist richtig; das `catch`
+ist das Problem, und es steht unter „Später".
+
+Nicht behoben und vermerkt: Presence und IQ von einem anderen Server nehmen
+weiterhin den geraden Weg. Bei Presence ist der Unterschied klein, bei IQ nicht —
+eine Anfrage an einen Bare-JID soll der Server nach Abschnitt 8.5.2.1.3 selbst
+beantworten; verteilt wird sie derzeit an **alle** Resourcen, und jede antwortet.
+Mehrere Antworten auf eine `id`.
+
 ---
 
 ## Später
 
 ### Protokoll
-- RFC 6121 §8.5: Eine Nachricht von einem anderen Server geht direkt ins Routing
-  und nimmt die Zustellregeln nicht — weder Offline-Ablage noch Priorität noch
-  Typunterscheidung (siehe D14)
+- RFC 6121 §8.5.2.1.3/§8.5.2.2.3: Eine IQ-Anfrage an einen Bare-JID soll der
+  Server selbst beantworten. Derzeit wird sie an alle Resourcen verteilt, und
+  jede antwortet — mehrere Antworten auf eine `id` (siehe D15)
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
@@ -2063,6 +2144,14 @@ gibt es dafür keinen Weg zu prüfen — die Regel bliebe ungetestet.
 - Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`
 - `XMPPConnection.CreateTcp` erzeugt eine `tcp://`-URI, die `ClientWebSocket`
   ablehnt — entweder echt implementieren oder entfernen
+
+### Fehlerbehandlung
+- `XMPPServer.HandleFrameAsync` steht in einem `catch` ohne Filter. Gedacht ist
+  es für abgerissene Verbindungen — es verschluckt aber auch jeden
+  Programmierfehler im Zustellweg, und zwar spurlos: In D15 überlebte eine
+  Mutation nur deshalb, weil ihre `NullReferenceException` dort verschwand.
+  Entweder auf die Ausnahmen einschränken, die ein Abriss wirklich erzeugt, oder
+  den Rest melden
 
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).

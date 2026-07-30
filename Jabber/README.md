@@ -53,7 +53,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
-| XEP-0160 | Best Practices for Handling Offline Messages | ⚠️ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Nachrichten mit ausschliesslich Tippstatus-Inhalt werden nicht ausgenommen, und Nachrichten von fremden Servern erreichen die Ablage nicht |
+| XEP-0160 | Best Practices for Handling Offline Messages | ⚠️ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern. Nicht ausgenommen sind Nachrichten mit ausschliesslich Tippstatus-Inhalt |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0203 | Delayed Delivery | ⚠️ | Der Server stempelt nachgereichte Nachrichten; der Client liest den Stempel nicht — `XMPPMessage.Timestamp` ist die Empfangszeit |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird |
@@ -87,8 +87,9 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
 | Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Ändern den Subscription-Zustand und gelten nicht als Anwesenheit |
 | Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
-| Zustellregeln nach Typ (§8.5) | ⚠️ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). An eine Resource, die es nicht gibt: `chat` wie an das Konto (§8.5.3.2.1), alles andere still verworfen. Was fehlt: Eine Nachricht von einem anderen Server geht direkt ins Routing und nimmt diese Regeln nicht |
-| Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
+| Zustellregeln nach Typ (§8.5) | ✅ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). An eine Resource, die es nicht gibt: `chat` wie an das Konto (§8.5.3.2.1), alles andere still verworfen. Gilt für Nachrichten von hiesigen Clients **und** von anderen Servern — der Abschnitt spricht von einer „inbound stanza" und unterscheidet die Herkunft nicht. Eine Ablehnung findet den Rückweg über die Grenze |
+| Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Auch für Nachrichten von anderen Servern, und das ist der Regelfall. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
+| Zustellregeln für Presence und IQ (§8.5.2.1.2/§8.5.2.1.3) | ⚠️ Presence und IQ von einem anderen Server gehen unmittelbar an die Resourcen. Bei Presence ist der Unterschied klein; eine IQ-Anfrage an einen Bare-JID soll der Server dagegen selbst beantworten — verteilt wird sie an alle Resourcen, und jede antwortet |
 | Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
 
 ### RFC 7395 — XMPP über WebSocket
@@ -594,11 +595,17 @@ Server-Implementierung:
   abholen, statt sie beim Anmelden über sich hereinbrechen zu lassen) und die
   Regel aus XEP-0160, eine Nachricht mit ausschliesslich Tippstatus-Inhalt
   nicht abzulegen.
-- **Nachrichten von anderen Servern nehmen die Zustellregeln nicht.** Was über
-  S2S hereinkommt, geht direkt ins Routing (RFC 6121 §8.5 bleibt aussen vor):
-  keine Offline-Ablage, keine Priorität, keine Typunterscheidung. Für den
-  häufigsten Fall einer Nachricht an einen Abwesenden — den Bekannten auf einem
-  fremden Server — ist die Ablage damit noch nicht zuständig.
+- **Presence und IQ von anderen Servern nehmen die Zustellregeln nicht.**
+  Nachrichten tun es seit D15, Presence und IQ nicht. Bei Presence ist der
+  Unterschied klein; eine IQ-Anfrage an einen Bare-JID soll der Server nach
+  RFC 6121 §8.5.2.1.3 dagegen selbst beantworten, statt sie an alle Resourcen zu
+  verteilen — jede antwortet, und der Fragende bekommt mehrere Antworten auf eine
+  `id`.
+- **Ein `catch` ohne Filter verschluckt Programmierfehler.** Die Verarbeitung
+  eines Frames steht in einem `try/catch`, das für abgerissene Verbindungen
+  gedacht ist und alles andere spurlos mitnimmt. Eine `NullReferenceException`
+  im Zustellweg verschwindet damit unbemerkt — in D15 hielt genau das eine
+  Mutation am Leben.
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide

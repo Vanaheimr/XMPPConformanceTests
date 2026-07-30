@@ -90,6 +90,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Ein <c>groupchat</c> an einen Bare-JID wird nicht zugestellt,
         /// sondern abgelehnt (Abschnitt 8.5.2.1.1).
         /// </summary>
+        /// <remarks>
+        /// Geprüft wird auch, an <b>wen</b> die Ablehnung adressiert ist. Das
+        /// klingt nach Formsache und ist keine: Eine Stanza an einen Client muss
+        /// an ihn adressiert sein (RFC 6120, Abschnitt 8.1.1), und ein Client,
+        /// der das prüft, verwürfe eine Ablehnung mit fremdem <c>to</c>
+        /// stillschweigend. Dass sie im richtigen Stream ankommt, ist die eine
+        /// Hälfte; dass sie den richtigen Empfänger nennt, die andere - und die
+        /// beiden lassen sich verwechseln, weil die Zustellung schon dann
+        /// funktioniert, wenn nur die erste stimmt.
+        /// </remarks>
         [Test]
         public async Task AGroupchatToAnAccount_IsRefused()
         {
@@ -103,6 +113,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var fehler = new ConcurrentQueue<StanzaError>();
             alice.Connection.OnStanzaError += (from, e) => fehler.Enqueue(e);
 
+            var rohe = new ConcurrentQueue<String>();
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("an-das-konto", StringComparison.Ordinal))
+                {
+                    rohe.Enqueue(x);
+                }
+            };
+
             await alice.SendRawAsync(
                       $"<message to='{bob.BareJid}' type='groupchat' id='an-das-konto'>" +
                       "<body>Gehört in einen Raum</body></message>");
@@ -110,11 +130,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await WaitFor(() => !fehler.IsEmpty, "die Ablehnung beim Absender");
 
             fehler.TryDequeue(out var abgelehnt);
+            rohe.TryDequeue(out var stanza);
 
             Assert.Multiple(() =>
             {
 
                 Assert.That(abgelehnt!.Condition, Is.EqualTo("service-unavailable"));
+
+                Assert.That(stanza, Does.Contain($"to='{alice.FullJid}'"),
+                            "Die Ablehnung muss an den Absender adressiert sein, " +
+                            "nicht an die Adresse, an die es nicht ging.");
 
                 Assert.That(eingang, Is.Empty,
                             "Ein groupchat an ein Konto darf keine Resource erreichen.");
