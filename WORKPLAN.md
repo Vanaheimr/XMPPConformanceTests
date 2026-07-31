@@ -3382,6 +3382,56 @@ sind. Das gehört zur fünften Bedeutung aus D25 und ist ihre praktische Form:
 
 ---
 
+### D37. Ein Vorschlag, der von sich selbst abrät ⛔ — XEP-0013 entfällt
+
+XEP-0013 („Flexible Offline Message Retrieval") stand als nächster Punkt an. Es
+wird **nicht umgesetzt**, und der Grund steht im Dokument selbst: Die XSF führt
+es als **Deprecated** — Fassung 1.3, Stand 2021-05-04, mit dem Satz
+„Implementation of the protocol described herein is not recommended."
+
+Gebracht hätte es die andere Hälfte der Ablage aus D14. Heute entscheidet der
+Server, wann die aufbewahrten Nachrichten kommen: bei der nächsten
+nicht-negativen verfügbaren Presence, alle auf einmal, und mit dem Herausgeben
+ist die Ablage leer (`TakeOfflineMessages`). XEP-0013 hätte diese Entscheidung
+dem Client gegeben — hineinsehen, bevor man abholt, einzelne Nachrichten gezielt
+lesen oder wegwerfen, den Rest liegen lassen.
+
+Der Preis wäre nicht die Auflistung gewesen. `OfflineMessage` trägt heute
+`Stanza` und `StoredAt`, **keinen Bezeichner** — XEP-0013 spricht jede
+aufbewahrte Nachricht über ein `node`-Attribut an, das über einen Neustart
+hinweg dasselbe bleiben muss. Das hätte den Datensatz, die Ablage in
+`XMPPAccount` und die Persistenz in `FileAccountStore` erfasst. Der teure Teil
+liegt aber woanders: Ein Client, der die Ablage selbst verwaltet, darf sie nicht
+gleichzeitig zugeschickt bekommen. Die automatische Nachlieferung hätte also
+abschaltbar werden müssen, abhängig davon, ob der Client sich vor seiner ersten
+Presence gemeldet hat. Das ist ein zweiter Zustand im Anmeldeweg, genau an der
+Stelle, an der D14 hängt.
+
+Diesen Umbau für ein Dokument zu machen, das von seiner Umsetzung abrät, wäre
+falsch herum: Der Aufwand fiele an, und geblieben wäre ein Protokoll, das kein
+neuer Client mehr sprechen wird.
+
+**Einen Nachfolger benennt XEP-0013 nicht.** Es verweist nur auf „the protocol
+that supersedes this one (if any)". In der Praxis übernimmt XEP-0313 (Message
+Archive Management) das gezielte Nachlesen — aber nur die eine Hälfte, und mit
+einem anderen Begriff: Ein Archiv ist keine Ablage. Es enthält auch, was
+zugestellt wurde, und es leert sich nicht durchs Lesen. Die zweite Hälfte —
+„schick mir beim Anmelden nicht alles zu" — steht dort nicht. Wer sie will,
+braucht sie zusätzlich. Sollte das je anstehen, ist es ein eigener Punkt und
+nicht dieser.
+
+Was bleibt, ist der Weg aus D14: RFC 6121, Abschnitt 8.5.2.2.1, und XEP-0160.
+Beide sind aktuell, beide sind umgesetzt, und beide reichen für einen Client,
+der die Nachrichten schlicht haben will.
+
+Ein Fund bleibt auch: **Dass `OfflineMessage` keinen Bezeichner hat, ist keine
+Lücke, sondern eine Folge.** Solange niemand eine einzelne aufbewahrte Nachricht
+ansprechen kann, gibt es nichts zu benennen. Der Bezeichner fehlt genau so
+lange, wie er nicht gebraucht wird — er wäre die erste Zeile, die ein Protokoll
+ändern müsste, das einzelne Nachrichten adressiert.
+
+---
+
 ## Später
 
 ### Protokoll
@@ -3460,6 +3510,19 @@ Was dort nicht auftaucht und trotzdem ansteht:
   `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.
 - Ungenutzte öffentliche Member entscheiden: benutzen oder streichen. Liste in
   [Jabber/README.md](Jabber/README.md).
+
+---
+
+## Bewusst nicht umgesetzt
+
+Was hier steht, ist entschieden und wartet nicht auf Gelegenheit.
+
+- **XEP-0013 — Flexible Offline Message Retrieval.** Von der XSF als
+  *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the
+  protocol described herein is not recommended." Die Offline-Ablage bleibt beim
+  automatischen Nachreichen nach RFC 6121, Abschnitt 8.5.2.2.1, und XEP-0160.
+  Einen Nachfolger benennt das Dokument nicht; das gezielte Nachlesen läge bei
+  XEP-0313 (MAM), das aber ein Archiv beschreibt und keine Ablage (siehe D37)
 
 ---
 
