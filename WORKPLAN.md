@@ -4354,6 +4354,77 @@ dort gegen weniger Tests gemessen worden, als der Name der Sammlung verspricht.
 
 ---
 
+### D54. Eine Wache, an die niemand denken muss ✅
+
+Der Punkt lautete: *Die Verdrahtung der Wache ist eine mechanische Eigenschaft
+und von keinem Test gehalten. Nähme jemand in einem einzelnen Fixture das
+`AssertClean()` heraus, fiele es nicht auf.* Gesichert war sie durch eine
+Quelltextprüfung von Hand — „kein `new XMPPServer(` ohne `Watched(…)`" (D19),
+39 Erzeugungsstellen in 17 Dateien.
+
+**Nicht abgesichert, sondern abgeschafft.** Ein Test, der prüft, dass jedes
+Fixture die beiden Zeilen schreibt, wäre nur eine zweite Stelle gewesen, an der
+dasselbe Vergessen möglich ist: Er hätte den Quelltext gelesen und nichts
+gemessen, und für das Fixture von morgen hätte er nichts getan.
+
+Stattdessen meldet jeder `XMPPServer` seine Entstehung — ein `internal static
+event OnInstanceCreated`, ausgelöst am Ende des Konstruktors —, und ein
+`ITestAction` auf Assembly-Ebene hängt sich an jeden davon. Damit ist die Wache
+keine Eigenschaft mehr, die jemand herstellen muss, sondern eine, die von
+selbst gilt.
+
+Drei Zeilen Produktivcode allein für die Testsammlung sind eine Entscheidung
+und keine Selbstverständlichkeit. Sie sind vertretbar, weil sie `internal`
+sind — nach aussen sagt der Server nichts zu —, und weil die Alternative war,
+sich weiter auf die Aufmerksamkeit von Menschen zu verlassen. Der Server trägt
+ohnehin ein Dutzend Testschalter; dies ist der erste, der nicht sein Verhalten
+ändert, sondern nur zusieht.
+
+**Die Wache je Fixture bleibt.** `InternalErrorGuard` liefert `InternalErrors`
+für die Tests, die die Meldungen *ansehen* wollen. Was wegfällt, ist ihre
+Unverzichtbarkeit: Wer künftig `Watched(…)` oder `AssertClean()` vergisst,
+verliert nichts mehr. `Expect()` reicht die Absicht an die globale Wache
+weiter — sonst müsste ein Fixture zweimal sagen, dass sein Fehler gewollt ist,
+und die zweite Stelle wäre wieder eine zum Vergessen.
+
+**Der Test, ohne den das Ganze wertlos wäre:** dass die neue Wache auch
+*scheitern lässt*. Die schlimmste Fassung ist die, die alles aufnimmt und nie
+etwas daraus macht — sie sieht aus wie eine Sicherung, ist keine, und die
+Sammlung bleibt grün. Genau dieselbe Falle hat `InternalErrorGuard.Record`
+schon entschärft, und aus demselben Grund gibt es das Aufnehmen jetzt auch hier
+getrennt vom Anhängen.
+
+Dazu die Trennung zwischen zwei Tests: Bliebe eine Meldung stehen, fiele es nur
+dem *nachfolgenden* Test auf — und welcher das ist, entscheidet der Testläufer.
+Der Test stellt den Übergang deshalb selbst nach: melden, scheitern lassen, den
+nächsten Test beginnen, nachsehen.
+
+**Der erste volle Lauf mit scharfer Wache war sauber.** Die Quelltextregel aus
+D19 war also lückenlos eingehalten — nur eben von Hand. Sechs Mutationen, alle
+erschlagen: Entstehung nicht gemeldet, Wache macht aus dem Gemeldeten nichts,
+räumt zwischen zwei Tests nicht auf (24 Tests fallen mit), hängt sich an keinen
+Server, reicht die Absicht nicht weiter, und läuft einmal je Sammlung statt je
+Test.
+
+Die aufschlussreichste ist die dritte: **Eine fehlende Zeile schleppt jede
+Meldung in alle folgenden Tests.** Genau deshalb steht der Übergang zwischen
+zwei Tests als eigene Zusicherung da und nicht als Hoffnung auf die Reihenfolge
+des Testläufers. Und die fünfte zeigt die Kehrseite der neuen Reichweite: Ohne
+die Weitergabe von `Expect()` fallen die fünf Tests, die absichtlich einen
+internen Fehler auslösen — die Wache über alle Server sieht eben auch das, was
+gewollt ist.
+
+**Ein Lauf, der nichts gemessen hat, sah dabei aus wie ein bestandener.** Der
+erste Anlauf zum vollen Durchgang meldete `782 erfolgreich, 25 übersprungen` —
+grün. Die Gegenstellen liefen, die Zertifikatspfade waren lesbar; die
+Umgebungsvariablen hatten den Testprozess nur nicht erreicht, weil der Lauf
+über die Bash-Schale statt über PowerShell gestartet war. **Die Zahl der
+übersprungenen Tests ist das einzige, was die beiden unterscheidet** — 7 heisst
+„beide fremden Server standen", alles darüber heisst „die Föderation wurde
+nicht angefasst". Wiederholt, diesmal richtig: 800 grün, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4384,12 +4455,6 @@ dort gegen weniger Tests gemessen worden, als der Name der Sammlung verspricht.
   zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist
   eine passende Erklärung und kein Nachweis. Tritt er wieder auf, nennt die
   Meldung jetzt den Verlauf — dann ist er in einem Anlauf zu klären (siehe D33)
-
-### Fehlerbehandlung
-- Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test
-  gehalten: Nähme jemand in einem einzelnen Fixture das `AssertClean()` heraus,
-  fiele es nicht auf. Gesichert ist sie durch die Quelltextprüfung „kein
-  `new XMPPServer(` ohne `Watched(…)`" (siehe D19)
 
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).

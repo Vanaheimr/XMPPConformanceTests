@@ -559,7 +559,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             _webSocketServer.OnCloseMessageReceived    += OnCloseFrameReceivedAsync;
             _webSocketServer.OnTCPConnectionClosed     += OnConnectionClosedAsync;
 
+            OnInstanceCreated?.Invoke(this);
+
         }
+
+        #endregion
+
+        #region (internal, static) OnInstanceCreated
+
+        /// <summary>
+        /// Meldet jede erzeugte Instanz - nur für die Testsammlung.
+        /// </summary>
+        /// <remarks>
+        /// Die Wache gegen verschluckte Programmierfehler
+        /// (<c>OnInternalError</c>) hing bisher daran, dass jedes Fixture sie
+        /// von Hand anhängt. Das ist eine mechanische Eigenschaft, die kein
+        /// Test hält: Wer einen Server ohne die Wache erzeugt, bekommt keinen
+        /// Fehlschlag, sondern <b>Stille</b> - und genau das war der Zustand,
+        /// den die Wache abschaffen sollte.
+        ///
+        /// Über dieses Ereignis findet die Sammlung jeden Server, ohne dass
+        /// jemand daran denken muss. Es ist <c>internal</c> und damit keine
+        /// Zusage nach aussen; sichtbar wird es allein über
+        /// <c>InternalsVisibleTo</c>.
+        ///
+        /// Ausgelöst am Ende des Konstruktors, nicht am Anfang: Ein Abonnent
+        /// bekommt eine fertig aufgebaute Instanz und keine halbe.
+        /// </remarks>
+        internal static event Action<XMPPServer>? OnInstanceCreated;
 
         #endregion
 

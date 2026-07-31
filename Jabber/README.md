@@ -617,9 +617,11 @@ miteinander sprechen:
   (RFC 6120 §4.9.3.8 und §4.9.1.1), gefolgt von `<close/>` nach RFC 7395 §3.6:
   Was der Frame ändern sollte, ist halb geändert, und ein Stream, über dessen
   Zustand die beiden Seiten verschiedene Vorstellungen haben, ist keiner mehr.
-  Die Testsammlung hängt an das Ereignis eine Wache — an jeden Server jedes
-  Fixtures —, die jede Meldung als Programmierfehler behandelt;
-  `FailFrameHandling` erreicht den Weg absichtlich
+  Die Testsammlung hängt an das Ereignis eine Wache, die jede Meldung als
+  Programmierfehler behandelt; `FailFrameHandling` erreicht den Weg absichtlich.
+  Sie hängt **nicht** mehr daran, dass ein Fixture sie anmeldet: Jeder Server
+  meldet seine Entstehung über `OnInstanceCreated` (internal), und die Wache
+  findet ihn von dort aus — auch in einem Fixture, das es morgen gibt (D54)
 - Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
   `OfferStreamManagement`, `AnswerAckRequests`, `SwallowClientStanzas`

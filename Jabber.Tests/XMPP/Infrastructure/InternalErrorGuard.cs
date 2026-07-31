@@ -139,8 +139,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Sagt der Wache, dass dieser Test einen internen Fehler absichtlich
         /// auslöst.
         /// </summary>
+        /// <remarks>
+        /// Weitergereicht an <see cref="GlobalErrorWatchAttribute"/>: Seit es
+        /// die Wache über alle Server gibt, sieht die den Fehler ebenfalls, und
+        /// ein Fixture soll seine Absicht trotzdem nur an einer Stelle sagen
+        /// müssen.
+        /// </remarks>
         public void Expect()
-            => _expected = true;
+        {
+            _expected = true;
+            GlobalErrorWatchAttribute.Expect();
+        }
 
         /// <summary>
         /// Lässt den Test scheitern, wenn etwas gemeldet wurde - aufzurufen im
