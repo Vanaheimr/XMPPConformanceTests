@@ -187,9 +187,34 @@ public static class Idna
         if (IsAddressLiteral(Domain))
             return true;
 
+        var uLabels = new List<String>();
+
         foreach (var label in Domain.Split('.'))
+        {
+
             if (!IsValidLabel(label, out Reason))
                 return false;
+
+            uLabels.Add(label.StartsWith(AcePrefix, StringComparison.Ordinal)
+                            ? Punycode.Decode(label[AcePrefix.Length..])!
+                            : label);
+
+        }
+
+        // RFC 5893, Abschnitt 2: Die Bidi-Regel gilt für einen „Bidi domain
+        // name" - und einer ist er, sobald ein einziges Label rechtsläufige
+        // Zeichen trägt. Dann gilt sie für alle Labels, auch für die aus
+        // reinem ASCII.
+        if (!uLabels.Any(IsRtlLabel))
+            return true;
+
+        foreach (var uLabel in uLabels)
+            if (!SatisfiesBidiRule(uLabel, out var verstoss))
+            {
+                Reason = $"Das Label '{uLabel}' verstösst gegen die Bidi-Regel " +
+                         $"(RFC 5893, Abschnitt 2): {verstoss}";
+                return false;
+            }
 
         return true;
 
@@ -320,6 +345,119 @@ public static class Idna
                      $"('{Angezeigt}', RFC 5892: {eigenschaft}).";
 
             return false;
+
+        }
+
+        return true;
+
+    }
+
+    #endregion
+
+    #region SatisfiesBidiRule(ULabel, out Reason)
+
+    /// <summary>
+    /// Trägt dieses Label mindestens ein rechtsläufiges Zeichen (RFC 5893,
+    /// Abschnitt 1.4)?
+    /// </summary>
+    private static Boolean IsRtlLabel(String ULabel)
+
+        => CodePoints(ULabel).Any(cp => BidiClasses.ClassOf(cp) is BidiClass.R  or
+                                                                   BidiClass.AL or
+                                                                   BidiClass.AN);
+
+    /// <summary>
+    /// Die sechs Bedingungen der Bidi-Regel (RFC 5893, Abschnitt 2).
+    /// </summary>
+    /// <remarks>
+    /// <b>Die Richtung eines Labels bestimmt sein erstes Zeichen</b>, und daran
+    /// hängt alles Weitere: Ein Label, das mit einem lateinischen Buchstaben
+    /// beginnt und ein hebräisches Zeichen enthält, ist kein rechtsläufiges
+    /// Label mit einem Gast darin, sondern ein linksläufiges mit einem Verstoss
+    /// (Bedingungen 1 und 5).
+    ///
+    /// Bedingung 3 und 6 - woran ein Label enden darf - sind über
+    /// <see cref="IsValidDomain"/> nicht erreichbar: Die Zeichen, mit denen ein
+    /// Label falsch enden könnte, fallen schon auf der Codepoint-Ebene heraus.
+    /// Sie stehen hier trotzdem, denn diese Funktion ist die Regel aus dem RFC
+    /// und nicht die Teilmenge, die ein bestimmter Aufrufer übriglässt.
+    /// </remarks>
+    internal static Boolean SatisfiesBidiRule(String ULabel, out String? Reason)
+    {
+
+        Reason = null;
+
+        var klassen = CodePoints(ULabel).Select(BidiClasses.ClassOf).ToList();
+
+        if (klassen.Count == 0)
+        {
+            Reason = "Das Label ist leer.";
+            return false;
+        }
+
+        // Bedingung 1
+        if (klassen[0] is not (BidiClass.L or BidiClass.R or BidiClass.AL))
+        {
+            Reason = $"Das erste Zeichen ist {klassen[0]} und weder L noch R noch AL.";
+            return false;
+        }
+
+        var rechtslaeufig = klassen[0] is BidiClass.R or BidiClass.AL;
+
+        // Das letzte Zeichen, das kein NSM ist - Bedingung 3 und 6 lassen
+        // danach beliebig viele NSM zu.
+        var letztes = klassen.FindLastIndex(k => k != BidiClass.NSM);
+
+        if (rechtslaeufig)
+        {
+
+            // Bedingung 2
+            foreach (var klasse in klassen)
+                if (klasse is not (BidiClass.R  or BidiClass.AL or BidiClass.AN or
+                                   BidiClass.EN or BidiClass.ES or BidiClass.CS or
+                                   BidiClass.ET or BidiClass.ON or BidiClass.BN or
+                                   BidiClass.NSM))
+                {
+                    Reason = $"In einem rechtsläufigen Label ist {klasse} nicht zulässig.";
+                    return false;
+                }
+
+            // Bedingung 3
+            if (letztes < 0 || klassen[letztes] is not (BidiClass.R  or BidiClass.AL or
+                                                        BidiClass.EN or BidiClass.AN))
+            {
+                Reason = "Ein rechtsläufiges Label endet auf R, AL, EN oder AN.";
+                return false;
+            }
+
+            // Bedingung 4
+            if (klassen.Contains(BidiClass.EN) && klassen.Contains(BidiClass.AN))
+            {
+                Reason = "Europäische und arabische Ziffern stehen nicht im selben Label.";
+                return false;
+            }
+
+        }
+
+        else
+        {
+
+            // Bedingung 5
+            foreach (var klasse in klassen)
+                if (klasse is not (BidiClass.L  or BidiClass.EN or BidiClass.ES or
+                                   BidiClass.CS or BidiClass.ET or BidiClass.ON or
+                                   BidiClass.BN or BidiClass.NSM))
+                {
+                    Reason = $"In einem linksläufigen Label ist {klasse} nicht zulässig.";
+                    return false;
+                }
+
+            // Bedingung 6
+            if (letztes < 0 || klassen[letztes] is not (BidiClass.L or BidiClass.EN))
+            {
+                Reason = "Ein linksläufiges Label endet auf L oder EN.";
+                return false;
+            }
 
         }
 

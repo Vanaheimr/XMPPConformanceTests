@@ -3782,22 +3782,66 @@ einzelne Zeichen.
 
 ---
 
+### D44. Eine Tabelle statt einer Vermutung ✅ — RFC 5893
+
+Der offene Punkt aus D43. Die Begründung dort war richtig und die Folgerung
+falsch: `Bidi_Class` **lässt** sich nicht ableiten — aber sie lässt sich
+**holen**. Unicode veröffentlicht sie als `DerivedBidiClass.txt`, und für
+StringPrep gibt es in diesem Projekt seit Langem denselben Weg:
+`tools/stringprep/generate.py` erzeugt `StringPrepTables.cs` aus dem RFC-Text.
+
+Also `tools/unicode/generate-bidiclass.py`, nach demselben Muster. Er lädt die
+Datei, liest die Bereiche und schreibt `Jabber/Common/BidiClasses.cs` — zehn
+Tabellen, 764 Bereiche. **Die elfte Klasse, L, ist nicht aufgeschrieben:** Sie
+ist die grösste und zugleich die Vorgabe der Unicode-Datei selbst. Was in keiner
+anderen Tabelle steht, ist L.
+
+Der Unterschied zur Näherung, um die es in D42 und D43 ging, ist genau dieser:
+**Eine erzeugte Tabelle kann veralten, eine geratene kann falsch sein.** Die
+Unicode-Fassung steht im Kopf der Datei, der Generator daneben; wer zweifelt,
+lässt ihn laufen und vergleicht.
+
+**Die Regel ist ansteckend, und das ist ihr eigentlicher Inhalt.** Sobald ein
+einziges Label rechtsläufige Zeichen trägt, ist der ganze Name ein „Bidi domain
+name" — und dann müssen *alle* Labels die sechs Bedingungen erfüllen, auch die
+aus reinem ASCII. `9abc.example` ist ein gültiger Domainname, `9abc.אבג` ist
+keiner. Wer das überliest, baut eine von zwei Sorten Fehler: Er wendet die Regel
+nie an, oder er wendet sie immer an und weist reihenweise Namen ab, die es seit
+dreissig Jahren gibt. Beide Sorten haben hier einen Test.
+
+**Ein A-Label wird für die Regel ausgepackt.** `9abc.xn--4dbcagdahymbxekheh6e0a7fei0b`
+sieht in seiner ASCII-Verpackung aus wie zwei linksläufige Labels; darin steckt
+Hebräisch. Wer die Bidi-Regel über die Verpackung laufen lässt, findet nie
+etwas.
+
+Zehn Mutationen, alle erschlagen — **eine erst nach einer Verschärfung, und zum
+vierten Mal aus demselben Grund** (D3, D5, D36, D43): Der Testfall traf schon
+eine frühere Bedingung. `אבגa` prüft nicht, was es zu prüfen scheint: Es
+scheitert an Bedingung 3 (ein rechtsläufiges Label endet auf R, AL, EN oder AN)
+und nicht an Bedingung 2 (in einem rechtsläufigen Label ist L unzulässig).
+Erst `אaב` — das fremde Zeichen in der **Mitte** — trifft Bedingung 2 allein.
+Dasselbe für Bedingung 5 gegen 6.
+
+Und ein Fehler in der Arbeitsweise, der diesmal glimpflich ausging: Ich habe
+**Testdateien geändert, während der Mutationslauf lief.** Die späteren
+Mutationen liefen damit gegen andere Tests als die früheren. Weil die Änderung
+nur Fälle hinzufügte, blieben die Urteile gültig - „erschlagen" bleibt
+erschlagen. Richtig ist es trotzdem nicht: Es gilt dieselbe Regel wie für den
+Quelltext, und aus demselben Grund wie in D43.
+
+---
+
 ## Später
 
 ### Protokoll
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
-- **Die Bidi-Regel aus RFC 5893 fehlt** — ein Label mit Zeichen aus einer
-  rechtsläufigen Schrift wird nicht daraufhin geprüft, ob es die Regel für
-  „Bidi-Domainnamen" erfüllt. Sie verlangt `Bidi_Class` für jeden Codepoint;
-  .NET liefert die Eigenschaft nicht, und aus Blockgrenzen geraten wäre sie
-  wieder die Näherung aus D42 — hier über ganze Labels statt über einzelne
-  Zeichen (siehe D43)
 - RFC 5892, Anhang A: die kontextabhängigen Regeln, bis auf A.8 und A.9. A.1/A.2
   brauchen `Joining_Type` und die Virama-Eigenschaft, A.3 bis A.7 brauchen
   `Script` — Eigenschaften, die .NET nicht ausliefert. Betroffen sind fünf
-  Satzzeichen und die beiden Joiner; sie werden abgewiesen (siehe D42)
+  Satzzeichen und die beiden Joiner; sie werden abgewiesen. Gilt für
+  Localparts wie für Domain-Labels (siehe D42, D43)
 
 ### Transport
 - **Ein gescheiterter Verbindungsaufbau nennt den Endpunkt nicht.** Die Ausnahme

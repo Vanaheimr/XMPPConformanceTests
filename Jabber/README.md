@@ -136,7 +136,7 @@ beide Beispieltabellen aus §3.5 (fünfzehn gültige und acht ungültige Adresse
 | Zerlegung in der Reihenfolge aus §3.2 (erst `/`, dann `@`) | ✅ |
 | Localpart: UsernameCaseMapped, plus die Ausschlüsse aus §3.3.1 | ✅ Abbildungsregeln vollständig, IdentifierClass aus den abgeleiteten Eigenschaften nach RFC 8264 §8 |
 | Resourcepart: OpaqueString, **nicht** kleingeschrieben | ✅ ebenso, mit der FreeformClass |
-| Domainpart: kleingeschrieben, NFC | ⚠️ IDNA2008 Label für Label (RFC 5891/5892), Punycode selbst gerechnet (RFC 3492); ohne die Bidi-Regel aus RFC 5893 |
+| Domainpart: kleingeschrieben, NFC | ✅ IDNA2008 Label für Label (RFC 5891/5892), Punycode selbst gerechnet (RFC 3492), Bidi-Regel nach RFC 5893 über einer aus `DerivedBidiClass.txt` erzeugten Tabelle |
 | Höchstlänge 1023 Oktette je Teil | ✅ |
 | Vergleich: Local-/Domainpart schreibweisenunabhängig, Resourcepart nicht | ✅ |
 
@@ -157,12 +157,18 @@ Label-Regeln geprüft und zurückgerechnet; ergibt die Rückrechnung eine andere
 Schreibweise, wird es abgewiesen. Adressliterale (`127.0.0.1`, `[::1]`) sind
 nach RFC 7622 §3.2 ausgenommen.
 
-**Was fehlt:** die Bidi-Regel aus RFC 5893 (sie braucht `Bidi_Class`) und die
-kontextabhängigen Regeln aus RFC 5892 Anhang A — bis auf A.8 und A.9 (die beiden
-Reihen arabisch-indischer Ziffern dürfen nicht gemischt werden), die ohne
-Unicode-Eigenschaften auskommen. Die übrigen brauchen `Joining_Type` bzw.
-`Script`; ohne sie werden die betroffenen fünf Satzzeichen und die beiden Joiner
-abgewiesen.
+Trägt ein einziges Label rechtsläufige Zeichen, ist der ganze Name ein
+*Bidi domain name* (RFC 5893 §2), und dann müssen **alle** Labels die sechs
+Bedingungen erfüllen — auch die aus reinem ASCII. `9abc.example` ist deshalb ein
+gültiger Domainname und `9abc.אבג` keiner. Die Bidi-Klassen stehen in
+`Jabber/Common/BidiClasses.cs`, erzeugt von `tools/unicode/generate-bidiclass.py`
+aus `DerivedBidiClass.txt`.
+
+**Was fehlt:** die kontextabhängigen Regeln aus RFC 5892 Anhang A — bis auf A.8
+und A.9 (die beiden Reihen arabisch-indischer Ziffern dürfen nicht gemischt
+werden), die ohne Unicode-Eigenschaften auskommen. Die übrigen brauchen
+`Joining_Type` bzw. `Script`; ohne sie werden die betroffenen fünf Satzzeichen
+und die beiden Joiner abgewiesen.
 
 **Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
 (`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird
@@ -724,6 +730,7 @@ nicht gegen sich selbst:
 | RFC 7622 §3.5 | JID-Beispieltabellen: 15 gültige, 8 ungültige Adressen | ✅ reproduziert (Ausnahme: Beispiel 18, siehe oben) |
 | RFC 3492 §7.1 | Punycode: elf Beispiele in acht Schriften | ✅ exakt reproduziert, in beide Richtungen |
 | RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
+| Unicode `DerivedBidiClass.txt` | Die Bidi-Klassen für RFC 5893 | ✅ von `tools/unicode/generate-bidiclass.py` aus der Unicode-Datei erzeugt (15.1.0, 764 Bereiche) |
 | XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 
 Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
