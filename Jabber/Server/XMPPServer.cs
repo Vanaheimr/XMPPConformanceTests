@@ -3378,12 +3378,44 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return RemoteStanzaResult.MissingAddress;
             }
 
+            // RFC 6120, Abschnitt 8.3.3.8, hier für den Weg über die Grenze.
+            // Die Prüfung des Absenders steht vor der Zuständigkeitsfrage: Ein
+            // DomainOf auf eine Zeichenkette, die kein JID ist, vergleicht
+            // Bruchstücke und nennt das Ergebnis dann "fremde Domain".
+            if (!JidUtilities.TryParse(from, out _))
+            {
+                OnRemoteStanzaRejected?.Invoke(peerDomain, $"'{from}' ist kein JID");
+                return RemoteStanzaResult.MalformedSender;
+            }
+
             if (!String.Equals(DomainOf(from), peerDomain, StringComparison.OrdinalIgnoreCase))
             {
                 OnRemoteStanzaRejected?.Invoke(
                     peerDomain,
                     $"'{from}' gehört nicht zu '{peerDomain}'");
                 return RemoteStanzaResult.ForeignSender;
+            }
+
+            // Und der Empfänger vor der Frage, ob er hierher gehört: IsLocal
+            // sieht nur die Domain an, und 'b ob@dieser.server' gehört hierher,
+            // ohne eine Adresse zu sein. Bis hierher lief so eine Stanza in die
+            // Zustellung und sah dort aus wie eine an einen Abwesenden.
+            if (!JidUtilities.TryParse(to, out _))
+            {
+
+                OnRemoteStanzaRejected?.Invoke(peerDomain, $"'{to}' ist kein JID");
+
+                // Abschnitt 8.3.1: auf einen Fehler folgt kein Fehler. Über die
+                // Grenze wiegt das schwerer als im eigenen Haus - zwei Server,
+                // die einander antworten, hören von selbst nicht auf.
+                if (Attr(stanza, "type") != "error")
+                    await RouteToAsync(from,
+                                       JidMalformedError(StanzaElement.NameOf(stanza) ?? "message",
+                                                         Attr(stanza, "id"),
+                                                         from));
+
+                return RemoteStanzaResult.MalformedRecipient;
+
             }
 
             if (!IsLocal(to))
@@ -3902,19 +3934,38 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             if (Attr(frame, "type") != "error")
                 await session.SendAsync(
-                    $"<{kind} type='error'" +
-                    (Attr(frame, "id") is { } id ? $" id='{id}'" : "") +
-                    $" from='{Domain}'" +
-                    (session.FullJid is { } an ? $" to='{an}'" : "") +
-                    ">" +
-                    "<error type='modify'>" +
-                    "<jid-malformed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
-                    "</error>" +
-                    $"</{kind}>");
+                    JidMalformedError(kind, Attr(frame, "id"), session.FullJid));
 
             return true;
 
         }
+
+        /// <summary>
+        /// Der Fehlerrahmen zu einem <c>to</c>, das kein JID ist (RFC 6120,
+        /// Abschnitt 8.3.3.8).
+        /// </summary>
+        /// <remarks>
+        /// Eine Fassung für beide Herkünfte. Die zweite hätte sich nur in
+        /// Kleinigkeiten unterschieden - und genau die wären der Unterschied
+        /// gewesen, den niemand bemerkt: Ein Client, der über die Grenze eine
+        /// andere Fehlerart bekommt als im eigenen Haus, hat zwei Fälle zu
+        /// behandeln, wo es einen gibt.
+        ///
+        /// <paramref name="replyTo"/> darf fehlen: Vor dem Binding hat der
+        /// Absender noch keine Adresse, und ein leeres <c>to</c> wäre
+        /// schlechter als keines.
+        /// </remarks>
+        private String JidMalformedError(String kind, String? id, String? replyTo)
+
+            => $"<{kind} type='error'" +
+               (id is not null ? $" id='{id}'" : "") +
+               $" from='{Domain}'" +
+               (replyTo is not null ? $" to='{replyTo}'" : "") +
+               ">" +
+               "<error type='modify'>" +
+               "<jid-malformed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+               "</error>" +
+               $"</{kind}>";
 
         private String BadRequestIq(String? id)
 

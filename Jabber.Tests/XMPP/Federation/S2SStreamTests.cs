@@ -360,6 +360,85 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AMalformedSender_EndsTheStreamAsWell()
+
+        /// <summary>
+        /// Ein <c>from</c>, das überhaupt kein JID ist, beendet den Stream
+        /// ebenso.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 8.1.1.1 unterscheidet die beiden Fälle nicht:
+        /// Ein <c>from</c>, das die Gegenstelle nicht führen darf, und eines,
+        /// das keine Adresse ist, sind beide „invalid". Und der Grund, aus dem
+        /// der erste den Stream beendet, trägt hier genauso — wer einmal etwas
+        /// schickt, das keine Adresse hat, tut es beim nächsten Versuch wieder.
+        ///
+        /// Ohne diesen Test käme das neue Urteil aus D53 im Stream nirgends an:
+        /// Er reicht alles, was nicht <c>Accepted</c> ist, als verworfene
+        /// Stanza weiter, und die Verbindung bliebe offen.
+        /// </remarks>
+        [Test]
+        public async Task AMalformedSender_EndsTheStreamAsWell()
+        {
+
+            var stream = EingehendMit(RemoteStanzaResult.MalformedSender);
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            var abgelehnt = new List<String>();
+            stream.OnStanzaRefused += grund => abgelehnt.Add(grund);
+
+            await stream.ProcessFrameAsync(
+                      "<message from='al ice@links.example' to='bob@rechts.example'><body>Hallo</body></message>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(abgelehnt,                Is.Not.Empty);
+                Assert.That(Gesendet("invalid-from"),  Is.True);
+                Assert.That(stream.IsClosed,           Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region AMalformedRecipient_DropsOnlyThatStanza()
+
+        /// <summary>
+        /// Ein unmöglicher <b>Empfänger</b> kostet dagegen nur die eine Stanza.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenprobe zum vorigen Test, und sie zieht die Grenze, um die es
+        /// geht: Beim Absender steht die Frage im Raum, wer da spricht — beim
+        /// Empfänger ein Tippfehler in einer Adresse. Risse der die Föderation
+        /// ab, wäre die Prüfung schlimmer als ihr Nutzen.
+        /// </remarks>
+        [Test]
+        public async Task AMalformedRecipient_DropsOnlyThatStanza()
+        {
+
+            var stream = EingehendMit(RemoteStanzaResult.MalformedRecipient);
+
+            await stream.ProcessFrameAsync(OpenVon("links.example"));
+
+            var abgelehnt = new List<String>();
+            stream.OnStanzaRefused += grund => abgelehnt.Add(grund);
+
+            await stream.ProcessFrameAsync(
+                      "<message from='alice@links.example' to='b ob@rechts.example'><body>Hallo</body></message>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(abgelehnt,                Is.Not.Empty);
+                Assert.That(Gesendet("invalid-from"),  Is.False, "Nur die Stanza ist falsch, nicht der Stream.");
+                Assert.That(stream.IsClosed,           Is.False);
+                Assert.That(stream.IsOpen,             Is.True);
+            });
+
+        }
+
+        #endregion
+
         #region AForeignRecipient_DropsOnlyThatStanza()
 
         /// <summary>

@@ -1594,9 +1594,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // fremden Domain schreibt, tut es beim nächsten Versuch wieder, und
             // eine einzelne verworfene Stanza hielte ihn nicht auf. Die
             // übrigen Ablehnungen betreffen nur die eine Stanza.
-            if (result == RemoteStanzaResult.ForeignSender)
+            // Ein 'from', das gar kein JID ist, gehört in dieselbe Zeile:
+            // Abschnitt 8.1.1.1 nennt beides ungültig, und der Grund trägt
+            // genauso - wer einmal etwas ohne Adresse schickt, tut es wieder.
+            if (result is RemoteStanzaResult.ForeignSender
+                       or RemoteStanzaResult.MalformedSender)
                 await SendStreamErrorAsync("invalid-from",
-                                           $"'{RemoteDomain}' darf nicht für eine fremde Domain sprechen.",
+                                           result == RemoteStanzaResult.ForeignSender
+                                               ? $"'{RemoteDomain}' darf nicht für eine fremde Domain sprechen."
+                                               : "Das 'from' der Stanza ist kein JID.",
                                            cancellationToken);
 
             return false;

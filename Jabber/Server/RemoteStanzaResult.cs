@@ -39,6 +39,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         MissingAddress,
 
         /// <summary>
+        /// Das <c>from</c> ist kein JID nach RFC 7622.
+        /// </summary>
+        /// <remarks>
+        /// Für den Stream derselbe Fall wie <see cref="ForeignSender"/>:
+        /// RFC 6120, Abschnitt 8.1.1.1 nennt beides ein ungültiges
+        /// <c>from</c> und lässt den Stream mit <c>&lt;invalid-from/&gt;</c>
+        /// enden. Ein eigener Wert ist es trotzdem, weil der Grund ein anderer
+        /// ist - hier spricht niemand für eine fremde Domain, hier steht dort
+        /// überhaupt keine Adresse.
+        /// </remarks>
+        MalformedSender,
+
+        /// <summary>
+        /// Das <c>to</c> ist kein JID nach RFC 7622.
+        /// </summary>
+        /// <remarks>
+        /// Anders als beim Absender kostet das nur die eine Stanza: Es ist ein
+        /// Tippfehler in einer Adresse und keine Aussage darüber, wer da
+        /// spricht. Der Absender bekommt <c>&lt;jid-malformed/&gt;</c> zurück.
+        /// </remarks>
+        MalformedRecipient,
+
+        /// <summary>
         /// Die Gegenstelle spricht für eine Domain, die ihr nicht gehört.
         /// </summary>
         ForeignSender,

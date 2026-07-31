@@ -4299,6 +4299,61 @@ Konto nicht gibt.
 
 ---
 
+### D53. Dieselbe Prüfung, andere Tür ✅ — `<jid-malformed/>` über die Grenze
+
+Der zweite Fund aus D51. Die Prüfung des `to` galt nur für Stanzas von
+Clients; was über `AcceptFromRemoteAsync` von einer Gegenstelle kam, wurde auf
+Herkunft und Zuständigkeit geprüft und dann zugestellt. **Dort trifft sie den
+wahrscheinlicheren Fall:** Den eigenen Client schreibt dieselbe Bibliothek, die
+fremde Implementierung nicht.
+
+**Beim Hinsehen hatte das `from` dieselbe Lücke, und die ist die ernstere.**
+`DomainOf("al ice@links.example")` liefert brav `links.example`, die
+Zuständigkeitsprüfung ist zufrieden, und eine Stanza mit einer Absenderadresse,
+die keine ist, läuft durch. Bruchstücke zu vergleichen und das Ergebnis „fremde
+Domain" zu nennen ist keine Prüfung.
+
+Die beiden Fälle wiegen verschieden schwer, und darin liegt die eigentliche
+Entscheidung:
+
+- **`MalformedSender`** geht denselben Weg wie `ForeignSender`: RFC 6120,
+  Abschnitt 8.1.1.1 nennt beides ein ungültiges `from`, der Stream endet mit
+  `<invalid-from/>`. Der Grund trägt genauso — wer einmal etwas ohne Adresse
+  schickt, tut es beim nächsten Versuch wieder.
+- **`MalformedRecipient`** kostet nur die eine Stanza, dazu ein
+  `<jid-malformed/>` zurück an den Absender. Das ist ein Tippfehler in einer
+  Adresse und keine Aussage darüber, wer da spricht. Risse er die Föderation
+  ab, wäre die Prüfung schlimmer als ihr Nutzen — `AMalformedRecipient_DropsOnlyThatStanza`
+  hält die Grenze fest.
+
+**Die Reihenfolge ist selbst eine Aussage** und hat deshalb einen eigenen
+Testfall. Bei `bob@-rechts.example` ist schon die Domain keine; `IsLocal` hielte
+sie für die einer dritten Partei. Stünde die Prüfung dahinter, wäre die Stanza
+richtig abgewiesen und **falsch begründet** — der Absender suchte den Fehler an
+der falschen Stelle. Die Mutation, die genau das tut, stirbt an diesem Fall und
+an keinem anderen.
+
+Der Fehlerrahmen aus D51 ist dabei zu **einer** Fassung zusammengezogen
+(`JidMalformedError`). Zwei Buchstabierungen hätten sich nur in Kleinigkeiten
+unterschieden, und genau die wären der Unterschied gewesen, den niemand
+bemerkt: Ein Client, der über die Grenze eine andere Fehlerart bekommt als im
+eigenen Haus, hat zwei Fälle zu behandeln, wo es einen gibt.
+
+Sieben Mutationen, alle erschlagen: Absender nicht geprüft, Empfänger nicht
+geprüft, Empfänger erst nach der Zuständigkeitsfrage, Fehler-Stanza wird
+beantwortet, Ablehnung nennt den Empfänger als Absender, unmöglicher Absender
+beendet den Stream nicht mehr, und — die Gegenrichtung — jede Ablehnung beendet
+den Stream.
+
+Eine Beobachtung am Rande, die beim nächsten Mal Zeit spart: In den
+Mutationsläufen standen **11 übersprungene** Tests statt der gewohnten 7. Kein
+Rätsel, sondern die fehlenden Umgebungsvariablen `JABBER_*_CERTS` — `mutate.ps1`
+gibt sie nicht weiter. Für diese Mutationen war es folgenlos (keine davon
+betrifft die fremden Gegenstellen), aber eine Mutation im S2S-Transport wäre
+dort gegen weniger Tests gemessen worden, als der Name der Sammlung verspricht.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4338,13 +4393,11 @@ Konto nicht gibt.
 
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
-Was dort nicht auftaucht und trotzdem ansteht:
-- **`<jid-malformed/>` gilt bisher nur für Stanzas von Clients** (D51). Was über
-  `AcceptFromRemoteAsync` von einer Gegenstelle hereinkommt, wird auf Herkunft
-  und Zuständigkeit geprüft, aber nicht darauf, ob das `to` überhaupt ein JID
-  ist. `IsLocal` sieht nur die Domain und lässt `al ice@localhost` durch. Nötig
-  wäre dort ein weiterer `RemoteStanzaResult`, damit der Grund der Ablehnung
-  wie die anderen gemeldet wird
+Was dort nicht auftauchte und trotzdem anstand, ist in D49 bis D53
+abgearbeitet: `<resume/>` beantworten (war seit R1 erledigt, offen blieb das
+`h` im `<failed/>` — D49), SCRAM anbieten (war seit S2 erledigt, offen blieb
+das unbekannte Konto — D50) und Stanza-Fehler ohne Schalter (D51 bis D53).
+**Hier steht derzeit nichts offen.**
 
 ### Struktur
 - `Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst aufgeschoben;

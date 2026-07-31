@@ -1213,6 +1213,188 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AMalformedRecipientFromAnotherServer_IsRefusedAndAnswered()
+
+        /// <summary>
+        /// Ein <c>to</c>, das kein JID ist, wird auch von einer Gegenstelle
+        /// nicht angenommen — und der Absender erfährt es.
+        /// </summary>
+        /// <remarks>
+        /// D51 hat die Prüfung für Stanzas von Clients eingeführt; für den Weg
+        /// über die Grenze fehlte sie. Dort trifft sie den wahrscheinlicheren
+        /// Fall: Den eigenen Client schreibt dieselbe Bibliothek, die fremde
+        /// Implementierung nicht.
+        ///
+        /// <c>IsLocal</c> allein reicht nicht, weil es nur die Domain ansieht.
+        /// <c>b ob@rechts.example</c> gehört hierher und ist trotzdem keine
+        /// Adresse — die Stanza lief bis in die Zustellung und sah dort aus wie
+        /// eine an einen abwesenden Empfänger.
+        ///
+        /// Die zweite Adresse prüft die <b>Reihenfolge</b>: Bei
+        /// <c>bob@-rechts.example</c> ist schon die Domain keine, und
+        /// <c>IsLocal</c> würde sie deshalb für die einer dritten Partei
+        /// halten. Stünde die Prüfung dahinter, hiesse der Grund „fremder
+        /// Empfänger" — richtig abgewiesen, falsch begründet, und der Absender
+        /// suchte den Fehler an der falschen Stelle.
+        /// </remarks>
+        [TestCase("b ob@",  TestName = "Leerzeichen im Localpart")]
+        [TestCase("bob@-",  TestName = "Bindestrich am Anfang der Domain")]
+        public async Task AMalformedRecipientFromAnotherServer_IsRefusedAndAnswered(String anfang)
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            var bob   = await VerbindeAsync(_rechts, "bob");
+
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "from"));
+
+            var beiAlice = new ConcurrentQueue<String>();
+            var beiBob   = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='von-drueben'", StringComparison.Ordinal))
+                {
+                    beiAlice.Enqueue(x);
+                }
+            };
+
+            bob.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='von-drueben'", StringComparison.Ordinal))
+                {
+                    beiBob.Enqueue(x);
+                }
+            };
+
+            var urteil = await _rechts.AcceptFromRemoteAsync(
+                             _links.Domain,
+                             $"<message type='chat' id='von-drueben' " +
+                             $"from='{alice.FullJid}' to='{anfang}{_rechts.Domain}'>" +
+                             "<body>An eine Adresse, die keine ist</body></message>");
+
+            await WarteAuf(() => !beiAlice.IsEmpty, "die Ablehnung über die Grenze zurück");
+
+            beiAlice.TryDequeue(out var abgelehnt);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(urteil, Is.EqualTo(RemoteStanzaResult.MalformedRecipient),
+                            "Der Grund gehört genannt, sonst steht er als 'fremder Empfänger' da.");
+
+                Assert.That(abgelehnt, Does.Contain("<jid-malformed "));
+
+                Assert.That(abgelehnt, Does.Contain($"from='{_rechts.Domain}'"),
+                            "Abgewiesen hat der Server des Empfängers, nicht der Empfänger.");
+
+                Assert.That(beiBob, Is.Empty,
+                            "Bob bekommt sie nicht zu sehen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AMalformedSenderFromAnotherServer_IsRefusedWithoutAnAnswer()
+
+        /// <summary>
+        /// Ein <c>from</c>, das kein JID ist, wird abgewiesen — und nicht
+        /// beantwortet.
+        /// </summary>
+        /// <remarks>
+        /// Es gäbe auch niemanden, an den eine Antwort ginge: Die Adresse des
+        /// Absenders ist keine. Dass die Prüfung <b>vor</b> der
+        /// Zuständigkeitsfrage steht, hat denselben Grund — <c>DomainOf</c> auf
+        /// eine Zeichenkette anzuwenden, die kein JID ist, vergleicht
+        /// Bruchstücke und nennt das Ergebnis dann „fremde Domain".
+        ///
+        /// Für den Stream ist das nach RFC 6120, Abschnitt 8.1.1.1 derselbe
+        /// Fall wie ein <c>from</c>, für das die Gegenstelle nicht sprechen
+        /// darf: <c>&lt;invalid-from/&gt;</c>, und der Stream endet. Das prüft
+        /// <c>S2SStreamTests</c>.
+        /// </remarks>
+        [Test]
+        public async Task AMalformedSenderFromAnotherServer_IsRefusedWithoutAnAnswer()
+        {
+
+            await VerbindeAsync(_links,  "alice");
+            var bob = await VerbindeAsync(_rechts, "bob");
+
+            _rechts.GetAccount(Bob)!.SetRosterEntry(new RosterEntry(Alice, null, "from"));
+
+            var beiBob = new ConcurrentQueue<String>();
+
+            bob.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='von-drueben'", StringComparison.Ordinal))
+                {
+                    beiBob.Enqueue(x);
+                }
+            };
+
+            var urteil = await _rechts.AcceptFromRemoteAsync(
+                             _links.Domain,
+                             $"<message type='chat' id='von-drueben' " +
+                             $"from='al ice@{_links.Domain}' to='{bob.FullJid}'>" +
+                             "<body>Von einer Adresse, die keine ist</body></message>");
+
+            Assert.That(urteil, Is.EqualTo(RemoteStanzaResult.MalformedSender));
+
+            await WarteGegen(() => !beiBob.IsEmpty, "die Zustellung an Bob");
+
+        }
+
+        #endregion
+
+        #region AMalformedRecipientInAnErrorStanza_IsNotAnswered()
+
+        /// <summary>
+        /// Auf eine Fehler-Stanza folgt kein Fehler, auch nicht über die
+        /// Grenze (RFC 6120, Abschnitt 8.3.1).
+        /// </summary>
+        /// <remarks>
+        /// Über die Grenze wiegt die Regel schwerer als im eigenen Haus: Zwei
+        /// Server, die einander antworten, schieben sich die Meldung zu, bis
+        /// einer aufgibt — und keiner von beiden merkt, dass er in einer
+        /// Schleife steckt.
+        /// </remarks>
+        [Test]
+        public async Task AMalformedRecipientInAnErrorStanza_IsNotAnswered()
+        {
+
+            var alice = await VerbindeAsync(_links,  "alice");
+            await VerbindeAsync(_rechts, "bob");
+
+            var beiAlice = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("id='von-drueben'", StringComparison.Ordinal))
+                {
+                    beiAlice.Enqueue(x);
+                }
+            };
+
+            var urteil = await _rechts.AcceptFromRemoteAsync(
+                             _links.Domain,
+                             $"<message type='error' id='von-drueben' " +
+                             $"from='{alice.FullJid}' to='b ob@{_rechts.Domain}'>" +
+                             "<error type='cancel'><gone xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error>" +
+                             "</message>");
+
+            Assert.That(urteil, Is.EqualTo(RemoteStanzaResult.MalformedRecipient));
+
+            await WarteGegen(() => !beiAlice.IsEmpty, "eine Antwort auf eine Fehler-Stanza");
+
+        }
+
+        #endregion
+
     }
 
 }
