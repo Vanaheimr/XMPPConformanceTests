@@ -3546,6 +3546,52 @@ ist die einzige Kombination, die es nicht geben darf.
 
 ---
 
+### D40. Angekündigt und dann verweigert ✅ — Abschnitt 4
+
+Der Nebenbefund aus D39, und er ist kein fehlendes Merkmal, sondern ein
+falsches Versprechen: `LocalFeatures` führt
+`http://jabber.org/protocol/disco#items` seit jeher, beantwortet wurde eine
+items-Abfrage nie. Sie fiel durch bis zum `<service-unavailable/>`. Eine
+Gegenstelle, die der Merkmalsliste glaubt, bekam also einen Fehler auf eine
+Frage, zu der wir sie eingeladen hatten.
+
+**Die Antwort ist eine leere Liste, und das ist keine Notlösung.** „Ich habe
+keine" und „frag mich nicht" sind verschiedene Auskünfte, und nur die erste
+stimmt: Ein Client hat keine Untereinheiten. Wer stattdessen
+`<service-unavailable/>` schickt, sagt das Zweite — und wer die Frage gar nicht
+erst zulässt, hätte das Merkmal nicht ankündigen dürfen.
+
+`DiscoManager.LocalItems` ist leer als Vorgabe und wird tatsächlich gelesen; ein
+Test füllt sie, sonst wäre „immer eine leere Liste" eine bestandene Lösung und
+die Liste eine Zierde.
+
+**Ein `node` ist hier etwas anderes als in D39.** Bei disco#info bezeichnet er
+die Entity selbst (der Caps-Node aus XEP-0115); bei disco#items ist er ein Ast
+im Baum der Untereinheiten. Dieser Client hat keinen einzigen, also
+`<item-not-found/>` — dieselbe Entscheidung wie in D39, aus demselben Grund. Die
+leere Liste wäre hier die falsche Antwort: Sie hiesse **„diesen Zweig gibt es,
+er ist leer"** statt „diesen Zweig gibt es nicht".
+
+Deshalb hat `RespondItemsAsync` **keinen** `node`-Parameter, obwohl sein
+Gegenstück `RespondInfoAsync` einen hat. Er bekäme nie einen Wert: Wo ein Node
+in der Frage steht, wird gar nicht geantwortet. Ein Parameter, der nie einen
+Wert bekommt, sieht aus wie eine Fähigkeit und ist keine — und wäre prompt der
+erste Überlebende gewesen, weil ihn kein Test je erreicht.
+
+`RefuseUnknownNode` hat dafür den Namensraum als Parameter bekommen: Der Fehler
+nimmt die Anfrage zurück, die gestellt wurde. **Ein Fehler, der die falsche
+Frage nennt, ist schlechter als einer ohne Frage** — der Frager ordnet ihn dann
+der falschen Abfrage zu. Eine eigene Mutation prüft genau das.
+
+Vier Tests, sieben Mutationen, alle erschlagen.
+
+Und eine Zeile im README stimmte nicht mehr: `EntityCapsManager.GetCachedInfo`
+stand unter „ungenutzt und ungetestet", während zwei Fixtures darüber prüfen,
+was im Caps-Cache landet. Solche Listen veralten in die unangenehme Richtung —
+sie behaupten ungeprüft, was inzwischen geprüft ist.
+
+---
+
 ## Später
 
 ### Protokoll
@@ -3556,15 +3602,6 @@ ist die einzige Kombination, die es nicht geben darf.
   FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
   den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz
   (siehe D5)
-
-### XEPs
-- XEP-0030: **disco#items wird angekündigt, aber nicht beantwortet.**
-  `LocalFeatures` führt `http://jabber.org/protocol/disco#items`, und
-  `QueryItemsAsync` fragt danach — eine eingehende items-Abfrage fällt aber bis
-  zum `<service-unavailable/>` durch, weil es kein Gegenstück zu
-  `RespondInfoAsync` gibt. Eine leere Liste wäre die richtige Antwort für eine
-  Entity ohne Untereinheiten; angekündigt und dann verweigert ist die einzige
-  Kombination, die es nicht geben darf (aufgefallen in D39)
 
 ### Transport
 - Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`

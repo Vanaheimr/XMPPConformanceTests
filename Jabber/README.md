@@ -49,7 +49,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP | Name | Status | Anmerkung |
 |-----|------|--------|-----------|
 | XEP-0013 | Flexible Offline Message Retrieval | ⛔ | Von der XSF als *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the protocol described herein is not recommended." Die Offline-Ablage bleibt beim automatischen Nachreichen nach RFC 6121 §8.5.2.2.1 und XEP-0160 — siehe [WORKPLAN.md](../WORKPLAN.md), D37 |
-| XEP-0030 | Service Discovery | ✅ | Abfrage + Antwort; das `node` der Anfrage wird nach §3.2 gespiegelt. Beantwortet werden nur Nodes, die diese Entity bezeichnen — der Caps-Node mit und ohne aktuelles `#ver` (XEP-0115 §6.2); jeder andere, auch ein veraltetes `ver`, bekommt `<item-not-found/>` mit der Anfrage zurück. Der Testserver führt keine Nodes und weist jeden ab |
+| XEP-0030 | Service Discovery | ✅ | disco#info und disco#items, abgefragt und beantwortet. Das `node` der Anfrage wird nach §3.2 gespiegelt; beantwortet werden nur Nodes, die diese Entity bezeichnen — der Caps-Node mit und ohne aktuelles `#ver` (XEP-0115 §6.2). Jeder andere, auch ein veraltetes `ver`, bekommt `<item-not-found/>` mit der Anfrage zurück. disco#items antwortet aus `DiscoManager.LocalItems` (leer als Vorgabe: ein Client hat keine Untereinheiten); ein `node` ist dort ein Ast im Baum und wird abgewiesen. Der Testserver führt keine Nodes und weist jeden ab |
 | XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; ausgehend werden die IQ-Ergebnisse nicht korreliert — ein Abonnement gilt sofort als bestehend, auch wenn der Dienst es ablehnt, und `OnSubscriptionResult` wird nie ausgelöst. Steht unter „Optional", siehe [WORKPLAN.md](../WORKPLAN.md), D38 |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
@@ -812,9 +812,14 @@ Folgende öffentliche Member werden nirgends aufgerufen und sind ungetestet:
 `MessageReceipt`, `ReceiptTracker.GetTimedOutMessages`,
 `PubSubManager.OnSubscriptionResult`, `PubSubBuilder.Retract`,
 `PubSubBuilder.DiscoverNodes`, `StreamManagementManager.ResumeAsync`/
-`GetUnackedStanzas`/`OnStanzasLost`, `EntityCapsManager.GetCachedInfo`,
+`GetUnackedStanzas`/`OnStanzasLost`,
 `RosterStanzaBuilder.GetRoster`/`Unsubscribe`, `DiscoInfo.Supports*`,
 `CarbonManager.DisableIq`.
+
+`EntityCapsManager.GetCachedInfo` stand hier ebenfalls und gehört nicht mehr
+hierher: `CapsExchangeTests` und `CapsVerificationTests` prüfen darüber, was im
+Cache landet und was nicht. Eine Liste ungenutzter Member veraltet in die
+falsche Richtung — sie behauptet ungeprüft, was inzwischen geprüft ist.
 
 ## Lizenz
 

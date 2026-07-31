@@ -25,8 +25,9 @@ using System.Xml.Linq;
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 
 /// <summary>
-/// XEP-0030: Service Discovery - fragt Features anderer Entities ab und
-/// beantwortet eingehende disco#info-Anfragen.
+/// XEP-0030: Service Discovery - fragt Features und Untereinheiten anderer
+/// Entities ab und beantwortet eingehende disco#info- und
+/// disco#items-Anfragen.
 /// </summary>
 public sealed class DiscoManager
 {
@@ -85,6 +86,22 @@ public sealed class DiscoManager
     /// zusammen mit einer neuen Presence.
     /// </remarks>
     public List<DiscoForm> LocalForms { get; } = [];
+
+    /// <summary>
+    /// XEP-0030, Abschnitt 4: Die eigenen Untereinheiten, die eine
+    /// disco#items-Abfrage aufzählt.
+    /// </summary>
+    /// <remarks>
+    /// Leer als Vorgabe, denn ein Client hat keine. Genau deshalb muss die
+    /// Abfrage trotzdem beantwortet werden: <c>LocalFeatures</c> kündigt
+    /// <c>disco#items</c> an, und angekündigt und dann verweigert ist die eine
+    /// Kombination, die es nicht geben darf.
+    ///
+    /// <b>„Ich habe keine" und „frag mich nicht" sind verschiedene
+    /// Auskünfte.</b> Ein <c>&lt;service-unavailable/&gt;</c> sagt das Zweite;
+    /// wahr ist das Erste.
+    /// </remarks>
+    public List<DiscoItem> LocalItems { get; } = [];
 
     public DiscoManager(Func<string, Task> sendStanza)
     {
@@ -354,6 +371,47 @@ public sealed class DiscoManager
 
         sb.Append("</query></iq>");
         return _sendStanza(sb.ToString());
+    }
+
+    /// <summary>
+    /// Beantwortet eine disco#items Anfrage mit <see cref="LocalItems"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ohne <c>node</c>-Parameter, und das ist Absicht.</b> Ein Zweig, den
+    /// es hier nicht gibt, wird nicht hier beantwortet, sondern gar nicht -
+    /// darüber entscheidet der Aufrufer, denn eine leere Liste hiesse „diesen
+    /// Zweig gibt es, er ist leer". Ein Parameter, der nie einen Wert bekommt,
+    /// sähe aus wie eine Fähigkeit und wäre keine.
+    /// </remarks>
+    public Task RespondItemsAsync(string id, string? from)
+    {
+
+        // Ohne 'from' kam die Anfrage vom eigenen Server (RFC 6120,
+        // Abschnitt 8.1.1.1); die Antwort geht dann ohne 'to' dorthin zurück.
+        var toAttr = from != null ? $" to='{XmlEscaping.Escape(from)}'" : "";
+
+        var sb = new StringBuilder();
+        sb.Append($"<iq type='result' id='{XmlEscaping.Escape(id)}'{toAttr}>");
+        sb.Append($"<query xmlns='{ItemsNamespace}'>");
+
+        foreach (var item in LocalItems)
+        {
+
+            sb.Append($"<item jid='{XmlEscaping.Escape(item.Jid)}'");
+
+            if (item.Node != null)
+                sb.Append($" node='{XmlEscaping.Escape(item.Node)}'");
+
+            if (item.Name != null)
+                sb.Append($" name='{XmlEscaping.Escape(item.Name)}'");
+
+            sb.Append("/>");
+
+        }
+
+        sb.Append("</query></iq>");
+        return _sendStanza(sb.ToString());
+
     }
 
 }
