@@ -164,11 +164,13 @@ gültiger Domainname und `9abc.אבג` keiner. Die Bidi-Klassen stehen in
 `Jabber/Common/BidiClasses.cs`, erzeugt von `tools/unicode/generate-bidiclass.py`
 aus `DerivedBidiClass.txt`.
 
-**Was fehlt:** die kontextabhängigen Regeln aus RFC 5892 Anhang A — bis auf A.8
-und A.9 (die beiden Reihen arabisch-indischer Ziffern dürfen nicht gemischt
-werden), die ohne Unicode-Eigenschaften auskommen. Die übrigen brauchen
-`Joining_Type` bzw. `Script`; ohne sie werden die betroffenen fünf Satzzeichen
-und die beiden Joiner abgewiesen.
+Die kontextabhängigen Regeln aus RFC 5892 Anhang A sind vollständig umgesetzt —
+für Localparts wie für Domain-Labels. Sie hängen nicht am Codepoint, sondern an
+seiner Umgebung: `col·la` ist ein katalanisches Wort und ein gültiger Localpart,
+`co·lla` ist keiner. Die dafür nötigen Eigenschaften
+(`Canonical_Combining_Class`, `Joining_Type`, `Script`) stehen in
+`Jabber/Common/ContextTables.cs`, erzeugt von
+`tools/unicode/generate-contexttables.py`.
 
 **Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
 (`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird

@@ -255,8 +255,14 @@ public static class JidUtilities
 
         CheckLength(jid, vorbereitet, "Localpart");
 
-        foreach (var codePoint in CodePoints(jid, vorbereitet))
+        // Als Feld und nicht als Folge: Die kontextabhängigen Regeln fragen
+        // nach dem Zeichen davor und danach (RFC 5892, Anhang A).
+        var punkte = CodePoints(jid, vorbereitet).ToArray();
+
+        for (var i = 0; i < punkte.Length; i++)
         {
+
+            var codePoint = punkte[i];
 
             if (codePoint < 0x80 && LocalpartExcluded.Contains((Char) codePoint))
                 throw new JidFormatException(
@@ -264,7 +270,7 @@ public static class JidUtilities
                           $"'{(Char) codePoint}' ist in einem Localpart ausgeschlossen " +
                           "(RFC 7622, Abschnitt 3.3.1).");
 
-            if (!IsAllowed(codePoint, vorbereitet, freeform: false))
+            if (!IsAllowed(punkte, i, freeform: false))
                 throw new JidFormatException(
                           jid,
                           $"U+{codePoint:X4} gehört nicht zur PRECIS-IdentifierClass " +
@@ -295,10 +301,14 @@ public static class JidUtilities
 
         var sb = new StringBuilder(value.Length);
 
-        foreach (var codePoint in CodePoints(jid, value))
+        var punkte = CodePoints(jid, value).ToArray();
+
+        for (var i = 0; i < punkte.Length; i++)
         {
 
-            if (!IsAllowed(codePoint, value, freeform: true))
+            var codePoint = punkte[i];
+
+            if (!IsAllowed(punkte, i, freeform: true))
                 throw new JidFormatException(
                           jid,
                           $"U+{codePoint:X4} gehört nicht zur PRECIS-FreeformClass " +
@@ -359,8 +369,8 @@ public static class JidUtilities
     }
 
     /// <summary>
-    /// Darf dieser Codepoint in dieser Zeichenkette stehen - IdentifierClass
-    /// für den Localpart, FreeformClass für den Resourcepart?
+    /// Darf der Codepoint an dieser Stelle stehen - IdentifierClass für den
+    /// Localpart, FreeformClass für den Resourcepart?
     /// </summary>
     /// <remarks>
     /// Die Klassenzugehörigkeit kommt aus <see cref="Precis"/> und damit aus
@@ -368,9 +378,9 @@ public static class JidUtilities
     /// kontextabhängigen Codepoints entscheidet nicht der Codepoint allein,
     /// sondern die ganze Zeichenkette - deshalb geht sie hier mit hinein.
     /// </remarks>
-    private static Boolean IsAllowed(UInt32 CodePoint, String Text, Boolean freeform)
+    private static Boolean IsAllowed(IReadOnlyList<UInt32> CodePoints, Int32 Index, Boolean freeform)
 
-        => Precis.DerivedProperty(CodePoint) switch {
+        => Precis.DerivedProperty(CodePoints[Index]) switch {
 
                PrecisProperty.PValid      => true,
                PrecisProperty.FreePValid  => freeform,
@@ -378,7 +388,7 @@ public static class JidUtilities
                // Beide Klassen lassen sie unter derselben Bedingung zu
                // (RFC 8264, Abschnitte 4.2.1 und 4.3.1).
                PrecisProperty.ContextO or
-               PrecisProperty.ContextJ    => Precis.ContextRuleSatisfied(CodePoint, Text),
+               PrecisProperty.ContextJ    => Precis.ContextRuleSatisfied(CodePoints, Index),
 
                _                          => false
 

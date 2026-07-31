@@ -211,6 +211,33 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheContextualRulesApplyToLabelsToo()
+
+        /// <summary>
+        /// Ein kontextabhängiger Codepoint hängt auch in einem Domain-Label an
+        /// seiner Umgebung (RFC 5892, Anhang A.3).
+        /// </summary>
+        /// <remarks>
+        /// <c>col·la.example</c> gibt es wirklich - der Mittelpunkt gehört zum
+        /// katalanischen Alphabet. Dieselben Zeichen in anderer Reihenfolge
+        /// ergeben kein Label. Beides prüft zugleich, dass die Label-Ebene die
+        /// Regel überhaupt <i>fragt</i>: Die Prüfung für sich zu prüfen genügt
+        /// nicht (siehe D43).
+        /// </remarks>
+        [Test]
+        public void TheContextualRulesApplyToLabelsToo()
+        {
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Gueltig("col·la.example"), Is.True, Grund("col·la.example"));
+                Assert.That(Gueltig("co·lla.example"), Is.False);
+            });
+
+        }
+
+        #endregion
+
         #region AddressLiterals_AreNotDomainNames()
 
         /// <summary>

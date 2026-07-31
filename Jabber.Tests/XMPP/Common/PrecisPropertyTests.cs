@@ -152,6 +152,193 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region Hilfsfunktionen
+
+        /// <summary>
+        /// Ist die Regel für die erste Fundstelle dieses Codepoints erfüllt?
+        /// </summary>
+        private static Boolean Regel(String Text, UInt32 CodePoint)
+        {
+
+            var punkte = Text.EnumerateRunes().Select(r => (UInt32) r.Value).ToArray();
+            var stelle = Array.IndexOf(punkte, CodePoint);
+
+            Assert.That(stelle, Is.GreaterThanOrEqualTo(0),
+                        $"U+{CodePoint:X4} kommt in '{Text}' gar nicht vor.");
+
+            return Precis.ContextRuleSatisfied(punkte, stelle);
+
+        }
+
+        #endregion
+
+
+        #region TheJoinersNeedAReasonToBeThere()
+
+        /// <summary>
+        /// RFC 5892, Anhang A.1 und A.2: Die beiden Joiner sind zulässig, wo
+        /// sie etwas bewirken - und nur dort.
+        /// </summary>
+        /// <remarks>
+        /// Beide sind unsichtbar. In einer Adresse ist ein unsichtbares Zeichen
+        /// zuerst einmal ein Weg, zwei verschiedene Adressen gleich aussehen zu
+        /// lassen. Die Regeln benennen die Stellen, an denen sie trotzdem
+        /// gebraucht werden:
+        ///
+        /// <list type="bullet">
+        ///   <item>Nach einem Virama (A.1 und A.2): Das Virama tilgt den
+        ///         eingebauten Vokal, der Joiner entscheidet über die
+        ///         Ligatur.</item>
+        ///   <item>Zwischen zwei verbindenden Buchstaben (nur A.1): Dort
+        ///         verhindert der Non-Joiner eine Verbindung, die es sonst
+        ///         gäbe.</item>
+        /// </list>
+        /// </remarks>
+        [Test]
+        public void TheJoinersNeedAReasonToBeThere()
+        {
+
+            const String Zwnj    = "‌";
+            const String Zwj     = "‍";
+            const String Virama  = "्";  // DEVANAGARI SIGN VIRAMA
+            const String Ka      = "क";  // DEVANAGARI LETTER KA
+
+            // Arabisch: BEH und YEH verbinden nach beiden Seiten (Joining_Type D).
+            const String Beh     = "ب";
+            const String Yeh     = "ي";
+            const String Shadda  = "ّ";  // ARABIC SHADDA, Joining_Type T
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Regel(Ka + Virama + Zwnj + Ka, 0x200C), Is.True,
+                            "A.1, erster Weg: nach einem Virama.");
+
+                Assert.That(Regel(Ka + Virama + Zwj + Ka, 0x200D), Is.True,
+                            "A.2: nach einem Virama.");
+
+                Assert.That(Regel(Beh + Zwnj + Yeh, 0x200C), Is.True,
+                            "A.1, zweiter Weg: zwischen zwei verbindenden Buchstaben.");
+
+                Assert.That(Regel("a" + Zwnj + "b", 0x200C), Is.False,
+                            "Zwischen zwei lateinischen Buchstaben verbindet sich nichts.");
+
+                Assert.That(Regel("a" + Zwj + "b", 0x200D), Is.False,
+                            "Für den Joiner gibt es den zweiten Weg gar nicht.");
+
+                Assert.That(Regel(Beh + Zwj + Yeh, 0x200D), Is.False,
+                            "Auch nicht zwischen verbindenden Buchstaben.");
+
+                // Die drei Fälle, an denen sich zeigt, dass beide Seiten und
+                // die durchsichtigen Zeichen dazwischen wirklich geprüft
+                // werden. Ohne sie genügte es, eine der beiden Seiten
+                // anzusehen: Die Fälle darüber scheitern jeweils schon an der
+                // anderen.
+                Assert.That(Regel("a" + Zwnj + Yeh, 0x200C), Is.False,
+                            "Links steht kein verbindender Buchstabe.");
+
+                Assert.That(Regel(Beh + Zwnj + "b", 0x200C), Is.False,
+                            "Rechts steht keiner.");
+
+                Assert.That(Regel(Beh + Shadda + Zwnj + Yeh, 0x200C), Is.True,
+                            "Ein durchsichtiges Zeichen dazwischen zählt nicht mit.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheMiddleDotBelongsBetweenTwoLs()
+
+        /// <summary>
+        /// RFC 5892, Anhang A.3: Der Mittelpunkt steht zwischen zwei <c>l</c> -
+        /// dem katalanischen <c>l·l</c> - und sonst nirgends.
+        /// </summary>
+        [Test]
+        public void TheMiddleDotBelongsBetweenTwoLs()
+        {
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Regel("col·la",  0x00B7), Is.True);
+                Assert.That(Regel("co·lla",  0x00B7), Is.False, "davor kein 'l'");
+                Assert.That(Regel("coll·a",  0x00B7), Is.False, "danach kein 'l'");
+                Assert.That(Regel("·la",     0x00B7), Is.False, "am Anfang");
+            });
+
+        }
+
+        #endregion
+
+        #region TheGreekAndHebrewMarks()
+
+        /// <summary>
+        /// RFC 5892, Anhang A.4 bis A.6: Die Keraia steht vor griechischer
+        /// Schrift, Geresh und Gershayim stehen nach hebräischer.
+        /// </summary>
+        /// <remarks>
+        /// Die drei Zeichen gehören zu ihrer Schrift wie ein Buchstabe.
+        /// Ausserhalb sind sie Satzzeichen in einer Adresse - und Satzzeichen
+        /// sind das Werkzeug, mit dem sich eine Adresse einer anderen ähnlich
+        /// machen lässt.
+        /// </remarks>
+        [Test]
+        public void TheGreekAndHebrewMarks()
+        {
+
+            const String Keraia     = "͵";
+            const String Geresh     = "׳";
+            const String Gershayim  = "״";
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Regel(Keraia + "α", 0x0375), Is.True,  "A.4: vor Griechisch");
+                Assert.That(Regel(Keraia + "a", 0x0375), Is.False, "A.4: vor Latein");
+                Assert.That(Regel("α" + Keraia, 0x0375), Is.False, "A.4: am Ende");
+
+                Assert.That(Regel("א" + Geresh,    0x05F3), Is.True,  "A.5: nach Hebräisch");
+                Assert.That(Regel("a" + Geresh,    0x05F3), Is.False, "A.5: nach Latein");
+
+                Assert.That(Regel("א" + Gershayim, 0x05F4), Is.True,  "A.6: nach Hebräisch");
+                Assert.That(Regel(Gershayim + "א", 0x05F4), Is.False, "A.6: am Anfang");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheKatakanaMiddleDotNeedsJapanese()
+
+        /// <summary>
+        /// RFC 5892, Anhang A.7: Der Katakana-Mittelpunkt ist zulässig, wenn
+        /// irgendwo in der Zeichenkette japanische Schrift steht.
+        /// </summary>
+        /// <remarks>
+        /// Diese Regel sieht als einzige der sieben nicht auf die Nachbarn,
+        /// sondern auf das Ganze. Der Mittelpunkt trennt in japanischem Text
+        /// die Teile eines Fremdworts; ohne japanische Zeichen trennt er nichts.
+        /// </remarks>
+        [Test]
+        public void TheKatakanaMiddleDotNeedsJapanese()
+        {
+
+            const String Punkt = "・";
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Regel("ア" + Punkt + "ア", 0x30FB), Is.True,  "Katakana");
+                Assert.That(Regel("あ" + Punkt + "あ", 0x30FB), Is.True,  "Hiragana");
+                Assert.That(Regel("中" + Punkt + "中", 0x30FB), Is.True,  "Han");
+                Assert.That(Regel("a"  + Punkt + "b",  0x30FB), Is.False, "kein japanisches Zeichen");
+            });
+
+        }
+
+        #endregion
+
         #region TheArabicIndicDigitsRule()
 
         /// <summary>
@@ -162,10 +349,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Sie sehen einander ähnlich und bedeuten dasselbe. Zwei Konten, die
         /// sich nur darin unterscheiden, wären für den Leser dasselbe Konto -
         /// deshalb entweder der eine Satz oder der andere.
-        ///
-        /// Diese beiden Regeln sind hier umgesetzt, weil sie ohne
-        /// Unicode-Eigenschaften auskommen, die .NET nicht kennt: Sie fragen
-        /// nur, was sonst noch in der Zeichenkette steht.
         /// </remarks>
         [Test]
         public void TheArabicIndicDigitsRule()
@@ -177,15 +360,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.Multiple(() =>
             {
 
-                Assert.That(Precis.ContextRuleSatisfied(0x0660, ArabischIndisch), Is.True,
+                Assert.That(Regel(ArabischIndisch, 0x0660), Is.True,
                             "Ein Satz für sich ist zulässig.");
 
-                Assert.That(Precis.ContextRuleSatisfied(0x06F0, Erweitert), Is.True);
+                Assert.That(Regel(Erweitert, 0x06F0), Is.True);
 
-                Assert.That(Precis.ContextRuleSatisfied(0x0660, ArabischIndisch + Erweitert), Is.False,
+                Assert.That(Regel(ArabischIndisch + Erweitert, 0x0660), Is.False,
                             "Gemischt nicht.");
 
-                Assert.That(Precis.ContextRuleSatisfied(0x06F0, ArabischIndisch + Erweitert), Is.False);
+                Assert.That(Regel(ArabischIndisch + Erweitert, 0x06F0), Is.False);
 
             });
 
@@ -193,38 +376,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region TheUnimplementedContextRules()
+        #region WhatIsNotContextual()
 
         /// <summary>
-        /// Für die übrigen kontextabhängigen Codepoints gibt es hier keine
-        /// Regel - und damit keine Zulassung.
+        /// Was gar nicht kontextabhängig ist, bekommt hier keine Zulassung.
         /// </summary>
         /// <remarks>
-        /// RFC 5892, Anhang A.1 bis A.7 verlangen Unicode-Eigenschaften, die
-        /// .NET nicht ausliefert: Joining_Type für die beiden Joiner, Script
-        /// für Keraia, Geresh, Gershayim und den Katakana-Mittelpunkt. Sie
-        /// nachzubilden hiesse, die Näherung wieder einzuführen, die dieser
-        /// Punkt gerade abgeschafft hat - an einer Stelle, an der sie über
-        /// Zulassen oder Ablehnen entscheidet.
-        ///
-        /// Also lieber ablehnen und es hier hinschreiben. Es trifft
-        /// Satzzeichen und unsichtbare Zeichen, nicht Buchstaben: Wer sie in
-        /// einem Localpart führt, hat eine Adresse, die anderswo ebenfalls
-        /// Ärger macht.
+        /// Diese Funktion beantwortet nur die Frage „darf dieser Sonderfall hier
+        /// stehen". Ein gewöhnlicher Buchstabe ist keiner - für ihn entscheidet
+        /// die Leiter, und ein <c>true</c> an dieser Stelle wäre eine zweite,
+        /// stillere Zulassung neben ihr.
         /// </remarks>
         [Test]
-        public void TheUnimplementedContextRules()
+        public void WhatIsNotContextual()
         {
 
             Assert.Multiple(() =>
             {
-                Assert.That(Precis.ContextRuleSatisfied(0x200C, "a‌b"),  Is.False, "ZWNJ (A.1)");
-                Assert.That(Precis.ContextRuleSatisfied(0x200D, "a‍b"),  Is.False, "ZWJ (A.2)");
-                Assert.That(Precis.ContextRuleSatisfied(0x00B7, "l·l"),  Is.False, "MIDDLE DOT (A.3)");
-                Assert.That(Precis.ContextRuleSatisfied(0x0375, "͵α"), Is.False, "KERAIA (A.4)");
-                Assert.That(Precis.ContextRuleSatisfied(0x05F3, "א׳"), Is.False, "GERESH (A.5)");
-                Assert.That(Precis.ContextRuleSatisfied(0x05F4, "א״"), Is.False, "GERSHAYIM (A.6)");
-                Assert.That(Precis.ContextRuleSatisfied(0x30FB, "ア・ア"), Is.False, "KATAKANA MIDDLE DOT (A.7)");
+                Assert.That(Regel("abc", 0x0061), Is.False, "'a'");
+                Assert.That(Regel("♚",   0x265A), Is.False, "ein Symbol");
             });
 
         }

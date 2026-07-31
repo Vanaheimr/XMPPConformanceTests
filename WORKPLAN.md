@@ -3831,17 +3831,60 @@ Quelltext, und aus demselben Grund wie in D43.
 
 ---
 
+### D45. Der Codepoint allein sagt es nicht ✅ — RFC 5892, Anhang A
+
+Der letzte offene Punkt aus D42. Sieben der neun kontextabhängigen Regeln
+fehlten, weil sie `Canonical_Combining_Class`, `Joining_Type` und `Script`
+verlangen — und die Antwort ist dieselbe wie in D44: **holen statt raten.**
+`tools/unicode/generate-contexttables.py` schreibt `ContextTables.cs` aus drei
+Unicode-Dateien; die Lesearbeit, die sich beide Generatoren teilen, steht jetzt
+in `tools/unicode/ucd.py`. Aufgeschrieben ist nur, was die sieben Regeln
+brauchen: die Virama-Zeichen, vier Joining_Type-Werte, fünf Schriften.
+
+**„Kontextabhängig" heisst: Der Codepoint allein sagt es nicht** — und dieser
+Satz stand in der alten Bauform gar nicht zur Verfügung. Sie hiess
+`ContextRuleSatisfied(CodePoint, Text)` und konnte deshalb nur Regeln
+beantworten, die den ganzen Text betrachten (A.8/A.9). Drei der neuen Regeln
+fragen nach dem Zeichen **davor**, zwei nach dem **danach**; bei zwei gleichen
+Zeichen in derselben Zeichenkette wäre schon nicht mehr klar, welches gemeint
+ist. Die Stelle gehört also in die Frage: `ContextRuleSatisfied(CodePoints,
+Index)`. Der Aufrufer arbeitet dafür auf einem Feld statt auf einer Folge.
+
+Der Unterschied wird an einem Wort sichtbar, das es wirklich gibt: **`col·la`
+ist katalanisch und ein gültiger Localpart, `co·lla` ist keiner.** Dieselben
+Zeichen, andere Reihenfolge, andere Antwort — mehr ist über
+„kontextabhängig" nicht zu sagen.
+
+A.7 fällt aus der Reihe: Der Katakana-Mittelpunkt fragt nicht nach Nachbarn,
+sondern danach, ob **irgendwo** in der Zeichenkette japanische Schrift steht. Er
+trennt in japanischem Text die Teile eines Fremdworts; ohne japanische Zeichen
+trennt er nichts.
+
+Vierzehn Mutationen, alle erschlagen — **drei erst nach einer Verschärfung, und
+zum fünften Mal aus demselben Grund.** Diesmal in seiner reinsten Form: Regel
+A.1 hat zwei Seiten (links ein verbindender Buchstabe, rechts einer), und mein
+Testfall `a‌b` verletzte **beide**. Er konnte deshalb nicht zeigen, dass jede
+für sich geprüft wird. Erst `a‌ي` (links falsch, rechts richtig) und
+`ب‌b` (umgekehrt) trennen die beiden Hälften — und ein drittes Paar mit
+einem durchsichtigen Zeichen dazwischen zeigt, dass die Regel darüber
+hinwegsieht.
+
+Nebenbei ein Vermerk, der nicht mehr stimmte: Die Beschreibung von
+`Idna.IsValidDomain` sagte weiterhin, die Bidi-Regel fehle — seit D44 tut sie
+das nicht mehr. **Ein Kommentar, der eine Lücke benennt, ist so lange nützlich,
+wie die Lücke besteht, und danach eine Falschaussage an prominenter Stelle.**
+
+Damit ist RFC 7622 vollständig umgesetzt: Codepoint-Ebene (D42), Label-Ebene
+und Punycode (D43), Bidi-Regel (D44), kontextabhängige Regeln (D45).
+
+---
+
 ## Später
 
 ### Protokoll
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
-- RFC 5892, Anhang A: die kontextabhängigen Regeln, bis auf A.8 und A.9. A.1/A.2
-  brauchen `Joining_Type` und die Virama-Eigenschaft, A.3 bis A.7 brauchen
-  `Script` — Eigenschaften, die .NET nicht ausliefert. Betroffen sind fünf
-  Satzzeichen und die beiden Joiner; sie werden abgewiesen. Gilt für
-  Localparts wie für Domain-Labels (siehe D42, D43)
 
 ### Transport
 - **Ein gescheiterter Verbindungsaufbau nennt den Endpunkt nicht.** Die Ausnahme

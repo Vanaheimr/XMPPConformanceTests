@@ -204,44 +204,134 @@ public static class Precis
 
     #endregion
 
-    #region ContextRuleSatisfied(CodePoint, Text)
+    #region ContextRuleSatisfied(CodePoints, Index)
 
     /// <summary>
-    /// Ist die kontextabhängige Regel für diesen Codepoint in dieser
-    /// Zeichenkette erfüllt (RFC 5892, Anhang A)?
+    /// Ist die kontextabhängige Regel für diesen Codepoint an dieser Stelle
+    /// erfüllt (RFC 5892, Anhang A)?
     /// </summary>
     /// <remarks>
-    /// <b>Umgesetzt sind A.8 und A.9</b>, die beiden Regeln für die
-    /// arabisch-indischen Ziffern: Die beiden Sätze dürfen nicht gemischt
-    /// werden. Sie sehen einander ähnlich und bedeuten dasselbe; zwei Konten,
-    /// die sich nur darin unterschieden, wären für den Leser eines. Diese
-    /// beiden Regeln kommen ohne Unicode-Eigenschaften aus - sie fragen nur,
-    /// was sonst noch dasteht.
+    /// <b>Kontextabhängig heisst: Der Codepoint allein sagt es nicht.</b>
+    /// Deshalb geht hier die ganze Zeichenkette und die Stelle darin hinein und
+    /// nicht nur das Zeichen - drei der neun Regeln fragen nach dem Zeichen
+    /// davor oder danach, eine nach allen zusammen.
     ///
-    /// <b>Alles andere wird abgelehnt</b>, und zwar nicht aus Bequemlichkeit.
-    /// A.1 und A.2 brauchen <c>Joining_Type</c> und die Virama-Eigenschaft,
-    /// A.3 bis A.7 brauchen <c>Script</c> - beides liefert .NET nicht. Sie aus
-    /// Blockgrenzen zu erraten hiesse, genau die Näherung wieder einzuführen,
-    /// die diese Klasse gerade abgeschafft hat, und zwar an der Stelle, an der
-    /// sie über Zulassen oder Ablehnen entscheidet.
+    /// Die Eigenschaften, die dafür nötig sind - <c>Canonical_Combining_Class</c>,
+    /// <c>Joining_Type</c> und <c>Script</c> - liefert .NET nicht; sie stehen
+    /// in <see cref="ContextTables"/>, erzeugt aus der Unicode-Datenbank.
     ///
-    /// Es trifft fünf Satzzeichen und zwei unsichtbare Zeichen, keine
-    /// Buchstaben.
+    /// Was nicht kontextabhängig ist, bekommt hier <c>false</c>: Diese Funktion
+    /// beantwortet nur die Frage „darf dieser Sonderfall stehen", nicht die
+    /// allgemeine nach der Zulässigkeit.
     /// </remarks>
-    public static Boolean ContextRuleSatisfied(UInt32 CodePoint, String Text)
+    public static Boolean ContextRuleSatisfied(IReadOnlyList<UInt32> CodePoints, Int32 Index)
     {
 
-        // A.8: eine arabisch-indische Ziffer verträgt sich nicht mit der
-        // erweiterten Reihe - und A.9 sagt dasselbe andersherum.
-        if (CodePoint is >= UnicodeSets.ArabicIndicZero and <= UnicodeSets.ArabicIndicNine)
-            return !Text.Any(c => c is >= (Char) UnicodeSets.ExtendedArabicIndicZero
-                                    and <= (Char) UnicodeSets.ExtendedArabicIndicNine);
+        var codePoint = CodePoints[Index];
 
-        if (CodePoint is >= UnicodeSets.ExtendedArabicIndicZero and <= UnicodeSets.ExtendedArabicIndicNine)
-            return !Text.Any(c => c is >= (Char) UnicodeSets.ArabicIndicZero
-                                    and <= (Char) UnicodeSets.ArabicIndicNine);
+        return codePoint switch {
 
-        return false;
+            // A.1: ZERO WIDTH NON-JOINER
+            0x200C  => AfterVirama(CodePoints, Index) ||
+                       BetweenJoiners(CodePoints, Index),
+
+            // A.2: ZERO WIDTH JOINER
+            0x200D  => AfterVirama(CodePoints, Index),
+
+            // A.3: MIDDLE DOT - nur zwischen zwei 'l' (katalanisch l·l)
+            0x00B7  => Before(CodePoints, Index) == 0x006C &&
+                       After (CodePoints, Index) == 0x006C,
+
+            // A.4: GREEK LOWER NUMERAL SIGN - vor einem griechischen Zeichen
+            0x0375  => After(CodePoints, Index) is UInt32 danach &&
+                       ContextTables.Contains(ContextTables.ScriptGreek, danach),
+
+            // A.5 und A.6: GERESH und GERSHAYIM - nach einem hebräischen Zeichen
+            0x05F3 or
+            0x05F4  => Before(CodePoints, Index) is UInt32 davor &&
+                       ContextTables.Contains(ContextTables.ScriptHebrew, davor),
+
+            // A.7: KATAKANA MIDDLE DOT - nur in japanischem Text
+            0x30FB  => CodePoints.Any(cp => ContextTables.Contains(ContextTables.ScriptHiragana, cp) ||
+                                            ContextTables.Contains(ContextTables.ScriptKatakana, cp) ||
+                                            ContextTables.Contains(ContextTables.ScriptHan,      cp)),
+
+            // A.8: eine arabisch-indische Ziffer verträgt sich nicht mit der
+            // erweiterten Reihe - und A.9 sagt dasselbe andersherum.
+            >= UnicodeSets.ArabicIndicZero and
+            <= UnicodeSets.ArabicIndicNine
+                    => !CodePoints.Any(cp => cp is >= UnicodeSets.ExtendedArabicIndicZero
+                                               and <= UnicodeSets.ExtendedArabicIndicNine),
+
+            >= UnicodeSets.ExtendedArabicIndicZero and
+            <= UnicodeSets.ExtendedArabicIndicNine
+                    => !CodePoints.Any(cp => cp is >= UnicodeSets.ArabicIndicZero
+                                               and <= UnicodeSets.ArabicIndicNine),
+
+            _       => false
+
+        };
+
+    }
+
+    #endregion
+
+    #region (private) Nachbarn und Verbindungsarten
+
+    private static UInt32? Before(IReadOnlyList<UInt32> CodePoints, Int32 Index)
+
+        => Index > 0 ? CodePoints[Index - 1] : null;
+
+    private static UInt32? After(IReadOnlyList<UInt32> CodePoints, Int32 Index)
+
+        => Index + 1 < CodePoints.Count ? CodePoints[Index + 1] : null;
+
+    /// <summary>
+    /// Steht unmittelbar davor ein Virama (RFC 5892, Anhang A.1 und A.2)?
+    /// </summary>
+    /// <remarks>
+    /// Ein Virama tilgt den eingebauten Vokal des Zeichens davor; ein Joiner
+    /// dahinter entscheidet, ob die beiden Zeichen zu einer Ligatur
+    /// zusammenwachsen. In dieser Stellung trägt er Bedeutung und ist deshalb
+    /// zugelassen - überall sonst wäre er ein unsichtbares Zeichen in einer
+    /// Adresse.
+    /// </remarks>
+    private static Boolean AfterVirama(IReadOnlyList<UInt32> CodePoints, Int32 Index)
+
+        => Before(CodePoints, Index) is UInt32 davor &&
+           ContextTables.Contains(ContextTables.Virama, davor);
+
+    /// <summary>
+    /// Der zweite Weg aus A.1: <c>(L|D) T* ZWNJ T* (R|D)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Der Ausdruck aus dem RFC in Worten: Links vom Joiner steht - über
+    /// beliebig viele durchsichtige Zeichen hinweg - ein Buchstabe, der nach
+    /// rechts verbindet, und rechts einer, der nach links verbindet. Genau dort
+    /// verhindert der Joiner eine Verbindung, die es sonst gäbe. Steht er
+    /// woanders, verhindert er nichts und ist bloss unsichtbar.
+    /// </remarks>
+    private static Boolean BetweenJoiners(IReadOnlyList<UInt32> CodePoints, Int32 Index)
+    {
+
+        var links = Index - 1;
+
+        while (links >= 0 && ContextTables.Contains(ContextTables.JoiningT, CodePoints[links]))
+            links--;
+
+        if (links < 0 ||
+            !(ContextTables.Contains(ContextTables.JoiningL, CodePoints[links]) ||
+              ContextTables.Contains(ContextTables.JoiningD, CodePoints[links])))
+            return false;
+
+        var rechts = Index + 1;
+
+        while (rechts < CodePoints.Count && ContextTables.Contains(ContextTables.JoiningT, CodePoints[rechts]))
+            rechts++;
+
+        return rechts < CodePoints.Count &&
+               (ContextTables.Contains(ContextTables.JoiningR, CodePoints[rechts]) ||
+                ContextTables.Contains(ContextTables.JoiningD, CodePoints[rechts]));
 
     }
 

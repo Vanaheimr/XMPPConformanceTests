@@ -112,25 +112,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region WithoutARule_TheContextualOnesAreRefused()
+        #region TheContextualOnesDependOnTheirNeighbours()
 
         /// <summary>
-        /// Ein kontextabhängiger Codepoint ohne umgesetzte Regel wird
-        /// abgewiesen - hier der Mittelpunkt aus dem katalanischen l·l.
+        /// Ein kontextabhängiger Codepoint hängt an seiner Umgebung - der
+        /// Mittelpunkt gehört zwischen zwei <c>l</c> (RFC 5892, Anhang A.3).
         /// </summary>
         /// <remarks>
-        /// Das ist die bewusste Grenze dieses Punktes und keine Lücke im
-        /// Verborgenen: Die Regel aus RFC 5892, Anhang A.3 verlangt zu wissen,
-        /// was links und rechts steht, und die übrigen Regeln verlangen
-        /// <c>Script</c> - eine Eigenschaft, die .NET nicht ausliefert. Sie zu
-        /// erraten hiesse, die Näherung wieder einzuführen, die dieser Punkt
-        /// abgeschafft hat.
+        /// <c>col·la</c> ist ein katalanisches Wort und ein gültiger Localpart;
+        /// <c>co·lla</c> ist dieselbe Zeichenmenge in anderer Reihenfolge und
+        /// keiner. Dass beides <b>nicht</b> dasselbe Ergebnis hat, ist der
+        /// ganze Inhalt von „kontextabhängig".
         /// </remarks>
         [Test]
-        public void WithoutARule_TheContextualOnesAreRefused()
+        public void TheContextualOnesDependOnTheirNeighbours()
         {
 
-            Assert.That(IstJid($"co{MiddleDot}lla@example.com"), Is.False);
+            Assert.Multiple(() =>
+            {
+                Assert.That(IstJid($"col{MiddleDot}la@example.com"), Is.True);
+                Assert.That(IstJid($"co{MiddleDot}lla@example.com"), Is.False);
+            });
 
         }
 

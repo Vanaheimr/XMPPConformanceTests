@@ -164,12 +164,10 @@ public static class Idna
     /// IPv4-Adresse und ein eingeklammertes IPv6-Literal zu. Sie sind keine
     /// Domainnamen, und IDNA hat über sie nichts zu sagen.
     ///
-    /// <b>Was hier noch fehlt, ist die Bidi-Regel</b> (RFC 5893): Sie verlangt
-    /// die Eigenschaft <c>Bidi_Class</c> für jeden Codepoint eines Labels, und
-    /// die liefert .NET nicht. Sie aus Blockgrenzen zu erraten wäre dieselbe
-    /// Näherung, die in D42 abgeschafft wurde - hier sogar folgenreicher, denn
-    /// die Regel entscheidet über ganze Labels und nicht über einzelne
-    /// Zeichen.
+    /// <b>Zuletzt die Bidi-Regel</b> (RFC 5893, Abschnitt 2): Sie gilt erst,
+    /// wenn ein Label rechtsläufige Zeichen trägt - dann aber für alle Labels
+    /// dieses Namens. Deshalb steht sie hier und nicht in der Label-Prüfung:
+    /// Ein Label allein kann die Frage nicht beantworten.
     /// </remarks>
     public static Boolean IsValidDomain(String Domain, out String? Reason)
     {
@@ -329,16 +327,21 @@ public static class Idna
             return false;
         }
 
-        foreach (var codePoint in CodePoints(ULabel))
+        // Als Feld und nicht als Folge: Die kontextabhängigen Regeln fragen
+        // nach dem Zeichen davor und danach (RFC 5892, Anhang A).
+        var punkte = CodePoints(ULabel).ToArray();
+
+        for (var i = 0; i < punkte.Length; i++)
         {
 
+            var codePoint   = punkte[i];
             var eigenschaft = DerivedProperty(codePoint);
 
             if (eigenschaft == IdnaProperty.PValid)
                 continue;
 
             if (eigenschaft is IdnaProperty.ContextJ or IdnaProperty.ContextO &&
-                Precis.ContextRuleSatisfied(codePoint, ULabel))
+                Precis.ContextRuleSatisfied(punkte, i))
                 continue;
 
             Reason = $"U+{codePoint:X4} gehört nicht in ein Domain-Label " +
