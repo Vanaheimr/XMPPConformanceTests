@@ -309,6 +309,14 @@ nicht eine Hülle darum: `AuthenticationException` bei abgelehnter Anmeldung,
 `XMPPProtocolException` bei einer gescheiterten Aushandlung. Wer den Aufruf
 überlebt, hat eine Verbindung.
 
+**Eine Ausnahme davon ist der Transport selbst.** Kommt die Verbindung gar nicht
+erst zustande, lautet der Fehler von dort „Unable to connect to the remote
+server" und nennt die Adresse nicht — die seit XEP-0156 auch aus dem `host-meta`
+einer fremden Domain stammen kann und dann in keinem Quelltext steht. Dieser
+eine Fall wird deshalb in eine `XMPPProtocolException` gefasst, die den Endpunkt
+nennt; der ursprüngliche Fehler bleibt als `InnerException` erhalten. Ein
+abgebrochener Aufbau bleibt eine `OperationCanceledException`.
+
 Nur der ausdrückliche Aufruf wirft. Der Wiederverbindungsversuch im Hintergrund
 hat keinen Aufrufer und meldet weiterhin über `OnError` und `OnStateChanged`.
 

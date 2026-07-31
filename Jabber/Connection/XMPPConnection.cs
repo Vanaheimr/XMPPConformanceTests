@@ -553,7 +553,29 @@ public sealed class XMPPConnection : IAsyncDisposable
             _webSocket = webSocket;
 
             _logger.LogInformation("Verbinde zu {WebSocketUri} ...", WebSocketUri);
-            await webSocket.ConnectAsync(new Uri(WebSocketUri), ct);
+
+            // Der Endpunkt gehört in die Ausnahme, und zwar nur hier. Was der
+            // Transport wirft, lautet „Unable to connect to the remote server"
+            // und sagt nicht, wohin - seit XEP-0156 (D41) muss die Adresse
+            // nicht einmal mehr vom Aufrufer stammen, und dann steht sie in
+            // keinem Quelltext, den er lesen könnte.
+            //
+            // Das ist kein Rückzieher gegenüber D31: Dort geht es um den
+            // *Stapel* des ursprünglichen Fehlers, und der ist hier ohne Wert
+            // (er endet in ClientWebSocket.ConnectAsync). Die Ausnahme bleibt
+            // als InnerException erhalten; die Aushandlungs- und
+            // Anmeldefehler danach werden nicht angefasst.
+            try
+            {
+                await webSocket.ConnectAsync(new Uri(WebSocketUri), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new XMPPProtocolException(
+                          $"Der Verbindungsaufbau zu {WebSocketUri} ist gescheitert: {ex.Message}",
+                          ex);
+            }
+
             _logger.LogInformation("WebSocket verbunden");
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

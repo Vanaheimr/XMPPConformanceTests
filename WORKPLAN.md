@@ -3935,15 +3935,45 @@ ehrlichsten Zeile die falscheste.
 
 ---
 
+### D47. Wohin eigentlich? ✅ — der Endpunkt im Fehlertext
+
+Scheiterte der Verbindungsaufbau, lautete die Ausnahme „Unable to connect to the
+remote server" — ohne die Adresse. Solange der Aufrufer sie selbst mitgab, war
+das verschmerzbar: Er konnte in seinem eigenen Quelltext nachsehen. **Seit
+XEP-0156 (D41) kann sie aus dem `host-meta` einer fremden Domain stammen**, und
+dann steht sie nirgends, wo er nachsehen könnte.
+
+Also wird genau dieser eine Aufruf eingefasst: Was `ClientWebSocket.ConnectAsync`
+wirft, kommt als `XMPPProtocolException` heraus, die den Endpunkt nennt und den
+ursprünglichen Fehler als `InnerException` mitführt.
+
+**Das ist kein Rückzieher gegenüber D31.** Dort ging es um den *Stapel* des
+ursprünglichen Fehlers — „für den Aufrufer ist die Stelle interessant, an der es
+schiefging". Genau das trifft hier nicht zu: Der Stapel endet in
+`ClientWebSocket.ConnectAsync` und sagt nichts, was man nicht schon weiss. Was
+fehlt, ist die Adresse. Alles danach — Aushandlung, SASL, Binding — bleibt
+unverändert und wirft weiter seine eigenen Ausnahmen; ein
+`AuthenticationException` ist nach wie vor eines, und der Wiederverbindungs­weg
+entscheidet weiter an ihm.
+
+Zwei Grenzen dazu, beide mit einem Test:
+
+- **Ein Abbruch bleibt ein Abbruch.** Wer sein Token zieht, bekommt seine
+  `OperationCanceledException` und nicht die Meldung über den Endpunkt - sonst
+  liesse sich der eigene Abbruch nicht mehr von einem Fehlschlag unterscheiden.
+- **Genannt wird der benutzte Endpunkt, nicht der Vorgabewert.** Der Test lässt
+  die Discovery `wss://127.0.0.1:1/ws` finden; genau diese Adresse muss in der
+  Meldung stehen. Ohne ihn wäre „nenne den eingebauten Vorgabewert" eine
+  bestandene Lösung — und die verschwiege gerade den Fall, für den die ganze
+  Änderung da ist.
+
+Vier Mutationen, alle erschlagen, ohne Nachschärfen.
+
+---
+
 ## Später
 
 ### Transport
-- **Ein gescheiterter Verbindungsaufbau nennt den Endpunkt nicht.** Die Ausnahme
-  kommt aus dem Transport („Unable to connect to the remote server") und wird
-  nach D31 bewusst unverpackt weitergereicht — die Adresse steht nur im Log. Seit
-  XEP-0156 stammt sie nicht mehr zwingend vom Aufrufer, und damit ist die Frage
-  „wohin eigentlich?" nicht mehr aus dem eigenen Quelltext zu beantworten
-  (siehe D41)
 - **TCP-Transport für den Client.** `CreateTcp` ist in D34 entfernt worden; der
   Transport selbst fehlt weiter. Der Umfang ist bekannt: Der Client fasst den
   WebSocket an neun Stellen unmittelbar an (Verbinden, Senden, die beiden

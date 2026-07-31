@@ -95,12 +95,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Discovery.
         /// </summary>
         /// <remarks>
-        /// Geprüft wird der Endpunkt und nicht der Fehlertext: Die Ausnahme
-        /// kommt aus dem Transport und lautet „Unable to connect to the remote
-        /// server" - sie nennt die Adresse nicht, zu der verbunden wurde. Das
-        /// fällt hier zum ersten Mal ins Gewicht, weil die Adresse seit
-        /// XEP-0156 nicht mehr zwingend vom Aufrufer stammt, und steht deshalb
-        /// unter „Später".
+        /// Geprüft wird beides: der Endpunkt, bei dem es bleibt, und dass der
+        /// Fehler ihn nennt. Der Transport selbst tut das nicht - er meldet
+        /// „Unable to connect to the remote server" und schweigt darüber,
+        /// wohin (siehe D47).
         /// </remarks>
         [Test]
         public async Task WithoutAHostMeta_TheDefaultRemains()
@@ -125,12 +123,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var client = new XMPPClient(connection);
 
-            await FailingConnectAsync(client);
+            var fehler = await FailingConnectAsync(client);
 
             Assert.Multiple(() =>
             {
 
                 Assert.That(connection.WebSocketUri, Is.EqualTo($"wss://{Server.Domain}:5443/ws"));
+
+                Assert.That(fehler.Message, Does.Contain(connection.WebSocketUri),
+                            $"Der Fehler nennt den Endpunkt nicht: {fehler.Message}");
+
+                Assert.That(fehler.InnerException, Is.Not.Null,
+                            "Und er trägt den ursprünglichen Fehler bei sich.");
 
                 // Zwei Adressen (host-meta.json und host-meta) - aber nur
                 // einmal, obwohl der Client danach noch einen zweiten
@@ -141,6 +145,82 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                             $"Die Discovery lief mehr als einmal an: {gefragt} Abfragen.");
 
             });
+
+        }
+
+        #endregion
+
+        #region TheErrorNamesTheDiscoveredEndpoint()
+
+        /// <summary>
+        /// Scheitert der Aufbau an einem <b>gefundenen</b> Endpunkt, nennt der
+        /// Fehler diesen - nicht den Vorgabewert.
+        /// </summary>
+        /// <remarks>
+        /// Das ist der Fall, für den der Endpunkt überhaupt in die Meldung
+        /// gehört: Er stammt aus dem <c>host-meta</c> einer fremden Domain und
+        /// steht in keinem Quelltext, den der Aufrufer lesen könnte. „Unable to
+        /// connect to the remote server" lässt ihn dann raten.
+        /// </remarks>
+        [Test]
+        public async Task TheErrorNamesTheDiscoveredEndpoint()
+        {
+
+            // Auf Port 1 hört nichts, und zwar zuverlässig.
+            const String Gefunden = "wss://127.0.0.1:1/ws";
+
+            var connection = new XMPPConnection($"alice@{Server.Domain}", "pw")
+            {
+                EndpointDiscovery      = Antwortet(
+                    "{ \"links\": [ { \"rel\": \"urn:xmpp:alt-connections:websocket\", \"href\": \"" +
+                    Gefunden + "\" } ] }"),
+
+                MaxReconnectAttempts   = 1,
+                InitialReconnectDelay  = TimeSpan.FromMilliseconds(50)
+            };
+
+            var client  = new XMPPClient(connection);
+
+            var fehler  = await FailingConnectAsync(client);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(connection.WebSocketUri, Is.EqualTo(Gefunden));
+                Assert.That(fehler.Message,          Does.Contain(Gefunden),
+                            $"Der Fehler nennt den gefundenen Endpunkt nicht: {fehler.Message}");
+            });
+
+        }
+
+        #endregion
+
+        #region ADeliberateCancel_StaysACancel()
+
+        /// <summary>
+        /// Ein abgebrochener Verbindungsaufbau bleibt ein Abbruch und wird
+        /// nicht zum Protokollfehler umgedeutet.
+        /// </summary>
+        /// <remarks>
+        /// Die Meldung mit dem Endpunkt ist für das gedacht, was schiefgeht -
+        /// nicht für das, was der Aufrufer selbst veranlasst hat. Wer sein
+        /// Token zieht, bekommt seine <c>OperationCanceledException</c>, sonst
+        /// kann er den eigenen Abbruch nicht mehr von einem Fehlschlag
+        /// unterscheiden.
+        /// </remarks>
+        [Test]
+        public void ADeliberateCancel_StaysACancel()
+        {
+
+            var connection = new XMPPConnection($"alice@{Server.Domain}", "pw", Server.Uri)
+            {
+                ServerCertificateValidator = Server.IsOwnCertificate
+            };
+
+            using var abbruch = new CancellationTokenSource();
+            abbruch.Cancel();
+
+            Assert.That(async () => await connection.ConnectAsync(abbruch.Token),
+                        Throws.InstanceOf<OperationCanceledException>());
 
         }
 
