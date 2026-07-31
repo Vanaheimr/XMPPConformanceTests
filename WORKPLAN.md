@@ -3879,12 +3879,63 @@ und Punycode (D43), Bidi-Regel (D44), kontextabhängige Regeln (D45).
 
 ---
 
-## Später
+### D46. Ein Tippstatus verspricht nichts ✅ — XEP-0160, Abschnitt 3
 
-### Protokoll
-- XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
-  abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
-  (siehe D14)
+Der letzte Punkt unter „Später → Protokoll", und der Grund für die Verschiebung
+war von Anfang an der falsche. Er lautete: „dieser Client schickt keine solche
+Nachricht, die Regel wäre ungetestet". Das stimmt für den Client — **nur gehört
+die Regel dem Server.** Ein Test braucht keinen Client, der einen Tippstatus an
+einen Abwesenden schickt; er braucht eine Zeichenkette auf der Leitung, und die
+schreibt `SendRawAsync` seit jeher.
+
+XEP-0160, Abschnitt 3 nennt die Ausnahme beim `chat`: „with the exception of
+messages that contain only Chat State Notifications (XEP-0085) content (such
+messages SHOULD NOT be stored offline)". Ein Tippstatus ist eine Aussage über
+*jetzt*. Beim Anmelden nachgereicht sagt er, jemand tippe gerade — und das
+stimmt dann garantiert nicht mehr. Zehn davon verdrängen ausserdem die
+Nachrichten, für die die Ablage da ist.
+
+**Und der Absender bekommt keinen Fehler**, obwohl D14 das stillschweigende
+Verwerfen ausdrücklich ausgeschlossen hat. Das ist kein Rückfall, sondern die
+Grenze jener Regel: Sie schützt eine Erwartung. Wer eine Nachricht schickt, will
+wissen, ob sie ankam; wer einen Tippstatus schickt, hat nichts verloren, wenn er
+verfällt. Ein `<service-unavailable/>` dafür wäre Lärm — und einer, der bei
+jedem Tastendruck neu käme.
+
+**Hier liest der Server als einziger Stelle einen Baum**, und der Grund steht in
+der Regel selbst: Die Frage lautet „sind *alle* Kinder Tippstatus-Elemente".
+Ein `Contains` beantwortet „kommt vor", nicht „kommt nur vor" — und genau dieser
+Unterschied ist die Vorschrift. Die Zeichenkettenbrille aus D26 bleibt dort, wo
+sie hingehört: bei der Weiche, die entscheidet, *was* eine Stanza ist.
+
+Drei Entscheidungen dabei, jede mit einem Test:
+
+- Ein `<thread/>` zählt nicht als Inhalt — XEP-0085, Abschnitt 5.3 führt genau
+  diese Form vor.
+- Eine Nachricht ohne Text ist deshalb noch lange kein Tippstatus: Eine
+  Empfangsbestätigung (XEP-0184) und ein Lesevermerk (XEP-0333) haben keinen
+  Text und sollen ankommen. Die naheliegende Abkürzung „ohne `<body/>` nicht
+  ablegen" wäre falsch.
+- `normal` mit demselben Inhalt wird abgelegt. Das ist der Buchstabe des
+  Abschnitts: Dort steht „SHOULD be stored offline" ohne Einschränkung. Die
+  Regel weiter zu ziehen als geschrieben hiesse, eine eigene Vorschrift zu
+  erfinden und sie fremd zu nennen.
+
+Sieben Mutationen, alle erschlagen — eine erst nach einer Verschärfung, und der
+Fall ist hübsch: Die Mutation prüfte statt des Namensraums den Namen
+(`composing`). **Alle meine Fälle benutzten ausgerechnet `<composing/>`** — die
+Mutation war damit unsichtbar, obwohl XEP-0085 fünf Zustände kennt. Ein
+`<active/>` genügt, um sie zu erschlagen.
+
+Zum zweiten Mal in zwei Punkten stand ausserdem eine Aussage im README, die
+ihre Wahrheit überlebt hatte: „Eine Anfrage von einer Gegenstelle an die
+Serveradresse bleibt unbeantwortet" — beantwortet seit D36. **Ein Vermerk über
+eine Lücke braucht dasselbe Nachziehen wie der Quelltext**; sonst wird aus der
+ehrlichsten Zeile die falscheste.
+
+---
+
+## Später
 
 ### Transport
 - **Ein gescheiterter Verbindungsaufbau nennt den Endpunkt nicht.** Die Ausnahme

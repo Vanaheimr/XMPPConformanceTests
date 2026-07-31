@@ -218,6 +218,249 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AChatStateOnly_IsNotStored()
+
+        /// <summary>
+        /// XEP-0160, Abschnitt 3: Ein <c>chat</c>, der nur einen Tippstatus
+        /// trägt, wird nicht abgelegt - „such messages SHOULD NOT be stored
+        /// offline".
+        /// </summary>
+        /// <remarks>
+        /// Ein Tippstatus ist eine Aussage über <i>jetzt</i>. Beim Anmelden
+        /// nachgereicht sagt er, jemand tippe gerade - und das stimmt dann
+        /// nicht mehr. Zehn davon in der Ablage verdrängen ausserdem die
+        /// Nachrichten, für die sie gedacht ist.
+        ///
+        /// <b>Und der Absender bekommt hier keinen Fehler</b>, obwohl D14 das
+        /// stillschweigende Verwerfen sonst ausdrücklich ausschliesst. Der
+        /// Unterschied liegt in der Erwartung: Wer eine Nachricht schickt, will
+        /// wissen, ob sie ankam; wer einen Tippstatus schickt, hat nichts
+        /// verloren, wenn er verfällt. Ein Fehler dafür wäre Lärm - und einer,
+        /// der bei jedem Tastendruck neu käme.
+        /// </remarks>
+        [Test]
+        public async Task AChatStateOnly_IsNotStored()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            var fehler = new ConcurrentQueue<StanzaError>();
+            alice.Connection.OnStanzaError += (from, e) => fehler.Enqueue(e);
+
+            await alice.SendRawAsync(
+                      $"<message to='{Bob}' type='chat' id='tippt'>" +
+                      "<composing xmlns='http://jabber.org/protocol/chatstates'/></message>");
+
+            // Danach eine, die abgelegt werden muss - sie ist der Beweis, dass
+            // die Ablage lief, während der Tippstatus durchfiel.
+            await alice.SendMessageAsync(Bob, "Und das bleibt liegen");
+
+            await WarteAufAblage(Bob, 1);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(Server.GetAccount(Bob)!.OfflineMessages[0].Stanza,
+                            Does.Contain("Und das bleibt liegen"));
+
+                Assert.That(fehler, Is.Empty,
+                            "Ein verfallener Tippstatus ist kein Fehler.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AChatStateWithABody_IsStored()
+
+        /// <summary>
+        /// Die Gegenprobe: Trägt dieselbe Nachricht auch einen Text, wird sie
+        /// abgelegt.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0085, Abschnitt 5.3 lässt den Tippstatus ausdrücklich an einer
+        /// gewöhnlichen Nachricht mitreisen. Die Ausnahme aus XEP-0160 gilt
+        /// nur, wenn <b>nichts anderes</b> darin steht - ohne diese Gegenprobe
+        /// wäre „alles wegwerfen, was einen Tippstatus enthält" eine bestandene
+        /// Lösung, und sie verlöre echte Nachrichten.
+        /// </remarks>
+        [Test]
+        public async Task AChatStateWithABody_IsStored()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            await alice.SendRawAsync(
+                      $"<message to='{Bob}' type='chat' id='mit-text'>" +
+                      "<body>Bin gleich da</body>" +
+                      "<active xmlns='http://jabber.org/protocol/chatstates'/></message>");
+
+            await WarteAufAblage(Bob, 1);
+
+            Assert.That(Server.GetAccount(Bob)!.OfflineMessages[0].Stanza,
+                        Does.Contain("Bin gleich da"));
+
+        }
+
+        #endregion
+
+        #region WhatIsNotAChatState_IsStored()
+
+        /// <summary>
+        /// Die zweite Gegenprobe: Eine Nachricht ohne Text ist deshalb noch
+        /// lange kein Tippstatus.
+        /// </summary>
+        /// <remarks>
+        /// Die naheliegende Abkürzung wäre „ohne <c>&lt;body/&gt;</c> nicht
+        /// ablegen". Sie wäre falsch: Eine Empfangsbestätigung (XEP-0184) und
+        /// ein Lesevermerk (XEP-0333) haben keinen Text und sollen den Empfänger
+        /// trotzdem erreichen. Auch ein <c>thread</c> allein macht aus einer
+        /// Nachricht keinen Tippstatus.
+        /// </remarks>
+        [Test]
+        public async Task WhatIsNotAChatState_IsStored()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            await alice.SendRawAsync(
+                      $"<message to='{Bob}' type='chat' id='quittung'>" +
+                      "<received xmlns='urn:xmpp:receipts' id='vorher'/></message>");
+
+            await WarteAufAblage(Bob, 1);
+
+            Assert.That(Server.GetAccount(Bob)!.OfflineMessages[0].Stanza,
+                        Does.Contain("urn:xmpp:receipts"));
+
+        }
+
+        #endregion
+
+        #region AChatStateWithAThread_IsAlsoNotStored()
+
+        /// <summary>
+        /// Ein <c>thread</c> neben dem Tippstatus ändert nichts: Er ist eine
+        /// Kennung, kein Inhalt.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0085, Abschnitt 5.3 führt genau diese Form vor. Wer den Thread
+        /// als Inhalt zählte, legte den Tippstatus doch ab - und zwar in genau
+        /// der Schreibweise, die das XEP empfiehlt.
+        /// </remarks>
+        [Test]
+        public async Task AChatStateWithAThread_IsAlsoNotStored()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            await alice.SendRawAsync(
+                      $"<message to='{Bob}' type='chat' id='tippt-im-faden'>" +
+                      "<composing xmlns='http://jabber.org/protocol/chatstates'/>" +
+                      "<thread>abcd</thread></message>");
+
+            await alice.SendMessageAsync(Bob, "Und das bleibt liegen");
+
+            await WarteAufAblage(Bob, 1);
+
+            Assert.That(Server.GetAccount(Bob)!.OfflineMessages[0].Stanza,
+                        Does.Contain("Und das bleibt liegen"));
+
+        }
+
+        #endregion
+
+        #region ANormalMessageWithOnlyAChatState_IsStored()
+
+        /// <summary>
+        /// Die Ausnahme steht bei <c>chat</c> und nirgends sonst - ein
+        /// <c>normal</c> mit demselben Inhalt wird abgelegt.
+        /// </summary>
+        /// <remarks>
+        /// Das ist der Buchstabe von XEP-0160, Abschnitt 3: Für <c>normal</c>
+        /// steht dort „SHOULD be stored offline" ohne jede Einschränkung, für
+        /// <c>chat</c> mit. Die Regel weiter zu ziehen als geschrieben hiesse,
+        /// eine eigene Vorschrift zu erfinden und sie fremd zu nennen.
+        /// </remarks>
+        [Test]
+        public async Task ANormalMessageWithOnlyAChatState_IsStored()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            await alice.SendRawAsync(
+                      $"<message to='{Bob}' type='normal' id='normal-tippt'>" +
+                      "<composing xmlns='http://jabber.org/protocol/chatstates'/></message>");
+
+            await WarteAufAblage(Bob, 1);
+
+            Assert.That(Server.GetAccount(Bob)!.OfflineMessages[0].Stanza,
+                        Does.Contain("chatstates"));
+
+        }
+
+        #endregion
+
+        #region WhatCountsAsAChatStateOnlyMessage()
+
+        /// <summary>
+        /// Die Regel selbst, ohne Netz - samt der beiden Fälle, die über die
+        /// Ablage nicht erreichbar sind.
+        /// </summary>
+        /// <remarks>
+        /// Eine Nachricht ohne Kinder und eine, die sich nicht lesen lässt,
+        /// kommen im laufenden Betrieb nicht bis hierher - die Rahmung siebt sie
+        /// vorher aus. Die Regel muss trotzdem für sich stimmen: Sie
+        /// entscheidet, ob eine Nachricht verworfen wird, und wer sie in eine
+        /// andere Umgebung trägt, bringt die Siebe nicht mit.
+        ///
+        /// <b>Im Zweifel gilt „ist eine Nachricht":</b> Was sich nicht als
+        /// Tippstatus nachweisen lässt, wird abgelegt. Der umgekehrte Irrtum
+        /// verlöre eine Nachricht.
+        /// </remarks>
+        [Test]
+        public void WhatCountsAsAChatStateOnlyMessage()
+        {
+
+            const String Tippstatus = "<composing xmlns='http://jabber.org/protocol/chatstates'/>";
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(XMPPServer.IsChatStateOnly($"<message>{Tippstatus}</message>"),
+                            Is.True);
+
+                Assert.That(XMPPServer.IsChatStateOnly($"<message>{Tippstatus}<thread>a</thread></message>"),
+                            Is.True);
+
+                // Nicht nur <composing/>: XEP-0085 kennt fünf Zustände, und der
+                // Namensraum entscheidet, nicht der Name.
+                Assert.That(XMPPServer.IsChatStateOnly("<message><active xmlns='http://jabber.org/protocol/chatstates'/></message>"),
+                            Is.True);
+
+                Assert.That(XMPPServer.IsChatStateOnly("<message><thread>a</thread></message>"),
+                            Is.False, "Ein thread allein ist kein Tippstatus.");
+
+                Assert.That(XMPPServer.IsChatStateOnly("<message/>"),
+                            Is.False, "Eine Nachricht ohne Kinder auch nicht.");
+
+                Assert.That(XMPPServer.IsChatStateOnly("<message><composing/></message>"),
+                            Is.False, "Ohne den Namensraum ist es irgendein Element.");
+
+                Assert.That(XMPPServer.IsChatStateOnly("<message><composing"),
+                            Is.False, "Und was sich nicht lesen lässt, ist eine Nachricht.");
+
+            });
+
+        }
+
+        #endregion
+
         #region AStoredMessage_IsDeliveredOnlyOnce()
 
         /// <summary>

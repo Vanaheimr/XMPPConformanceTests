@@ -25,6 +25,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -2363,7 +2364,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (recipients.Length == 0)
             {
 
-                await StoreOfflineOrRefuseAsync(to, stamped, id, sender);
+                // XEP-0160, Abschnitt 3: ein chat, der *nur* einen Tippstatus
+                // trägt, wird nicht abgelegt. Er ist eine Aussage über jetzt,
+                // und beim Anmelden nachgereicht wäre er schlicht falsch.
+                //
+                // Der Absender bekommt dafür auch keinen Fehler, obwohl das
+                // stillschweigende Verwerfen sonst ausgeschlossen ist: Wer eine
+                // Nachricht schickt, will wissen, ob sie ankam; wer einen
+                // Tippstatus schickt, hat nichts verloren, wenn er verfällt.
+                if (messageType != MessageType.Chat || !IsChatStateOnly(stamped))
+                    await StoreOfflineOrRefuseAsync(to, stamped, id, sender);
 
                 // Ehrlich vermerkt: Eine Mutation, die hier die Frage nach der
                 // Herkunft fallen lässt, überlebt - obwohl sie für eine
@@ -2397,6 +2407,51 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await SendSentCarbonsAsync(origin, stamped);
 
         }
+
+        /// <summary>
+        /// Trägt diese Nachricht <b>nur</b> einen Tippstatus (XEP-0085)?
+        /// </summary>
+        /// <remarks>
+        /// <b>Hier wird als einziger Stelle im Server ein Baum gelesen</b>, und
+        /// zwar mit Absicht: Die Frage lautet „sind <i>alle</i> Kinder
+        /// Tippstatus-Elemente", und die lässt sich an einer Zeichenkette nicht
+        /// stellen. Ein <c>Contains</c> beantwortet „kommt vor", nicht „kommt
+        /// nur vor" - und der Unterschied ist genau die Regel.
+        ///
+        /// Ein <c>thread</c> zählt nicht als Inhalt: XEP-0085, Abschnitt 5.3
+        /// führt ihn ausdrücklich neben dem Tippstatus vor. Er ist eine
+        /// Kennung, kein Text.
+        ///
+        /// Lässt sich die Stanza nicht lesen, ist die Antwort <c>false</c> -
+        /// dann wird abgelegt wie bisher. Was sich nicht als Tippstatus
+        /// nachweisen lässt, wird wie eine Nachricht behandelt; der umgekehrte
+        /// Irrtum verlöre eine.
+        /// </remarks>
+        internal static Boolean IsChatStateOnly(String stanza)
+        {
+
+            try
+            {
+
+                var kinder = XElement.Parse(stanza).Elements().ToArray();
+
+                // Das Any beantwortet zugleich den leeren Fall: Eine Nachricht
+                // ohne Kinder trägt keinen Tippstatus.
+                return kinder.Any(k => k.Name.NamespaceName == ChatStatesNamespace) &&
+                       kinder.All(k => k.Name.NamespaceName == ChatStatesNamespace ||
+                                       k.Name.LocalName     == "thread");
+
+            }
+
+            catch (System.Xml.XmlException)
+            {
+                return false;
+            }
+
+        }
+
+        /// <summary>Der Namensraum der Tippstatus-Elemente (XEP-0085).</summary>
+        private const String ChatStatesNamespace = "http://jabber.org/protocol/chatstates";
 
         /// <summary>
         /// Legt eine Nachricht für ein Konto ohne erreichbare Resource ab -

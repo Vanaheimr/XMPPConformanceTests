@@ -55,7 +55,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
 | XEP-0156 | Discovering Alternative XMPP Connection Methods | ✅ | Nur der HTTP-Weg, und nur so weit er sicher ist: `host-meta` wird ausschliesslich über HTTPS geladen, übernommen werden ausschliesslich `wss://`-Endpunkte. BOSH (`xbosh`) wird gelesen und übergangen — dieser Client spricht es nicht. Der DNS-Weg über `_xmppconnect` fehlt nicht, er ist aus dem XEP entfernt worden |
-| XEP-0160 | Best Practices for Handling Offline Messages | ⚠️ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern. Nicht ausgenommen sind Nachrichten mit ausschliesslich Tippstatus-Inhalt |
+| XEP-0160 | Best Practices for Handling Offline Messages | ✅ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; ein `chat` mit ausschliesslich Tippstatus-Inhalt (XEP-0085) ebenfalls, und zwar ohne Fehler an den Absender. Nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0203 | Delayed Delivery | ⚠️ | Der Server stempelt nachgereichte Nachrichten; der Client liest den Stempel nicht — `XMPPMessage.Timestamp` ist die Empfangszeit |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird |
@@ -592,7 +592,9 @@ miteinander sprechen:
   RFC 7395 §3.6, Verbindung niederlegen
 - Offline-Ablage nach RFC 6121 §8.5.2.2.1 und XEP-0160, mit XEP-0203-Stempel;
   `StoreOfflineMessages` schaltet auf den gleichrangig erlaubten Gegenweg um
-  (`<service-unavailable/>` an den Absender)
+  (`<service-unavailable/>` an den Absender). Ein `chat` mit ausschliesslich
+  Tippstatus-Inhalt wird verworfen — die einzige Nachricht, die dieser Server
+  stillschweigend fallen lässt, und zwar weil ein Tippstatus nichts verspricht
 - `OnInternalError` meldet, wenn das Verarbeiten eines Frames mit einer Ausnahme
   endet — samt Frame. Danach endet der Stream mit `<internal-server-error/>`
   (RFC 6120 §4.9.3.8 und §4.9.1.1), gefolgt von `<close/>` nach RFC 7395 §3.6:
@@ -676,17 +678,18 @@ Server-Implementierung:
   wie die Zugangsdaten — Nachrichtentexte im Klartext, ohne gesetzte
   Zugriffsrechte. Ein echter Server trennt die beiden und hätte für die Ablage
   ausserdem eine Verfallszeit; hier bleibt eine Nachricht liegen, bis jemand
-  sie abholt. Was ebenfalls fehlt: XEP-0013 (die Ablage einsehen und einzeln
-  abholen, statt sie beim Anmelden über sich hereinbrechen zu lassen) und die
-  Regel aus XEP-0160, eine Nachricht mit ausschliesslich Tippstatus-Inhalt
-  nicht abzulegen.
+  sie abholt. Was ebenfalls fehlt: die Ablage einsehen und einzeln abholen,
+  statt sie beim Anmelden über sich hereinbrechen zu lassen — XEP-0013 könnte
+  das und ist bewusst nicht umgesetzt (siehe oben).
 - **Eine Probe an ein unbekanntes Konto bleibt unbeantwortet.** RFC 6121 §8.5.1
   stellt `<unsubscribed/>` und Schweigen frei; dieser Server schweigt, damit ein
   unbekanntes Konto genauso aussieht wie ein vorhandenes ohne Berechtigung.
-- **Eine Anfrage von einer Gegenstelle an die Serveradresse bleibt
-  unbeantwortet.** disco#info und Ping beantwortet der Server an seiner eigenen
-  Adresse nur für hiesige Clients; die Antworten wollen eine Sitzung, die es bei
-  S2S nicht gibt. RFC 6120 §8.2.3 Regel 3 verlangt eine Antwort.
+- **Eine Gegenstelle erreicht nur die Auskunft über den Server, nicht den
+  Zustand einer Sitzung.** Ping und disco#info an die Serveradresse werden auch
+  über die Servergrenze beantwortet (seit D36); Binding, Legacy Session,
+  Carbons und der Roster gehören dagegen einer Sitzung oder einem Konto und
+  bleiben für S2S unerreichbar — ein fremder Server, der danach fragt, bekommt
+  `<service-unavailable/>`.
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide
