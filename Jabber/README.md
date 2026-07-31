@@ -881,18 +881,28 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   S2S-Seite bereits.
 
 ### Ungenutzte API-Fläche
-Folgende öffentliche Member werden nirgends aufgerufen und sind ungetestet:
-`MessageReceipt`, `ReceiptTracker.GetTimedOutMessages`,
-`PubSubManager.OnSubscriptionResult`, `PubSubBuilder.Retract`,
-`PubSubBuilder.DiscoverNodes`, `StreamManagementManager.ResumeAsync`/
-`GetUnackedStanzas`/`OnStanzasLost`,
-`RosterStanzaBuilder.GetRoster`/`Unsubscribe`, `DiscoInfo.Supports*`,
-`CarbonManager.DisableIq`.
 
-`EntityCapsManager.GetCachedInfo` stand hier ebenfalls und gehört nicht mehr
-hierher: `CapsExchangeTests` und `CapsVerificationTests` prüfen darüber, was im
-Cache landet und was nicht. Eine Liste ungenutzter Member veraltet in die
-falsche Richtung — sie behauptet ungeprüft, was inzwischen geprüft ist.
+**Derzeit keine.** Die Liste stand hier, seit es sie gab, und ist in D57
+abgearbeitet — jeder Eintrag entweder benutzt oder gestrichen:
+
+| Member | Entscheidung |
+|--------|--------------|
+| `RosterStanzaBuilder.GetRoster` | **benutzt** — `XMPPConnection` setzte dieselbe Anfrage daneben von Hand zusammen |
+| `RosterStanzaBuilder.Unsubscribe` | **benutzt** — über das neue `CancelSubscriptionAsync`, den vierten Übergang aus RFC 6121 §3 |
+| `DiscoInfo.HasFeature` | **benutzt** — von einem Test, der die Frage vorher an der Merkmalsliste vorbei stellte |
+| `MessageReceipt` | gestrichen — der Typ dokumentierte selbst, dass er nirgends erzeugt wird |
+| `ReceiptTracker.GetTimedOutMessages` | gestrichen — es gibt keine Frist, die ablaufen könnte |
+| `PubSubManager.OnSubscriptionResult` | gestrichen — nie ausgelöst, und die einzige Warnung des Baus |
+| `PubSubBuilder.Retract` / `DiscoverNodes` | gestrichen — zwei Bausteine ohne Aufrufer, wiederherstellbar an einem Nachmittag |
+| `DiscoInfo.Supports*` (fünf Stück) | gestrichen — Abkürzungen für `HasFeature` mit eingebautem Namensraum |
+| `CarbonManager.DisableIq` | gestrichen — der Client schaltet Carbons im Aufbau ein und bietet keinen Schalter |
+| `StreamManagementManager.ResumeAsync`, `GetUnackedStanzas`, `OnStanzasLost` | **war veraltet** — alle drei werden längst benutzt |
+
+Die letzte Zeile ist der Grund, warum eine solche Liste keine Dauereinrichtung
+sein sollte: **Sie veraltet in die falsche Richtung** und behauptet ungeprüft,
+was inzwischen geprüft ist. Dasselbe galt schon für
+`EntityCapsManager.GetCachedInfo`, das hier stand, während
+`CapsExchangeTests` längst darüber prüfte.
 
 ## Lizenz
 

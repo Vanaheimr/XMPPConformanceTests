@@ -175,7 +175,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var info = await client.Connection.Disco!.QueryInfoAsync(Server.Domain,
                                                                      timeout: TimeSpan.FromSeconds(5));
 
-            Assert.That(info?.Features, Does.Contain("urn:xmpp:carbons:2"));
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(info?.Features, Does.Contain("urn:xmpp:carbons:2"));
+
+                // Über HasFeature und nicht nur über die Liste: Das ist die
+                // Frage, die ein Aufrufer stellt. Bis D57 stand sie nur hinter
+                // fünf Abkürzungen (SupportsCarbons und vier weitere), die
+                // niemand aufrief - und damit war auch HasFeature selbst von
+                // keinem Test berührt.
+                Assert.That(info!.HasFeature("urn:xmpp:carbons:2"), Is.True);
+
+                Assert.That(info.HasFeature("urn:xmpp:gibtesnicht"), Is.False,
+                            "HasFeature muss auch verneinen können.");
+
+            });
 
         }
 

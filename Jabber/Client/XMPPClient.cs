@@ -469,6 +469,20 @@ public sealed class XMPPClient : IAsyncDisposable
         => _connection.RemoveContactAsync(jid.Trim());
 
     /// <summary>
+    /// Kündigt das eigene Abonnement auf die Presence eines Kontakts
+    /// (RFC 6121, Abschnitt 3.3).
+    /// </summary>
+    /// <remarks>
+    /// Ohne Warteliste und ohne Gegenanfrage, anders als
+    /// <see cref="AcceptSubscriptionAsync"/> und
+    /// <see cref="DenySubscriptionAsync"/>: Hier ist nichts offen, das
+    /// abzuarbeiten wäre. Der Kontakt bleibt im Roster stehen - wer ihn ganz
+    /// loswerden will, nimmt <see cref="RemoveContactAsync"/>.
+    /// </remarks>
+    public Task CancelSubscriptionAsync(string jid)
+        => _connection.CancelSubscriptionAsync(jid.Trim());
+
+    /// <summary>
     /// Nimmt eine Kontaktanfrage an: bestätigt die Subscription, stellt eine
     /// Gegenanfrage für beidseitige Sichtbarkeit und räumt die Warteliste auf.
     /// </summary>

@@ -61,18 +61,6 @@ public static class PubSubBuilder
     }
 
     /// <summary>
-    /// Retract (delete) an item from a node
-    /// </summary>
-    public static string Retract(string pubsubJid, string nodeId, string itemId, string id = "pubsub-retract")
-    {
-        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
-               $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
-               $"<retract node='{XmlEscaping.Escape(nodeId)}'>" +
-               $"<item id='{XmlEscaping.Escape(itemId)}'/>" +
-               $"</retract></pubsub></iq>";
-    }
-
-    /// <summary>
     /// Get items from a node
     /// </summary>
     public static string GetItems(string pubsubJid, string nodeId, int? maxItems = null, string id = "pubsub-get")
@@ -104,15 +92,5 @@ public static class PubSubBuilder
                $"<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
                $"<delete node='{XmlEscaping.Escape(nodeId)}'/>" +
                $"</pubsub></iq>";
-    }
-
-    /// <summary>
-    /// Discover nodes on a pubsub service
-    /// </summary>
-    public static string DiscoverNodes(string pubsubJid, string id = "pubsub-disco")
-    {
-        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
-               $"<query xmlns='http://jabber.org/protocol/disco#items'/>" +
-               $"</iq>";
     }
 }

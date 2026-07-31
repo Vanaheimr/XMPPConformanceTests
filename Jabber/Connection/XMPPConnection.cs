@@ -2240,15 +2240,9 @@ public sealed class XMPPConnection : IAsyncDisposable
     private async Task RequestRosterAsync(Boolean versioniert, CancellationToken ct)
     {
 
-        var ver = versioniert
-                      ? $" ver='{XmlEscaping.Escape(Roster.Version ?? "")}'"
-                      : "";
-
         var response = await SendIqAsync(
                            "roster1",
-                           "<iq type='get' id='roster1'>" +
-                           $"<query xmlns='{RosterStanzaBuilder.Namespace}'{ver}/>" +
-                           "</iq>",
+                           RosterStanzaBuilder.GetRoster(versioniert ? Roster.Version ?? "" : null),
                            ct);
 
         if (response is null)
@@ -2455,6 +2449,23 @@ public sealed class XMPPConnection : IAsyncDisposable
     public async Task RemoveContactAsync(string jid) => await SendAsync(RosterStanzaBuilder.RemoveItem(jid));
     public async Task AcceptSubscriptionAsync(string jid) => await SendAsync(RosterStanzaBuilder.Subscribed(jid));
     public async Task DenySubscriptionAsync(string jid) => await SendAsync(RosterStanzaBuilder.Unsubscribed(jid));
+
+    /// <summary>
+    /// Kündigt das eigene Abonnement auf die Presence eines Kontakts
+    /// (RFC 6121, Abschnitt 3.3).
+    /// </summary>
+    /// <remarks>
+    /// Der vierte der vier Übergänge aus Abschnitt 3 - und bis D57 der einzige,
+    /// den dieser Client nicht anbieten konnte, obwohl der Baustein dafür
+    /// dastand und der Server ihn seit S3b beherrscht. Wer den Kontakt ganz
+    /// loswerden will, nimmt <see cref="RemoveContactAsync"/>; hier bleibt er
+    /// im Roster stehen, nur seine Presence kommt nicht mehr.
+    ///
+    /// Der Unterschied zu <see cref="DenySubscriptionAsync"/> ist die Richtung:
+    /// Dort geht es darum, was der Kontakt von mir sieht, hier darum, was ich
+    /// von ihm sehe.
+    /// </remarks>
+    public async Task CancelSubscriptionAsync(string jid) => await SendAsync(RosterStanzaBuilder.Unsubscribe(jid));
 
     // PubSub Operations
     public async Task PubSubSubscribeAsync(string nodeId, string? service = null)

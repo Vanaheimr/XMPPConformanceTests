@@ -4540,6 +4540,66 @@ passt zu den Daten, statt ihnen zu widersprechen.
 
 ---
 
+### D57. Elf Member, drei Entscheidungen ✅
+
+„Ungenutzte öffentliche Member entscheiden: benutzen oder streichen." Die Liste
+stand im README, seit es sie gab. **Der erste Schritt war, ihr nicht zu
+glauben** — sie warnt selbst davor, dass sie „in die falsche Richtung
+veraltet", und genau das war eingetreten: `ResumeAsync`, `GetUnackedStanzas`
+und `OnStanzasLost` werden längst benutzt, das letzte davon seit D49. Drei von
+elf Einträgen waren schlicht falsch.
+
+**Benutzt (3):**
+
+- **`RosterStanzaBuilder.GetRoster`.** `XMPPConnection` setzte dieselbe Anfrage
+  daneben von Hand zusammen — zwei Schreibweisen einer Stanza. Die Feinheit
+  stand dabei nur in einer: Ein *leeres* `ver=''` ist kein Platzhalter, sondern
+  die Ansage „ich kann Versionierung, habe aber noch nichts" (RFC 6121 §2.6.1).
+  Sie steht jetzt im Baustein, dort, wo sie hingehört.
+- **`RosterStanzaBuilder.Unsubscribe`** über ein neues
+  `CancelSubscriptionAsync`. Von den vier Übergängen aus RFC 6121 §3 bot der
+  Client drei an; der vierte fehlte, obwohl der Baustein dastand und der Server
+  ihn seit S3b beherrscht. Aufgefallen ist er nicht, **weil der Test die Lücke
+  überbrückt hat**: `Unsubscribe_EndsTheOwnSubscription` schrieb die Presence
+  selbst. Ein Test, der am Client vorbei prüft, hält das Verhalten und
+  verbirgt, dass es keinen Weg dorthin gibt.
+- **`DiscoInfo.HasFeature`** — von einem Test, der die Frage vorher an der
+  Merkmalsliste vorbei stellte.
+
+**Gestrichen (8):** `MessageReceipt` (der Typ dokumentierte selbst, dass ihn
+niemand erzeugt), `ReceiptTracker.GetTimedOutMessages` (es gibt keine Frist,
+die ablaufen könnte), `PubSubManager.OnSubscriptionResult`,
+`PubSubBuilder.Retract` und `DiscoverNodes`, `CarbonManager.DisableIq` und die
+fünf `DiscoInfo.Supports*`.
+
+Die fünf Abkürzungen sind der lehrreichste Fall: Jede war eine Zeile über
+`HasFeature` und trug ihren Namensraum eingebaut mit sich. Sie konnten nichts,
+was `HasFeature` nicht kann — aber sie führten eine zweite Abschrift jedes
+Namensraums, und die veraltet für sich allein.
+
+**Der Bau ist jetzt warnungsfrei.** `OnSubscriptionResult` war die einzige
+Warnung (CS0067, „wird nie verwendet") und stand über Dutzende von Läufen in
+jeder Ausgabe. Eine Warnung, die immer da ist, wird zur Tapete — und die
+nächste, die dazukommt, fällt dann nicht mehr auf.
+
+Drei Mutationen auf das neu Benutzte, alle erschlagen: die Kündigung schickt
+`unsubscribed` statt `unsubscribe`, die Roster-Anfrage lässt die Fassung immer
+weg, `HasFeature` bejaht alles.
+
+**Was das Streichen nicht ist: eine Aussage über XEP-0060.** Der Punkt unter
+„Optional" bleibt, wie er war — es fehlte dort nie die Meldung, sondern die
+Korrelation von IQ-Ergebnis und Anfrage. Wer sie baut, deklariert das Ereignis
+in derselben Stunde wieder. Ein nie ausgelöstes Ereignis ist keine halbe
+Umsetzung, sondern eine Zusage ohne Deckung.
+
+**Und die Liste kommt nicht wieder.** Eine stehende Aufzählung ungenutzter
+Member ist eine Buchhaltung, die niemand führt: Sie stimmt am Tag ihrer
+Entstehung und danach nie wieder. Was ungenutzt ist, entscheidet der Compiler
+(bei Ereignissen) oder eine Suche (bei allem anderen) — beides in Sekunden und
+immer aktuell.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4593,8 +4653,8 @@ das unbekannte Konto — D50) und Stanza-Fehler ohne Schalter (D51 bis D53).
 - Konsolen-UI und Logger trennen: der Standard-Konsolenlogger schreibt in
   dieselbe Konsole wie die Eingabezeile und zerlegt den Prompt. Ein eigener
   `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.
-- Ungenutzte öffentliche Member entscheiden: benutzen oder streichen. Liste in
-  [Jabber/README.md](Jabber/README.md).
+- ~~Ungenutzte öffentliche Member entscheiden: benutzen oder streichen. Liste in
+  [Jabber/README.md](Jabber/README.md).~~ ✅ erledigt in D57
 
 ---
 
@@ -4609,9 +4669,14 @@ Anwendungsfall gibt, an dem sich die Umsetzung prüfen lässt.
   ist ausgehend: `PubSubSubscribeAsync` verschickt die Anfrage und trägt das
   Abonnement **sofort** ein, ohne auf die Antwort zu warten — ein abgelehntes
   Abonnement steht danach als bestehendes in `_subscribedNodes`. Das Ereignis,
-  das den Ausgang melden würde, gibt es schon: `OnSubscriptionResult` ist
-  deklariert und wird an keiner Stelle ausgelöst. Es fehlt also nicht die
-  Meldung, sondern die Korrelation von IQ-Ergebnis und Anfrage. Das trifft nur,
+  das den Ausgang melden würde, gab es sogar — `OnSubscriptionResult` war
+  deklariert und wurde an keiner Stelle ausgelöst; in D57 ist es gestrichen
+  worden, samt `Retract` und `DiscoverNodes`. **Das ändert an diesem Punkt
+  nichts**: Es fehlte ohnehin nicht die Meldung, sondern die Korrelation von
+  IQ-Ergebnis und Anfrage, und wer sie baut, deklariert das Ereignis in
+  derselben Stunde wieder. Ein nie ausgelöstes Ereignis ist keine halbe
+  Umsetzung, sondern eine Zusage ohne Deckung — und es war die einzige Warnung
+  im Bau. Das trifft nur,
   wer PubSub tatsächlich benutzt — dieser Client tut es nirgends selbst, und die
   betroffenen Member stehen deshalb schon unter „Ungenutzte API-Fläche" im
   [README](Jabber/README.md). Solange kein Anwendungsfall dahintersteht, wäre

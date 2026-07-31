@@ -83,18 +83,4 @@ public sealed class ReceiptTracker
         return true;
     }
 
-    /// <summary>
-    /// Prüft auf Timeout (alte unbestätigte Nachrichten)
-    /// </summary>
-    public IEnumerable<string> GetTimedOutMessages(TimeSpan timeout)
-    {
-        var cutoff = DateTime.UtcNow - timeout;
-        lock (_lock)
-        {
-            return _pending
-                .Where(kvp => kvp.Value.SentAt < cutoff)
-                .Select(kvp => kvp.Key)
-                .ToList();
-        }
-    }
 }

@@ -26,11 +26,31 @@ public static class RosterStanzaBuilder
     /// <summary>Der Namespace des Rosters (RFC 6121, Abschnitt 2).</summary>
     public const string Namespace = "jabber:iq:roster";
 
+    /// <summary>
+    /// Die Roster-Anfrage (RFC 6121, Abschnitt 2.1).
+    /// </summary>
+    /// <param name="version">
+    /// Die bekannte Fassung für die Versionierung (Abschnitt 2.6), oder
+    /// <c>null</c> ohne sie.
+    /// </param>
+    /// <remarks>
+    /// Ein <b>leeres</b> <c>ver=''</c> ist kein Platzhalter, sondern eine
+    /// Aussage: „Ich kann Versionierung, habe aber noch nichts" (Abschnitt
+    /// 2.6.1). Der Server schickt daraufhin den vollen Roster und diesmal eine
+    /// Fassung dazu. Deshalb entscheidet <c>null</c> gegen das Attribut und
+    /// nicht die leere Zeichenkette - die beiden Fälle bedeuten Verschiedenes,
+    /// und wer sie zusammenwirft, verliert genau die Ansage.
+    ///
+    /// Diese Fassung stand bis D57 unbenutzt daneben, während
+    /// <c>XMPPConnection</c> dieselbe Stanza an Ort und Stelle zusammensetzte.
+    /// Zwei Schreibweisen derselben Anfrage sind eine zu viel; die
+    /// Feinheit oben stand nur in einer davon.
+    /// </remarks>
     public static string GetRoster(string? version = null)
     {
-        var ver = version != null ? $" ver='{version}'" : "";
+        var ver = version != null ? $" ver='{XmlEscaping.Escape(version)}'" : "";
         return $"<iq type='get' id='roster1'>" +
-               $"<query xmlns='jabber:iq:roster'{ver}/>" +
+               $"<query xmlns='{Namespace}'{ver}/>" +
                $"</iq>";
     }
 

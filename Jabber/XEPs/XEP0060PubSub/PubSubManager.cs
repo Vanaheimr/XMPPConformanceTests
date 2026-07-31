@@ -41,7 +41,6 @@ public sealed class PubSubManager
     private readonly ILogger _logger;
 
     public event Action<PubSubEvent>? OnEvent;
-    public event Action<string, bool, string?>? OnSubscriptionResult; // nodeId, success, error
 
     public PubSubManager(string pubsubService = "pubsub", ILogger? logger = null)
     {

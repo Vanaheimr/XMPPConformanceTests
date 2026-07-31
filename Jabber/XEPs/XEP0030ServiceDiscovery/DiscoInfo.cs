@@ -43,10 +43,14 @@ public sealed class DiscoInfo
     /// <summary>Trug die Antwort ein Datenformular (XEP-0128)?</summary>
     public bool HasExtendedInfo => Forms.Count > 0;
 
+    /// <summary>Führt die Antwort dieses Merkmal auf?</summary>
+    /// <remarks>
+    /// Hier standen einmal fünf Abkürzungen daneben - <c>SupportsCarbons</c>,
+    /// <c>SupportsReceipts</c> und drei weitere -, jede eine Zeile über dieser
+    /// hier und jede mit einem eingebauten Namensraum. Aufgerufen hat sie
+    /// niemand, und sie hätten auch nichts gekonnt, was diese Methode nicht
+    /// kann: Der Namensraum steht ohnehin dort, wo die Erweiterung steht, und
+    /// eine zweite Abschrift davon veraltet für sich allein.
+    /// </remarks>
     public bool HasFeature(string feature) => Features.Contains(feature);
-    public bool SupportsReceipts => HasFeature("urn:xmpp:receipts");
-    public bool SupportsCarbons => HasFeature("urn:xmpp:carbons:2");
-    public bool SupportsChatStates => HasFeature("http://jabber.org/protocol/chatstates");
-    public bool SupportsChatMarkers => HasFeature("urn:xmpp:chat-markers:0");
-    public bool SupportsStreamManagement => HasFeature("urn:xmpp:sm:3");
 }

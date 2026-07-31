@@ -312,13 +312,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// RFC 6121, Abschnitt 3.3: Alice kündigt selbst. Danach sieht sie Bob
         /// nicht mehr - und Bobs Eintrag für sie verliert das <c>from</c>.
         /// </summary>
+        /// <remarks>
+        /// Gekündigt wird über <c>CancelSubscriptionAsync</c> und nicht mehr
+        /// über eine von Hand geschriebene Presence. Der Unterschied ist nicht
+        /// kosmetisch: Bis D57 war das der einzige der vier Übergänge aus
+        /// Abschnitt 3, den der Client <b>nicht</b> anbot — der Baustein dafür
+        /// stand ungenutzt herum, und dieser Test hat die Lücke unbemerkt
+        /// überbrückt, indem er die Stanza selbst schrieb.
+        /// </remarks>
         [Test]
         public async Task Unsubscribe_EndsTheOwnSubscription()
         {
 
             var (alice, _) = await HandshakeAsync();
 
-            await alice.SendRawAsync($"<presence to='{Bob}' type='unsubscribe'/>");
+            await alice.CancelSubscriptionAsync(Bob);
 
             // Auf Bobs Seite warten, nicht auf Alices: der Server ändert erst
             // den Roster des Absenders und dann den der Gegenseite. Wer auf den

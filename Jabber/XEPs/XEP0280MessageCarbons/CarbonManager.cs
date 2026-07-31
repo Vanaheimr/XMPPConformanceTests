@@ -119,14 +119,4 @@ public sealed class CarbonManager
                $"</iq>";
     }
 
-    /// <summary>
-    /// Erzeugt das IQ zum Deaktivieren von Carbons
-    /// </summary>
-    public static string DisableIq(string id = "carbons-disable")
-    {
-        return $"<iq type='set' id='{id}'>" +
-               $"<disable xmlns='{Namespace}'/>" +
-               $"</iq>";
-    }
-
 }
