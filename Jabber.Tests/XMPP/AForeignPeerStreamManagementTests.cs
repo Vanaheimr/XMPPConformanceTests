@@ -396,6 +396,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var client  = await VerbindeAsync();
             var sm      = client.StreamManagement!;
 
+            // Was tatsächlich hinausgeht - für den Fall, dass die Zahl am Ende
+            // nicht stimmt.
+            //
+            // Zahlen sagen, *dass* etwas nicht stimmt, und nie *was*. Dieser
+            // Test ist in D34 einmal in einem Vollauf gefallen ("Expected: 6,
+            // But was: 8"), und die zwei überzähligen Stanzas liessen sich
+            // hinterher nicht mehr benennen - dieselbe Sackgasse wie in D16 und
+            // D29. Der Mitschnitt kostet nichts und beendet sie.
+            var hinaus = new ConcurrentQueue<String>();
+
+            client.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith(">>>", StringComparison.Ordinal))
+                    hinaus.Enqueue(x);
+            };
+
             var vorher  = sm.OutboundCount;
 
             for (var i = 0; i < 3; i++)
@@ -412,14 +428,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await WarteAuf(() => sm.LastAcknowledged == vorher + 3,
                            $"ein <a/> über {vorher + 3} Stanzas (zuletzt {sm.LastAcknowledged})");
 
+            var mitschnitt = String.Join("\n   ", hinaus);
+
             Assert.Multiple(() =>
             {
 
                 Assert.That(sm.OutboundCount, Is.EqualTo(vorher + 3),
-                            "Wir haben Nonzas mitgezählt.");
+                            $"Wir haben Nonzas mitgezählt. Hinausgegangen ist:\n   {mitschnitt}");
 
                 Assert.That(sm.LastAcknowledged, Is.EqualTo(sm.OutboundCount),
-                            $"{PeerName} hat andere Nonzas mitgezählt als wir.");
+                            $"{PeerName} hat andere Nonzas mitgezählt als wir. " +
+                            $"Hinausgegangen ist:\n   {mitschnitt}");
 
             });
 

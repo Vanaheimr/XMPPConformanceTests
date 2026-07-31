@@ -3285,6 +3285,38 @@ Verhaltenszeile hinzu, die man umdrehen könnte; die Prüfung einer Entfernung i
 die Frage, ob jemand sie gebraucht hat, und die beantworten Übersetzer und
 Vollauf. Beide sagen nein.
 
+### D35. Zahlen sagen nie, was fehlt ✅
+
+Beim Prüflauf zu D34 fiel ein dritter Wackelkandidat auf —
+`NonzasDoNotAdvanceTheCount` gegen Prosody, ein Fehlschlag in einem Vollauf:
+
+```
+Wir haben Nonzas mitgezählt.  Expected: 6  But was: 8
+```
+
+Zwei ausgehende Stanzas mehr, als der Test geschickt hat. **Welche zwei, sagt
+die Zahl nicht** — und damit stand ich vor derselben Sackgasse wie in D16 und
+D29.
+
+Eine naheliegende Erklärung ist geprüft und **widerlegt**: Der Test schickt an
+sich selbst, die Nachrichten kommen also zurück, und der Verdacht lag auf einer
+automatischen Antwort des Clients. Die verlangt aber ein `<request/>`
+(XEP-0184) oder ein `<markable/>` (XEP-0333) im Rahmen, und die Testnachrichten
+tragen nur einen `<body>`. Sie lösen nichts aus. Ein Verdacht, der sich in fünf
+Minuten widerlegen lässt, ist die billigste Art, ihn loszuwerden.
+
+Reproduzieren liess er sich nicht: zwanzig Ausführungen gegen beide
+Gegenstellen, alle grün, mit sehr enger Streuung. Genau die Lage aus D33 — und
+deshalb dieselbe Antwort. Der Test schneidet jetzt mit, **was tatsächlich
+hinausgeht**, und legt es der Meldung bei. Beim nächsten Vorfall stehen die zwei
+überzähligen Stanzas im Klartext da, statt dass wieder nur eine Zahl bleibt.
+
+Damit ist das dreimal dasselbe Muster in einer Sitzung: D16, D29 und jetzt hier.
+**Eine Zusicherung über eine Zahl sagt, dass etwas nicht stimmt, und nie was.**
+Wo der Gegenstand billig mitzuschreiben ist — der Verlauf, der Rahmen, der
+Mitschnitt —, gehört er in die Meldung, und zwar bevor der erste Fehlschlag
+kommt und nicht danach.
+
 ---
 
 ## Später
@@ -3336,10 +3368,10 @@ Vollauf. Beide sagen nein.
   `<markable/>` im Rahmen, und die Testnachrichten tragen nur einen `<body>`.
   Sie lösen nichts aus.
 
-  Offen ist damit, **welche zwei Stanzas** mitgezählt wurden. Der nächste
-  Schritt wäre, den Test mit einem Mitschnitt des Ausgangs (`OnRawXml`) laufen
-  zu lassen — dann steht in der Meldung, was tatsächlich hinausging, statt einer
-  Zahl. Zwanzig gezielte Ausführungen konnten ihn nicht wiederholen (siehe D34)
+  Offen ist damit, **welche zwei Stanzas** mitgezählt wurden. Seit D35
+  schneidet der Test den Ausgang mit und legt ihn der Meldung bei — beim
+  nächsten Vorfall steht dort, was hinausging, statt einer Zahl. Zwanzig
+  gezielte Ausführungen konnten ihn nicht wiederholen (siehe D34, D35)
 - `TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
   reproduzierbar** und der damalige Verdacht widerlegt: vierzig Ausführungen
   zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist
