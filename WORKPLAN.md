@@ -3131,6 +3131,80 @@ künftiger Pfad, der ohne `catch` scheitert, einen Fehler von vorgestern wirft.
 Vorkehrung, nicht Wirkung — wie die Abkürzung über die leere Offline-Ablage aus
 D14.
 
+### D32. Der Fehlschlag ohne Namen hatte einen ✅
+
+Der offene Punkt aus D29: Ein Vollauf meldete **einen** Fehlschlag, der nächste
+gleiche Lauf war grün, und der Name steckte in der weggeworfenen Ausgabe.
+
+Wiederfinden liess er sich nicht — wiederholen schon. Drei Vollläufe unter den
+Bedingungen von damals (ejabberd weg, 16 übersprungen), diesmal vollständig
+mitgeschnitten. Der erste Lauf hatte ihn:
+
+```
+Fehler AnAckFromTheClient_IsProcessedAndClearsTheQueue
+  Expected: less than 2
+  But was:  3
+```
+
+**Es war mein eigener Test aus D29** — der, der die Lücke im `<a/>`-Zweig
+geschlossen hat. Er stand seit einem Tag im Baum, und der unerklärte Fehlschlag
+kam im selben Durchgang; der Verdacht lag also nahe und war trotzdem nur ein
+Verdacht, bis der Mitschnitt ihn benannt hat.
+
+**Der Fehler ist ein Massfehler und kein Wettlauf im üblichen Sinn.** Der Test
+prüfte: „nach der Bestätigung sind weniger Stanzas offen als vorher". Eine
+Bestätigung sagt aber nichts über eine *Anzahl*. Sie sagt: **alles bis zu dieser
+Folgenummer ist erledigt.** Was danach hereinkommt — Bobs Presence, ein paar
+Millisekunden später —, lässt die Warteschlange wieder wachsen, und die Anzahl
+steigt, obwohl die Bestätigung genau das Richtige getan hat.
+
+Geprüft wird jetzt die Folgenummer: keine offene Stanza mit `Seq <= h`. Damit
+darf nach der Bestätigung ankommen, was will.
+
+**Und die Gegenprobe war der wichtigere Teil.** Ein entflockter Test wird leicht
+zu einem, der nichts mehr prüft — die bequemste Art, einen Wackelkandidaten
+loszuwerden, ist, ihm die Zusicherung zu nehmen. Deshalb lief die Mutation aus
+D29 (`<a/>` gilt als unbehandelt) noch einmal gegen die neue Fassung: Sie fällt
+weiterhin. Entflockt, nicht entschärft.
+
+**Die Bestätigungsläufe haben dann einen zweiten, anderen Wackelkandidaten
+gezeigt** — und diesmal lag der Mitschnitt sofort vor:
+`AFailureWhileHandlingAFrame_IsReported` meldete
+
+```
+Expected: String containing "ausloeser"
+But was:  "<presence xmlns='jabber:client'><c xmlns='...caps' .../></presence>"
+```
+
+Derselbe Massfehler in anderer Gestalt. Der Test legt den Fehlschalter um und
+schickt einen Rahmen; genommen hat er dann die **erste** Meldung überhaupt — und
+das war gelegentlich die automatische Anmelde-Presence des Clients, die noch
+unterwegs war, als der Schalter umging. Was zuerst gemeldet wird, entscheidet
+der Zeitverlauf; was der Test wissen will, ist eine andere Frage. Gesucht wird
+jetzt die Meldung **zum eigenen Rahmen**.
+
+Beide Male dieselbe Gegenprobe: Ein entflockter Test wird leicht zu einem, der
+nichts mehr prüft, und die bequemste Art, einen Wackler loszuwerden, ist, ihm
+die Zusicherung zu nehmen. Deshalb lief gegen jede neue Fassung die Mutation,
+die sie halten soll — `<a/>` gilt als unbehandelt (D29) und der Frame wird nicht
+mitgemeldet (D18). Beide fallen weiterhin.
+
+Zwei Dinge zur Arbeitsweise, beide selbstverschuldet: Ich habe die Testdatei
+geändert, **während** der zweite Jagdlauf lief — dessen Ergebnis war damit
+wertlos, und ich habe die Jagd abgebrochen statt es zu verwenden. Das ist
+dieselbe Nachlässigkeit wie in D26, nur ohne Schaden, weil sie diesmal sofort
+auffiel. Und der Fund selbst hängt allein daran, dass Vollläufe seit D29
+vollständig in eine Datei gehen: **Ein Fehlschlag ohne Namen ist einer, den man
+nicht wiederfindet** — die Regel, die aus dem Fall entstanden ist, hat den Fall
+gelöst.
+
+**Und eine Zahl, die nachdenklich macht:** In sieben Vollläufen an diesem Abend
+fielen zwei verschiedene Tests je einmal. Beide waren Massfehler in Tests, die
+ich selbst geschrieben habe, beide entstanden dadurch, dass etwas Nebenläufiges
+— eine Presence — zwischen Messung und Prüfung geriet. Der Verdacht liegt nahe,
+dass es nicht die letzten sind; die Jagd bleibt deshalb ein wiederholbares
+Werkzeug und keine einmalige Aktion.
+
 ---
 
 ## Später
@@ -3158,13 +3232,6 @@ D14.
   ablehnt — entweder echt implementieren oder entfernen
 
 ### Testsammlung
-- Ein Vollauf in D29 meldete **einen** Fehlschlag, der unmittelbar folgende,
-  gleiche Lauf war grün. Welcher Test es war, ist unbekannt: Der erste Lauf
-  schnitt nur die Zusammenfassung mit, und der Name stand in der verworfenen
-  Ausgabe. Daraus zwei Dinge — der Fehlschlag bleibt unaufgeklärt vermerkt, und
-  ein Vollauf wird von nun an vollständig in eine Datei geschrieben, nicht
-  gefiltert. **Ein Fehlschlag ohne Namen ist ein Fehlschlag, den man nicht
-  wiederfindet** (siehe D29)
 - `TheStreamSurvivesABrokenConnection` gegen einen Fremdserver scheiterte in
   einem von vier Vollläufen mit einer Zeitüberschreitung, allein aber 4 von 4
   Mal grün. Verdacht: 15 Sekunden für Wiederverbindung samt Wiederaufnahme sind

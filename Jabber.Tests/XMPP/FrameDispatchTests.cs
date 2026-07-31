@@ -368,6 +368,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// Beide Hälften gehören zusammen: <c>LastAckFromClient</c> zeigt, dass
         /// die Zahl gelesen wurde, die Warteschlange, dass sie auch angewandt
         /// wurde.
+        ///
+        /// <b>Gemessen wird die Folgenummer und nicht die Anzahl</b>, und das
+        /// ist die Korrektur aus D32. Zuerst stand hier „nach der Bestätigung
+        /// sind weniger Stanzas offen als vorher" — eine Aussage über eine
+        /// Zahl, die auch aus einem anderen Grund steigt: Presence von Bob
+        /// kommt nach der Messung und vor der Prüfung dazu. Der Test fiel
+        /// deshalb etwa in jedem dritten Vollauf mit „Expected: less than 2,
+        /// But was: 3".
+        ///
+        /// Eine Bestätigung sagt aber gar nichts über die Anzahl. Sie sagt:
+        /// <b>alles bis zu dieser Folgenummer ist erledigt.</b> Genau das steht
+        /// jetzt da — und was danach hereinkommt, darf die Warteschlange
+        /// wachsen lassen, ohne den Test zu stören.
         /// </remarks>
         [Test]
         public async Task AnAckFromTheClient_IsProcessedAndClearsTheQueue()
@@ -387,10 +400,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await WaitFor(() => sitzung.UnacknowledgedToClient > 0,
                           "eine unbestätigte Stanza beim Server");
 
-            var offen = sitzung.UnacknowledgedToClient;
+            var bestaetigt = sitzung.PendingToClient[^1].Seq;
 
-            await alice.SendRawAsync(
-                      $"<a xmlns='urn:xmpp:sm:3' h='{sitzung.PendingToClient[^1].Seq}'/>");
+            await alice.SendRawAsync($"<a xmlns='urn:xmpp:sm:3' h='{bestaetigt}'/>");
 
             await WaitFor(() => sitzung.LastAckFromClient is not null,
                           "die Bestätigung des Clients beim Server");
@@ -398,8 +410,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.Multiple(() =>
             {
 
-                Assert.That(sitzung.UnacknowledgedToClient, Is.LessThan(offen),
-                            "Die Bestätigung muss die Warteschlange räumen.");
+                Assert.That(sitzung.LastAckFromClient, Is.EqualTo(bestaetigt),
+                            "Die gemeldete Zahl muss gelesen worden sein.");
+
+                Assert.That(sitzung.PendingToClient.Where(p => p.Seq <= bestaetigt),
+                            Is.Empty,
+                            "Alles bis zu dieser Folgenummer muss aus der " +
+                            "Warteschlange verschwunden sein.");
 
                 Assert.That(sitzung.IsOpen, Is.True,
                             "Und sie ist ein bekanntes Element, kein Grund zum Abbruch.");

@@ -61,6 +61,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// „NullReferenceException" sagt, nützt bei einem Server, der tausend
         /// Frames verarbeitet, fast nichts; erst mit der Stanza in der Hand ist
         /// der Weg nachvollziehbar, der dorthin geführt hat.
+        ///
+        /// <b>Gesucht wird die Meldung zum eigenen Rahmen, nicht die erste</b>,
+        /// und das ist die Korrektur aus D32. Vorher nahm der Test die erste
+        /// Meldung überhaupt — und traf damit gelegentlich die automatische
+        /// Anmelde-Presence des Clients, die noch unterwegs war, als der
+        /// Schalter umgelegt wurde. Der Test fiel dann mit einer Meldung über
+        /// <c>&lt;presence&gt;&lt;c .../&gt;&lt;/presence&gt;</c> statt über den
+        /// Auslöser. Was zuerst gemeldet wird, entscheidet der Zeitverlauf; was
+        /// der Test wissen will, ist eine andere Frage.
         /// </remarks>
         [Test]
         public async Task AFailureWhileHandlingAFrame_IsReported()
@@ -85,9 +94,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await alice.SendRawAsync("<message to='bob@localhost' id='ausloeser'><body>Hallo</body></message>");
 
-            await WaitFor(() => !gemeldet.IsEmpty, "die Meldung des internen Fehlers");
+            await WaitFor(() => gemeldet.Any(m => m.Frame.Contains("ausloeser", StringComparison.Ordinal)),
+                          "die Meldung zum ausgelösten Frame");
 
-            gemeldet.TryDequeue(out var meldung);
+            var meldung = gemeldet.First(m => m.Frame.Contains("ausloeser", StringComparison.Ordinal));
 
             Assert.Multiple(() =>
             {
