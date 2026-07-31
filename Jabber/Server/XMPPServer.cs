@@ -88,6 +88,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private Timer? _resumptionSweeper;
         private readonly Lock _lock = new();
 
+        /// <summary>
+        /// Der Schlüssel, aus dem die erfundenen Zugangsdaten unbekannter
+        /// Konten entstehen (RFC 6120, Abschnitt 13.11).
+        /// </summary>
+        /// <remarks>
+        /// Je Server einer, aus dem Zufallsgenerator. Er darf nicht zu erraten
+        /// sein: Wer ihn kennt, kann jedes erfundene Salt nachrechnen und
+        /// wieder unterscheiden, welches Konto es gibt.
+        /// </remarks>
+        private readonly Byte[] _decoySecret =
+            System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+
         private Int32 _connectionCounter;
 
         #endregion
@@ -122,6 +134,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public IReadOnlyList<String> AllReceived
         {
             get { lock (_lock) return _sessions.SelectMany(s => s.Received).ToList(); }
+        }
+
+        /// <summary>
+        /// Alle Sitzungen dieses Servers, auch beendete - in der Reihenfolge
+        /// ihres Aufbaus.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Sessions"/> zeigt nur die offenen, und genau die gibt es
+        /// nicht mehr, wenn ein Aufbau an der Anmeldung gescheitert ist. Wer
+        /// prüfen will, was der Server einem abgewiesenen Client geantwortet
+        /// hat, findet die Sitzung nur hier.
+        /// </remarks>
+        public IReadOnlyList<XMPPSession> AllSessions
+        {
+            get { lock (_lock) return [.. _sessions]; }
         }
 
         #endregion
@@ -1591,7 +1618,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var exchange = SCRAMExchange.Begin(payload,
                                                mechanism,
-                                               user => GetAccount($"{user}@{Domain}"));
+                                               user => GetAccount($"{user}@{Domain}"),
+                                               user => XMPPCredentials.Decoy(user, _decoySecret));
 
             if (exchange is null)
             {

@@ -46,7 +46,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Data
 
-        private readonly XMPPAccount _account;
+        private readonly XMPPAccount? _account;
+        private readonly XMPPCredentials _credentials;
         private readonly SCRAMMechanism _mechanism;
         private readonly String _gs2Header;
         private readonly String _clientFirstBare;
@@ -57,8 +58,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Properties
 
-        /// <summary>Das Konto, um dessen Anmeldung es geht.</summary>
-        public XMPPAccount Account => _account;
+        /// <summary>
+        /// Das Konto, um dessen Anmeldung es geht - oder null, wenn es den
+        /// Benutzernamen nicht gibt und der Austausch nur zum Schein läuft.
+        /// </summary>
+        public XMPPAccount? Account => _account;
 
         /// <summary>
         /// Die server-first-message, fertig für <c>&lt;challenge/&gt;</c>.
@@ -69,14 +73,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #region Constructor(s)
 
-        private SCRAMExchange(XMPPAccount     account,
-                              SCRAMMechanism  mechanism,
-                              String          gs2Header,
-                              String          clientFirstBare,
-                              String          combinedNonce,
-                              String          serverFirst)
+        private SCRAMExchange(XMPPAccount?     account,
+                              XMPPCredentials  credentials,
+                              SCRAMMechanism   mechanism,
+                              String           gs2Header,
+                              String           clientFirstBare,
+                              String           combinedNonce,
+                              String           serverFirst)
         {
             _account          = account;
+            _credentials      = credentials;
             _mechanism        = mechanism;
             _gs2Header        = gs2Header;
             _clientFirstBare  = clientFirstBare;
@@ -91,14 +97,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         /// <summary>
         /// Nimmt die client-first-message entgegen und bereitet die Antwort
-        /// vor. Null bedeutet: unlesbar oder unbekanntes Konto.
+        /// vor. Null bedeutet: unlesbar.
         /// </summary>
+        /// <remarks>
+        /// Ein <b>unbekannter</b> Benutzername ist kein Grund abzubrechen. Der
+        /// Austausch läuft dann mit erfundenen Zugangsdaten weiter und
+        /// scheitert am Beweis - dort, wo er auch bei einem falschen Passwort
+        /// scheitert (RFC 6120, Abschnitt 13.11). Ein sofortiger Fehlschlag
+        /// wäre die Auskunft, dass es das Konto nicht gibt, und zwar unabhängig
+        /// davon, welches Fehlerwort dabei steht.
+        /// </remarks>
         /// <param name="clientFirstBase64">Nutzlast des <c>&lt;auth/&gt;</c>.</param>
         /// <param name="mechanism">Der vom Client gewählte Mechanismus.</param>
         /// <param name="lookup">Sucht ein Konto zum Benutzernamen.</param>
-        public static SCRAMExchange? Begin(String                       clientFirstBase64,
-                                           SCRAMMechanism               mechanism,
-                                           Func<String, XMPPAccount?>   lookup)
+        /// <param name="decoy">
+        /// Liefert die erfundenen Zugangsdaten für einen Namen ohne Konto.
+        /// Ohne Vorgabewert: Wer diesen Austausch benutzt, soll sich für die
+        /// Gegenmassnahme entscheiden müssen und nicht daran vorbeirutschen.
+        /// </param>
+        public static SCRAMExchange? Begin(String                          clientFirstBase64,
+                                           SCRAMMechanism                  mechanism,
+                                           Func<String, XMPPAccount?>      lookup,
+                                           Func<String, XMPPCredentials>   decoy)
         {
 
             String clientFirst;
@@ -129,12 +149,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (benutzer is null || nonce is null || nonce.Length == 0)
                 return null;
 
-            var account = lookup(Unescape(benutzer));
-
-            if (account is null)
-                return null;
-
-            var credentials    = account.Credentials;
+            var name           = Unescape(benutzer);
+            var account        = lookup(name);
+            var credentials    = account?.Credentials ?? decoy(name);
             var combinedNonce  = nonce + Nonce();
 
             var serverFirst = $"r={combinedNonce}," +
@@ -142,6 +159,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                               $"i={credentials.IterationCount}";
 
             return new SCRAMExchange(account,
+                                     credentials,
                                      mechanism,
                                      gs2Header,
                                      clientFirstBare,
@@ -214,7 +232,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return null;
             }
 
-            var keys = _account.Credentials.KeysOf(_mechanism);
+            var keys = _credentials.KeysOf(_mechanism);
 
             if (beweis.Length != keys.StoredKey.Length)
                 return null;
@@ -227,8 +245,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var clientSignature = XMPPCredentials.Hmac(_mechanism, keys.StoredKey, authBytes);
             var clientKey       = XOR(beweis, clientSignature);
 
-            if (!CryptographicOperations.FixedTimeEquals(XMPPCredentials.Hash(_mechanism, clientKey),
-                                                         keys.StoredKey))
+            var stimmt = CryptographicOperations.FixedTimeEquals(
+                             XMPPCredentials.Hash(_mechanism, clientKey),
+                             keys.StoredKey);
+
+            // Die zweite Bedingung ist eine Sicherung und kein Weg: Zu einem
+            // erfundenen Konto gehört ein StoredKey aus dem Serverschlüssel,
+            // und wer den nicht kennt, bringt keinen passenden Beweis zustande.
+            // Sie steht hier trotzdem, weil der Preis eines Irrtums an dieser
+            // Stelle eine Anmeldung ohne Konto wäre.
+            if (!stimmt || _account is null)
                 return null;
 
             // ServerSignature := HMAC(ServerKey, AuthMessage)

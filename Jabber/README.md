@@ -72,6 +72,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | TLS (§5) | ⚠️ `wss://` über den WebSocket-Transport; `XMPPConnection.ServerCertificateValidator` erlaubt eine eigene Zertifikatsprüfung, `null` überlässt sie dem Betriebssystem. Kein STARTTLS (§5.4) — WebSocket bringt TLS unter sich mit, ein Klartext-`ws://` wird aber nicht verweigert |
 | SASL-Aushandlung und -Durchführung (§6) | ✅ Client und Server; der Client nimmt den stärksten angebotenen Mechanismus und nie einen schwächeren als beim letzten Mal, der Server lehnt einen nicht angebotenen ab |
 | SASL-Abbruch (§6.4.4) | ✅ `<abort/>` wird mit `<failure><aborted/></failure>` beantwortet, der halb begonnene SCRAM-Austausch verworfen und der Stream **nicht** beendet — ein Abbruch ist ein vorgesehener Schritt, kein Verstoss. Auf der Client-Verbindung und auf dem S2S-Stream; der Initiator eines S2S-Streams beantwortet ihn nicht, er wäre der Absender |
+| Directory Harvesting (§13.11) | ⚠️ Ein unbekannter Benutzername bekommt denselben SCRAM-Austausch wie ein bekannter — erfundene Zugangsdaten aus dem Namen und einem Serverschlüssel, Abweisung erst am Beweis. Sonst stünde die Auskunft im Ablauf statt im Fehlerwort. Der Serverschlüssel lebt im Prozess, über einen Neustart hinweg wechseln die erfundenen Salts; bei PLAIN unterscheidet sich weiterhin die Laufzeit. Die übrigen Gegenmassnahmen des Abschnitts — Ratenbegrenzung, Fehlerauskunft nur an Angemeldete — fehlen |
 | Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
@@ -514,6 +515,12 @@ miteinander sprechen:
 - Zugangsdaten nach RFC 5802 §3 — Salt, Iterationszahl, `StoredKey` und
   `ServerKey` je Mechanismus. Kein Klartextpasswort, auch nicht für PLAIN:
   das prüft, indem es aus dem angebotenen Passwort neu ableitet
+- Ein **unbekannter Benutzername** bekommt denselben Austausch wie ein
+  bekannter: erfundene Zugangsdaten aus dem Namen und einem Serverschlüssel —
+  je Name andere, für denselben Namen immer dieselben —, und die Abweisung
+  kommt erst am Beweis. Sonst stünde die Antwort auf „gibt es dieses Konto?"
+  im Ablauf, ganz gleich welches Fehlerwort dabei steht (RFC 6120 §13.11,
+  „Directory Harvesting")
 - Konten und Roster über `IXMPPAccountStore`: `InMemoryAccountStore` (Vorgabe)
   oder `FileAccountStore` für einen Bestand, der den Neustart übersteht
 - Routing nach Domain: was nicht hierher gehört, geht über `IServerLinks`
@@ -666,9 +673,13 @@ Server-Implementierung:
   Möglichkeit `ws://` zu verbieten — `new XMPPServer(useTLS: false)` liefert
   weiterhin Klartext.
 - **SCRAM ohne Channel Binding.** Angeboten werden SCRAM-SHA-256, SCRAM-SHA-1
-  und PLAIN; die `-PLUS`-Varianten fehlen. Ein unbekanntes Konto wird
-  abgelehnt, bevor der Austausch beginnt — damit verrät der Server, ob es ein
-  Konto gibt, statt nach RFC 5802 §7 mit einem erfundenen Salt weiterzumachen.
+  und PLAIN; die `-PLUS`-Varianten fehlen. ~~Ein unbekanntes Konto wird
+  abgelehnt, bevor der Austausch beginnt.~~ Behoben: Der Austausch läuft auch
+  für einen unbekannten Namen zu Ende und scheitert am Beweis (RFC 6120 §13.11,
+  siehe D50). Der Serverschlüssel, aus dem die erfundenen Salts entstehen, lebt
+  aber im Prozess — über einen Neustart hinweg wechseln sie, echte nicht. Bei
+  **PLAIN** ist der Ablauf ohnehin gleich; dort unterscheidet sich nur die
+  Laufzeit, weil ein vorhandenes Konto PBKDF2 rechnet und ein unbekanntes nicht.
 - **Der Downgrade-Schutz ist ein Trust-On-First-Use.** `PinnedSaslMechanism`
   deckt jede Verbindung ab der zweiten; die allererste deckt nur, wer
   `MinimumSaslMechanism` selbst setzt. Und die Anheftung lebt im Objekt: Ein

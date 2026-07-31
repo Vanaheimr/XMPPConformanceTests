@@ -68,6 +68,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #region Hilfsfunktionen
 
+        /// <summary>
+        /// Der Serverschlüssel für die erfundenen Zugangsdaten. Fest, damit
+        /// der Test nachrechnen kann, was der Server ableiten würde.
+        /// </summary>
+        private static readonly Byte[] Serverschluessel =
+            Encoding.UTF8.GetBytes("Serverschluessel für die Testsammlung");
+
+        /// <summary>
+        /// Erfundene Zugangsdaten für einen Namen ohne Konto - dasselbe, was
+        /// der Server einsetzt (RFC 6120, Abschnitt 13.11).
+        /// </summary>
+        private static XMPPCredentials Erfunden(String user)
+            => XMPPCredentials.Decoy(user, Serverschluessel);
+
         /// <summary>Beginnt einen Austausch mit einer festen Client-Nonce.</summary>
         private SCRAMExchange Beginn(String clientNonce = "clientnonce")
         {
@@ -77,7 +91,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var exchange = SCRAMExchange.Begin(
                                Convert.ToBase64String(Encoding.UTF8.GetBytes(clientFirst)),
                                SCRAMMechanism.ScramSha256,
-                               user => user == "alice" ? _account : null);
+                               user => user == "alice" ? _account : null,
+                               Erfunden);
 
             Assert.That(exchange, Is.Not.Null, "Der Austausch hätte beginnen müssen.");
 
@@ -253,26 +268,116 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region UnknownUser_DoesNotStart()
 
         /// <summary>
-        /// Ein unbekanntes Konto lässt den Austausch gar nicht erst beginnen.
+        /// Ein unbekanntes Konto lässt den Austausch trotzdem beginnen - mit
+        /// erfundenen, aber gleichbleibenden Zugangsdaten.
         /// </summary>
         /// <remarks>
-        /// Damit verrät der Server, ob es ein Konto gibt - RFC 5802,
-        /// Abschnitt 7 empfiehlt stattdessen, mit einem erfundenen Salt
-        /// weiterzumachen und erst am Beweis zu scheitern. Bewusst nicht
-        /// gemacht, und hier festgehalten statt verschwiegen.
+        /// Hier stand das Gegenteil, samt Begründung: „RFC 5802, Abschnitt 7
+        /// empfiehlt stattdessen, mit einem erfundenen Salt weiterzumachen …
+        /// bewusst nicht gemacht". Beide Hälften waren falsch. Abschnitt 7 des
+        /// RFC 5802 ist die formale Syntax, und der ganze RFC empfiehlt dazu
+        /// nichts; er führt im Gegenteil ein <c>unknown-user</c> als
+        /// Fehlerwert. Die Empfehlung steht in <b>RFC 6120, Abschnitt
+        /// 13.11</b> („Directory Harvesting"): „not reveal whether or not an
+        /// account exists at a server when an entity attempts to
+        /// authenticate".
+        ///
+        /// Ein sofortiger Fehlschlag verriet das unabhängig vom Fehlerwort -
+        /// die Auskunft steckte im Ablauf: eine Runde statt zweien.
         /// </remarks>
         [Test]
-        public void UnknownUser_DoesNotStart()
+        public void UnknownUser_StartsAnyway()
         {
 
-            var clientFirst = "n,,n=niemand,r=clientnonce";
+            SCRAMExchange? Versuch(String benutzer)
+                => SCRAMExchange.Begin(
+                       Convert.ToBase64String(Encoding.UTF8.GetBytes($"n,,n={benutzer},r=clientnonce")),
+                       SCRAMMechanism.ScramSha256,
+                       user => user == "alice" ? _account : null,
+                       Erfunden);
+
+            var ersterVersuch   = Versuch("niemand");
+            var zweiterVersuch  = Versuch("niemand");
+            var andererName     = Versuch("auchnicht");
+
+            Assert.That(ersterVersuch,  Is.Not.Null, "Der Austausch hätte beginnen müssen.");
+            Assert.That(zweiterVersuch, Is.Not.Null);
+            Assert.That(andererName,    Is.Not.Null);
+
+            var erste   = ServerFirst(ersterVersuch!);
+            var zweite  = ServerFirst(zweiterVersuch!);
+            var andere  = ServerFirst(andererName!);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ersterVersuch!.Account, Is.Null,
+                            "Ein Konto gibt es nicht - der Austausch läuft nur zum Schein.");
+
+                Assert.That(Wert(zweite, "s"), Is.EqualTo(Wert(erste, "s")),
+                            "Ein Salt, das sich bei jedem Versuch ändert, ist selbst die Auskunft.");
+
+                Assert.That(Wert(andere, "s"), Is.Not.EqualTo(Wert(erste, "s")),
+                            "Ein für alle gleiches Salt ebenso.");
+
+                Assert.That(Wert(erste, "i"),
+                            Is.EqualTo(_account.Credentials.IterationCount.ToString()),
+                            "Eine abweichende Iterationszahl wäre wieder ein Erkennungszeichen.");
+
+                Assert.That(Convert.FromBase64String(Wert(erste, "s")).Length,
+                            Is.EqualTo(_account.Credentials.Salt.Length),
+                            "Und eine abweichende Salt-Länge auch.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AValidProof_IsNotEnoughWithoutAnAccount()
+
+        /// <summary>
+        /// Selbst ein stimmiger Beweis meldet niemanden an, wenn hinter dem
+        /// Namen kein Konto steht.
+        /// </summary>
+        /// <remarks>
+        /// Der Fall ist über die Leitung nicht herstellbar: Die erfundenen
+        /// Schlüssel stammen aus dem Serverschlüssel, und wer den nicht kennt,
+        /// bringt keinen passenden Beweis zustande. Hier bekommt der Austausch
+        /// deshalb die <b>echten</b> Zugangsdaten als erfundene untergeschoben
+        /// - der Beweis stimmt dann, und der Austausch muss ihn trotzdem
+        /// abweisen.
+        ///
+        /// Ohne diesen Test wäre die Sicherung in <c>Complete</c> eine
+        /// Behauptung: Sie fällt in keinem anderen Test auf, und ihr Preis
+        /// wäre eine Anmeldung ohne Konto.
+        /// </remarks>
+        [Test]
+        public void AValidProof_IsNotEnoughWithoutAnAccount()
+        {
+
+            const String clientFirstBare = "n=niemand,r=clientnonce";
 
             var exchange = SCRAMExchange.Begin(
-                               Convert.ToBase64String(Encoding.UTF8.GetBytes(clientFirst)),
+                               Convert.ToBase64String(Encoding.UTF8.GetBytes($"n,,{clientFirstBare}")),
                                SCRAMMechanism.ScramSha256,
-                               user => user == "alice" ? _account : null);
+                               _ => null,
+                               _ => _account.Credentials);
 
-            Assert.That(exchange, Is.Null);
+            Assert.That(exchange, Is.Not.Null);
+
+            var serverFirst  = ServerFirst(exchange!);
+            var clientFinal  = ClientFinal(clientFirstBare, serverFirst, Passwort);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(exchange!.Complete(clientFinal), Is.Null,
+                            "Ein Beweis ohne Konto dahinter darf nicht durchkommen.");
+
+                Assert.That(exchange.Account, Is.Null);
+
+            });
 
         }
 
@@ -299,7 +404,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var exchange = SCRAMExchange.Begin(
                                Convert.ToBase64String(Encoding.UTF8.GetBytes("n,,n=a=2Cb=3Dc,r=nonce")),
                                SCRAMMechanism.ScramSha256,
-                               user => { gesucht.Add(user); return konto; });
+                               user => { gesucht.Add(user); return konto; },
+                               Erfunden);
 
             Assert.Multiple(() =>
             {
@@ -324,16 +430,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.Multiple(() =>
             {
 
-                Assert.That(SCRAMExchange.Begin("kein-base64!!", SCRAMMechanism.ScramSha256, _ => _account),
+                Assert.That(SCRAMExchange.Begin("kein-base64!!", SCRAMMechanism.ScramSha256, _ => _account, Erfunden),
                             Is.Null, "Kein Base64.");
 
-                Assert.That(SCRAMExchange.Begin(Base64("n,,"), SCRAMMechanism.ScramSha256, _ => _account),
+                Assert.That(SCRAMExchange.Begin(Base64("n,,"), SCRAMMechanism.ScramSha256, _ => _account, Erfunden),
                             Is.Null, "Kein Benutzername und keine Nonce.");
 
-                Assert.That(SCRAMExchange.Begin(Base64("n=alice,r=x"), SCRAMMechanism.ScramSha256, _ => _account),
+                Assert.That(SCRAMExchange.Begin(Base64("n=alice,r=x"), SCRAMMechanism.ScramSha256, _ => _account, Erfunden),
                             Is.Null, "Kein GS2-Header.");
 
-                Assert.That(SCRAMExchange.Begin(Base64("n,,r=x"), SCRAMMechanism.ScramSha256, _ => _account),
+                Assert.That(SCRAMExchange.Begin(Base64("n,,r=x"), SCRAMMechanism.ScramSha256, _ => _account, Erfunden),
                             Is.Null, "Kein Benutzername.");
 
             });

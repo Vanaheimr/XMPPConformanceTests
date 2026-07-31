@@ -136,9 +136,11 @@ bemerkt hätte.
 - **Kein Channel Binding** (`SCRAM-SHA-*-PLUS`). Der GS2-Header wird auf
   Übereinstimmung geprüft, mehr verlangt RFC 5802 §6 von einem Server ohne
   Channel Binding auch nicht.
-- **Ein unbekanntes Konto wird abgelehnt, bevor der Austausch beginnt.** Damit
+- ~~**Ein unbekanntes Konto wird abgelehnt, bevor der Austausch beginnt.** Damit
   verrät der Server, ob es ein Konto gibt; RFC 5802 §7 empfiehlt, mit einem
-  erfundenen Salt weiterzumachen.
+  erfundenen Salt weiterzumachen.~~ ✅ erledigt in D50 — und die Quellenangabe
+  war falsch: §7 des RFC 5802 ist die formale Syntax, und der RFC empfiehlt
+  dazu nichts. Die Empfehlung steht in RFC 6120 §13.11.
 - **Die Kontendatei ist unverschlüsselt** und ihre Zugriffsrechte werden nicht
   gesetzt. Die abgelegten Schlüssel sind keine Passwörter, erlauben aber, eine
   Anmeldung zu prüfen.
@@ -4062,6 +4064,87 @@ erzeugen, wo es keinen Schalter dafür gibt.
 
 ---
 
+### D50. Ein Konto, das es nicht gibt ✅ — und eine Quelle, die nichts sagt
+
+Wieder ein Punkt, der älter war als seine Erledigung: „SCRAM anbieten, damit der
+SCRAM-Pfad des Clients integrativ geprüft wird". **S2 hat das getan** — der
+Server bietet SCRAM-SHA-256, SCRAM-SHA-1 und PLAIN an, der Client nimmt von
+sich aus den stärksten, und damit läuft die gesamte Suite über SCRAM-SHA-256.
+Es steht sogar wörtlich in S2 („zum ersten Mal integrativ geprüft"). Die Liste
+hat es wieder nicht erfahren.
+
+Offen war etwas, das S2 selbst notiert hatte:
+
+> Ein unbekanntes Konto wird abgelehnt, bevor der Austausch beginnt. Damit
+> verrät der Server, ob es ein Konto gibt; **RFC 5802 §7** empfiehlt, mit einem
+> erfundenen Salt weiterzumachen.
+
+**Die Quellenangabe stimmt nicht.** RFC 5802 §7 ist die formale Syntax, und der
+RFC empfiehlt an keiner Stelle ein erfundenes Salt — er führt in eben dieser
+Syntax sogar ein `unknown-user` als Fehlerwert und überlässt es dem Server, ob
+er den echten Grund durch `other-error` ersetzt. Die Empfehlung, die gemeint
+war, steht woanders und ist deutlicher: **RFC 6120 §13.11, „Directory
+Harvesting"** — „not reveal whether or not an account exists at a server when an
+entity attempts to authenticate". Ein Satz, der zweimal falsch zitiert dastand
+(im WORKPLAN und in `UnknownUser_DoesNotStart`), belegt nichts; er sieht nur so
+aus.
+
+**Der Fehlerwert war nie das Problem.** Beide Fälle bekamen schon vorher
+`<not-authorized/>`, und §6.5.10 deckt beide ausdrücklich ab: „this might
+include, but is not limited to, the case in which the user does not exist".
+Verraten hat der **Ablauf**:
+
+| | erste Nachricht | zweite Nachricht |
+|---|---|---|
+| Konto vorhanden, Passwort falsch | `<challenge/>` | `<failure/>` |
+| Konto nicht vorhanden | `<failure/>` | — |
+
+Eine Runde Unterschied, und eine Namensliste ist in einem Durchgang sortiert.
+
+Jetzt läuft der Austausch auch für einen unbekannten Namen zu Ende, mit
+**erfundenen Zugangsdaten aus dem Benutzernamen und einem Serverschlüssel**.
+Drei Eigenschaften, und jede davon hat ihren eigenen Test, weil jede für sich
+allein die Massnahme aushebelt:
+
+- **gleichbleibend** — ein Salt, das bei jedem Versuch anders ausfällt, ist
+  selbst die Auskunft; das eines echten Kontos steht fest. Zweimal fragen
+  genügte.
+- **je Name verschieden** — ein festes, eingebautes Salt wäre die schlechteste
+  Lösung von allen: Zwei Namen mit demselben Salt gibt es unter echten Konten
+  nicht.
+- **nicht vorherzusagen** — der Serverschlüssel ist zufällig, sonst rechnet der
+  Fragende die erfundenen Salts selbst nach und sortiert wie zuvor.
+
+Dazu Iterationszahl und Salt-Länge wie bei einem echten Konto; beides steht
+offen in der server-first-message.
+
+**Was das nicht leistet, steht dabei:** Über einen Neustart hinweg wechseln die
+erfundenen Salts, die echten nicht — der Serverschlüssel lebt im Prozess. Ein
+dauerhafter gehörte in den Kontenspeicher. Und **PLAIN** bleibt unberührt: Dort
+ist der Ablauf ohnehin in beiden Fällen derselbe, es unterscheidet sich nur die
+Laufzeit (ein echtes Konto rechnet PBKDF2, ein unbekanntes nicht). Das zu
+schliessen wäre leicht, ein Test dafür aber würde die Maschine messen und nicht
+den Code — deshalb hier benannt und nicht heimlich mitgemacht.
+
+Sieben Mutationen, sechs erschlagen: sofort scheitern, Salt zufällig, Salt für
+alle gleich, Iterationszahl abweichend, Salt kürzer, Sicherung gegen eine
+Anmeldung ohne Konto entfernt. **Die siebte überlebt und soll es:** Die
+erfundenen *Schlüssel* hängen ebenfalls am Namen, und das kann kein Test
+bemerken — sie erreichen die Leitung nie. Über den StoredKey läuft nur der
+Vergleich, und die server-final-message, in der der ServerKey steckt, gibt es
+nur bei einer geglückten Anmeldung, die es hier nie gibt. Die Ableitung bleibt
+trotzdem: Sie kostet nichts und ist die Konstruktion, die man verteidigen kann.
+
+Der eine Test, den es dazu doch gibt, musste sich den Fall borgen:
+`AValidProof_IsNotEnoughWithoutAnAccount` schiebt dem Austausch die **echten**
+Zugangsdaten als erfundene unter. Der Beweis stimmt dann — und wird trotzdem
+abgewiesen, weil kein Konto dahintersteht.
+
+Am Server bleibt damit ein Punkt: Stanza-Fehler auch dort erzeugen, wo es
+keinen Schalter dafür gibt.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4102,8 +4185,6 @@ erzeugen, wo es keinen Schalter dafür gibt.
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
 Was dort nicht auftaucht und trotzdem ansteht:
-- SCRAM anbieten, damit der SCRAM-Pfad des Clients integrativ geprüft wird und
-  nicht nur gegen die RFC-Vektoren (setzt S1 voraus)
 - Stanza-Fehler auch dort erzeugen, wo heute kein Schalter dafür existiert
 
 ### Struktur

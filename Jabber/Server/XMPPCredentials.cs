@@ -155,6 +155,68 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         #endregion
 
+        #region Decoy(user, secret)
+
+        /// <summary>
+        /// Erfundene Zugangsdaten für ein Konto, das es nicht gibt - damit ein
+        /// unbekannter Benutzername genauso aussieht wie ein bekannter
+        /// (RFC 6120, Abschnitt 13.11).
+        /// </summary>
+        /// <remarks>
+        /// „Not reveal whether or not an account exists at a server when an
+        /// entity attempts to authenticate" - bei SCRAM genügt dafür der
+        /// gleiche Fehler nicht. Wer ein unbekanntes Konto sofort abweist,
+        /// beantwortet die erste Nachricht mit einem Fehlschlag und die eines
+        /// bestehenden Kontos mit einer Aufforderung; die Auskunft steckt dann
+        /// im <b>Ablauf</b> und nicht im Fehlerwort.
+        ///
+        /// <b>Gleichbleibend, nicht zufällig.</b> Ein Salt, das sich bei jedem
+        /// Versuch ändert, wäre selbst die Auskunft: das eines bestehenden
+        /// Kontos steht fest. Es entsteht deshalb aus dem Benutzernamen und
+        /// einem Serverschlüssel - für jeden Namen ein anderes, für denselben
+        /// Namen immer dasselbe, und keines davon vorherzusagen, ohne den
+        /// Schlüssel zu kennen. Genau deshalb ist die Iterationszahl auch die
+        /// gewöhnliche: eine abweichende wäre wieder ein Erkennungszeichen.
+        ///
+        /// Die Schlüssel entstehen auf demselben Weg und passen zu keinem
+        /// Passwort. Der Austausch läuft damit zu Ende und scheitert dort, wo
+        /// er auch bei einem falschen Passwort scheitert - am Beweis.
+        ///
+        /// <b>Was das nicht leistet:</b> Über einen Neustart hinweg ändern sich
+        /// die erfundenen Salts, die echten nicht. Wer denselben Namen davor
+        /// und danach probiert, sieht den Unterschied. Ein dauerhafter
+        /// Serverschlüssel gehörte in den Kontenspeicher und ist nicht Teil
+        /// dieses Schritts.
+        /// </remarks>
+        /// <param name="user">Der Benutzername aus der client-first-message.</param>
+        /// <param name="secret">Der Serverschlüssel, aus dem abgeleitet wird.</param>
+        public static XMPPCredentials Decoy(String user, Byte[] secret)
+        {
+
+            var keys = new Dictionary<SCRAMMechanism, SCRAMKeys>();
+
+            foreach (var mechanism in Enum.GetValues<SCRAMMechanism>())
+            {
+
+                var laenge = KeyLengthOf(mechanism);
+
+                keys[mechanism] = new SCRAMKeys(
+                                      StoredKey: Abgeleitet(secret, $"stored:{mechanism}:{user}", laenge),
+                                      ServerKey: Abgeleitet(secret, $"server:{mechanism}:{user}", laenge));
+
+            }
+
+            return new XMPPCredentials(Abgeleitet(secret, $"salt:{user}", SaltLength),
+                                       DefaultIterationCount,
+                                       keys);
+
+        }
+
+        private static Byte[] Abgeleitet(Byte[] secret, String zweck, Int32 length)
+            => HMACSHA256.HashData(secret, Encoding.UTF8.GetBytes(zweck))[..length];
+
+        #endregion
+
         #region KeysOf(mechanism)
 
         /// <summary>
