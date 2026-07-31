@@ -4425,10 +4425,70 @@ nicht angefasst". Wiederholt, diesmal richtig: 800 grün, 7 übersprungen.
 
 ---
 
+### D55. Eine Zahl, wo eine Beziehung gemeint war ✅ — der Wackler ist erklärt
+
+`NonzasDoNotAdvanceTheCount` gegen Prosody, aufgefallen in D34 als **ein**
+Fehlschlag in einem Vollauf und danach in zwanzig gezielten Ausführungen nicht
+zu wiederholen. Der Mitschnitt aus D35 wurde nie fällig — geklärt ist der Fall
+trotzdem, und zwar aus den beiden Zahlen, die schon im Protokoll standen:
+
+```
+Wir haben Nonzas mitgezählt.               Expected: 6  But was: 8
+Prosody hat andere Nonzas mitgezählt.      Expected: 8  But was: 6
+```
+
+Der Ausgangsstand war 3, Prosody bestätigte **6** — also genau die drei
+Nachrichten des Tests, und keine einzige der sechs Nonzas. **Prosody hat
+richtig gezählt, und wir auch.** Bei uns standen nur zwei Stanzas mehr im
+Zähler, die dieser Test nicht geschickt hat und die nach Prosodys `<a/>`
+hinausgingen.
+
+Damit ist die naheliegende Erklärung — „eine Seite zählt Nonzas mit" — genau
+die, die nicht zutrifft. Ein Client schickt von sich aus: Er beantwortet, was
+hereinkommt, und **wann** das geschieht, bestimmt nicht der Test. Die drei
+Nachrichten gehen an das eigene Konto und kommen zurück; was der Client
+daraufhin tut, fällt in das Fenster zwischen der Bestätigung und dem Ablesen
+des Zählers.
+
+**Der Fehler lag im Test, nicht im Zähler.** Er prüfte „der Stand ist um genau
+drei gestiegen" — eine Zahl. Abschnitt 2 sagt aber keine Zahl, sondern eine
+Beziehung: *der Zähler steigt um die Stanzas und um nichts sonst.* Genau die
+steht jetzt da, gemessen gegen den Mitschnitt statt gegen die Absicht:
+
+```csharp
+Assert.That(sm.OutboundCount - vorher, Is.EqualTo(Gezaehlt(hinaus)));
+```
+
+Drei ist nur noch die Untergrenze, damit überhaupt etwas gemessen wird, und
+eine vierte Zusicherung verlangt mindestens drei **Nonzas** im Ausgang — sonst
+prüfte der Test seine eigene Überschrift nicht.
+
+**Gezählt wird mit einer eigenen Fassung der Regel**, nicht mit
+`StreamManagementManager.IsCountableStanza`. Die ist die Funktion, deren
+Ergebnis hier geprüft wird; nähme der Test sie, verglich er eine Zahl mit sich
+selbst und bestünde auch dann, wenn sie falsch antwortet — dieselbe Trennung,
+aus der auch der Testserver eigenständig zählt.
+
+Dazu ein Nachfrage-Anlauf statt eines einzigen `<r/>`: Was nach dem letzten
+`<r/>` hinausgeht, bliebe sonst für immer unbestätigt, und die Gleichheit der
+beiden Stände käme nie zustande. Drei Runden, jede mit eigener Nachfrage.
+
+Vier Mutationen, alle erschlagen: ausgehend alles mitzählen, ausgehend nichts
+mitzählen, der Zähler springt um zwei, und nur `<message>` zählt. Die erste ist
+die eigentliche Probe — sie fällt in beiden Ableitungen, gegen Prosody wie
+gegen ejabberd.
+
+**Und das Werkzeug ist mitrepariert:** `mutate.ps1` reicht jetzt die
+`JABBER_*_CERTS` weiter (siehe die Beobachtung in D53). In allen Läufen dieses
+Eintrags stand `übersprungen: 0` — vorher wären es die Hälfte der Tests
+gewesen, und die Mutation hätte gegen die fremden Server gar nichts gemessen.
+
+---
+
 ## Später
 
 ### Testsammlung
-- **`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
+- ~~**`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
   aufgefallen, ein Fehlschlag in einem Vollauf. Der Mitschnitt liegt vor:
 
   ```
@@ -4449,7 +4509,10 @@ nicht angefasst". Wiederholt, diesmal richtig: 800 grün, 7 übersprungen.
   Offen ist damit, **welche zwei Stanzas** mitgezählt wurden. Seit D35
   schneidet der Test den Ausgang mit und legt ihn der Meldung bei — beim
   nächsten Vorfall steht dort, was hinausging, statt einer Zahl. Zwanzig
-  gezielte Ausführungen konnten ihn nicht wiederholen (siehe D34, D35)
+  gezielte Ausführungen konnten ihn nicht wiederholen (siehe D34, D35)~~
+  ✅ erledigt in D55 — und die Frage nach den zwei Stanzas war die falsche:
+  Prosody hatte richtig gezählt und wir auch. Der Test verglich eine Zahl, wo
+  Abschnitt 2 eine Beziehung meint
 - `TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
   reproduzierbar** und der damalige Verdacht widerlegt: vierzig Ausführungen
   zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist

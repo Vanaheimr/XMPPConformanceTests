@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.RegularExpressions;
 
 using NUnit.Framework;
 
@@ -383,11 +384,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// </summary>
         /// <remarks>
         /// Drei Nachrichten, dazwischen je ein <c>&lt;r/&gt;</c>, und die
-        /// Gegenstelle beantwortet jedes davon mit einem <c>&lt;a/&gt;</c>. Am
-        /// Ende darf der Stand um genau drei gestiegen sein. Zählte eine der
-        /// beiden Seiten die sechs Nonzas mit, stünde hier ein anderer Wert -
-        /// und zwar einer, den keine Gegenprobe gegen den eigenen Server je
-        /// gezeigt hätte, weil dort beide Seiten denselben Fehler machten.
+        /// Gegenstelle beantwortet jedes davon mit einem <c>&lt;a/&gt;</c>.
+        /// Zählte eine der beiden Seiten die Nonzas mit, liefen die Stände
+        /// auseinander - und zwar so, wie keine Gegenprobe gegen den eigenen
+        /// Server es je zeigte, weil dort beide Seiten denselben Fehler
+        /// machten.
+        ///
+        /// <b>Gemessen wird gegen den Mitschnitt, nicht gegen die Absicht.</b>
+        /// Hier stand einmal „der Stand muss um genau drei gestiegen sein", und
+        /// genau daran ist der Test in D34 einmal gefallen: Prosody bestätigte
+        /// sechs - also exakt die drei Nachrichten -, unser Zähler stand bei
+        /// acht. Es gingen also zwei Stanzas hinaus, die dieser Test nicht
+        /// geschickt hat, und zwar nachdem Prosody bestätigt hatte. Ein Client
+        /// tut das durchaus zu Recht: Er beantwortet, was hereinkommt, und wann
+        /// das geschieht, bestimmt nicht der Test.
+        ///
+        /// Die Aussage von Abschnitt 2 ist ohnehin keine Zahl, sondern eine
+        /// Beziehung: <i>Der Zähler steigt um die Stanzas und um nichts
+        /// sonst.</i> Genau die steht jetzt da - drei ist nur noch die
+        /// Untergrenze, damit überhaupt etwas gemessen wird.
         /// </remarks>
         [Test]
         public async Task NonzasDoNotAdvanceTheCount()
@@ -396,20 +411,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var client  = await VerbindeAsync();
             var sm      = client.StreamManagement!;
 
-            // Was tatsächlich hinausgeht - für den Fall, dass die Zahl am Ende
-            // nicht stimmt.
-            //
-            // Zahlen sagen, *dass* etwas nicht stimmt, und nie *was*. Dieser
-            // Test ist in D34 einmal in einem Vollauf gefallen ("Expected: 6,
-            // But was: 8"), und die zwei überzähligen Stanzas liessen sich
-            // hinterher nicht mehr benennen - dieselbe Sackgasse wie in D16 und
-            // D29. Der Mitschnitt kostet nichts und beendet sie.
+            // Was tatsächlich hinausgeht. Zahlen sagen, *dass* etwas nicht
+            // stimmt, und nie *was* - dieselbe Sackgasse wie in D16 und D29.
+            // Seit D35 ist der Mitschnitt dabei; jetzt ist er auch die
+            // Messlatte.
             var hinaus = new ConcurrentQueue<String>();
 
             client.Connection.OnRawXml += x =>
             {
-                if (x.StartsWith(">>>", StringComparison.Ordinal))
-                    hinaus.Enqueue(x);
+                if (x.StartsWith(">>> ", StringComparison.Ordinal))
+                    hinaus.Enqueue(x[4..]);
             };
 
             var vorher  = sm.OutboundCount;
@@ -425,24 +436,67 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             }
 
-            await WarteAuf(() => sm.LastAcknowledged == vorher + 3,
-                           $"ein <a/> über {vorher + 3} Stanzas (zuletzt {sm.LastAcknowledged})");
+            // Bis zu drei Anläufe: Jede Nachfrage bestätigt, was bis dahin
+            // hinausging. Ist danach noch etwas hinausgegangen - eine Antwort
+            // auf etwas, das gerade hereinkam -, fragt der nächste Anlauf
+            // erneut nach. Ohne das bliebe genau diese Stanza für immer
+            // unbestätigt, und die Gleichheit käme nie zustande.
+            for (var versuch = 0; versuch < 3; versuch++)
+            {
+
+                await sm.RequestAckAsync();
+
+                if (await XMPPServer.WaitUntilAsync(
+                              () => sm.LastAcknowledged == sm.OutboundCount &&
+                                    sm.OutboundCount    == vorher + Gezaehlt(hinaus) &&
+                                    sm.OutboundCount    >= vorher + 3,
+                              TimeSpan.FromSeconds(5)))
+                {
+                    break;
+                }
+
+            }
 
             var mitschnitt = String.Join("\n   ", hinaus);
 
             Assert.Multiple(() =>
             {
 
-                Assert.That(sm.OutboundCount, Is.EqualTo(vorher + 3),
-                            $"Wir haben Nonzas mitgezählt. Hinausgegangen ist:\n   {mitschnitt}");
+                Assert.That(sm.OutboundCount - vorher, Is.EqualTo(Gezaehlt(hinaus)),
+                            "Der Zähler passt nicht zu dem, was hinausgegangen ist:\n   " +
+                            mitschnitt);
 
                 Assert.That(sm.LastAcknowledged, Is.EqualTo(sm.OutboundCount),
-                            $"{PeerName} hat andere Nonzas mitgezählt als wir. " +
-                            $"Hinausgegangen ist:\n   {mitschnitt}");
+                            $"{PeerName} hat anders gezählt als wir. Hinausgegangen ist:\n   " +
+                            mitschnitt);
+
+                Assert.That(hinaus.Count(f => !IstStanza(f)), Is.GreaterThanOrEqualTo(3),
+                            "Ohne Nonzas im Ausgang prüft dieser Test nichts:\n   " + mitschnitt);
+
+                Assert.That(sm.OutboundCount, Is.GreaterThanOrEqualTo(vorher + 3),
+                            "Die drei Nachrichten sind nicht mitgezählt worden:\n   " + mitschnitt);
 
             });
 
         }
+
+        /// <summary>Wie viele Stanzas im Mitschnitt stehen.</summary>
+        private static UInt32 Gezaehlt(IEnumerable<String> frames)
+            => (UInt32) frames.Count(IstStanza);
+
+        /// <summary>
+        /// Was XEP-0198, Abschnitt 2 zählt - hier noch einmal von Hand.
+        /// </summary>
+        /// <remarks>
+        /// Absichtlich <b>nicht</b>
+        /// <see cref="StreamManagementManager.IsCountableStanza"/>: Das ist die
+        /// Funktion, deren Ergebnis hier geprüft wird. Nähme der Test sie,
+        /// verglich er eine Zahl mit sich selbst und bestünde auch dann, wenn
+        /// sie falsch antwortet - dieselbe Falle, wegen der auch der Testserver
+        /// eigenständig zählt.
+        /// </remarks>
+        private static Boolean IstStanza(String frame)
+            => Regex.IsMatch(frame, @"^\s*<(message|presence|iq)(\s|/|>)");
 
         #endregion
 
