@@ -50,7 +50,7 @@ Stand: 2026-07-27
 
 Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
 geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **706 Tests, 0 Fehler** in gut drei Minuten, und
+Aktueller Stand der Suite: **709 Tests, 0 Fehler** in gut drei Minuten, und
 seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
 wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
 die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
@@ -3317,15 +3317,74 @@ Wo der Gegenstand billig mitzuschreiben ist — der Verlauf, der Rahmen, der
 Mitschnitt —, gehört er in die Meldung, und zwar bevor der erste Fehlschlag
 kommt und nicht danach.
 
+### D36. Die Auskunft hängt nicht daran, wer fragt ✅
+
+Der Punkt aus D16: Eine IQ-Anfrage von einer Gegenstelle an die **eigene
+Serveradresse** — Ping, disco#info — blieb unbeantwortet, obwohl RFC 6120,
+Abschnitt 8.2.3, Regel 3 eine Antwort verlangt. Sie ging ins Routing, fand dort
+für die Domain keine Sitzung und verschwand.
+
+**Der Grund für die Lücke war die Bauform, nicht das Wissen.** Die Antworten gab
+es längst — sie standen mitten in `HandleIqAsync` und schrieben unmittelbar in
+eine Client-Sitzung. Damit waren sie an einen Client gebunden, und eine
+Gegenstelle hat keinen.
+
+Also getrennt, was verschieden ist: `AnswerAboutSelf` **baut** die Antwort und
+verschickt sie nicht. Der hiesige Client bekommt sie über seine Sitzung, die
+Gegenstelle über `RouteToAsync` — **der Rückweg ist der einzige Unterschied.**
+Was dieser Server kann, ist für beide dasselbe, und es zweimal aufzuschreiben
+hiesse, zwei Auskünfte über dieselbe Sache zu führen, die auseinanderlaufen
+können.
+
+**Was nicht mitgewandert ist, ist die eigentliche Arbeit an diesem Punkt.**
+Binding, Legacy Session, Carbons und der Roster stehen ebenfalls in
+`HandleIqAsync` — aber sie ändern den Zustand *einer Sitzung* oder gehören einem
+Konto. Sie bleiben, wo sie sind, und damit für eine Gegenstelle unerreichbar:
+Ein fremder Server, der nach unserem Roster fragt, bekommt
+`<service-unavailable/>` wie für jede andere unbekannte Anfrage. Die Trennlinie
+verläuft nicht zwischen „beantwortbar" und „nicht beantwortbar", sondern
+zwischen **Auskunft über den Server** und **Zustand einer Sitzung**.
+
+Der Rückfall wandert mit: Was der Server nicht kennt, bekommt auch von der
+Gegenstelle einen Fehler statt Schweigen. Regel 3 kennt keine dritte
+Möglichkeit, und Schweigen lässt den Frager bis in seine Zeitüberschreitung
+warten, ohne je zu erfahren, ob die Frage überhaupt ankam.
+
+Und Regel 4 gilt weiter: Auf ein `result` oder `error` an die Serveradresse
+folgt nichts. Ein eigener Test hält das fest — ohne ihn wäre der nächste Schritt
+ein Server, der jede Stanza an seine Adresse beantwortet, und zwei davon
+schöben sich gegenseitig Meldungen zu.
+
+**Ein Test aus D16 hat diese Änderung vorhergesagt und musste ihr weichen.**
+`AnIqToTheServersOwnAddress_IsNotClaimedByTheUserPath` hielt fest, dass die
+Anfrage unbeantwortet bleibt, und nannte das ausdrücklich „eine offene Stelle
+und keine Absicht". Seine eigentliche Aussage bleibt erhalten: Der
+Nutzer-Zustellweg darf die Serveradresse nicht anfassen — er antwortete auf
+alles mit `<service-unavailable/>`, auf einen Ping also auch. Ein `result` kann
+er gar nicht erzeugen, und genau daran ist die Verwechslung zu erkennen. Der
+Test prüft jetzt das `result` statt des Schweigens.
+
+Sechs Mutationen, alle erschlagen — eine davon erst im zweiten Anlauf, und der
+Grund ist **zum zweiten Mal** derselbe wie in D25.
+
+Die Mutation nimmt dem hiesigen Client die Selbstauskunft weg. Über meinen
+Filter — die vier Fixtures, die mit diesem Punkt zu tun haben — **überlebte
+sie**: Dass ein Client den Server anpingt und eine Auskunft bekommt, steht in
+anderen Fixtures, und die waren nicht dabei. Über die ganze Sammlung fällt sie
+mit sechs Fehlern.
+
+Der Fehler ist nicht, den Filter eng zu wählen — das spart echte Zeit —, sondern
+einem **überlebenden** Mutanten zu glauben, ohne den Filter zu prüfen. Ein
+erschlagener Mutant ist auch mit engem Filter erschlagen; ein überlebender sagt
+erst dann etwas, wenn die Tests, die ihn erschlagen könnten, überhaupt gelaufen
+sind. Das gehört zur fünften Bedeutung aus D25 und ist ihre praktische Form:
+**Bei jedem Überlebenden zuerst den Filter verdächtigen, nicht den Test.**
+
 ---
 
 ## Später
 
 ### Protokoll
-- Eine IQ-Anfrage von einer Gegenstelle an die eigene Serveradresse
-  (disco#info, Ping) bleibt unbeantwortet, obwohl RFC 6120 §8.2.3 Regel 3 eine
-  Antwort verlangt. Die Antworten stehen in `HandleIqAsync` und wollen eine
-  Client-Sitzung (siehe D16)
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)

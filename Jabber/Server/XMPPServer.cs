@@ -1729,52 +1729,86 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
+            // Ab hier beantwortet der Server für sich selbst - und dafür
+            // braucht es diese Sitzung nicht mehr, nur noch einen Rückweg.
+            if (AnswerAboutSelf(frame, id, type) is { } antwort)
+                await session.SendAsync(antwort);
+
+        }
+
+        /// <summary>
+        /// Was der Server an <b>seiner eigenen Adresse</b> selbst beantwortet:
+        /// XEP-0199 Ping, XEP-0030 disco#info, und sonst
+        /// <c>&lt;service-unavailable/&gt;</c>.
+        /// </summary>
+        /// <returns>
+        /// Die Antwort - oder <c>null</c>, wenn keine zu geben ist: Auf ein
+        /// <c>result</c> oder <c>error</c> wird nie geantwortet (RFC 6120,
+        /// Abschnitt 8.2.3, Regel 4), und die Testschalter können das Schweigen
+        /// erzwingen.
+        /// </returns>
+        /// <remarks>
+        /// Gebaut statt geschickt, und darum geht es hier: Diese Antworten
+        /// standen bis D36 mitten in <see cref="HandleIqAsync"/> und schrieben
+        /// unmittelbar in eine Client-Sitzung. Damit waren sie für eine
+        /// Gegenstelle unerreichbar — eine Anfrage über die Servergrenze an die
+        /// eigene Adresse blieb unbeantwortet, obwohl Regel 3 eine Antwort
+        /// verlangt.
+        ///
+        /// <b>Die Antwort hängt nicht daran, wer fragt.</b> Was dieser Server
+        /// kann, ist für einen hiesigen Client und für einen fremden Server
+        /// dasselbe; nur der Rückweg unterscheidet sich, und den kennt der
+        /// Aufrufer. Deshalb baut diese Stelle die Stanza und verschickt sie
+        /// nicht — sonst gäbe es die Auskunft zweimal, und zwei Auskünfte über
+        /// dieselbe Sache können auseinanderlaufen.
+        ///
+        /// Was <b>nicht</b> hierhergehört, ist ebenso wichtig: Binding, Legacy
+        /// Session, Carbons und der Roster ändern den Zustand <i>einer
+        /// Sitzung</i> oder gehören einem Konto. Sie bleiben in
+        /// <see cref="HandleIqAsync"/> und damit für eine Gegenstelle
+        /// unerreichbar — ein fremder Server, der nach unserem Roster fragt,
+        /// bekommt hier <c>&lt;service-unavailable/&gt;</c> wie für jede andere
+        /// unbekannte Anfrage.
+        /// </remarks>
+        private String? AnswerAboutSelf(String frame, String? id, String? type)
+        {
+
+            // Regel 4: Eine Antwort wird nie beantwortet.
+            if (type is not ("get" or "set"))
+                return null;
+
             // XEP-0199 Ping an den Server
             if (frame.Contains("urn:xmpp:ping", StringComparison.Ordinal) && type == "get")
-            {
-                if (FailPings)
-                    await session.SendAsync(StanzaErrorIq(id, "service-unavailable"));
-
-                else if (AnswerPings)
-                    await session.SendAsync($"<iq type='result' id='{id}' from='{Domain}'/>");
-
-                return;
-            }
+                return FailPings
+                           ? StanzaErrorIq(id, "service-unavailable")
+                           : AnswerPings
+                                 ? $"<iq type='result' id='{id}' from='{Domain}'/>"
+                                 : null;
 
             // XEP-0030 disco#info über den Server
             if (frame.Contains("http://jabber.org/protocol/disco#info", StringComparison.Ordinal) && type == "get")
-            {
+                return FailDiscoInfo
+                           ? StanzaErrorIq(id, "item-not-found", "modify",
+                                           "Diesen Node gibt es hier nicht.")
+                           : $"<iq type='result' id='{id}' from='{Domain}'>" +
+                             "<query xmlns='http://jabber.org/protocol/disco#info'>" +
+                             "<identity category='server' type='im' name='XMPPServer'/>" +
+                             "<feature var='urn:xmpp:carbons:2'/>" +
+                             "<feature var='urn:xmpp:ping'/>" +
+                             "<feature var='urn:xmpp:sm:3'/>" +
+                             // XEP-0160, Abschnitt 4: Nur wenn es die Ablage
+                             // wirklich gibt. Eine Ankündigung, die immer steht,
+                             // verspricht einem Client, dass seine Nachricht an
+                             // einen Abwesenden liegen bleibt - und lässt ihn
+                             // den Fehler übersehen, mit dem der Server ihm
+                             // gerade das Gegenteil sagt.
+                             (StoreOfflineMessages ? "<feature var='msgoffline'/>" : "") +
+                             "</query></iq>";
 
-                if (FailDiscoInfo)
-                {
-                    await session.SendAsync(StanzaErrorIq(id, "item-not-found", "modify",
-                                                          "Diesen Node gibt es hier nicht."));
-                    return;
-                }
-
-                await session.SendAsync(
-                    $"<iq type='result' id='{id}' from='{Domain}'>" +
-                    "<query xmlns='http://jabber.org/protocol/disco#info'>" +
-                    "<identity category='server' type='im' name='XMPPServer'/>" +
-                    "<feature var='urn:xmpp:carbons:2'/>" +
-                    "<feature var='urn:xmpp:ping'/>" +
-                    "<feature var='urn:xmpp:sm:3'/>" +
-                    // XEP-0160, Abschnitt 4: Nur wenn es die Ablage wirklich
-                    // gibt. Eine Ankündigung, die immer steht, verspricht einem
-                    // Client, dass seine Nachricht an einen Abwesenden liegen
-                    // bleibt - und lässt ihn den Fehler übersehen, mit dem der
-                    // Server ihm gerade das Gegenteil sagt.
-                    (StoreOfflineMessages ? "<feature var='msgoffline'/>" : "") +
-                    "</query></iq>");
-                return;
-            }
-
-            // Unbekannte Anfragen bekommen einen Fehler, Antworten werden verworfen.
-            if (type is "get" or "set")
-                await session.SendAsync(
-                    $"<iq type='error' id='{id}'><error type='cancel'>" +
-                    "<service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
-                    "</error></iq>");
+            // Unbekannte Anfragen bekommen einen Fehler (Abschnitt 8.4), und
+            // zwar auch dann, wenn niemand zuhört: Regel 3 kennt keine dritte
+            // Möglichkeit neben result und error.
+            return StanzaErrorIq(id, "service-unavailable");
 
         }
 
@@ -3237,6 +3271,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             {
                 await DeliverIqLocallyAsync(null, to, stanza);
                 return RemoteStanzaResult.Accepted;
+            }
+
+            // Und eine Anfrage an die Serveradresse selbst beantwortet der
+            // Server für sich - dieselben Auskünfte, die ein hiesiger Client
+            // bekommt.
+            //
+            // Bis D36 ging sie ins Routing, fand dort für die Domain keine
+            // Sitzung und verschwand. Die Gegenstelle wartete auf eine Antwort,
+            // die Regel 3 verlangt und die nie kam - erfahren hat sie davon
+            // nichts. Der Rückweg ist der einzige Unterschied zum hiesigen
+            // Client; die Auskunft selbst hängt nicht daran, wer fragt.
+            if (StanzaElement.Is(stanza, "iq"))
+            {
+
+                if (AnswerAboutSelf(stanza, Attr(stanza, "id"), Attr(stanza, "type")) is { } antwort)
+                    await RouteToAsync(from, antwort);
+
+                return RemoteStanzaResult.Accepted;
+
             }
 
             // Eine Presence-Probe beantwortet der Server selbst und stellt sie

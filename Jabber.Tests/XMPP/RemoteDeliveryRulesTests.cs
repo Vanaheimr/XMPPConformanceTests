@@ -724,21 +724,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// <c>&lt;localpart@domainpart&gt;</c>". Eine Anfrage an die Domain
         /// selbst richtet sich an den Server und nicht an einen Nutzer.
         ///
-        /// Dass sie hier <b>unbeantwortet</b> bleibt, ist eine offene Stelle und
-        /// keine Absicht: Der Server beantwortet an seiner eigenen Adresse
-        /// disco#info und Pings, aber nur für hiesige Clients — von der
-        /// Gegenstelle kommend erreichen sie diese Antworten noch nicht. Das
-        /// steht unter „Später".
+        /// Bis D36 blieb sie deshalb <b>unbeantwortet</b> — eine Lücke, die hier
+        /// ausdrücklich vermerkt war: Der Server beantwortet an seiner eigenen
+        /// Adresse Ping und disco#info, aber die Antworten standen im Weg für
+        /// hiesige Clients und wollten eine Sitzung.
         ///
-        /// Wogegen dieser Test schützt, ist die naheliegende Verwechslung: den
-        /// Nutzer-Zustellweg auch für die Serveradresse zu nehmen. Er antwortete
-        /// dann mit <c>&lt;service-unavailable/&gt;</c> — und das wäre schlechter
-        /// als Schweigen. Schweigen ist eine Lücke; ein Fehler ist eine Aussage,
-        /// und diese Aussage wäre falsch. Eine Gegenstelle, die sie glaubt, fragt
-        /// nicht wieder.
+        /// Wogegen dieser Test seit jeher schützt, ist die naheliegende
+        /// Verwechslung: den <b>Nutzer</b>-Zustellweg auch für die Serveradresse
+        /// zu nehmen. Der antwortet auf alles mit
+        /// <c>&lt;service-unavailable/&gt;</c> — auf einen Ping also auch, und
+        /// das wäre falsch. Ein <c>result</c> kann er gar nicht erzeugen; genau
+        /// daran ist die Verwechslung zu erkennen.
         /// </remarks>
         [Test]
-        public async Task AnIqToTheServersOwnAddress_IsNotClaimedByTheUserPath()
+        public async Task APingToTheServersOwnAddress_IsAnsweredByTheServerItself()
         {
 
             var alice = await VerbindeAsync(_links, "alice");
@@ -758,8 +757,144 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                       $"<iq type='get' id='an-den-server' to='{_rechts.Domain}'>" +
                       "<ping xmlns='urn:xmpp:ping'/></iq>");
 
-            await WarteGegen(() => !antworten.IsEmpty,
-                             "eine Ablehnung des Nutzer-Zustellwegs für die Serveradresse");
+            await WarteAuf(() => !antworten.IsEmpty, "die Antwort des fremden Servers");
+
+            antworten.TryDequeue(out var antwort);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(antwort, Does.Contain("type='result'"),
+                            "Ein Ping wird beantwortet - und der Nutzer-Zustellweg " +
+                            "könnte ein result gar nicht erzeugen.");
+
+                Assert.That(antwort, Does.Contain($"from='{_rechts.Domain}'"),
+                            "Geantwortet hat der Server, an den gefragt wurde.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ADiscoInfoToTheServersOwnAddress_IsAnswered()
+
+        /// <summary>
+        /// Dasselbe für disco#info: Die Gegenstelle erfährt, was dieser Server
+        /// kann.
+        /// </summary>
+        /// <remarks>
+        /// Der praktische Fall hinter der Regel. Ein fremder Server fragt vor
+        /// dem ersten Gespräch, was das Gegenüber beherrscht; bleibt die Frage
+        /// unbeantwortet, hält er ihn für einen Server ohne Eigenschaften — und
+        /// merkt nicht einmal, dass er nichts erfahren hat.
+        /// </remarks>
+        [Test]
+        public async Task ADiscoInfoToTheServersOwnAddress_IsAnswered()
+        {
+
+            var alice = await VerbindeAsync(_links, "alice");
+
+            var antworten = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("was-kannst-du", StringComparison.Ordinal))
+                {
+                    antworten.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync(
+                      $"<iq type='get' id='was-kannst-du' to='{_rechts.Domain}'>" +
+                      "<query xmlns='http://jabber.org/protocol/disco#info'/></iq>");
+
+            await WarteAuf(() => !antworten.IsEmpty, "die Auskunft des fremden Servers");
+
+            antworten.TryDequeue(out var antwort);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort, Does.Contain("type='result'"));
+                Assert.That(antwort, Does.Contain("<identity"));
+                Assert.That(antwort, Does.Contain("urn:xmpp:ping"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnUnknownRequestToTheServersOwnAddress_IsRefusedNotIgnored()
+
+        /// <summary>
+        /// Und was der Server nicht kennt, bekommt einen Fehler statt
+        /// Schweigen.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6120, Abschnitt 8.2.3, Regel 3 kennt keine dritte Möglichkeit:
+        /// Auf ein <c>get</c> oder <c>set</c> folgt <c>result</c> oder
+        /// <c>error</c>. Schweigen lässt die Gegenstelle bis in ihre
+        /// Zeitüberschreitung warten — und sie erfährt nie, ob die Frage
+        /// angekommen ist oder nur nicht verstanden wurde.
+        /// </remarks>
+        [Test]
+        public async Task AnUnknownRequestToTheServersOwnAddress_IsRefusedNotIgnored()
+        {
+
+            var alice = await VerbindeAsync(_links, "alice");
+
+            var fehler = new ConcurrentQueue<StanzaError>();
+            alice.Connection.OnStanzaError += (from, e) => fehler.Enqueue(e);
+
+            await alice.SendRawAsync(
+                      $"<iq type='get' id='kennt-er-nicht' to='{_rechts.Domain}'>" +
+                      "<query xmlns='urn:example:gibt-es-nicht'/></iq>");
+
+            await WarteAuf(() => !fehler.IsEmpty, "die Ablehnung des fremden Servers");
+
+            fehler.TryDequeue(out var abgelehnt);
+
+            Assert.That(abgelehnt!.Condition, Is.EqualTo("service-unavailable"));
+
+        }
+
+        #endregion
+
+        #region AResultToTheServersOwnAddress_IsNotAnswered()
+
+        /// <summary>
+        /// Auf eine <b>Antwort</b> an die Serveradresse folgt nichts.
+        /// </summary>
+        /// <remarks>
+        /// Regel 4 gilt auch hier, und sie ist die Gegenprobe zur Regel 3
+        /// darüber: Wer jede Stanza an die Serveradresse beantwortet, schickt
+        /// auf ein <c>result</c> einen Fehler zurück — an jemanden, der nichts
+        /// gefragt hat, unter der <c>id</c> einer Frage, die er selbst
+        /// beantwortet hat. Zwei Server, die es so halten, schieben sich
+        /// gegenseitig Meldungen zu.
+        /// </remarks>
+        [Test]
+        public async Task AResultToTheServersOwnAddress_IsNotAnswered()
+        {
+
+            var alice = await VerbindeAsync(_links, "alice");
+
+            var antworten = new ConcurrentQueue<String>();
+
+            alice.Connection.OnRawXml += x =>
+            {
+                if (x.StartsWith("<<<", StringComparison.Ordinal) &&
+                    x.Contains("keine-frage", StringComparison.Ordinal))
+                {
+                    antworten.Enqueue(x);
+                }
+            };
+
+            await alice.SendRawAsync(
+                      $"<iq type='result' id='keine-frage' to='{_rechts.Domain}'/>");
+
+            await WarteGegen(() => !antworten.IsEmpty, "eine Antwort auf eine Antwort");
 
         }
 
