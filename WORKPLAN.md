@@ -3205,6 +3205,54 @@ ich selbst geschrieben habe, beide entstanden dadurch, dass etwas Nebenläufiges
 dass es nicht die letzten sind; die Jagd bleibt deshalb ein wiederholbares
 Werkzeug und keine einmalige Aktion.
 
+### D33. Eine Vermutung, die nicht trug ✅
+
+Der letzte offene Wackelkandidat, aus D16: `TheStreamSurvivesABrokenConnection`
+gegen einen Fremdserver scheiterte in einem von vier Vollläufen mit einer
+Zeitüberschreitung, allein aber vier von vier Mal grün. Der Vermerk nannte einen
+Verdacht — „15 Sekunden für Wiederverbindung samt Wiederaufnahme sind unter Last
+des vollen Laufs mit exponentiellem Backoff knapp" — und die ausdrückliche
+Auflage, **vor** einer Änderung der Wartezeit zu klären, ob wirklich der Backoff
+bremst.
+
+**Geklärt ist jetzt, dass der Verdacht nicht trägt.** Zwanzig gezielte
+Durchgänge, vierzig Ausführungen gegen beide Gegenstellen, jede einzelne
+zwischen **519 und 669 Millisekunden** — eine Verteilung ohne jeden Ausreisser,
+bei einer Frist von 15 Sekunden. Das ist rund fünfundzwanzigfache Luft und kein
+knappes Budget. Die Frist bleibt deshalb unverändert; sie zu erhöhen hätte einen
+Befund vorgetäuscht, den es nicht gibt.
+
+Wiederholen liess sich der Fehlschlag nicht — auch nicht in den sieben
+Vollläufen aus D32. Möglich ist, dass D30 ihn nebenbei beseitigt hat: Vor D30
+konnte ein Lese-Schritt der Aushandlung **unbegrenzt** hängen, und ein
+Wiederverbindungsversuch, der dort steckenblieb, hätte genau dieses Bild
+ergeben — Frist abgelaufen, kein Fortschritt. Das ist eine Erklärung, die zum
+Symptom passt, und kein Nachweis; sie steht hier als das, was sie ist.
+
+**Was bleibt, ist die Vorsorge, und die ist der eigentliche Ertrag.** Beim
+Scheitern sagte die Meldung bisher nur „Zeitüberschreitung beim Warten auf: den
+wiederaufgenommenen Stream" — nichts darüber, wie weit der Client gekommen ist.
+Genau daran ist der Fall in D16 gescheitert. Der Zähler schreibt jetzt den
+Verlauf mit: jeden Zustandswechsel und jeden gemeldeten Fehler. Erzwungen
+nachgestellt sieht das so aus:
+
+```
+Der Stream wurde binnen 15 Sekunden nicht wieder aufgenommen.
+Verlauf: Connected->Disconnected
+```
+
+— und man sieht sofort, dass der Client es nicht einmal versucht hat. Bei einem
+echten Vorfall stünde dort die ganze Kette samt Fehlern.
+
+**Ein Fehlschlag, der sich selbst erklärt, kostet einmal Schreibarbeit; einer,
+der es nicht tut, kostet jedes Mal eine Untersuchung.** In D29 hat mich das eine
+verlorene Diagnose gekostet, in D16 eine, die sechzehn Punkte lang offen blieb.
+
+Nebenbei aufgeräumt: Beim Ergänzen des `using` hatte ich ein CRLF in eine
+LF-Datei geschrieben — genau die Vermischung, auf die ich in D26 noch geprüft
+und die ich diesmal selbst erzeugt hatte. Aufgefallen ist sie, weil das
+Suchmuster für die Gegenprobe nicht passte; die Datei ist wieder durchgehend LF.
+
 ---
 
 ## Später
@@ -3232,12 +3280,11 @@ Werkzeug und keine einmalige Aktion.
   ablehnt — entweder echt implementieren oder entfernen
 
 ### Testsammlung
-- `TheStreamSurvivesABrokenConnection` gegen einen Fremdserver scheiterte in
-  einem von vier Vollläufen mit einer Zeitüberschreitung, allein aber 4 von 4
-  Mal grün. Verdacht: 15 Sekunden für Wiederverbindung samt Wiederaufnahme sind
-  unter Last des vollen Laufs mit exponentiellem Backoff knapp. Undiagnostiziert
-  — vor einer Änderung der Wartezeit gehört geklärt, ob wirklich der Backoff
-  bremst oder die Gegenstelle den Stream früher aufgibt (siehe D16)
+- `TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
+  reproduzierbar** und der damalige Verdacht widerlegt: vierzig Ausführungen
+  zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist
+  eine passende Erklärung und kein Nachweis. Tritt er wieder auf, nennt die
+  Meldung jetzt den Verlauf — dann ist er in einem Anlauf zu klären (siehe D33)
 
 ### Fehlerbehandlung
 - Die Verdrahtung der Wache ist eine mechanische Eigenschaft und von keinem Test

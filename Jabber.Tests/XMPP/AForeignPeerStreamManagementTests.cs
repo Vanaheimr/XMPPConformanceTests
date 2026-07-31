@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
@@ -223,18 +224,83 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         /// den Stream abgeholt hat - prüft den Client mitten in seiner
         /// Aufbauphase, in einem Zustand, den er gleich wieder verlässt.
         /// </remarks>
-        private static Func<Boolean> ZaehleWiederverbindungen(XMPPClient client)
+        /// <remarks>
+        /// Mitgeschrieben wird seit D33 auch der <b>Weg</b> dorthin. Die
+        /// Zählung allein genügte, solange alles gutging; blieb die
+        /// Wiederaufnahme aus, sagte die Meldung nur „Zeitüberschreitung beim
+        /// Warten auf: den wiederaufgenommenen Stream" — und damit nichts
+        /// darüber, wie weit der Client gekommen ist: ob er es überhaupt
+        /// versucht hat, wie oft, und woran es lag.
+        ///
+        /// Genau das ist in D16 passiert — ein Fehlschlag in einem von vier
+        /// Vollläufen, unaufklärbar, weil die Meldung nichts hergab. Er stand
+        /// seitdem als offener Punkt im Plan.
+        /// </remarks>
+        private static Verlauf ZaehleWiederverbindungen(XMPPClient client)
+            => new(client);
+
+        /// <summary>
+        /// Zählt die abgeschlossenen Aufbauten und schreibt mit, was dazwischen
+        /// geschah.
+        /// </summary>
+        /// <remarks>
+        /// Zwanzig gezielte Durchgänge in D33 konnten den Fehlschlag aus D16
+        /// nicht wiederholen: Die vierzig Ausführungen lagen alle zwischen 519
+        /// und 669 Millisekunden, bei einer Frist von 15 Sekunden. Die damalige
+        /// Vermutung „unter Last knapp" trägt damit nicht — die Frist bleibt
+        /// deshalb unverändert.
+        ///
+        /// Was bleibt, ist die Vorsorge für das nächste Mal: Der Verlauf steht
+        /// dann in der Meldung. <b>Ein Fehlschlag, der sich selbst erklärt,
+        /// kostet einmal Schreibarbeit; einer, der es nicht tut, kostet jedes
+        /// Mal eine Untersuchung.</b>
+        /// </remarks>
+        protected sealed class Verlauf
         {
 
-            var zahl = 0;
+            private readonly ConcurrentQueue<String> _schritte = new();
+            private Int32 _verbunden;
 
-            client.OnStateChanged += (_, neu) =>
+            public Verlauf(XMPPClient client)
             {
-                if (neu == ConnectionState.Connected)
-                    Interlocked.Increment(ref zahl);
-            };
 
-            return () => Volatile.Read(ref zahl) > 0;
+                client.OnStateChanged += (alt, neu) =>
+                {
+
+                    _schritte.Enqueue($"{alt}->{neu}");
+
+                    if (neu == ConnectionState.Connected)
+                        Interlocked.Increment(ref _verbunden);
+
+                };
+
+                client.OnError += meldung => _schritte.Enqueue($"Fehler: {meldung}");
+
+            }
+
+            /// <summary>Hat der Client den Aufbau mindestens einmal abgeschlossen?</summary>
+            public Boolean WiederVerbunden
+                => Volatile.Read(ref _verbunden) > 0;
+
+            public override String ToString()
+                => _schritte.IsEmpty
+                       ? "(nichts geschehen - der Client hat es nicht einmal versucht)"
+                       : String.Join(" | ", _schritte);
+
+        }
+
+        /// <summary>
+        /// Wartet auf die Wiederaufnahme und nennt beim Scheitern den Verlauf.
+        /// </summary>
+        private static async Task WarteAufWiederaufnahmeAsync(Verlauf verlauf)
+        {
+
+            var ok = await XMPPServer.WaitUntilAsync(() => verlauf.WiederVerbunden,
+                                                     TimeSpan.FromSeconds(15));
+
+            Assert.That(ok, Is.True,
+                        "Der Stream wurde binnen 15 Sekunden nicht wieder aufgenommen. " +
+                        $"Verlauf: {verlauf}");
 
         }
 
@@ -461,7 +527,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             alice.KillConnection();
 
-            await WarteAuf(wiederVerbunden, "den wiederaufgenommenen Stream");
+            await WarteAufWiederaufnahmeAsync(wiederVerbunden);
 
             Assert.Multiple(() =>
             {
@@ -522,7 +588,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await bob.SendMessageAsync($"{User}@{PeerDomain}", "Im Dunkeln geschickt");
 
-            await WarteAuf(wiederVerbunden, "den wiederaufgenommenen Stream");
+            await WarteAufWiederaufnahmeAsync(wiederVerbunden);
 
             await WarteAuf(() => { lock (angekommen) return angekommen.Contains("Im Dunkeln geschickt"); },
                            "die nachgelieferte Nachricht");
