@@ -3971,17 +3971,30 @@ Vier Mutationen, alle erschlagen, ohne Nachschärfen.
 
 ---
 
-## Später
+### D48. Der Transport, den niemand vermisst 🕓 — TCP wird optional
 
-### Transport
-- **TCP-Transport für den Client.** `CreateTcp` ist in D34 entfernt worden; der
-  Transport selbst fehlt weiter. Der Umfang ist bekannt: Der Client fasst den
-  WebSocket an neun Stellen unmittelbar an (Verbinden, Senden, die beiden
-  Empfangspfade, Abbruch), es bräuchte also eine Transportabstraktion, dazu
-  clientseitiges STARTTLS und die TCP-Rahmung. `XmlStreamSplitter` und die
-  STARTTLS-Aushandlung gibt es auf der S2S-Seite bereits, sind dort aber für
-  `jabber:server` geformt. Prüfbar wäre es gegen Prosody auf 127.0.0.1:5222
-  (siehe D34)
+Der TCP-Transport für den Client wandert von „Später" nach „Optional". Der
+Umfang ist seit D34 gemessen und hat sich nicht geändert; **was sich geändert
+hat, ist die Einsicht, dass niemand darauf wartet.** Dieser Client spricht XMPP
+über WebSocket, und alle drei Server, gegen die er läuft — Prosody, ejabberd,
+der eigene Testserver — bieten das an.
+
+Damit gilt für ihn, was in D38 die Liste begründet hat: nicht falsch, nicht
+dringend, und ohne Anwendungsfall auch nicht prüfbar. Ein Transport, den kein
+Aufrufer benutzt, liesse sich nur gegen einen ausgedachten Ablauf messen — und
+das ist genau die Sorte Test, die ihre eigene Erfindung prüft.
+
+**Der Rückweg steht dabei, wie bei jedem Punkt dieser Liste:** ein Server, den
+dieser Client erreichen soll und der keinen WebSocket-Endpunkt anbietet. Dann
+gibt es den Anwendungsfall und mit ihm die Gegenprobe — Prosody hört in dieser
+Umgebung auf 127.0.0.1:5222.
+
+Damit ist „Später → Transport" leer. Was dort bleibt, sind zwei Punkte der
+Testsammlung, drei am Server und die Struktur.
+
+---
+
+## Später
 
 ### Testsammlung
 - **`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
@@ -4056,6 +4069,26 @@ Anwendungsfall gibt, an dem sich die Umsetzung prüfen lässt.
   betroffenen Member stehen deshalb schon unter „Ungenutzte API-Fläche" im
   [README](Jabber/README.md). Solange kein Anwendungsfall dahintersteht, wäre
   die Korrelation gegen einen ausgedachten Ablauf geprüft (siehe D38)
+
+- **TCP-Transport für den Client.** Dieser Client spricht XMPP über WebSocket
+  (RFC 7395), und die Server, gegen die er läuft, bieten ihn an — Prosody,
+  ejabberd und der eigene Testserver. Solange das so bleibt, fehlt der
+  TCP-Transport niemandem.
+
+  Der Umfang ist seit D34 gemessen: Der Client fasst den WebSocket an neun
+  Stellen unmittelbar an (Verbinden, Senden, die beiden Empfangspfade,
+  Abbruch), es bräuchte also eine Transportabstraktion, dazu clientseitiges
+  STARTTLS und die TCP-Rahmung. `XmlStreamSplitter` und die
+  STARTTLS-Aushandlung gibt es auf der S2S-Seite bereits, sind dort aber für
+  `jabber:server` geformt. `CreateTcp` — die Fabrikmethode, die eine
+  `tcp://`-URI erzeugte und dabei funktionslos war — ist in D34 entfernt
+  worden; eine öffentliche Methode, die nicht funktionieren kann, ist
+  schlechter als keine.
+
+  **Der Rückweg:** ein Server, den dieser Client erreichen soll und der keinen
+  WebSocket-Endpunkt anbietet. Dann ist der Anwendungsfall da, und mit ihm die
+  Gegenprobe — Prosody hört auf 127.0.0.1:5222 und wäre der Prüfstein
+  (siehe D34, D48)
 
 ---
 

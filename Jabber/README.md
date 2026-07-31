@@ -843,8 +843,10 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   WebSocket (RFC 7395). Die Fabrikmethode `CreateTcp`, die eine `tcp://`-URI
   erzeugte und dabei funktionslos war, ist entfernt: Eine öffentliche Methode,
   die nicht funktionieren kann, ist schlechter als keine. Ein echter
-  TCP-Transport bleibt eine offene Aufgabe — die Bausteine (`XmlStreamSplitter`,
-  STARTTLS) gibt es auf der S2S-Seite bereits.
+  TCP-Transport steht unter „Optional" (siehe [WORKPLAN.md](../WORKPLAN.md),
+  D48): Prosody, ejabberd und der Testserver bieten WebSocket an, also fehlt er
+  niemandem — die Bausteine (`XmlStreamSplitter`, STARTTLS) gibt es auf der
+  S2S-Seite bereits.
 
 ### Ungenutzte API-Fläche
 Folgende öffentliche Member werden nirgends aufgerufen und sind ungetestet:
