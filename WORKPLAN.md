@@ -4145,6 +4145,100 @@ keinen Schalter dafür gibt.
 
 ---
 
+### D51. Eine Adresse, die keine ist ✅ — `<jid-malformed/>`
+
+Der letzte Punkt der Serverliste, und wieder war er zur Hälfte längst erledigt:
+Der Server erzeugt seit D26 bis D50 eine ganze Reihe von Stanza-Fehlern von
+sich aus — `<bad-request/>` für einen unbekannten IQ-Typ, `<service-unavailable/>`
+für einen unzustellbaren Empfänger und für ein `groupchat` an ein Konto,
+`<remote-server-not-found/>` für eine unerreichbare Domain, `<item-not-found/>`
+für einen unbekannten disco-Knoten. Die Schalter sind längst nicht mehr die
+einzige Quelle.
+
+**Eine Bedingung fehlte vollständig, und zwar die, für die alles bereitlag.**
+`<jid-malformed/>` (RFC 6120, Abschnitt 8.3.3.8) kam im ganzen Server nicht vor
+— das Wort stand an genau einer Stelle im Quelltext, im Kommentar von
+`JidFormatException`. Und die Prüfung dahinter gibt es seit **D42 bis D45
+vollständig**: RFC 7622 mit PRECIS, IDNA2008, der Bidi-Regel und den
+kontextabhängigen Regeln aus Anhang A, gegen die Tabellen der UCD gerechnet.
+
+Der Server hat sie nie gefragt. `JidUtilities` kam in `XMPPServer.cs` genau
+einmal vor, in `AreEqual` beim Vergleich zweier Full-JIDs. Was hereinkam, ging
+in die Zustellung, und ein unmöglicher Empfänger sah dort aus wie ein
+abwesender: Der Absender bekam Schweigen oder eine Ablage, aus der ihn nie
+jemand abholt.
+
+**Das ist zum dritten Mal dasselbe Muster.** In D43 war die IDNA-Prüfung fertig
+und im JID nicht verdrahtet, in D45 die kontextabhängigen Regeln. Eine geprüfte
+Regel ohne Aufrufer ist keine halbe Regel, sondern keine — und sie fällt
+niemandem auf, weil ihre eigenen Tests grün sind.
+
+Die Prüfung sitzt **vor der Weiche**, an einer Stelle für alle drei Arten: Jeder
+Zweig dahinter stellt seine eigenen Fragen, und diese gehört keinem von ihnen.
+Drei Grenzen dazu, jede mit einem Test:
+
+- **Kein `to` ist kein falsches `to`.** Eine Stanza ohne Adresse ist an den
+  Server gerichtet (§8.1.1.1), und ungerichtete Presence trägt nie eine. Die
+  Mutation, die beides gleich behandelt, legt die halbe Sammlung lahm — ohne
+  Presence gilt keine Sitzung als verfügbar.
+- **Auf einen Fehler folgt kein Fehler** (§8.3.1). Verworfen wird die Stanza
+  trotzdem: zustellbar ist sie ja nicht.
+- **Absender der Ablehnung ist der Server**, nicht der gemeinte Empfänger.
+  `<service-unavailable/>` antwortet im Namen eines Empfängers, weil der Server
+  dort für ihn geantwortet hat; hier gibt es keinen — die Adresse ist keine,
+  also hat niemand hineingesehen.
+
+Fünf unmögliche Adressen im Test, und jede aus einem anderen Grund: `alice@`
+fällt schon einem Vergleich auf zwei leere Zeichenketten auf, `alice@-localhost`
+erst der Labelregel aus RFC 5891, `al ice@localhost` nur der
+PRECIS-IdentifierClass. Eine einzige liesse offen, wie weit die Prüfung reicht.
+
+**Die Lücke, die mir selbst auffiel:** Kein Test hielt fest, dass die
+abgewiesene Stanza auch wirklich endet. Eine Prüfung, die antwortet und danach
+trotzdem zustellt, wäre von der richtigen nicht zu unterscheiden gewesen —
+`ARefusedStanza_IsNotDeliveredAnyway` schickt deshalb an `bob@…/`: kein JID,
+aber der Teil davor gehört einem angemeldeten Konto, und über den Weg für
+Bare-JIDs käme es bei Bob an.
+
+Sieben Mutationen, keine übersteht den Lauf:
+
+| | Mutation | erschlagen von |
+|---|---|---|
+| X1 | die Prüfung entfällt | 8 Tests |
+| X2 | eine fehlende Adresse gilt als falsche | siehe unten |
+| X3 | Fehlerart `cancel` statt `modify` | die fünf unmöglichen Adressen |
+| X4 | Absender ist der gemeinte Empfänger | dieselben fünf |
+| X5 | auch eine Fehler-Stanza wird beantwortet | `AnErrorStanza_IsNotAnsweredWithAnError` |
+| X6 | abgewiesen, aber trotzdem weitergereicht | `ARefusedStanza_IsNotDeliveredAnyway` |
+| X7 | die `id` der Anfrage geht verloren | `AnIqToANonJid_KeepsItsId` |
+
+**X2 wird nicht von einer Zusicherung erschlagen, sondern vom Hänger-Schutz** —
+und das ist selbst der Befund. Gilt eine fehlende Adresse als falsche, wird
+jede ungerichtete Presence abgewiesen; keine Sitzung wird je verfügbar, und der
+Verbindungsaufbau des Clients wartet darauf **ohne eigene Frist**. Der erste
+Lauf stand deshalb 74 Minuten, bis ich ihn abgebrochen habe; mit
+`--blame-hang-timeout 3m` bricht der Testlauf nach drei Minuten mit einem
+Hangdump ab. Durchgehen könnte die Mutation nie — bestanden ist etwas anderes
+als abgestürzt —, aber gemessen hat sie kein Test.
+
+**Zwei Lehren aus dem Abbruch, beide teuer bezahlt:**
+
+1. *Der Hänger-Schutz gehört an jede Mutation, nicht nur an die, von der man
+   ihn erwartet.* Das Skript hat den Schalter seit M2 und ich hatte ihn nicht
+   gesetzt.
+2. *Ein abgebrochener Mutationslauf lässt den Quelltext mutiert zurück.*
+   `mutate.ps1` setzt erst zurück, wenn `dotnet test` zurückkommt — wird es
+   abgeschossen, steht die Mutation noch da. Die Sicherung vom Mutationszeitpunkt
+   hat sie eingefangen; ohne die Prüfung „ist meine Zeile wieder da" wäre sie
+   in den Commit gewandert. Genau das war schon einmal die Ursache in D39, nur
+   andersherum.
+
+Nebenbei: Der Hangdump legt 219 MB unter `Jabber.Tests/TestResults/` ab, und
+das Verzeichnis stand in keinem `.gitignore`. Ein `git add -A` hätte ihn
+mitgenommen. Steht jetzt drin.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4185,7 +4279,23 @@ keinen Schalter dafür gibt.
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
 Was dort nicht auftaucht und trotzdem ansteht:
-- Stanza-Fehler auch dort erzeugen, wo heute kein Schalter dafür existiert
+- **Eine Nachricht an ein Konto, das es nicht gibt, wird stillschweigend
+  verworfen** (`StoreOfflineOrRefuseAsync`: `GetAccount(…) is not { } account`
+  → `return`). RFC 6121 §8.5.1 lässt die Wahl zwischen `<service-unavailable/>`
+  und Schweigen, aber die Wahl muss dieselbe sein wie für ein vorhandenes
+  Konto, das gerade nicht zusieht — sonst beantwortet sie die Frage „gibt es
+  dieses Konto?". Heute fällt sie auseinander, sobald `StoreOfflineMessages`
+  aus oder die Ablage voll ist: Dann bekommt ein vorhandenes Konto einen
+  Fehler und ein unbekanntes Schweigen. Die Behandlung sollte die eines
+  vorhandenen, abwesenden Kontos mit leerer Ablage sein — dasselbe Muster wie
+  die erfundenen Zugangsdaten aus D50 (gefunden bei der Bestandsaufnahme zu
+  D51)
+- **`<jid-malformed/>` gilt bisher nur für Stanzas von Clients** (D51). Was über
+  `AcceptFromRemoteAsync` von einer Gegenstelle hereinkommt, wird auf Herkunft
+  und Zuständigkeit geprüft, aber nicht darauf, ob das `to` überhaupt ein JID
+  ist. `IsLocal` sieht nur die Domain und lässt `al ice@localhost` durch. Nötig
+  wäre dort ein weiterer `RemoteStanzaResult`, damit der Grund der Ablehnung
+  wie die anderen gemeldet wird
 
 ### Struktur
 - `Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst aufgeschoben;

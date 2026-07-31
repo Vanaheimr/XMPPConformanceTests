@@ -1230,7 +1230,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // <presence-probe/> lief in die Presence-Behandlung und galt dort
             // als Anwesenheit. Ein Mensch wurde seinen Kontakten als online
             // gemeldet, weil sein Element mit denselben acht Zeichen beginnt.
-            switch (StanzaElement.NameOf(frame))
+            var elementName = StanzaElement.NameOf(frame);
+
+            // RFC 6120, Abschnitt 8.3.3.8: Steht im 'to' kein JID, ist die
+            // Stanza nicht zustellbar - und zwar unabhängig davon, was sie
+            // sonst noch ist. Deshalb vor der Weiche und für alle drei Arten
+            // an einer Stelle: Jeder Zweig dahinter fragt seine eigenen Dinge,
+            // und diese Frage gehört keinem von ihnen.
+            if (elementName is "iq" or "message" or "presence" &&
+                await RefuseMalformedToAsync(session, frame, elementName))
+                return;
+
+            switch (elementName)
             {
 
                 case "open":
@@ -3834,6 +3845,58 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// angenommen, und ein Empfänger als Absender behauptete, jemand habe
         /// hineingesehen.
         /// </remarks>
+        /// <summary>
+        /// RFC 6120, Abschnitt 8.3.3.8: Weist eine Stanza ab, deren
+        /// <c>to</c> kein JID ist.
+        /// </summary>
+        /// <remarks>
+        /// Die Prüfung ist die aus RFC 7622 - dieselbe, die der Client für
+        /// seine eigenen Adressen anwendet. Sie stand bis hierher vollständig
+        /// da und wurde vom Server kein einziges Mal gefragt: Was ankam, ging
+        /// in die Zustellung, und ein unmöglicher Empfänger sah dort aus wie
+        /// ein abwesender. Der Absender bekam Schweigen oder eine Ablage, die
+        /// nie jemand abholt.
+        ///
+        /// <b>Absender der Ablehnung ist dieser Server</b>, nicht der gemeinte
+        /// Empfänger - anders als bei <c>&lt;service-unavailable/&gt;</c>, das
+        /// im Namen eines Empfängers antwortet, weil der Server dort für ihn
+        /// geantwortet hat. Hier gibt es keinen: Die Adresse ist keine, also
+        /// hat niemand hineingesehen.
+        ///
+        /// <b>Kein <c>to</c> ist kein falsches.</b> Eine Stanza ohne Adresse
+        /// ist an den Server gerichtet (Abschnitt 8.1.1.1), und ungerichtete
+        /// Presence trägt nie eine.
+        ///
+        /// Auf eine Fehler-Stanza folgt kein Fehler (Abschnitt 8.3.1) -
+        /// verworfen wird sie trotzdem, zustellbar ist sie ja nicht.
+        /// </remarks>
+        /// <returns>true, wenn die Stanza hier endet.</returns>
+        private async Task<Boolean> RefuseMalformedToAsync(XMPPSession  session,
+                                                           String       frame,
+                                                           String       kind)
+        {
+
+            var to = Attr(frame, "to");
+
+            if (to is null || JidUtilities.TryParse(to, out _))
+                return false;
+
+            if (Attr(frame, "type") != "error")
+                await session.SendAsync(
+                    $"<{kind} type='error'" +
+                    (Attr(frame, "id") is { } id ? $" id='{id}'" : "") +
+                    $" from='{Domain}'" +
+                    (session.FullJid is { } an ? $" to='{an}'" : "") +
+                    ">" +
+                    "<error type='modify'>" +
+                    "<jid-malformed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                    "</error>" +
+                    $"</{kind}>");
+
+            return true;
+
+        }
+
         private String BadRequestIq(String? id)
 
             => "<iq type='error'" +

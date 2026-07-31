@@ -77,6 +77,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
 | Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
 | Antwort auf unbehandelte IQs (§8.2.3 Regel 3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
+| Unmögliche Empfängeradresse (§8.3.3.8) | ✅ Ist der Wert des `to` kein JID nach RFC 7622, antwortet der Server mit `<jid-malformed/>` (Fehlerart `modify`) und stellt nicht zu — für `message`, `presence` und `iq` an derselben Stelle, vor jeder Weiche. Absender der Ablehnung ist der Server selbst und nicht der gemeinte Empfänger: Die Adresse ist keine, also hat dort niemand hineingesehen. Eine Stanza **ohne** `to` ist davon nicht betroffen (§8.1.1.1), und auf eine Fehler-Stanza folgt kein Fehler (§8.3.1) — verworfen wird sie trotzdem. Geprüft wird mit derselben RFC-7622-Prüfung, die der Client für seine eigenen Adressen benutzt |
 | Prüfung des IQ-Typs (§8.2.3 Regel 2) | ✅ Fehlt das `type`-Attribut oder trägt es einen anderen Wert als `get`, `set`, `result` oder `error`, folgt `<bad-request/>` mit der Fehlerart `modify` (§8.3.3.1). Geprüft wird in beiden Rollen, die der Abschnitt nennt: vom Client als Empfänger und vom Server als „intermediate router" — dort **vor** jeder Zustellung, also auch für das, was an die Serveradresse selbst geht, an einen hiesigen Empfänger oder über die Grenze. Ebenso für das, was von einer Gegenstelle hereinkommt. Ohne `id` geht die Ablehnung trotzdem hinaus und trägt dann keine |
 | Stream-Fehler (§4.9) | ✅ Geparst; nach einer nicht wiederholbaren Bedingung unterbleibt der Reconnect |
 | Weiche für eingehende Rahmen (§8.1) | ✅ Entschieden wird am **Elementnamen**, nicht an einem Präfix: `<iqbogus/>` ist kein `iq`, `<presence-probe/>` keine `presence`, `<opencast/>` keine Stream-Eröffnung. Ein Namensraum-Präfix ändert den Typ nicht (`<client:iq/>` ist ein `iq`, `<stream:features/>` und `<features/>` sind dasselbe Element) |
@@ -742,9 +743,16 @@ Server-Implementierung:
   dem anfragenden Konto gehört. Eine unbekannte Kennung bekommt kein `h` —
   geraten wird nicht —, und eine fremde erst recht nicht: Die Zahl verriete,
   dass es diesen Stream gibt und wie viel über ihn gelaufen ist (siehe D49).
-- **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
-  Server keine Stanza-Fehler; unbekannte IQs bekommen pauschal
-  `<service-unavailable/>`.
+- ~~**Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
+  Server keine Stanza-Fehler.~~ Überholt: Er erzeugt sie von sich aus, wo die
+  RFCs es verlangen — `<bad-request/>` für einen unbekannten IQ-Typ,
+  `<service-unavailable/>` für einen unzustellbaren Empfänger und für ein
+  `groupchat` an ein Konto, `<remote-server-not-found/>` für eine unerreichbare
+  Domain, `<item-not-found/>` für einen unbekannten disco-Knoten und
+  `<jid-malformed/>` für ein `to`, das kein JID ist (D51). Die Schalter sind
+  dafür da, die *übrigen* Fehlerwege zu erreichen. Unbekannte IQs bekommen
+  weiterhin pauschal `<service-unavailable/>` statt einer Unterscheidung nach
+  Ursache.
 
 ### Kryptografische Testvektoren
 
