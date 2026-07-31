@@ -291,17 +291,81 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         }
 
         /// <summary>
-        /// Wartet auf die Wiederaufnahme und nennt beim Scheitern den Verlauf.
+        /// Was ein Verbindungsaufbau gegen die Gegenstelle kosten darf -
+        /// Aushandlung, TLS, SASL, Bind und Wiederaufnahme.
         /// </summary>
-        private static async Task WarteAufWiederaufnahmeAsync(Verlauf verlauf)
+        /// <remarks>
+        /// Grosszügig gewählt: Die gemessenen Durchgänge in D33 lagen bei rund
+        /// einer halben Sekunde für den ganzen Vorgang. Diese Zahl deckt den
+        /// <i>fehlgeschlagenen</i> Anlauf mit ab, der weit teurer sein kann als
+        /// der geglückte - eine Gegenstelle, die den Abriss noch nicht bemerkt
+        /// hat, antwortet nicht sofort mit einer Abweisung.
+        /// </remarks>
+        private static readonly TimeSpan AufbauProVersuch = TimeSpan.FromSeconds(3);
+
+        /// <summary>
+        /// Wie lange dieser Test auf die Wiederaufnahme wartet - abgeleitet aus
+        /// der Wiederverbindungs-Politik des Clients selbst.
+        /// </summary>
+        /// <remarks>
+        /// Hier stand eine feste Frist von 15 Sekunden, und daran ist der Test
+        /// in D16 einmal gescheitert. In D33 wurde daraufhin gemessen: vierzig
+        /// Ausführungen zwischen 519 und 669 ms, und daraus geschlossen, die
+        /// Erklärung „unter Last knapp" trage nicht.
+        ///
+        /// <b>Der Schluss war falsch, und zwar aus Arithmetik.</b> Der Client
+        /// darf hier fünfmal wiederkommen und wartet dazwischen mit
+        /// Verdopplung: 300, 600, 1200, 2400 und 4800 Millisekunden - allein
+        /// <b>9,3 Sekunden</b> reines Warten. Von den 15 blieben also 5,7
+        /// Sekunden für fünf vollständige Verbindungsaufbauten. Zwei
+        /// fehlgeschlagene Anläufe reichen, und die Frist ist überschritten,
+        /// während der Client sich genau so verhält, wie er eingestellt ist.
+        ///
+        /// Die vierzig schnellen Durchgänge widerlegen das nicht - sie sind
+        /// alle beim <i>ersten</i> Anlauf durchgekommen und sagen über den Fall
+        /// mit Wiederholungen nichts. <b>Ein Mittelwert aus lauter geglückten
+        /// Läufen begrenzt den Ausreisser nicht; er beschreibt nur, wie es
+        /// aussieht, wenn nichts schiefgeht.</b>
+        ///
+        /// Die Geduld ist deshalb keine geratene Zahl mehr, sondern die Summe
+        /// dessen, was der Client tun darf.
+        /// </remarks>
+        protected static TimeSpan Geduld(XMPPConnection verbindung)
         {
 
-            var ok = await XMPPServer.WaitUntilAsync(() => verlauf.WiederVerbunden,
-                                                     TimeSpan.FromSeconds(15));
+            var summe = TimeSpan.Zero;
+
+            for (var versuch = 1; versuch <= Math.Max(verbindung.MaxReconnectAttempts, 1); versuch++)
+            {
+
+                var warten = Math.Min(
+                                 verbindung.InitialReconnectDelay.TotalMilliseconds * Math.Pow(2, versuch - 1),
+                                 verbindung.MaxReconnectDelay.TotalMilliseconds);
+
+                summe += TimeSpan.FromMilliseconds(warten) + AufbauProVersuch;
+
+            }
+
+            return summe;
+
+        }
+
+        /// <summary>
+        /// Wartet auf die Wiederaufnahme und nennt beim Scheitern den Verlauf.
+        /// </summary>
+        private static async Task WarteAufWiederaufnahmeAsync(Verlauf verlauf, XMPPClient client)
+        {
+
+            var geduld  = Geduld(client.Connection);
+
+            var ok      = await XMPPServer.WaitUntilAsync(() => verlauf.WiederVerbunden, geduld);
 
             Assert.That(ok, Is.True,
-                        "Der Stream wurde binnen 15 Sekunden nicht wieder aufgenommen. " +
-                        $"Verlauf: {verlauf}");
+                        $"Der Stream wurde binnen {geduld.TotalSeconds:0.#} Sekunden nicht wieder " +
+                        $"aufgenommen - das ist die Zeit, die der Client selbst brauchen darf " +
+                        $"({client.Connection.MaxReconnectAttempts} Anläufe, ab " +
+                        $"{client.Connection.InitialReconnectDelay.TotalMilliseconds:0} ms mit " +
+                        $"Verdopplung). Verlauf: {verlauf}");
 
         }
 
@@ -566,6 +630,49 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region ThePatienceCoversWhatTheClientMayTake()
+
+        /// <summary>
+        /// Die Geduld dieses Tests deckt ab, was der Client selbst brauchen
+        /// darf.
+        /// </summary>
+        /// <remarks>
+        /// Die einzige Prüfung hier, die keine Gegenstelle braucht - und die
+        /// einzige, die den Fehlschlag aus D16 fassen kann: Er trat einmal auf
+        /// und war danach in vierzig Ausführungen nicht zu wiederholen. Was
+        /// sich <b>nicht</b> herbeiführen lässt, lässt sich auch nicht durch
+        /// einen Test halten, der auf sein Eintreten wartet.
+        ///
+        /// Nachrechnen kann man es dafür: Fünf Anläufe mit 300 Millisekunden
+        /// und Verdopplung sind 300 + 600 + 1200 + 2400 + 4800 = 9,3 Sekunden
+        /// <i>reines Warten</i>, dazu fünf vollständige Verbindungsaufbauten.
+        /// Eine feste Frist von 15 Sekunden liess dafür 5,7 Sekunden - und
+        /// jeder fehlgeschlagene Anlauf ging davon ab.
+        ///
+        /// Die Zahlen stehen hier von Hand und nicht als Aufruf derselben
+        /// Rechnung: Sonst prüfte der Test die Formel gegen sich selbst.
+        /// </remarks>
+        [Test]
+        public void ThePatienceCoversWhatTheClientMayTake()
+        {
+
+            var verbindung = new XMPPConnection($"{User}@{PeerDomain}", Password, Endpoint)
+            {
+                MaxReconnectAttempts   = 5,
+                InitialReconnectDelay  = TimeSpan.FromMilliseconds(300),
+                MaxReconnectDelay      = TimeSpan.FromSeconds(30)
+            };
+
+            Assert.That(Geduld(verbindung),
+                        Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(9300) +
+                                                TimeSpan.FromSeconds(5 * 3)),
+                        "Die Geduld unterschreitet, was der Client selbst brauchen darf - " +
+                        "9,3 Sekunden Wartezeit zwischen fünf Anläufen und die Anläufe selbst.");
+
+        }
+
+        #endregion
+
         #region TheStreamSurvivesABrokenConnection()
 
         /// <summary>
@@ -600,7 +707,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             alice.KillConnection();
 
-            await WarteAufWiederaufnahmeAsync(wiederVerbunden);
+            await WarteAufWiederaufnahmeAsync(wiederVerbunden, alice);
 
             Assert.Multiple(() =>
             {
@@ -661,7 +768,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await bob.SendMessageAsync($"{User}@{PeerDomain}", "Im Dunkeln geschickt");
 
-            await WarteAufWiederaufnahmeAsync(wiederVerbunden);
+            await WarteAufWiederaufnahmeAsync(wiederVerbunden, alice);
 
             await WarteAuf(() => { lock (angekommen) return angekommen.Contains("Im Dunkeln geschickt"); },
                            "die nachgelieferte Nachricht");

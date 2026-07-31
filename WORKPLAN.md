@@ -4485,6 +4485,61 @@ gewesen, und die Mutation hätte gegen die fremden Server gar nichts gemessen.
 
 ---
 
+### D56. Vierzig Läufe, die nichts widerlegen konnten ✅
+
+Der zweite Wackler, und er ist das Gegenstück zu D55: Dort war die Erklärung
+falsch, hier war es die **Widerlegung**.
+
+`TheStreamSurvivesABrokenConnection` fiel in D16 einmal mit „Der Stream wurde
+binnen 15 Sekunden nicht wieder aufgenommen". D33 hat daraufhin gemessen —
+vierzig Ausführungen, alle zwischen 519 und 669 Millisekunden — und daraus
+geschlossen, die Erklärung „unter Last knapp" trage nicht. Die Frist blieb.
+
+**Der Schluss war falsch, und zwar aus Arithmetik.** Der Client darf in diesem
+Test fünfmal wiederkommen und wartet dazwischen mit Verdopplung, beginnend bei
+300 Millisekunden:
+
+| Anlauf | 1 | 2 | 3 | 4 | 5 | Summe |
+|---|---|---|---|---|---|---|
+| Wartezeit davor | 300 ms | 600 ms | 1,2 s | 2,4 s | 4,8 s | **9,3 s** |
+
+Von den 15 Sekunden blieben also **5,7 für fünf vollständige
+Verbindungsaufbauten** — Aushandlung, TLS, SASL, Bind, Wiederaufnahme. Zwei
+fehlgeschlagene Anläufe genügen, und die Frist ist überschritten, während der
+Client sich genau so verhält, wie er eingestellt ist.
+
+**Die vierzig schnellen Durchgänge widerlegen das nicht — sie sind alle beim
+ersten Anlauf durchgekommen.** Über den Fall mit Wiederholungen sagen sie
+nichts. Ein Mittelwert aus lauter geglückten Läufen begrenzt den Ausreisser
+nicht; er beschreibt nur, wie es aussieht, wenn nichts schiefgeht. Die
+Verteilung ist zweigipflig, und gemessen wurde ausschliesslich der vordere
+Gipfel.
+
+Die Geduld ist deshalb keine geratene Zahl mehr, sondern die Summe dessen, was
+der Client tun darf: die Wartezeiten seiner eigenen Politik plus je drei
+Sekunden für den Anlauf selbst. Für diese Einstellung sind das gut 24 statt 15
+Sekunden. Die Meldung nennt beim Scheitern jetzt auch, woraus die Frist besteht
+— sonst rechnet der nächste Leser dasselbe noch einmal nach.
+
+**Was sich nicht herbeiführen lässt, lässt sich nicht durch einen Test halten,
+der auf sein Eintreten wartet** — der Fehlschlag trat einmal auf und war
+danach in vierzig Ausführungen nicht zu wiederholen. Nachrechnen lässt er sich
+dafür: `ThePatienceCoversWhatTheClientMayTake` prüft die Frist gegen die von
+Hand gerechneten 9,3 Sekunden plus fünf Anläufe. Die Zahlen stehen dort
+ausgeschrieben und nicht als Aufruf derselben Formel — sonst prüfte der Test
+sie gegen sich selbst, dieselbe Trennung wie bei der Zählung in D55.
+
+Es ist zugleich die einzige Prüfung dieser Sammlung, die ohne Gegenstelle
+auskommt: Sie rechnet, statt zu warten. Drei Mutationen, alle erschlagen:
+zurück zur festen Frist, der Aufbau kostet nichts, nur der erste Anlauf zählt.
+
+**Damit ist die Ursache benannt, aber nicht bewiesen.** Bewiesen ist, dass die
+alte Frist den eingestellten Ablauf nicht deckte; ob genau das in D16 zugeschlagen
+hat, bleibt die wahrscheinlichste Erklärung. Der Unterschied zu vorher: Sie
+passt zu den Daten, statt ihnen zu widersprechen.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4513,11 +4568,15 @@ gewesen, und die Mutation hätte gegen die fremden Server gar nichts gemessen.
   ✅ erledigt in D55 — und die Frage nach den zwei Stanzas war die falsche:
   Prosody hatte richtig gezählt und wir auch. Der Test verglich eine Zahl, wo
   Abschnitt 2 eine Beziehung meint
-- `TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
+- ~~`TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
   reproduzierbar** und der damalige Verdacht widerlegt: vierzig Ausführungen
   zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist
   eine passende Erklärung und kein Nachweis. Tritt er wieder auf, nennt die
-  Meldung jetzt den Verlauf — dann ist er in einem Anlauf zu klären (siehe D33)
+  Meldung jetzt den Verlauf — dann ist er in einem Anlauf zu klären (siehe D33)~~
+  ✅ erledigt in D56 — der Verdacht war **nicht** widerlegt, die Messung konnte
+  ihn gar nicht widerlegen: Alle vierzig Durchgänge kamen beim ersten Anlauf
+  durch, und die Frist von 15 Sekunden lag nur 5,7 Sekunden über den 9,3, die
+  der Client allein mit Warten verbringen darf
 
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
