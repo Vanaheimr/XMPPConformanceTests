@@ -446,6 +446,23 @@ wie `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter 6.2.0, Test.Sdk 18.8.1).
 Namespaces und Ordnerschnitt entsprechen `HermodTests`, damit sich der Inhalt
 von `XMPP/` später unverändert dorthin verschieben lässt.
 
+Die Fixtures sind nach Themen gegliedert; der Namespace bleibt dabei flach
+`org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP`, die Ordner gliedern nur:
+
+```
+Jabber.Tests/XMPP/
+├── Infrastructure/     Basisklasse aller Fixtures, Wache gegen interne Fehler
+├── Common/             JIDs, Stanza-Namen, Namensräume, IQ-Typen, XML-Splitter
+├── Auth/               SASL/SCRAM, Mechanismus-Politik, Konten und Zertifikate
+├── Streams/            Aushandlung, Binding, TLS, Fristen, Wiederverbindung
+├── StreamManagement/   XEP-0198: Zählen, Bestätigen, Wiederaufnehmen
+├── Federation/         S2S: Dialback, SRV, TCP/WebSocket, fremde Server
+├── Routing/            Zustellregeln, mehrere Resourcen, Offline-Ablage
+├── Rosters/            Roster, Subscriptions, Versionierung, Push-Sicherheit
+├── Stanzas/            Aufbau, Parsen und Fehler einzelner Stanzas
+└── XEPs/               XEP-0115 Caps und die Nutzlasten der übrigen XEPs
+```
+
 ### XMPPServer
 
 `Jabber/Server/` enthält einen echten XMPP-over-WebSocket-Server (RFC 7395).
