@@ -4239,6 +4239,66 @@ mitgenommen. Steht jetzt drin.
 
 ---
 
+### D52. Schweigen ist auch eine Antwort ✅ — der stillschweigend verworfene Fall
+
+Der erste der beiden Funde aus D51. In `StoreOfflineOrRefuseAsync` stand:
+
+```csharp
+if (GetAccount(BareOf(to)) is not { } account)
+    return;
+```
+
+Eine Nachricht an ein Konto, das es nicht gibt, verschwand. RFC 6121,
+Abschnitt 8.5.1 erlaubt das ausdrücklich — für einen unbekannten Empfänger
+steht `<service-unavailable/>` **oder** Schweigen zur Wahl.
+
+**Frei ist die Wahl trotzdem nicht.** Sie muss dieselbe sein wie für ein
+vorhandenes Konto, das gerade nicht zusieht, sonst beantwortet sie eine ganz
+andere Frage: *Gibt es dieses Konto?* Und zwar auf dem bequemsten Weg, den es
+gibt — eine Nachricht schicken und hinsehen, ob etwas zurückkommt. Das ist
+dieselbe Frage wie in D50, nur ohne Anmeldung.
+
+Auseinander fiel sie, sobald die Ablage nicht annahm:
+
+| | Ablage an | Ablage aus oder voll |
+|---|---|---|
+| Konto vorhanden, abwesend | Schweigen (abgelegt) | `<service-unavailable/>` |
+| Konto nicht vorhanden | Schweigen (verworfen) | **Schweigen** |
+
+In der rechten Spalte steht die Auskunft. Auf einem Server ohne Offline-Ablage
+ist jede Namensliste in einem Durchgang sortiert.
+
+**Gefragt wird deshalb nicht mehr „gibt es ein Konto", sondern „würde die
+Ablage es annehmen".** Für ein unbekanntes ist die Ablage leer, und eine leere
+nimmt an, solange überhaupt etwas hineinpasst:
+
+```csharp
+account?.StoreOfflineMessage(…) ?? MaxStoredOfflineMessages > 0
+```
+
+**Der zweite Summand ist der Punkt.** Ein schlichtes `?? true` wäre 99 von 100
+Fällen richtig und im hundertsten falsch: Bei `MaxStoredOfflineMessages = 0`
+nimmt auch eine leere Ablage nichts an, das vorhandene Konto bekommt einen
+Fehler — und das unbekannte hätte wieder geschwiegen. `AFullStore_RefusesForBothAlike`
+hält genau das fest, und die Mutation `?? true` stirbt daran.
+
+Die wichtigere Gegenprobe ist aber `WithTheStore_NeitherRecipientIsTold`: „Antworte
+für Unbekannte einfach immer" wäre die naheliegende Lösung und träfe **genau
+daneben** — bei eingeschalteter Ablage, also der Vorgabe, bekäme dann das
+vorhandene Konto Schweigen und das unbekannte einen Fehler. Die Frage wäre
+wieder beantwortet, nur andersherum. Der Test war der einzige der drei, der von
+Anfang an grün war; ohne ihn wäre die Verschlimmbesserung nicht aufgefallen.
+
+Vier Mutationen, alle erschlagen: wieder stillschweigend verwerfen, `?? true`,
+`?? false`, und die abgeschaltete Ablage nicht mehr fragen.
+
+Angelegt wird für den unbekannten Empfänger nichts — der Test sieht nach.
+Nachgereicht wird ihm auch nie etwas; das ist der Unterschied zwischen „tut so,
+als sei abgelegt worden" und „legt ab", und er fällt niemandem auf, weil es das
+Konto nicht gibt.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4279,17 +4339,6 @@ mitgenommen. Steht jetzt drin.
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
 Was dort nicht auftaucht und trotzdem ansteht:
-- **Eine Nachricht an ein Konto, das es nicht gibt, wird stillschweigend
-  verworfen** (`StoreOfflineOrRefuseAsync`: `GetAccount(…) is not { } account`
-  → `return`). RFC 6121 §8.5.1 lässt die Wahl zwischen `<service-unavailable/>`
-  und Schweigen, aber die Wahl muss dieselbe sein wie für ein vorhandenes
-  Konto, das gerade nicht zusieht — sonst beantwortet sie die Frage „gibt es
-  dieses Konto?". Heute fällt sie auseinander, sobald `StoreOfflineMessages`
-  aus oder die Ablage voll ist: Dann bekommt ein vorhandenes Konto einen
-  Fehler und ein unbekanntes Schweigen. Die Behandlung sollte die eines
-  vorhandenen, abwesenden Kontos mit leerer Ablage sein — dasselbe Muster wie
-  die erfundenen Zugangsdaten aus D50 (gefunden bei der Bestandsaufnahme zu
-  D51)
 - **`<jid-malformed/>` gilt bisher nur für Stanzas von Clients** (D51). Was über
   `AcceptFromRemoteAsync` von einer Gegenstelle hereinkommt, wird auf Herkunft
   und Zuständigkeit geprüft, aber nicht darauf, ob das `to` überhaupt ein JID

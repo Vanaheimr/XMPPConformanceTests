@@ -214,6 +214,138 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region WithoutTheStore_BothRecipientsAreTold()
+
+        /// <summary>
+        /// Ist die Ablage aus, bekommt der Absender für ein unbekanntes Konto
+        /// dieselbe Antwort wie für ein bekanntes, das gerade nicht zusieht.
+        /// </summary>
+        /// <remarks>
+        /// RFC 6121, Abschnitt 8.5.1 lässt für ein Konto, das es nicht gibt,
+        /// die Wahl zwischen <c>&lt;service-unavailable/&gt;</c> und
+        /// Schweigen. <b>Die Wahl ist aber keine freie</b>: Sie muss dieselbe
+        /// sein wie für ein vorhandenes, abwesendes Konto - sonst beantwortet
+        /// sie die Frage „gibt es dieses Konto?", und zwar auf dem bequemsten
+        /// Weg, den es gibt: eine Nachricht schicken und hinsehen, ob etwas
+        /// zurückkommt.
+        ///
+        /// Genau daran fiel die Behandlung bisher auseinander. Das unbekannte
+        /// Konto wurde stillschweigend verworfen, das vorhandene bekam bei
+        /// abgeschalteter Ablage einen Fehler.
+        /// </remarks>
+        [Test]
+        public async Task WithoutTheStore_BothRecipientsAreTold()
+        {
+
+            Server.StoreOfflineMessages = false;
+            Server.AddAccount("bob");
+
+            var alice   = await ConnectClientAsync();
+            var fehler  = new List<String>();
+
+            alice.Connection.OnStanzaError += (from, e) => { lock (fehler) fehler.Add($"{from}|{e.Condition}"); };
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}",     "An ein Konto, das es gibt");
+            await alice.SendMessageAsync($"niemand@{Server.Domain}", "An eines, das es nicht gibt");
+
+            await WaitFor(() => { lock (fehler) return fehler.Count == 2; },
+                          "zwei Ablehnungen beim Absender");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(fehler[0].Split('|')[1], Is.EqualTo("service-unavailable"));
+
+                Assert.That(fehler[1].Split('|')[1], Is.EqualTo(fehler[0].Split('|')[1]),
+                            "Zwei verschiedene Antworten sortieren die Namen.");
+
+                Assert.That(Server.GetAccount($"niemand@{Server.Domain}"), Is.Null,
+                            "Für die Antwort wurde ein Konto angelegt.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WithTheStore_NeitherRecipientIsTold()
+
+        /// <summary>
+        /// Ist die Ablage an, schweigt der Server in beiden Fällen.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenprobe, und sie ist die wichtigere: „Antworte einfach immer
+        /// mit <c>&lt;service-unavailable/&gt;</c>" wäre die naheliegende
+        /// Lösung und träfe genau daneben. Bei eingeschalteter Ablage - der
+        /// Vorgabe - bekäme das vorhandene Konto dann Schweigen und das
+        /// unbekannte einen Fehler, und die Frage wäre wieder beantwortet, nur
+        /// andersherum.
+        ///
+        /// Das Schweigen ist hier keines aus Verlegenheit: Für das vorhandene
+        /// Konto liegt die Nachricht in der Ablage, und das lässt sich prüfen.
+        /// </remarks>
+        [Test]
+        public async Task WithTheStore_NeitherRecipientIsTold()
+        {
+
+            Server.AddAccount("bob");
+
+            var alice   = await ConnectClientAsync();
+            var fehler  = new List<String>();
+
+            alice.Connection.OnStanzaError += (from, e) => { lock (fehler) fehler.Add(e.Condition); };
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}",     "Wird abgelegt");
+            await alice.SendMessageAsync($"niemand@{Server.Domain}", "Wird verworfen");
+
+            await WaitFor(() => Server.GetAccount($"bob@{Server.Domain}")!.OfflineMessages.Count == 1,
+                          "die abgelegte Nachricht für das vorhandene Konto");
+
+            await WaitAgainst(() => { lock (fehler) return fehler.Count > 0; },
+                              "eine Ablehnung, obwohl die Ablage an ist");
+
+        }
+
+        #endregion
+
+        #region AFullStore_RefusesForBothAlike()
+
+        /// <summary>
+        /// Nimmt die Ablage nichts mehr an, gilt das auch für das Konto, das
+        /// es nicht gibt.
+        /// </summary>
+        /// <remarks>
+        /// Der Fall, an dem sich „tu so, als sei abgelegt worden" von „frag
+        /// nach, ob es passt" unterscheidet. Bei <c>MaxStoredOfflineMessages =
+        /// 0</c> nimmt eine <i>leere</i> Ablage nichts an - ein vorhandenes
+        /// Konto bekommt also einen Fehler, und ein unbekanntes muss ihn
+        /// ebenso bekommen. Eine Behandlung, die für Unbekannte immer
+        /// „abgelegt" meldet, fiele genau hier auseinander.
+        /// </remarks>
+        [Test]
+        public async Task AFullStore_RefusesForBothAlike()
+        {
+
+            Server.MaxStoredOfflineMessages = 0;
+            Server.AddAccount("bob");
+
+            var alice   = await ConnectClientAsync();
+            var fehler  = new List<String>();
+
+            alice.Connection.OnStanzaError += (from, e) => { lock (fehler) fehler.Add(e.Condition); };
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}",     "Passt nicht mehr");
+            await alice.SendMessageAsync($"niemand@{Server.Domain}", "Passt auch nicht");
+
+            await WaitFor(() => { lock (fehler) return fehler.Count == 2; },
+                          "zwei Ablehnungen bei voller Ablage");
+
+            Assert.That(fehler, Is.All.EqualTo("service-unavailable"));
+
+        }
+
+        #endregion
+
         #region TheInventedSalt_LooksLikeARealOne()
 
         /// <summary>

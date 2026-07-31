@@ -2560,16 +2560,35 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                      String   sender)
         {
 
-            if (GetAccount(BareOf(to)) is not { } account)
-                return;
+            var account = GetAccount(BareOf(to));
 
-            if (StoreOfflineMessages &&
-                account.StoreOfflineMessage(stamped,
-                                            DateTimeOffset.UtcNow,
-                                            MaxStoredOfflineMessages))
-            {
+            // Ein Konto, das es nicht gibt, wird behandelt wie eines, das da
+            // ist und gerade nicht zusieht - mit leerer Ablage.
+            //
+            // RFC 6121, Abschnitt 8.5.1 lässt für einen unbekannten Empfänger
+            // die Wahl zwischen <service-unavailable/> und Schweigen. Frei ist
+            // sie trotzdem nicht: Sie muss dieselbe sein wie für ein
+            // vorhandenes, abwesendes Konto, sonst beantwortet sie die Frage
+            // "gibt es dieses Konto?" - und zwar auf dem bequemsten Weg, den es
+            // gibt (RFC 6120, Abschnitt 13.11; siehe D50 für dieselbe Frage bei
+            // der Anmeldung).
+            //
+            // Hier stand ein blosses `return`, und damit fiel die Behandlung
+            // auseinander, sobald die Ablage aus oder voll war: Das vorhandene
+            // Konto bekam einen Fehler, das unbekannte Schweigen.
+            //
+            // Gefragt wird deshalb nicht "gibt es ein Konto", sondern "würde
+            // die Ablage es annehmen". Für ein unbekanntes ist die Ablage leer,
+            // und eine leere nimmt an, solange überhaupt etwas hineinpasst -
+            // bei MaxStoredOfflineMessages = 0 also nichts.
+            var abgelegt = StoreOfflineMessages &&
+                           (account?.StoreOfflineMessage(stamped,
+                                                         DateTimeOffset.UtcNow,
+                                                         MaxStoredOfflineMessages)
+                                ?? MaxStoredOfflineMessages > 0);
+
+            if (abgelegt)
                 return;
-            }
 
             await SendServiceUnavailableAsync("message", id, to, sender);
 
