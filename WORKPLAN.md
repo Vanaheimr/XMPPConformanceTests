@@ -3253,6 +3253,38 @@ LF-Datei geschrieben — genau die Vermischung, auf die ich in D26 noch geprüft
 und die ich diesmal selbst erzeugt hatte. Aufgefallen ist sie, weil das
 Suchmuster für die Gegenprobe nicht passte; die Datei ist wieder durchgehend LF.
 
+### D34. Eine Fabrik, die nichts bauen kann ✅
+
+`XMPPConnection.CreateTcp` erzeugte eine `tcp://`-URI, die `ClientWebSocket`
+ablehnt. Der Vermerk stand seit langem und liess zwei Wege offen: echt
+implementieren oder entfernen.
+
+**Die Bestandsaufnahme hat die Entscheidung vorbereitet, nicht ersetzt.** Die
+Methode hat **null Aufrufer** — nicht in den Tests, nicht in `Program.cs`,
+nirgends. Sie ist öffentliche Oberfläche, die dokumentiert nicht funktioniert,
+und ihr eigener Kommentar sagte das seit jeher: „NICHT funktionsfähig".
+
+Der Umfang der Alternative war ebenso zu messen: Der Client fasst den WebSocket
+an **neun** Stellen unmittelbar an — Verbinden, Senden, die beiden
+Empfangspfade, Abbruch. Ein echter TCP-Transport verlangt also eine
+Transportabstraktion, dazu clientseitiges STARTTLS und die TCP-Rahmung. Die
+Bausteine gibt es (`XmlStreamSplitter`, STARTTLS), aber auf der S2S-Seite und
+für `jabber:server` geformt. Das ist ein eigenes Vorhaben und keine Reparatur.
+
+Entfernt. **Eine öffentliche Methode, die nicht funktionieren kann, ist
+schlechter als keine** — sie sieht aus wie ein Angebot, kostet den Aufrufer
+einen Versuch und liefert einen Gegenstand, der beim ersten Gebrauch scheitert.
+Solange niemand sie ruft, ist das Entfernen der billigste ehrliche Schritt.
+
+Der TCP-Transport bleibt unter „Später" stehen, jetzt mit dem gemessenen Umfang
+und dem Prüfziel: Prosody lauscht auf 127.0.0.1:5222, ein echter Transport wäre
+also gegen eine fremde Gegenstelle nachweisbar.
+
+**Ohne Mutationstest, und das ist hier kein Versäumnis.** Es kommt keine
+Verhaltenszeile hinzu, die man umdrehen könnte; die Prüfung einer Entfernung ist
+die Frage, ob jemand sie gebraucht hat, und die beantworten Übersetzer und
+Vollauf. Beide sagen nein.
+
 ---
 
 ## Später
@@ -3276,10 +3308,38 @@ Suchmuster für die Gegenprobe nicht passte; die Datei ist wieder durchgehend LF
 
 ### Transport
 - Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`
-- `XMPPConnection.CreateTcp` erzeugt eine `tcp://`-URI, die `ClientWebSocket`
-  ablehnt — entweder echt implementieren oder entfernen
+- **TCP-Transport für den Client.** `CreateTcp` ist in D34 entfernt worden; der
+  Transport selbst fehlt weiter. Der Umfang ist bekannt: Der Client fasst den
+  WebSocket an neun Stellen unmittelbar an (Verbinden, Senden, die beiden
+  Empfangspfade, Abbruch), es bräuchte also eine Transportabstraktion, dazu
+  clientseitiges STARTTLS und die TCP-Rahmung. `XmlStreamSplitter` und die
+  STARTTLS-Aushandlung gibt es auf der S2S-Seite bereits, sind dort aber für
+  `jabber:server` geformt. Prüfbar wäre es gegen Prosody auf 127.0.0.1:5222
+  (siehe D34)
 
 ### Testsammlung
+- **`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
+  aufgefallen, ein Fehlschlag in einem Vollauf. Der Mitschnitt liegt vor:
+
+  ```
+  Wir haben Nonzas mitgezählt.  Expected: 6  But was: 8
+  Prosody hat andere Nonzas mitgezählt als wir.  Expected: 8  But was: 6
+  ```
+
+  Der Client hatte also **zwei** ausgehende Stanzas mehr gezählt als die drei,
+  die der Test schickt; Prosody bestätigte die erwarteten sechs. Beide
+  Zusicherungen fallen zusammen, weil beide dieselbe Zahl vergleichen.
+
+  Eine naheliegende Erklärung ist bereits **widerlegt**: Der Test schickt an
+  sich selbst, die Nachrichten kommen also zurück — aber die automatischen
+  Antworten des Clients (XEP-0184, XEP-0333) verlangen ein `<request/>` bzw.
+  `<markable/>` im Rahmen, und die Testnachrichten tragen nur einen `<body>`.
+  Sie lösen nichts aus.
+
+  Offen ist damit, **welche zwei Stanzas** mitgezählt wurden. Der nächste
+  Schritt wäre, den Test mit einem Mitschnitt des Ausgangs (`OnRawXml`) laufen
+  zu lassen — dann steht in der Meldung, was tatsächlich hinausging, statt einer
+  Zahl. Zwanzig gezielte Ausführungen konnten ihn nicht wiederholen (siehe D34)
 - `TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
   reproduzierbar** und der damalige Verdacht widerlegt: vierzig Ausführungen
   zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist

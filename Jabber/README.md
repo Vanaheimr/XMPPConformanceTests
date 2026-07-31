@@ -780,8 +780,12 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln abholen
 - Der Client liest den XEP-0203-Stempel nicht; eine nachgereichte Nachricht
   erscheint mit ihrer Empfangszeit, obwohl der Server den Verzug mitteilt
-- Kein TCP-Transport — `XmppConnection.CreateTcp` erzeugt eine `tcp://`-URI,
-  die `ClientWebSocket` ablehnt, und ist damit funktionslos.
+- **Kein TCP-Transport** — der Client spricht ausschliesslich XMPP über
+  WebSocket (RFC 7395). Die Fabrikmethode `CreateTcp`, die eine `tcp://`-URI
+  erzeugte und dabei funktionslos war, ist entfernt: Eine öffentliche Methode,
+  die nicht funktionieren kann, ist schlechter als keine. Ein echter
+  TCP-Transport bleibt eine offene Aufgabe — die Bausteine (`XmlStreamSplitter`,
+  STARTTLS) gibt es auf der S2S-Seite bereits.
 
 ### Ungenutzte API-Fläche
 Folgende öffentliche Member werden nirgends aufgerufen und sind ungetestet:

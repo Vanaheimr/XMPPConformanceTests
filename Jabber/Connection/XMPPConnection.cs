@@ -353,19 +353,6 @@ public sealed class XMPPConnection : IAsyncDisposable
 
 
     /// <summary>
-    /// Alternative: Verbindung über klassischen TCP mit STARTTLS
-    /// </summary>
-    /// <remarks>
-    /// NICHT funktionsfähig: Der erzeugte tcp://-URI wird von ClientWebSocket abgelehnt.
-    /// </remarks>
-    public static XMPPConnection CreateTcp(string jid, string password, string? server = null, int port = 5222)
-    {
-        // Fallback auf TCP - wird intern anders behandelt
-        var conn = new XMPPConnection(jid, password, $"tcp://{server ?? jid.Split('@')[1]}:{port}");
-        return conn;
-    }
-
-    /// <summary>
     /// Baut die Verbindung auf und meldet sich an.
     /// </summary>
     /// <exception cref="AuthenticationException">
