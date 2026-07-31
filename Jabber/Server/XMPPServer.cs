@@ -1787,23 +1787,44 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             // XEP-0030 disco#info über den Server
             if (frame.Contains("http://jabber.org/protocol/disco#info", StringComparison.Ordinal) && type == "get")
-                return FailDiscoInfo
-                           ? StanzaErrorIq(id, "item-not-found", "modify",
-                                           "Diesen Node gibt es hier nicht.")
-                           : $"<iq type='result' id='{id}' from='{Domain}'>" +
-                             "<query xmlns='http://jabber.org/protocol/disco#info'>" +
-                             "<identity category='server' type='im' name='XMPPServer'/>" +
-                             "<feature var='urn:xmpp:carbons:2'/>" +
-                             "<feature var='urn:xmpp:ping'/>" +
-                             "<feature var='urn:xmpp:sm:3'/>" +
-                             // XEP-0160, Abschnitt 4: Nur wenn es die Ablage
-                             // wirklich gibt. Eine Ankündigung, die immer steht,
-                             // verspricht einem Client, dass seine Nachricht an
-                             // einen Abwesenden liegen bleibt - und lässt ihn
-                             // den Fehler übersehen, mit dem der Server ihm
-                             // gerade das Gegenteil sagt.
-                             (StoreOfflineMessages ? "<feature var='msgoffline'/>" : "") +
-                             "</query></iq>";
+            {
+
+                if (FailDiscoInfo)
+                    return StanzaErrorIq(id, "item-not-found", "modify",
+                                         "Diese Auskunft wird hier nicht erteilt.");
+
+                // Dieser Server kündigt keine Capabilities an und führt keine
+                // Nodes. Eine Frage nach einem Node fragt also nach etwas, das
+                // es hier nicht gibt - und bekam bis dahin die volle
+                // Merkmalsliste, als gäbe es jeden erdachten Node.
+                //
+                // Der Fehler nimmt die Frage mit zurück (RFC 6120,
+                // Abschnitt 8.3.1); das ist zugleich die Spiegelung, die
+                // XEP-0030, Abschnitt 3.2 für das 'node' verlangt.
+                var node = Regex.Match(frame, @"<query[^>]*?\snode=['""]([^'""]*)['""]");
+
+                if (node.Success)
+                    return StanzaErrorIq(id, "item-not-found", "cancel",
+                                         "Diesen Node gibt es hier nicht.",
+                                         "<query xmlns='http://jabber.org/protocol/disco#info' " +
+                                        $"node='{node.Groups[1].Value}'/>");
+
+                return $"<iq type='result' id='{id}' from='{Domain}'>" +
+                        "<query xmlns='http://jabber.org/protocol/disco#info'>" +
+                        "<identity category='server' type='im' name='XMPPServer'/>" +
+                        "<feature var='urn:xmpp:carbons:2'/>" +
+                        "<feature var='urn:xmpp:ping'/>" +
+                        "<feature var='urn:xmpp:sm:3'/>" +
+                        // XEP-0160, Abschnitt 4: Nur wenn es die Ablage
+                        // wirklich gibt. Eine Ankündigung, die immer steht,
+                        // verspricht einem Client, dass seine Nachricht an
+                        // einen Abwesenden liegen bleibt - und lässt ihn
+                        // den Fehler übersehen, mit dem der Server ihm
+                        // gerade das Gegenteil sagt.
+                        (StoreOfflineMessages ? "<feature var='msgoffline'/>" : "") +
+                        "</query></iq>";
+
+            }
 
             // Unbekannte Anfragen bekommen einen Fehler (Abschnitt 8.4), und
             // zwar auch dann, wenn niemand zuhört: Regel 3 kennt keine dritte
@@ -3697,12 +3718,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <summary>
         /// Baut ein <c>iq type='error'</c> nach RFC 6120, Abschnitt 8.3.
         /// </summary>
+        /// <param name="payload">
+        /// Die ursprüngliche Anfrage, die der Fehler mit zurücknimmt (RFC 6120,
+        /// Abschnitt 8.3.1). Ohne sie weiss ein Frager, der mehrere gleichartige
+        /// Anfragen offen hat, nur <i>dass</i> eine gescheitert ist.
+        /// </param>
         internal String StanzaErrorIq(String?  id,
                                       String   condition,
                                       String   errorType  = "cancel",
-                                      String?  text       = null)
+                                      String?  text       = null,
+                                      String?  payload    = null)
 
             => $"<iq type='error' id='{id}' from='{Domain}'>" +
+               (payload ?? "") +
                $"<error type='{errorType}'>" +
                $"<{condition} xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
                (text is not null

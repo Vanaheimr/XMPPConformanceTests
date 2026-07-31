@@ -139,7 +139,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(reported,            Is.Not.Null);
                 Assert.That(reported!.Condition, Is.EqualTo("item-not-found"));
                 Assert.That(reported!.Type,      Is.EqualTo(StanzaErrorType.Modify));
-                Assert.That(reported!.Text,      Is.EqualTo("Diesen Node gibt es hier nicht."));
+                // Der Text sagt, was der Schalter tut: Diese Abfrage wird
+                // abgelehnt. Bis zum node-Attribut stand hier „Diesen Node gibt
+                // es hier nicht" - eine Auskunft über etwas, das der Server gar
+                // nicht ansah, und die Abfrage nennt nicht einmal einen Node.
+                Assert.That(reported!.Text,      Is.EqualTo("Diese Auskunft wird hier nicht erteilt."));
             });
 
         }

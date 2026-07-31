@@ -3462,6 +3462,90 @@ holt ihn zurück, sondern der Bedarf.
 
 ---
 
+### D39. Wir haben verlangt, was wir selbst nicht gaben ✅ — Abschnitt 3.2
+
+XEP-0030, Abschnitt 3.2: „If the request included a 'node' attribute, the
+response MUST mirror the specified 'node' attribute to ensure coherence between
+the request and the response." XEP-0115, Abschnitt 6.2 sagt dasselbe für den
+Caps-Fall und nennt den Wert: `node#ver`.
+
+**Die Lücke war eine Asymmetrie, keine Unkenntnis.** `EntityCapsManager` fragt
+seit jeher mit `node#ver` und legt die Antwort unter genau diesem Schlüssel ab.
+`DiscoManager.RespondInfoAsync` konnte das `node` sogar setzen — der einzige
+Aufrufer übergab keines und las das Attribut der Anfrage nicht einmal. Wir haben
+also von jeder Gegenstelle verlangt, was wir selbst nie geliefert haben.
+
+Kaputt sah dabei nichts aus, und das ist das Tückische: Eine strenge
+Gegenstelle legt eine Antwort ohne `node` nicht unter `node#ver` ab, fragt bei
+jeder Presence erneut und bekommt jedes Mal dieselbe Auskunft. Der Nutzen von
+XEP-0115 fällt weg, ohne dass irgendwo ein Fehler erscheint.
+
+**Die zweite Hälfte war die grössere.** Ein Node, den es hier nicht gibt, bekam
+dieselbe volle Merkmalsliste wie eine Anfrage ohne Node. Diese Seite behauptete
+damit, **jeden erdachten Node zu führen** — `commands`, `offline`, was auch
+immer jemand fragt, es gab ihn. Jetzt wird nur beantwortet, was diese Entity
+bezeichnet: der Caps-Node, mit und ohne aktuelles `#ver`. Alles andere bekommt
+`<item-not-found/>`.
+
+**Ein veraltetes `ver` gehört ausdrücklich zu „alles andere", und das ist die
+unbequeme Entscheidung.** Verbreitete Server schicken auch dort die aktuelle
+Liste. Das ist bequemer und falsch: Der Frager rechnet nach XEP-0115,
+Abschnitt 5.4 den angekündigten Hash gegen die Antwort. Zu einem alten `ver`
+ergibt die neue Liste einen anderen Hash — er hat dann die Wahl, uns für einen
+Fälscher zu halten oder das Nachrechnen aufzugeben. Unser eigener
+`EntityCapsManager` würde die Antwort ablehnen. Ein Fehler ist die ehrlichere
+Auskunft: **Diesen Stand gibt es hier nicht mehr.**
+
+**Der Testserver hat gar keine Nodes**, er kündigt keine Capabilities an. Jede
+Frage nach einem Node bekommt dort einen Fehler. Dabei fiel ein Satz auf, der
+eine Unterscheidung behauptete, die es nicht gab: Der Schalter `FailDiscoInfo`
+antwortete mit „Diesen Node gibt es hier nicht." — auf eine Abfrage, die keinen
+Node nennt, in einem Server, der das Attribut nie ansah. Der Satz steht jetzt
+dort, wo er zutrifft; der Schalter sagt, was er tut.
+
+**Auch ein Fehler ist eine Antwort und muss sagen, worauf.** Beide Fehler nehmen
+die Anfrage samt `node` mit zurück (RFC 6120, Abschnitt 8.3.1); `StanzaErrorIq`
+hat dafür einen Parameter bekommen. Ohne das erfährt ein Frager, der mehrere
+Nodes derselben Entity abfragt, nur, dass *irgendeiner* fehlt — und die
+Spiegelung aus Abschnitt 3.2 gilt für die Fehlerantwort genauso.
+
+Acht neue Tests, elf Mutationen, zehn erschlagen. **Der Überlebende ist ein
+Zustand, den es nicht gibt:** `EntityCaps?.IsOwnNode(node) != true` gegen
+`== false` unterscheidet sich allein im Fall „kein EntityCaps", und der tritt
+nicht ein — `Disco` und `EntityCaps` entstehen in zwei aufeinanderfolgenden
+Zeilen, die Bedingung prüft `Disco is not null`. Die strengere Fassung bleibt
+stehen: Ohne Caps-Manager gibt es keine eigene Node-Kennung, und was man nicht
+kennt, kann man nicht bestätigen.
+
+Eine Mutation hat einen Test bekommen, statt als Überlebender vermerkt zu
+werden. Der Server liest seine Frames als Zeichenketten — bewusst, damit er den
+Client nicht mit derselben Brille ansieht, mit der der Client sich selbst
+ansieht. Damit sind „steht `node=` irgendwo im Frame" und „die Anfrage trägt ein
+`node`" zwei verschiedene Dinge, und der Unterschied wäre unbelegt geblieben.
+`ANodeOutsideTheQuery_DoesNotCount` legt der Anfrage ein fremdes Element mit
+`node` bei; ohne den Anker im Muster bekäme diese gewöhnliche Abfrage einen
+Fehler.
+
+**Und ein Werkzeug hat die Arbeit zurückgedreht.** `mutate.ps1` setzte nach
+jedem Lauf aus einem Sicherungsordner zurück, den es nie selbst gefüllt hat —
+darin lag, was irgendeine frühere Sitzung dort abgelegt hatte. Zwei Dateien
+sprangen so um eine ganze Sitzung zurück; in `XMPPConnection.cs` war `CreateTcp`
+wieder da, in D34 gelöscht. Die Hash-Prüfung meldete dabei brav „wie zuvor",
+denn sie verglich gegen genau diese alte Sicherung.
+
+Das ist derselbe Fehler wie in D34, nur eine Ebene tiefer: **eine Messung, die
+nicht misst, was sie behauptet.** Nur war sie diesmal nicht bloss blind, sondern
+zerstörend — die Prüfung, die den Schaden hätte melden sollen, war Teil davon.
+Die Sicherung wird jetzt im Augenblick der Mutation aus der Datei gezogen, die
+gleich mutiert wird. Eine Sicherung, die älter ist als die Arbeit, ist keine.
+
+**Nebenbefund, notiert unter „Später":** `LocalFeatures` kündigt
+`disco#items` an, beantwortet wird es nirgends — eine eingehende items-Abfrage
+fällt bis zum `<service-unavailable/>` durch. Angekündigt und dann verweigert
+ist die einzige Kombination, die es nicht geben darf.
+
+---
+
 ## Später
 
 ### Protokoll
@@ -3474,7 +3558,13 @@ holt ihn zurück, sondern der Bedarf.
   (siehe D5)
 
 ### XEPs
-- XEP-0030: die eigene disco#info-Antwort setzt kein `node`-Attribut
+- XEP-0030: **disco#items wird angekündigt, aber nicht beantwortet.**
+  `LocalFeatures` führt `http://jabber.org/protocol/disco#items`, und
+  `QueryItemsAsync` fragt danach — eine eingehende items-Abfrage fällt aber bis
+  zum `<service-unavailable/>` durch, weil es kein Gegenstück zu
+  `RespondInfoAsync` gibt. Eine leere Liste wäre die richtige Antwort für eine
+  Entity ohne Untereinheiten; angekündigt und dann verweigert ist die einzige
+  Kombination, die es nicht geben darf (aufgefallen in D39)
 
 ### Transport
 - Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`

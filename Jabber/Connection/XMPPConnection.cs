@@ -1652,10 +1652,24 @@ public sealed class XMPPConnection : IAsyncDisposable
             }
 
             // XEP-0030: Disco Info Anfrage
-            if (element.Child(DiscoManager.InfoNamespace, "query") is not null && Disco is not null)
+            if (element.Child(DiscoManager.InfoNamespace, "query") is XElement discoQuery && Disco is not null)
             {
-                _ = Disco.RespondInfoAsync(id, from);
+
+                var node = discoQuery.Attr("node");
+
+                // XEP-0030, Abschnitt 3.2: Das 'node' der Frage gehört in die
+                // Antwort - und beantwortet wird nur, was diese Entity auch
+                // bezeichnet. Ohne diese Unterscheidung bekäme jeder erdachte
+                // Node die volle Merkmalsliste, und diese Seite behauptete
+                // damit, jeden davon zu führen.
+                if (node is not null && EntityCaps?.IsOwnNode(node) != true)
+                    RefuseUnknownNode(id, from, node);
+
+                else
+                    _ = Disco.RespondInfoAsync(id, from, node);
+
                 return;
+
             }
         }
 
@@ -1741,6 +1755,38 @@ public sealed class XMPPConnection : IAsyncDisposable
         _ = SendAsync($"<iq type='error'{idAttr}{toAttr}>" +
                        "<error type='modify'>" +
                        "<bad-request xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                       "</error></iq>");
+
+    }
+
+    /// <summary>
+    /// Beantwortet eine disco#info-Anfrage nach einem Node, den es hier nicht
+    /// gibt, mit <c>&lt;item-not-found/&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// XEP-0030, Abschnitt 7 verlangt „an appropriate error" und lässt die
+    /// Wahl; <c>item-not-found</c> ist die Auskunft, um die es geht: Die
+    /// Adresse stimmt, der Node nicht.
+    ///
+    /// Der Fehler trägt die ursprüngliche Anfrage samt <c>node</c> zurück
+    /// (RFC 6120, Abschnitt 8.3.1). Das ist hier mehr als Form: Ein Frager, der
+    /// mehrere Nodes derselben Entity abfragt, erfährt sonst nur, dass
+    /// <i>irgendeiner</i> fehlt.
+    /// </remarks>
+    private void RefuseUnknownNode(string id, string? from, string node)
+    {
+
+        _logger.LogDebug("disco#info nach unbekanntem Node '{Node}' von {From} mit <item-not-found/> beantwortet",
+                         node, from ?? "(Server)");
+
+        // Ohne 'from' kam die Anfrage vom eigenen Server; die Antwort geht
+        // dann ohne 'to' implizit dorthin zurück (Abschnitt 8.1.1.1).
+        var toAttr = from != null ? $" to='{XmlEscaping.Escape(from)}'" : "";
+
+        _ = SendAsync($"<iq type='error' id='{XmlEscaping.Escape(id)}'{toAttr}>" +
+                      $"<query xmlns='{DiscoManager.InfoNamespace}' node='{XmlEscaping.Escape(node)}'/>" +
+                       "<error type='cancel'>" +
+                       "<item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
                        "</error></iq>");
 
     }

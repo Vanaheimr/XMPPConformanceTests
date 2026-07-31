@@ -162,6 +162,28 @@ public sealed class EntityCapsManager
     }
 
     /// <summary>
+    /// Bezeichnet dieser disco-Node diese Entity in ihrem <b>heutigen</b>
+    /// Stand?
+    /// </summary>
+    /// <remarks>
+    /// Zwei Formen zählen. <c>node#ver</c> ist die aus XEP-0115,
+    /// Abschnitt 6.2: Wer unser <c>&lt;c/&gt;</c> in einer Presence gesehen
+    /// hat, fragt genau so. Der blanke Node ohne <c>#ver</c> zählt ebenfalls -
+    /// dort steht "SHOULD", nicht "MUST", und wer nur den Node nennt, fragt
+    /// nach dieser Entity, ohne einen Stand festzunageln.
+    ///
+    /// Ein <b>anderes</b> <c>ver</c> zählt nicht, auch nicht ein früher einmal
+    /// eigenes. Es fragt nach der Merkmalsliste von damals, und die gibt es
+    /// hier nicht mehr. Wer darauf die heutige schickt, beantwortet eine andere
+    /// Frage als die gestellte: Der Frager rechnet nach Abschnitt 5.4 den
+    /// angekündigten Hash gegen die Antwort und bekommt einen anderen heraus.
+    /// </remarks>
+    public bool IsOwnNode(string node)
+
+        => node == Node ||
+           node == $"{Node}#{CalculateVerificationString()}";
+
+    /// <summary>
     /// Verarbeitet ein caps-Element aus Presence.
     /// </summary>
     /// <remarks>
