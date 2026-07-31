@@ -210,7 +210,7 @@ class Program
 
         if (string.IsNullOrEmpty(wsUri))
         {
-            Console.Write($"WebSocket URI (Enter für wss://{{domain}}:5443/ws): ");
+            Console.Write("WebSocket URI (Enter: host-meta der Domain, sonst wss://{domain}:5443/ws): ");
             var input = Console.ReadLine()?.Trim();
             if (!string.IsNullOrEmpty(input))
                 wsUri = input;

@@ -56,7 +56,9 @@ public sealed class XMPPConnection : IAsyncDisposable
 
     #region Data
 
-    private readonly string _wsUri;
+    private string? _wsUri;
+    private readonly string _defaultWsUri;
+    private bool _endpointDiscovered;
     private readonly string _jid;
     private readonly string _password;
     private readonly string _username;
@@ -253,7 +255,19 @@ public sealed class XMPPConnection : IAsyncDisposable
     public string FullJid { get; private set; } = string.Empty;
     public string BareJid => JidUtilities.Bare(FullJid);
     public string Domain => _domain;
-    public string WebSocketUri => _wsUri;
+
+    /// <summary>
+    /// Der Endpunkt, zu dem verbunden wird: der angegebene, der über XEP-0156
+    /// gefundene oder der Vorgabewert - in dieser Rangfolge.
+    /// </summary>
+    public string WebSocketUri => _wsUri ?? _defaultWsUri;
+
+    /// <summary>
+    /// XEP-0156: Womit der Endpunkt gesucht wird, wenn der Aufrufer keinen
+    /// genannt hat. Ohne Angabe wird das <c>host-meta</c> der Domain über
+    /// HTTPS geladen.
+    /// </summary>
+    public AltConnectionsResolver? EndpointDiscovery { get; set; }
     public List<string> ServerFeatures { get; } = [];
 
     // Core Managers
@@ -310,7 +324,11 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// </summary>
     /// <param name="jid">Bare-JID im Format user@domain</param>
     /// <param name="password">Passwort für die SASL-Authentifizierung</param>
-    /// <param name="wsUri">WebSocket-Endpunkt; ohne Angabe wss://{domain}:5443/ws (ejabberd-Default)</param>
+    /// <param name="wsUri">
+    /// WebSocket-Endpunkt. Ohne Angabe wird vor dem ersten Verbinden das
+    /// <c>host-meta</c> der Domain gefragt (XEP-0156); findet sich dort keiner,
+    /// bleibt es bei wss://{domain}:5443/ws (ejabberd-Vorgabe).
+    /// </param>
     /// <param name="LoggerFactory">Optionale Logger-Factory; ohne Angabe wird nicht geloggt</param>
     public XMPPConnection(string             jid,
                           string             password,
@@ -328,7 +346,12 @@ public sealed class XMPPConnection : IAsyncDisposable
         _username  = parts[0];
         _domain    = parts[1];
 
-        _wsUri     = wsUri ?? $"wss://{_domain}:5443/ws";
+        // Getrennt gehalten: Ohne Angabe wird vor dem ersten Verbinden das
+        // host-meta der Domain gefragt (XEP-0156). Wer einen Endpunkt nennt,
+        // wird nicht gefragt - das XEP ist ausdrücklich der Rückfallweg, nicht
+        // die erste Adresse.
+        _wsUri         = wsUri;
+        _defaultWsUri  = $"wss://{_domain}:5443/ws";
 
         _loggerFactory  = LoggerFactory;
         _logger         = CreateLogger<XMPPConnection>();
@@ -403,7 +426,45 @@ public sealed class XMPPConnection : IAsyncDisposable
         // vor, wenn die Wiederverbindungsversuche aufgebraucht sind, ohne dass
         // der letzte Versuch überhaupt begonnen hätte.
         throw new XMPPProtocolException(
-                  $"Der Verbindungsaufbau zu {_wsUri} ist gescheitert, Zustand: {State}.");
+                  $"Der Verbindungsaufbau zu {WebSocketUri} ist gescheitert, Zustand: {State}.");
+
+    }
+
+    /// <summary>
+    /// Sucht den Endpunkt über XEP-0156, falls der Aufrufer keinen genannt hat.
+    /// </summary>
+    /// <remarks>
+    /// <b>Höchstens einmal je Verbindung, auch über Wiederverbindungen
+    /// hinweg.</b> Der Wiederverbindungsversuch läuft in einer Schleife; eine
+    /// Abfrage je Durchgang hiesse, bei einem Server, der gerade weg ist,
+    /// zwanzigmal auf eine HTTPS-Antwort zu warten, die es nicht gibt.
+    ///
+    /// Bleibt die Suche ohne Ergebnis, wird sie nicht wiederholt und der
+    /// Vorgabewert bleibt stehen. Das ist die Rangfolge des XEPs: Die Discovery
+    /// ist der Rückfallweg, und ein Rückfallweg, der selbst scheitert, darf den
+    /// Verbindungsaufbau nicht aufhalten.
+    /// </remarks>
+    private async Task DiscoverEndpointAsync(CancellationToken ct)
+    {
+
+        if (_wsUri is not null || _endpointDiscovered)
+            return;
+
+        _endpointDiscovered = true;
+
+        var gefunden = await (EndpointDiscovery ?? new AltConnectionsResolver()).
+                                 DiscoverWebSocketAsync(_domain, ct);
+
+        if (gefunden is not null)
+        {
+            _logger.LogInformation("XEP-0156: {WebSocketUri} aus dem host-meta von {Domain}",
+                                   gefunden, _domain);
+            _wsUri = gefunden;
+        }
+
+        else
+            _logger.LogDebug("XEP-0156: kein WebSocket-Endpunkt für {Domain}, es bleibt bei {WebSocketUri}",
+                             _domain, _defaultWsUri);
 
     }
 
@@ -478,6 +539,8 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         SetState(ConnectionState.Connecting);
 
+        await DiscoverEndpointAsync(ct);
+
         try
         {
             // WebSocket verbinden
@@ -489,8 +552,8 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             _webSocket = webSocket;
 
-            _logger.LogInformation("Verbinde zu {WebSocketUri} ...", _wsUri);
-            await webSocket.ConnectAsync(new Uri(_wsUri), ct);
+            _logger.LogInformation("Verbinde zu {WebSocketUri} ...", WebSocketUri);
+            await webSocket.ConnectAsync(new Uri(WebSocketUri), ct);
             _logger.LogInformation("WebSocket verbunden");
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

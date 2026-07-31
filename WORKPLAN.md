@@ -3592,6 +3592,72 @@ sie behaupten ungeprüft, was inzwischen geprüft ist.
 
 ---
 
+### D41. Wohin, sagt die Domain ✅ — XEP-0156
+
+Der Endpunkt war fest verdrahtet: `wss://{domain}:5443/ws`, die ejabberd-Vorgabe.
+Für Prosody, für jeden anderen Server und für jeden Betreiber mit eigenem Pfad
+musste der Aufrufer ihn kennen und mitgeben. XEP-0156 ist der Weg, auf dem die
+Domain selbst sagt, wo ihr WebSocket steht: `host-meta` unter
+`/.well-known/`, einmal als JSON (JRD), einmal als XML (XRD).
+
+**Zwei Sätze des XEPs bestimmen den ganzen Zuschnitt.**
+
+Der erste ist eine Rangfolge: „HTTPS queries for host-meta information MUST be
+used only as a fallback after the methods specified in RFC 6120 have been
+exhausted." Gefragt wird deshalb **nur, wenn der Aufrufer keinen Endpunkt
+genannt hat** — und ein eigener Test hält fest, dass die Discovery dann gar
+nicht erst anläuft. Ohne ihn wäre „immer erst nachschauen" eine bestandene
+Lösung: teuer für jeden, der seinen Server kennt, und eine offene Tür für ein
+fremdes `host-meta`, das ihn woandershin schickt.
+
+Der zweite ist eine Sicherheitsregel, und sie hat zwei Hälften: „host-meta files
+MUST be fetched only over HTTPS, and MUST only use connection URLs starting with
+'https://' or 'wss://'." Beide gehören zusammen. Wer die Auskunft im Klartext
+holt, lässt jeden Zwischenmann bestimmen, wohin sich der Client anmeldet; wer
+einer sicher geholten Auskunft ein `ws://` abnimmt, schickt Benutzer und
+Passwort hinterher trotzdem offen durchs Netz. **Eine halbe Absicherung ist hier
+keine.** Beide Hälften haben ihre eigene Mutation.
+
+Vom erlaubten Paar bleibt für diesen Client nur `wss://` übrig: `https://` ist
+BOSH (XEP-0124), das er nicht spricht. Ein BOSH-Link wird gelesen und übergangen
+— nicht, weil er falsch wäre, sondern weil eine Adresse, die als
+WebSocket-Endpunkt zurückkäme, den Verbindungsaufbau an etwas scheitern liesse,
+das nie dafür gedacht war.
+
+**Der Link-Typ entscheidet, nicht das Schema.** Ein `host-meta` ist nicht für
+XMPP gemacht; dort stehen `lrdd`, `webfinger` und was der Betreiber sonst
+veröffentlicht. Wer nur auf `wss://` prüft, nimmt den erstbesten Eintrag, der
+zufällig verschlüsselt ist — ein eigener Test legt genau so einen aus.
+
+**Was nicht umgesetzt ist, fehlt nicht:** Der DNS-Weg über
+`_xmppconnect`-TXT-Einträge steht in keiner aktuellen Fassung mehr — „this was
+insecure and has been removed". Ihn nachzubauen hiesse, eine zurückgezogene
+Empfehlung umzusetzen.
+
+Die Suche läuft **höchstens einmal**, auch über Wiederverbindungen hinweg. Der
+Wiederverbindungsversuch ist eine Schleife; eine Abfrage je Durchgang hiesse,
+bei einem Server, der gerade weg ist, jedes Mal erneut auf eine HTTPS-Antwort zu
+warten, die es nicht gibt. Auch das steht in einem Test — als Zählung der
+Abfragen, nicht als Vermutung.
+
+Zwölf Tests, neun Mutationen, alle erschlagen. **Ungeprüft bleibt der eingebaute
+Abrufer selbst:** Er holt über das Netz, und die Sammlung setzt an seine Stelle
+eine Funktion ohne Netz — anders wäre keiner dieser Tests wiederholbar. Was
+geprüft ist, sind die Adressen, die gebaut werden (beide `https://`, beide
+`/.well-known/`), und was mit dem Ergebnis geschieht. Die `https`-Sperre im
+Abrufer selbst ist damit eine zweite Linie hinter einer geprüften ersten und
+kein ungeprüftes Verhalten.
+
+**Ein Nebenbefund, notiert unter „Später":** Scheitert der Verbindungsaufbau,
+lautet die Ausnahme „Unable to connect to the remote server" — ohne die Adresse.
+Bisher war das verschmerzbar, denn der Aufrufer hatte sie selbst mitgegeben.
+Seit dieser Änderung kann sie aus dem `host-meta` einer fremden Domain stammen,
+und dann beantwortet der eigene Quelltext die Frage „wohin eigentlich?" nicht
+mehr. Der zugehörige Test prüft deshalb den Endpunkt und nicht den Fehlertext —
+und sagt in seinem Kommentar, warum.
+
+---
+
 ## Später
 
 ### Protokoll
@@ -3604,7 +3670,12 @@ sie behaupten ungeprüft, was inzwischen geprüft ist.
   (siehe D5)
 
 ### Transport
-- Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`
+- **Ein gescheiterter Verbindungsaufbau nennt den Endpunkt nicht.** Die Ausnahme
+  kommt aus dem Transport („Unable to connect to the remote server") und wird
+  nach D31 bewusst unverpackt weitergereicht — die Adresse steht nur im Log. Seit
+  XEP-0156 stammt sie nicht mehr zwingend vom Aufrufer, und damit ist die Frage
+  „wohin eigentlich?" nicht mehr aus dem eigenen Quelltext zu beantworten
+  (siehe D41)
 - **TCP-Transport für den Client.** `CreateTcp` ist in D34 entfernt worden; der
   Transport selbst fehlt weiter. Der Umfang ist bekannt: Der Client fasst den
   WebSocket an neun Stellen unmittelbar an (Verbinden, Senden, die beiden

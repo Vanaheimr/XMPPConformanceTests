@@ -54,6 +54,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
+| XEP-0156 | Discovering Alternative XMPP Connection Methods | ✅ | Nur der HTTP-Weg, und nur so weit er sicher ist: `host-meta` wird ausschliesslich über HTTPS geladen, übernommen werden ausschliesslich `wss://`-Endpunkte. BOSH (`xbosh`) wird gelesen und übergangen — dieser Client spricht es nicht. Der DNS-Weg über `_xmppconnect` fehlt nicht, er ist aus dem XEP entfernt worden |
 | XEP-0160 | Best Practices for Handling Offline Messages | ⚠️ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern. Nicht ausgenommen sind Nachrichten mit ausschliesslich Tippstatus-Inhalt |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0203 | Delayed Delivery | ⚠️ | Der Server stempelt nachgereichte Nachrichten; der Client liest den Stempel nicht — `XMPPMessage.Timestamp` ist die Empfangszeit |
@@ -108,10 +109,12 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 |---------|--------|
 | Subprotokoll `xmpp`, `<open/>`/`<close/>`-Framing | ✅ |
 | Close-Handshake | ✅ `<close/>` wird gesendet, dann bis zu 3 s auf die Gegenseite gewartet, danach Socket-Abbruch |
-| Endpunkt-Discovery (XEP-0156 / `host-meta`) | ❌ Fest verdrahtet auf `wss://<domain>:5443/ws` (ejabberd-Default) |
+| Endpunkt-Discovery (XEP-0156 / `host-meta`) | ✅ Ohne angegebenen Endpunkt wird `https://<domain>/.well-known/host-meta.json` und danach `.../host-meta` gelesen; nur `wss://`-Adressen werden genommen. Ohne Fund bleibt es bei `wss://<domain>:5443/ws` |
 
-Der Default-Port ist ejabberd-spezifisch. Für andere Server muss die URL
-explizit angegeben werden, z. B. Prosody: `wss://<host>:5281/xmpp-websocket`.
+Der Vorgabe-Port ist ejabberd-spezifisch und greift nur, wenn die Domain kein
+`host-meta` ausliefert. Wer ihn nicht will, gibt die URL an, z. B. Prosody:
+`wss://<host>:5281/xmpp-websocket` — ein angegebener Endpunkt wird nie
+überstimmt.
 
 ### RFC 5802 / RFC 7677 — SCRAM
 

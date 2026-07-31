@@ -186,7 +186,11 @@ public sealed class XMPPClient : IAsyncDisposable
     /// </summary>
     /// <param name="jid">Bare-JID im Format user@domain</param>
     /// <param name="password">Passwort für die SASL-Authentifizierung</param>
-    /// <param name="wsUri">WebSocket-Endpunkt; ohne Angabe wss://{domain}:5443/ws (ejabberd-Default)</param>
+    /// <param name="wsUri">
+    /// WebSocket-Endpunkt. Ohne Angabe wird das <c>host-meta</c> der Domain
+    /// gefragt (XEP-0156); findet sich dort keiner, bleibt es bei
+    /// wss://{domain}:5443/ws (ejabberd-Vorgabe).
+    /// </param>
     /// <param name="LoggerFactory">Optionale Logger-Factory; ohne Angabe wird nicht geloggt</param>
     public XMPPClient(string          jid,
                       string          password,
