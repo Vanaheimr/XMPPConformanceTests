@@ -3432,6 +3432,36 @@ lange, wie er nicht gebraucht wird — er wäre die erste Zeile, die ein Protoko
 
 ---
 
+### D38. Eine Liste, die nicht wartet 🕓 — XEP-0060 wird optional
+
+„Später" hiess bisher zweierlei: Punkte, denen nur die Gelegenheit fehlt, und
+Punkte, die niemandem fehlen. Beides in einer Liste liest sich wie eine
+Schuldenliste, und je länger sie wird, desto weniger sagt sie. Mit D37 kam
+„Bewusst nicht umgesetzt" dazu; dazwischen fehlte **„Optional"**: nicht
+entschieden dagegen, aber auch nicht anstehend.
+
+XEP-0060 gehört dorthin. Die Lücke ist echt — und sie ist grösser, als der alte
+Eintrag sagte: `PubSubSubscribeAsync` verschickt die Anfrage und trägt das
+Abonnement sofort ein, ohne die Antwort abzuwarten. Ein abgelehntes Abonnement
+steht danach als bestehendes in `_subscribedNodes`, und der Aufrufer erfährt es
+nie. `OnSubscriptionResult` gibt es bereits, ausgelöst wird es nirgends.
+
+**Trotzdem nicht anstehend, und zwar aus einem Grund, der zum Rest der
+Arbeitsweise passt.** Dieser Client benutzt PubSub an keiner Stelle selbst;
+die betroffenen Member stehen bereits als ungenutzte API-Fläche im README. Eine
+Korrelation, die kein Aufrufer abholt, liesse sich nur gegen einen ausgedachten
+Ablauf prüfen — und ein Test, der seinen eigenen Anwendungsfall erfindet, prüft
+die Erfindung. Das ist derselbe Grund, aus dem die XEP-0160-Regel aus D14 unter
+„Später" steht statt als erledigt.
+
+Eine optionale Liste ist der Ort, an dem Dinge in Ruhe vergessen werden. Deshalb
+steht der Rückweg dabei: **Sobald PubSub einen Anwendungsfall hat** — ein
+Abonnement gegen eine echte PubSub-Komponente, an dem sich Zusage und Ablehnung
+unterscheiden lassen —, wandert der Punkt zurück nach „Später". Nicht die Zeit
+holt ihn zurück, sondern der Bedarf.
+
+---
+
 ## Später
 
 ### Protokoll
@@ -3445,7 +3475,6 @@ lange, wie er nicht gebraucht wird — er wäre die erste Zeile, die ein Protoko
 
 ### XEPs
 - XEP-0030: die eigene disco#info-Antwort setzt kein `node`-Attribut
-- XEP-0060: IQ-Ergebnisse korrelieren, Fehler nicht mehr verschlucken
 
 ### Transport
 - Endpunkt-Discovery über XEP-0156/`host-meta` statt fest `wss://<domain>:5443/ws`
@@ -3510,6 +3539,27 @@ Was dort nicht auftaucht und trotzdem ansteht:
   `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.
 - Ungenutzte öffentliche Member entscheiden: benutzen oder streichen. Liste in
   [Jabber/README.md](Jabber/README.md).
+
+---
+
+## Optional
+
+Was hier steht, ist nicht falsch und nicht dringend: Es fehlt niemandem, solange
+niemand es benutzt. Ein Punkt wandert von hier nach „Später", sobald es einen
+Anwendungsfall gibt, an dem sich die Umsetzung prüfen lässt.
+
+- **XEP-0060 — Publish-Subscribe.** Eingehende Events werden geparst, gegen
+  Spoofing geprüft und ausgeliefert; das ist die Hälfte, die trägt. Die andere
+  ist ausgehend: `PubSubSubscribeAsync` verschickt die Anfrage und trägt das
+  Abonnement **sofort** ein, ohne auf die Antwort zu warten — ein abgelehntes
+  Abonnement steht danach als bestehendes in `_subscribedNodes`. Das Ereignis,
+  das den Ausgang melden würde, gibt es schon: `OnSubscriptionResult` ist
+  deklariert und wird an keiner Stelle ausgelöst. Es fehlt also nicht die
+  Meldung, sondern die Korrelation von IQ-Ergebnis und Anfrage. Das trifft nur,
+  wer PubSub tatsächlich benutzt — dieser Client tut es nirgends selbst, und die
+  betroffenen Member stehen deshalb schon unter „Ungenutzte API-Fläche" im
+  [README](Jabber/README.md). Solange kein Anwendungsfall dahintersteht, wäre
+  die Korrelation gegen einen ausgedachten Ablauf geprüft (siehe D38)
 
 ---
 

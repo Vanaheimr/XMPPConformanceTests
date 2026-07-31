@@ -50,7 +50,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 |-----|------|--------|-----------|
 | XEP-0013 | Flexible Offline Message Retrieval | ⛔ | Von der XSF als *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the protocol described herein is not recommended." Die Offline-Ablage bleibt beim automatischen Nachreichen nach RFC 6121 §8.5.2.2.1 und XEP-0160 — siehe [WORKPLAN.md](../WORKPLAN.md), D37 |
 | XEP-0030 | Service Discovery | ⚠️ | Abfrage + Antwort; Antwort setzt kein `node`-Attribut |
-| XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; IQ-Ergebnisse werden nicht korreliert |
+| XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; ausgehend werden die IQ-Ergebnisse nicht korreliert — ein Abonnement gilt sofort als bestehend, auch wenn der Dienst es ablehnt, und `OnSubscriptionResult` wird nie ausgelöst. Steht unter „Optional", siehe [WORKPLAN.md](../WORKPLAN.md), D38 |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
@@ -779,7 +779,8 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 - Keine Client State Indication (XEP-0352)
 - Kein Last Message Correction (XEP-0308)
 - Kein Flexible Offline Message Retrieval (XEP-0013) — die Ablage kommt beim
-  Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln abholen
+  Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln
+  abholen. Bewusst so: Die XSF führt XEP-0013 als *Deprecated* (siehe D37)
 - Der Client liest den XEP-0203-Stempel nicht; eine nachgereichte Nachricht
   erscheint mit ihrer Empfangszeit, obwohl der Server den Verzug mitteilt
 - **Kein TCP-Transport** — der Client spricht ausschliesslich XMPP über
