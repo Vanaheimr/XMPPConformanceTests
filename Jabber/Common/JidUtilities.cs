@@ -45,17 +45,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// <c>a.example.com/b</c> - der Resourcepart darf ein <c>@</c> enthalten, der
 /// Localpart nicht.
 ///
-/// <b>Was hier noch fehlt.</b> Local- und Resourcepart sind nach RFC 7622
-/// Instanzen der PRECIS-Profile UsernameCaseMapped und OpaqueString
-/// (RFC 8264/8265). Die Abbildungsregeln dieser Profile - Breitenabbildung,
-/// Kleinschreibung, NFC, Leerzeichenabbildung - sind hier vollständig
-/// umgesetzt. Die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
-/// FreeformClass ist dagegen angenähert: aus der Unicode-Kategorie und der
-/// Frage, ob der Codepoint eine Kompatibilitätszerlegung hat. Das trifft die
-/// Fälle, die RFC 7622 selbst als Beispiele führt, und lässt die Ausnahmeliste
-/// aus RFC 8264, Tabelle F sowie die Sonderregeln für Joiner und
-/// Hangul-Jamo aussen vor. Für IDNA2008 im Domainpart gilt dasselbe: geprüft
-/// wird die Form, nicht die Label-Gültigkeit.
+/// <b>Local- und Resourcepart</b> sind nach RFC 7622 Instanzen der
+/// PRECIS-Profile UsernameCaseMapped und OpaqueString (RFC 8264/8265). Die
+/// Abbildungsregeln - Breitenabbildung, Kleinschreibung, NFC,
+/// Leerzeichenabbildung - stehen hier; die Klassenzugehörigkeit kommt aus
+/// <see cref="Precis"/> und damit aus den abgeleiteten Eigenschaften nach
+/// RFC 8264, Abschnitt 8.
+///
+/// <b>Was hier noch fehlt</b>, ist der Domainpart: Er ist ein
+/// internationalisierter Domainname, und IDNA2008 prüft Label für Label.
+/// Geprüft wird bisher nur die Form, nicht die Gültigkeit eines Labels.
 /// </remarks>
 public static class JidUtilities
 {
@@ -223,8 +222,13 @@ public static class JidUtilities
 
         CheckLength(jid, vorbereitet, "Domainpart");
 
+        // Hier steht bewusst eine grobe Prüfung und keine Klassenprüfung:
+        // Der Domainpart ist nach RFC 7622, Abschnitt 3.2 ein
+        // internationalisierter Domainname, und dafür gilt IDNA2008 mit
+        // eigenen Regeln je Label - die fehlen weiterhin (siehe „Später").
+        // Was hier abgewiesen wird, wäre unter jeder dieser Regeln unzulässig.
         foreach (var codePoint in CodePoints(jid, vorbereitet))
-            if (IsControlOrIgnorable(codePoint) || codePoint == ' ')
+            if (IsForbiddenInDomain(codePoint) || codePoint == ' ')
                 throw new JidFormatException(
                           jid,
                           $"U+{codePoint:X4} gehört nicht in einen Domainpart.");
@@ -264,7 +268,7 @@ public static class JidUtilities
                           $"'{(Char) codePoint}' ist in einem Localpart ausgeschlossen " +
                           "(RFC 7622, Abschnitt 3.3.1).");
 
-            if (!IsIdentifierCharacter(codePoint))
+            if (!IsAllowed(codePoint, vorbereitet, freeform: false))
                 throw new JidFormatException(
                           jid,
                           $"U+{codePoint:X4} gehört nicht zur PRECIS-IdentifierClass " +
@@ -298,10 +302,11 @@ public static class JidUtilities
         foreach (var codePoint in CodePoints(jid, value))
         {
 
-            if (IsControlOrIgnorable(codePoint))
+            if (!IsAllowed(codePoint, value, freeform: true))
                 throw new JidFormatException(
                           jid,
-                          $"U+{codePoint:X4} gehört nicht in einen Resourcepart.");
+                          $"U+{codePoint:X4} gehört nicht zur PRECIS-FreeformClass " +
+                          "und damit nicht in einen Resourcepart.");
 
             var zeichen = Char.ConvertFromUtf32((Int32) codePoint);
 
@@ -358,51 +363,41 @@ public static class JidUtilities
     }
 
     /// <summary>
-    /// Gehört der Codepoint zur PRECIS-IdentifierClass (RFC 8264,
-    /// Abschnitt 4.2)?
+    /// Darf dieser Codepoint in dieser Zeichenkette stehen - IdentifierClass
+    /// für den Localpart, FreeformClass für den Resourcepart?
     /// </summary>
     /// <remarks>
-    /// Angenähert, und zwar so: druckbares ASCII ist erlaubt; darüber hinaus
-    /// nur Buchstaben, Ziffern und kombinierende Zeichen, die keine
-    /// Kompatibilitätszerlegung haben.
-    ///
-    /// Die zweite Bedingung ist die, die RFC 7622 in Beispiel 20 vorführt:
-    /// U+2163 ist die römische Vier und zerfällt kompatibel in „IV". Zwei
-    /// Konten, die sich nur darin unterscheiden, wären für das Auge dasselbe.
-    /// Und Beispiel 21 fällt über die erste: U+265A ist ein Symbol und damit
-    /// weder Buchstabe noch Ziffer.
+    /// Die Klassenzugehörigkeit kommt aus <see cref="Precis"/> und damit aus
+    /// den abgeleiteten Eigenschaften nach RFC 8264, Abschnitt 8. Nur bei den
+    /// kontextabhängigen Codepoints entscheidet nicht der Codepoint allein,
+    /// sondern die ganze Zeichenkette - deshalb geht sie hier mit hinein.
     /// </remarks>
-    private static Boolean IsIdentifierCharacter(UInt32 CodePoint)
-    {
+    private static Boolean IsAllowed(UInt32 CodePoint, String Text, Boolean freeform)
 
-        // ASCII: alles Druckbare ausser Leerzeichen.
-        if (CodePoint < 0x80)
-            return CodePoint is >= 0x21 and <= 0x7E;
+        => Precis.DerivedProperty(CodePoint) switch {
 
-        var zeichen = Char.ConvertFromUtf32((Int32) CodePoint);
+               PrecisProperty.PValid      => true,
+               PrecisProperty.FreePValid  => freeform,
 
-        // LetterDigits nach RFC 8264, Abschnitt 9.1. Lt fehlt hier bewusst:
-        // Titelschreibung ist nach der Kleinschreibung ohnehin keine mehr.
-        if (CharUnicodeInfo.GetUnicodeCategory(zeichen, 0) is not
-                (UnicodeCategory.LowercaseLetter      or
-                 UnicodeCategory.UppercaseLetter      or
-                 UnicodeCategory.OtherLetter          or
-                 UnicodeCategory.ModifierLetter       or
-                 UnicodeCategory.DecimalDigitNumber   or
-                 UnicodeCategory.NonSpacingMark       or
-                 UnicodeCategory.SpacingCombiningMark))
-            return false;
+               // Beide Klassen lassen sie unter derselben Bedingung zu
+               // (RFC 8264, Abschnitte 4.2.1 und 4.3.1).
+               PrecisProperty.ContextO or
+               PrecisProperty.ContextJ    => Precis.ContextRuleSatisfied(CodePoint, Text),
 
-        // HasCompat (RFC 8264, Abschnitt 9.6): ausgeschlossen.
-        return zeichen.Normalize(NormalizationForm.FormKC) == zeichen;
+               _                          => false
 
-    }
+           };
 
     /// <summary>
     /// Steuerzeichen, Formatzeichen, Surrogate, Private Use und nicht
-    /// Zugewiesenes - in keinem Teil eines JIDs zulässig.
+    /// Zugewiesenes - in keinem Domainpart zulässig.
     /// </summary>
-    private static Boolean IsControlOrIgnorable(UInt32 CodePoint)
+    /// <remarks>
+    /// Der Platzhalter für IDNA2008: Was hier durchkommt, ist noch lange kein
+    /// gültiges Label. Was hier hängen bleibt, ist unter keiner Auslegung
+    /// eines.
+    /// </remarks>
+    private static Boolean IsForbiddenInDomain(UInt32 CodePoint)
     {
 
         var zeichen = Char.ConvertFromUtf32((Int32) CodePoint);

@@ -134,20 +134,26 @@ beide Beispieltabellen aus §3.5 (fünfzehn gültige und acht ungültige Adresse
 | Regel | Stand |
 |---|---|
 | Zerlegung in der Reihenfolge aus §3.2 (erst `/`, dann `@`) | ✅ |
-| Localpart: UsernameCaseMapped, plus die Ausschlüsse aus §3.3.1 | ⚠️ Abbildungsregeln vollständig, Klassenzugehörigkeit angenähert |
-| Resourcepart: OpaqueString, **nicht** kleingeschrieben | ⚠️ ebenso |
+| Localpart: UsernameCaseMapped, plus die Ausschlüsse aus §3.3.1 | ✅ Abbildungsregeln vollständig, IdentifierClass aus den abgeleiteten Eigenschaften nach RFC 8264 §8 |
+| Resourcepart: OpaqueString, **nicht** kleingeschrieben | ✅ ebenso, mit der FreeformClass |
 | Domainpart: kleingeschrieben, NFC | ⚠️ kein IDNA2008 |
 | Höchstlänge 1023 Oktette je Teil | ✅ |
 | Vergleich: Local-/Domainpart schreibweisenunabhängig, Resourcepart nicht | ✅ |
 
-**Angenähert** heisst konkret: Die Abbildungsregeln der PRECIS-Profile
-(Breitenabbildung, Kleinschreibung, Leerzeichenabbildung, NFC) sind vollständig
-umgesetzt. Ob ein Codepoint zur IdentifierClass bzw. FreeformClass gehört, wird
-aus seiner Unicode-Kategorie und seiner Kompatibilitätszerlegung abgeleitet
-statt aus den abgeleiteten Eigenschaften nach RFC 8264. Das trifft die Fälle,
-die RFC 7622 selbst vorführt; aussen vor bleiben die Ausnahmeliste (RFC 8264,
-Tabelle F), die Sonderregeln für Joiner und Hangul-Jamo sowie IDNA2008 für
-Domain-Labels.
+Die Klassenzugehörigkeit kommt aus `Precis.DerivedProperty` und damit aus der
+Leiter in RFC 8264 §8: Ausnahmeliste (RFC 5892 §2.6), Unassigned, ASCII7,
+JoinControl, alte Hangul-Jamo, ignorierbare Zeichen, Controls, HasCompat,
+LetterDigits, OtherLetterDigits, Spaces, Symbols, Punctuation — in dieser
+Reihenfolge, denn viele Codepoints stehen in mehreren dieser Kategorien.
+`Default_Ignorable_Code_Point`, `Noncharacter_Code_Point` und
+`Hangul_Syllable_Type` liefert .NET nicht; sie stehen als Bereichstabellen im
+Quelltext, mit der Unicode-Fassung benannt, aus der sie stammen (15.1.0).
+
+**Was fehlt:** die kontextabhängigen Regeln aus RFC 5892 Anhang A — bis auf A.8
+und A.9 (die beiden Reihen arabisch-indischer Ziffern dürfen nicht gemischt
+werden), die ohne Unicode-Eigenschaften auskommen. Die übrigen brauchen
+`Joining_Type` bzw. `Script`; ohne sie werden die betroffenen fünf Satzzeichen
+und die beiden Joiner abgewiesen. Ebenfalls offen: IDNA2008 für Domain-Labels.
 
 **Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
 (`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird

@@ -3658,16 +3658,82 @@ und sagt in seinem Kommentar, warum.
 
 ---
 
+### D42. Eine Leiter ist keine Menge ✅ — RFC 8264, Abschnitt 8
+
+Seit D5 stand hier eine Näherung: Ein Codepoint gehörte zur IdentifierClass,
+wenn seine Unicode-Kategorie stimmte und er keine Kompatibilitätszerlegung
+hatte. Das traf die Beispiele aus RFC 7622 — und genau deshalb fiel es nicht
+auf.
+
+**Die Vorschrift ist keine Prüfliste, sondern eine Reihenfolge.** RFC 8264,
+Abschnitt 8 ist eine Leiter von fünfzehn Sprossen, und viele Codepoints stehen
+auf mehreren davon. Welche zuerst greift, entscheidet über die Antwort:
+
+- **U+0640 (ARABIC TATWEEL)** ist ein Modifier Letter und damit in
+  LetterDigits — die Ausnahmeliste steht davor und verbietet ihn. Er ist ein
+  Streckungsstrich: beliebig oft einfügbar, ohne etwas zu bedeuten. Aus einem
+  Konto werden damit beliebig viele, die gleich aussehen. Die Näherung liess ihn
+  durch.
+- **U+3164 (HANGUL FILLER)** ist ein Buchstabe (Lo) — `Default_Ignorable`
+  steht davor. Ein unsichtbarer Buchstabe in einer Adresse.
+- **U+2163 (ROMAN NUMERAL FOUR)** ist Nl und damit in OtherLetterDigits —
+  HasCompat steht davor.
+- **Die alten Hangul-Jamo** sind Buchstaben und kamen durch; sie setzen sich zu
+  Silben zusammen, die es fertig als eigene Codepoints gibt. Zwei Schreibweisen
+  für dasselbe Wort, und keine Normalisierung räumt das auf.
+
+Der Test dazu prüft deshalb nicht nur das Ergebnis, sondern nennt zu jedem Fall
+**den Zweig, der ihn beantwortet.** Ein Test, der nur die Antwort prüft, hielte
+eine Leiter mit vertauschten Sprossen für richtig, solange sich die Fälle nicht
+überschneiden — und hier überschneiden sie sich fast alle.
+
+**Was .NET nicht kennt, steht jetzt als Tabelle da.**
+`Default_Ignorable_Code_Point`, `Noncharacter_Code_Point` und
+`Hangul_Syllable_Type` liefert die Laufzeit nicht. Sie sind als Bereiche
+eingetragen, mit der Unicode-Fassung benannt, aus der sie stammen. Das ist keine
+Näherung mehr, sondern eine Kopie: Sie kann veralten, aber sie kann nicht
+danebenliegen — und wo sie veraltet, steht es dran.
+
+**Zwei Regeln sind umgesetzt, sieben nicht, und das ist eine Entscheidung.**
+Kontextabhängige Codepoints (CONTEXTJ/CONTEXTO) hängen nicht am Codepoint,
+sondern an der ganzen Zeichenkette. A.8 und A.9 — die beiden Reihen
+arabisch-indischer Ziffern dürfen nicht gemischt werden — kommen ohne
+Unicode-Eigenschaften aus und sind umgesetzt; sie betreffen Ziffern, die in
+Adressen wirklich vorkommen. Die übrigen brauchen `Joining_Type` oder `Script`,
+und **die aus Blockgrenzen zu erraten hiesse, die Näherung an genau der Stelle
+wieder einzuführen, an der sie über Zulassen oder Ablehnen entscheidet.** Also
+abgewiesen — es trifft fünf Satzzeichen und zwei unsichtbare Zeichen, keine
+Buchstaben.
+
+Die Trennung der beiden Klassen bekommt eine eigene Gegenprobe: Was ein
+Resourcepart tragen darf (Symbole, Leerzeichen), darf ein Localpart nicht. Ohne
+sie wäre „beide nehmen die FreeformClass" eine bestandene Lösung, und der
+Unterschied verschwände unbemerkt.
+
+Neun Tests, dreizehn Mutationen, alle erschlagen. Beide Beispieltabellen aus
+RFC 7622 stehen weiter und laufen unverändert durch — die Näherung traf sie, die
+Vorschrift trifft sie auch.
+
+**Die zweite Hälfte des Punktes bleibt offen und steht jetzt genauer da:**
+IDNA2008 für Domain-Labels. Die Codepoint-Ebene ist damit erledigt, es fehlt die
+Label-Ebene — Punycode, Bidi-Regel, Label-Längen.
+
+---
+
 ## Später
 
 ### Protokoll
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
-- RFC 8264: die Zugehörigkeit eines Codepoints zur IdentifierClass bzw.
-  FreeformClass ist angenähert (Kategorie + Kompatibilitätszerlegung) statt aus
-  den abgeleiteten Eigenschaften bestimmt; IDNA2008 für Domain-Labels fehlt ganz
-  (siehe D5)
+- **IDNA2008 für Domain-Labels fehlt** — geprüft wird die Form, nicht die
+  Gültigkeit eines Labels: keine Punycode-Behandlung von A-Labels, keine
+  Bidi-Regel (RFC 5893), keine Label-Längen. Die Codepoint-Tabelle dafür ist mit
+  `Precis` da; es fehlt die Label-Ebene (siehe D42)
+- RFC 5892, Anhang A: die kontextabhängigen Regeln, bis auf A.8 und A.9. A.1/A.2
+  brauchen `Joining_Type` und die Virama-Eigenschaft, A.3 bis A.7 brauchen
+  `Script` — Eigenschaften, die .NET nicht ausliefert. Betroffen sind fünf
+  Satzzeichen und die beiden Joiner; sie werden abgewiesen (siehe D42)
 
 ### Transport
 - **Ein gescheiterter Verbindungsaufbau nennt den Endpunkt nicht.** Die Ausnahme
