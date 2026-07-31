@@ -342,6 +342,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public TimeSpan ResumptionTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
         /// <summary>
+        /// Testschalter: Räumt der Durchgang abgelaufene Streams ab?
+        /// </summary>
+        /// <remarks>
+        /// Stellt den einen Zustand her, der sich sonst nur im Wettlauf
+        /// treffen lässt: eine Frist, die abgelaufen ist, während der Stream
+        /// noch daliegt. Genau dort - und nur dort - kennt der Server den
+        /// Stand eines Streams, den er trotzdem nicht mehr herausgibt, und
+        /// kann ihn in seiner Abweisung nennen (XEP-0198, Abschnitt 5).
+        ///
+        /// Im Betrieb ist das Fenster höchstens eine Sekunde breit; ein Test,
+        /// der es treffen will, prüfte in Wahrheit den Abräumer.
+        /// </remarks>
+        public Boolean SweepResumableStreams { get; set; } = true;
+
+        /// <summary>
         /// Wie viele abgerissene Streams gerade auf ihren Rückkehrer warten.
         /// </summary>
         public Int32 ResumableStreamCount
@@ -1141,6 +1156,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         internal async Task SweepResumableStreamsAsync()
         {
 
+            if (!SweepResumableStreams)
+                return;
+
             List<ParkedStream> abgelaufen;
 
             lock (_lock)
@@ -1389,24 +1407,51 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             ParkedStream? geparkt = null;
 
+            // Wie weit der alte Stream gekommen war - bekannt nur, solange er
+            // noch daliegt, und nennbar nur seinem eigenen Konto.
+            UInt32? verarbeitet = null;
+
             if (previd.Success)
                 lock (_lock)
                     if (_resumable.TryGetValue(previd.Groups[1].Value, out var gefunden) &&
-                        gefunden.Deadline > DateTimeOffset.UtcNow &&
                         session.Account is not null &&
                         String.Equals(gefunden.Session.BareJid, session.BareJid,
                                       StringComparison.OrdinalIgnoreCase))
                     {
-                        geparkt = gefunden;
-                        _resumable.Remove(previd.Groups[1].Value);
+
+                        verarbeitet = gefunden.Session.StanzasReceivedFromClient;
+
+                        if (gefunden.Deadline > DateTimeOffset.UtcNow)
+                        {
+                            geparkt = gefunden;
+                            _resumable.Remove(previd.Groups[1].Value);
+                        }
+
                     }
 
             if (geparkt is null)
             {
+
+                // XEP-0198, Abschnitt 5: das h ist freiwillig („MAY also
+                // include") und meint eine Messung - wie viel der Server vom
+                // alten Stream verarbeitet hatte. Hier stand einmal fest
+                // h='0', und das war keine Auskunft, sondern eine Behauptung:
+                // „von allem, was du geschickt hast, ist nichts angekommen".
+                // Wer sie glaubt und daraufhin nachsendet, stellt alles ein
+                // zweites Mal zu.
+                //
+                // Weggelassen wird es in beiden Fällen, in denen der Server
+                // nichts zu sagen hat: Er kennt die Kennung nicht - der
+                // Normalfall nach einem Neustart oder nach dem Abräumer -,
+                // oder sie gehört einem anderen Konto. Im zweiten Fall verriete
+                // die Zahl, dass es diesen Stream gibt und wie viel über ihn
+                // gelaufen ist; aus einem geratenen Versuch würde eine Sonde.
                 await session.SendAsync(
-                    "<failed xmlns='urn:xmpp:sm:3' h='0'>" +
+                    $"<failed xmlns='urn:xmpp:sm:3'{(verarbeitet is null ? "" : $" h='{verarbeitet}'")}>" +
                     "<item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></failed>");
+
                 return;
+
             }
 
             // Der neue Stream übernimmt den alten. Erst danach das <resumed/>:

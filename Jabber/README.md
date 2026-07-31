@@ -58,7 +58,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0160 | Best Practices for Handling Offline Messages | ✅ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; ein `chat` mit ausschliesslich Tippstatus-Inhalt (XEP-0085) ebenfalls, und zwar ohne Fehler an den Absender. Nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
 | XEP-0203 | Delayed Delivery | ⚠️ | Der Server stempelt nachgereichte Nachrichten; der Client liest den Stempel nicht — `XMPPMessage.Timestamp` ist die Empfangszeit |
-| XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird |
+| XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird; auch die Abweisung wird ausgewertet — ein `h` im `<failed/>` bestätigt, was der Server noch verarbeitet hat |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
@@ -616,6 +616,8 @@ miteinander sprechen:
   `OfferStreamManagement`, `AnswerAckRequests`, `SwallowClientStanzas`
   (verwirft eingehende Stanzas, bevor sie gezählt werden — der einzige Weg zu
   einer Stanza, die die Leitung verlässt und trotzdem nicht ankommt),
+  `SweepResumableStreams` (hält den Abräumer an — der einzige Weg zu einem
+  Stream, dessen Frist abgelaufen ist, während er noch dasteht),
   `FailPings`, `FailDiscoInfo`,
   `FailBind`, `SessionRequired`, `ConflictOnUsedResource`,
   `CorruptScramSignature`, `OmitScramSignature` — die letzten beiden für die
@@ -724,6 +726,11 @@ Server-Implementierung:
   ordentliche Abmeldung (`<close/>`) wird nicht aufgehoben.
   Aufgehoben wird unabhängig von der Presence: Die Zusage gehört dem Stream,
   ein unsichtbarer Client behält sie also.
+  **Die Abweisung nennt einen Stand nur, wo es einen zu nennen gibt:** `h`
+  steht im `<failed/>` genau dann, wenn der abgelaufene Stream noch daliegt und
+  dem anfragenden Konto gehört. Eine unbekannte Kennung bekommt kein `h` —
+  geraten wird nicht —, und eine fremde erst recht nicht: Die Zahl verriete,
+  dass es diesen Stream gibt und wie viel über ihn gelaufen ist (siehe D49).
 - **Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
   Server keine Stanza-Fehler; unbekannte IQs bekommen pauschal
   `<service-unavailable/>`.
@@ -818,7 +825,10 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Abriss knüpft der Client vor dem Resource Binding an den alten Stream an: die
   Full-JID bleibt, was während der Störung ankam, wird nachgeliefert, und die
   Kontakte sehen kein Verschwinden. Gelingt es nicht — Frist abgelaufen,
-  Kennung unbekannt —, bindet er neu. Geprüft gegen Prosody 13
+  Kennung unbekannt —, bindet er neu; nennt die Abweisung dabei einen Stand
+  (`<failed h='…'/>`), gilt bis dorthin dasselbe wie bei einem `<a h='…'/>`:
+  verarbeitet ist verarbeitet, und verloren ist nur, was darüber hinaus offen
+  war. Geprüft gegen Prosody 13
   (`mod_smacks`) und ejabberd 24.12 (`mod_stream_mgmt`) - beide verhalten sich
   hier gleich.
 - ~~Der Content-Namensraum wandert nur in einer Richtung mit.~~ Behoben: jede

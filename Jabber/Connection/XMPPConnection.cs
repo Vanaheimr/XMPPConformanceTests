@@ -852,7 +852,9 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (name != "failed")
             _logger.LogWarning("Unerwartete Antwort auf <resume/>: <{Name}/>", name);
 
-        StreamManagement.ProcessFailed();
+        // Mit dem Rahmen: ein <failed h='…'/> nennt den Stand des alten
+        // Streams, und was der Server verarbeitet hat, ist nicht verloren.
+        StreamManagement.ProcessFailed(antwort.ToString());
 
         return false;
 
@@ -1420,7 +1422,7 @@ public sealed class XMPPConnection : IAsyncDisposable
                     return;
 
                 case "failed" when ns == StreamManagementNamespace:
-                    StreamManagement?.ProcessFailed();
+                    StreamManagement?.ProcessFailed(stanza);
                     return;
 
                 default:

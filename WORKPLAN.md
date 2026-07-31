@@ -3994,6 +3994,74 @@ Testsammlung, drei am Server und die Struktur.
 
 ---
 
+### D49. Die Zahl, die niemand gemessen hat ✅ — das `h` im `<failed/>`
+
+Der Punkt hiess „XEP-0198 `<resume/>` beantworten" und stand seit dem 26. Juli
+unter „Später → Server". **R1 hat ihn am 28. Juli erledigt**, R2 und R3 haben
+die Wiederaufnahme danach gegen den eigenen Server und gegen Prosody geprüft —
+die Liste hat es nur nie erfahren. Ein erledigter Punkt, der stehenbleibt, ist
+nicht bloss Papier: Er verdeckt, was von ihm wirklich noch offen war.
+
+Offen war die **Abweisung**. Der Server antwortete auf jedes gescheiterte
+`<resume/>` mit
+
+```xml
+<failed xmlns='urn:xmpp:sm:3' h='0'><item-not-found .../></failed>
+```
+
+und das `h` darin war keine Auskunft, sondern eine Behauptung: *„Von allem, was
+du geschickt hast, ist nichts angekommen."* Nach XEP-0198, Abschnitt 5, ist das
+Attribut freiwillig („MAY also include") und meint eine Messung — wie weit der
+Server auf dem alten Stream gekommen war. Gemessen hat hier nichts.
+
+**Folgenlos war es nur, weil auch niemand zuhörte.** `ProcessFailed()` nahm den
+Rahmen gar nicht erst entgegen und erklärte jede unbestätigte Stanza für
+verloren. Beide Fehler zusammen ergaben ein stimmiges Bild — die falsche Zahl
+wurde von niemandem gelesen, und der Client kam ohne sie aus, weil er sowieso
+alles für verloren hielt. Genau so überleben Fehler paarweise.
+
+Was jetzt gilt, sind drei Fälle statt einem:
+
+- **Unbekannte Kennung** — kein `h`. Der Normalfall nach einem Neustart oder
+  nachdem der Abräumer da war: Der Server weiss nichts und sagt nichts.
+- **Fremdes Konto** — kein `h`. Die Zahl verriete, dass es diesen Stream gibt
+  und wie viel über ihn gelaufen ist; aus einem geratenen Versuch würde eine
+  Sonde. Auskunft bekommt nur, wer ohnehin Zugriff hätte — dieselbe Grenze wie
+  bei der Übernahme selbst (R2).
+- **Abgelaufen, aber noch da** — das echte `h`. Der Fall, den der Abschnitt
+  ausdrücklich nennt („an earlier session that has timed out").
+
+Auf der Client-Seite liest `ProcessFailed(xml)` den Stand jetzt über
+`ProcessAck` — dieselbe Modulo-Arithmetik wie bei jedem `<a h='…'/>`, denn zwei
+Auffassungen derselben Rechnung sind eine zu viel. Verloren ist danach nur, was
+**darüber hinaus** offen war. Das ist kein Schönheitsfehler: Abschnitt 4
+empfiehlt, Verlorenes erneut zu schicken — auf der alten Grundlage stellte das
+alles ein zweites Mal zu.
+
+**Ein Testschalter, und diesmal einer, der gebraucht wird.**
+`SweepResumableStreams` hält den Abräumer an. Ohne ihn ist der dritte Fall nur
+im Wettlauf zu treffen: Der Durchgang geht im Sekundentakt, und was er abgeräumt
+hat, weiss der Server nicht mehr — das Fenster ist im Betrieb höchstens eine
+Sekunde breit.
+
+**Die Mutation, die zuerst überlebt hat, war genau dieser Schalter.** Mit den
+üblichen 200 ms Wartezeit kam der Rückkehrer dem Abräumer schlicht zuvor, und
+beide neuen Tests bestanden auch dann, wenn der Schalter wirkungslos war — sie
+gewannen ein Rennen, das sie gar nicht hätten laufen sollen. Drei Sekunden
+Wartezeit später ist der Fall herbeigeführt statt erhofft, und die Mutation
+fällt.
+
+Sieben Mutationen, alle erschlagen: `h='0'` statt Weglassen, `h` nie genannt,
+`h` auch an ein fremdes Konto, Frist nicht geprüft, Client liest den Stand
+nicht, Rahmen erreicht den Client-Manager nicht, Abräumer nicht anzuhalten. Die
+ersten sechs sind nach der Teständerung noch einmal gelaufen — ein Urteil über
+eine Fassung, die es nicht mehr gibt, ist keines (siehe D44).
+
+Am Server bleiben damit zwei Punkte: SCRAM anbieten und Stanza-Fehler auch dort
+erzeugen, wo es keinen Schalter dafür gibt.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4034,7 +4102,6 @@ Testsammlung, drei am Server und die Struktur.
 ### Server (`Jabber/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
 Was dort nicht auftaucht und trotzdem ansteht:
-- XEP-0198 `<resume/>` beantworten — die Gegenprobe zu Punkt 2
 - SCRAM anbieten, damit der SCRAM-Pfad des Clients integrativ geprüft wird und
   nicht nur gegen die RFC-Vektoren (setzt S1 voraus)
 - Stanza-Fehler auch dort erzeugen, wo heute kein Schalter dafür existiert

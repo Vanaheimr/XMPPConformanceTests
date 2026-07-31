@@ -97,6 +97,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             => session.Sent.LastOrDefault(f => f.StartsWith("<enabled", StringComparison.Ordinal));
 
         /// <summary>
+        /// Die letzte Abweisung, die der Server über eine seiner offenen
+        /// Sitzungen geschickt hat.
+        /// </summary>
+        /// <remarks>
+        /// Über alle Sitzungen und nicht über eine bestimmte, weil die
+        /// Abweisung auf dem <b>neuen</b> Stream ankommt - der alte ist gerade
+        /// der Grund für die Anfrage. Die abgerissene Sitzung ist nicht mehr
+        /// offen und steht deshalb nicht mehr in <c>Sessions</c>.
+        /// </remarks>
+        private String? Abweisung()
+            => Server.Sessions
+                     .SelectMany(s => s.Sent)
+                     .LastOrDefault(f => f.StartsWith("<failed", StringComparison.Ordinal));
+
+        /// <summary>
         /// Reisst die Sitzung ab und wartet, bis der Server sie als
         /// wiederaufnehmbar abgelegt hat.
         /// </summary>
@@ -824,6 +839,249 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(angekommen.Count(b => b == "Unterwegs verloren"), Is.EqualTo(1),
                         "Die nachgesendete Nachricht kam mehrfach an.");
+
+        }
+
+        #endregion
+
+        #region AnUnknownId_IsRefusedWithoutACount()
+
+        /// <summary>
+        /// Kennt der Server die Kennung nicht, nennt seine Abweisung auch
+        /// keinen Stand.
+        /// </summary>
+        /// <remarks>
+        /// Das <c>h</c> im <c>&lt;failed/&gt;</c> ist nach XEP-0198,
+        /// Abschnitt 5, freiwillig („MAY also include") und meint eine
+        /// Messung: wie viel der Server vom alten Stream verarbeitet hatte.
+        /// Hier stand bisher fest <c>h='0'</c> - eine Zahl, die niemand
+        /// gemessen hat, und die Behauptung „von allem, was du geschickt
+        /// hast, ist nichts angekommen". Wer sie glaubt und daraufhin
+        /// nachsendet, stellt alles ein zweites Mal zu.
+        ///
+        /// Nichts zu wissen ist hier der Normalfall: Der Server wurde neu
+        /// gestartet, oder die Frist ist längst abgelaufen und der Abräumer
+        /// war da. Dann gehört das Attribut weggelassen und nicht geraten.
+        /// </remarks>
+        [Test]
+        public async Task AnUnknownId_IsRefusedWithoutACount()
+        {
+
+            var alice = await ConnectClientAsync("alice", maxReconnectAttempts: 0);
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            await alice.SendRawAsync(
+                      "<resume xmlns='urn:xmpp:sm:3' h='0' previd='diese-kennung-gab-es-nie'/>");
+
+            await WaitFor(() => Abweisung() is not null, "die Abweisung des Servers");
+
+            var failed = Abweisung()!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(failed, Does.Contain("item-not-found"),
+                            "XEP-0198, Abschnitt 5: eine unbekannte Kennung ist ein item-not-found.");
+
+                Assert.That(failed, Does.Not.Contain(" h='"),
+                            $"Der Server nennt einen Stand, den er nicht kennt: {failed}");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AStolenId_IsNotEvenConfirmed()
+
+        /// <summary>
+        /// Wer eine fremde Kennung vorlegt, erfährt aus der Abweisung nichts
+        /// über den fremden Stream.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenprobe zu <see cref="AnExpiredStream_IsRefusedWithTheCountItReached"/>:
+        /// Dort ist der Stand eine Auskunft an den Eigentümer, hier wäre er
+        /// eine an einen Fremden. Ein <c>h</c> verriete zweierlei - dass es
+        /// diesen Stream überhaupt gibt, und wie viel über ihn gelaufen ist.
+        /// Aus einem geratenen Versuch würde damit eine Sonde.
+        ///
+        /// Der Unterschied liegt nicht am Fundort der Kennung, sondern am
+        /// Konto: Auskunft bekommt nur, wer ohnehin Zugriff auf den Stream
+        /// hätte.
+        /// </remarks>
+        [Test]
+        public async Task AStolenId_IsNotEvenConfirmed()
+        {
+
+            var alice   = await ConnectClientAsync("alice", maxReconnectAttempts: 0);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var aliceKennung = alice.StreamManagement!.ResumeId;
+
+            sitzung.Kill();
+            await WaitFor(() => Server.ResumableStreamCount == 1, "den aufgehobenen Stream");
+
+            Assert.That(sitzung.StanzasReceivedFromClient, Is.GreaterThan(0u),
+                        "Ohne verarbeitete Stanzas gäbe es auch nichts zu verraten.");
+
+            // Mallory ist ordentlich angemeldet - nur eben als Mallory.
+            var mallory = await ConnectClientAsync("mallory", maxReconnectAttempts: 0);
+
+            await mallory.SendRawAsync(
+                      $"<resume xmlns='urn:xmpp:sm:3' h='0' previd='{aliceKennung}'/>");
+
+            await WaitFor(() => Abweisung() is not null, "die Abweisung des Servers");
+
+            Assert.That(Abweisung(), Does.Not.Contain(" h='"),
+                        $"Die Abweisung verrät den Stand eines fremden Streams: {Abweisung()}");
+
+        }
+
+        #endregion
+
+        #region AnExpiredStream_IsRefusedWithTheCountItReached()
+
+        /// <summary>
+        /// Liegt der abgelaufene Stream noch da, nennt die Abweisung, wie weit
+        /// der Server gekommen war.
+        /// </summary>
+        /// <remarks>
+        /// Der Fall aus XEP-0198, Abschnitt 5: „If the server recognizes the
+        /// 'previd' as an earlier session that has timed out the server MAY
+        /// also include a 'h' attribute indicating the number of stanzas
+        /// received before the timeout."
+        ///
+        /// Für den Client ist das die Grenze zwischen zwei Dingen, die er
+        /// sonst nicht auseinanderhalten kann: Was der Server verarbeitet hat,
+        /// ist zugestellt und darf nicht noch einmal hinausgehen; erst was
+        /// darüber hinaus offen ist, ist wirklich verloren.
+        /// </remarks>
+        [Test]
+        public async Task AnExpiredStream_IsRefusedWithTheCountItReached()
+        {
+
+            MakeContacts("alice", "bob");
+
+            // Sonst ist dieser Fall nur im Wettlauf zu treffen: Der Abräumer
+            // geht im Sekundentakt durch, und was er abgeräumt hat, weiss der
+            // Server nicht mehr.
+            Server.SweepResumableStreams = false;
+
+            // Drei Sekunden, damit der Wettlauf auch nicht zufällig ausgeht:
+            // Der Abräumer wäre in dieser Zeit zweimal vorbeigekommen. Mit
+            // den 200 ms der anderen Tests bestünde dieser hier auch dann,
+            // wenn der Schalter darüber wirkungslos wäre - der Rückkehrer
+            // käme dem Abräumer schlicht zuvor.
+            var alice   = await ConnectClientAsync(reconnectDelay: TimeSpan.FromSeconds(3));
+            var bob     = await ConnectClientAsync("bob", createAccount: false);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var angekommen = new List<String>();
+            bob.OnMessage += m => { lock (angekommen) angekommen.Add(m.Body); };
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}", "Verarbeitet");
+
+            await WaitFor(() => { lock (angekommen) return angekommen.Count == 1; },
+                          "die zugestellte Nachricht");
+
+            // Die Frist ist abgelaufen, bevor sie zu laufen beginnt.
+            Server.ResumptionTimeout = TimeSpan.Zero;
+
+            await KillAndAwaitParked(sitzung);
+
+            var stand = sitzung.StanzasReceivedFromClient;
+
+            Assert.That(stand, Is.GreaterThan(0u),
+                        "Ohne verarbeitete Stanzas wäre auch die Unwahrheit h='0'.");
+
+            await WaitFor(() => Abweisung() is not null,
+                          "die Abweisung des Servers",
+                          TimeSpan.FromSeconds(20));
+
+            Assert.That(Abweisung(), Does.Contain($" h='{stand}'"),
+                        $"Der Server nennt nicht, was er verarbeitet hat: {Abweisung()}");
+
+        }
+
+        #endregion
+
+        #region WhatTheServerHandled_IsNotReportedAsLost()
+
+        /// <summary>
+        /// Was der Server nach seiner eigenen Auskunft verarbeitet hat, gilt
+        /// dem Client nach einer gescheiterten Wiederaufnahme nicht als
+        /// verloren.
+        /// </summary>
+        /// <remarks>
+        /// Die Verdrahtung, ohne die der Stand aus dem <c>&lt;failed/&gt;</c>
+        /// blosse Zierde wäre: Der Client las ihn nicht und erklärte jede
+        /// unbestätigte Stanza für verloren - auch die, die längst beim
+        /// Empfänger lag. Bestätigt wird auf dem Weg über
+        /// <c>ProcessAck</c> und damit in derselben Modulo-Arithmetik wie ein
+        /// <c>&lt;a h='…'/&gt;</c>; ein eigener Vergleich hier wäre eine
+        /// zweite Auffassung derselben Rechnung.
+        ///
+        /// Was den Fehler gefährlich macht, ist die naheliegende Reaktion
+        /// darauf: Ein Client, der Verlorenes erneut schickt (Abschnitt 4
+        /// empfiehlt es ausdrücklich), stellt damit alles ein zweites Mal zu.
+        /// </remarks>
+        [Test]
+        public async Task WhatTheServerHandled_IsNotReportedAsLost()
+        {
+
+            MakeContacts("alice", "bob");
+
+            // Beides wie im vorigen Test, und aus denselben Gründen: der
+            // stillstehende Abräumer und eine Wartezeit, die ihm zweimal
+            // Gelegenheit gäbe.
+            Server.SweepResumableStreams = false;
+
+            var alice   = await ConnectClientAsync(reconnectDelay: TimeSpan.FromSeconds(3));
+            var bob     = await ConnectClientAsync("bob", createAccount: false);
+            var sitzung = Server.SessionOf(alice.FullJid!)!;
+
+            await WaitFor(() => alice.StreamManagement?.CanResume == true,
+                          "eine zugesagte Wiederaufnahme");
+
+            var alteKennung = alice.StreamManagement!.ResumeId;
+
+            List<String>? verloren = null;
+            alice.StreamManagement.OnStanzasLost += liste => verloren = liste;
+
+            var angekommen = new List<String>();
+            bob.OnMessage += m => { lock (angekommen) angekommen.Add(m.Body); };
+
+            await alice.SendMessageAsync($"bob@{Server.Domain}", "Verarbeitet");
+
+            await WaitFor(() => { lock (angekommen) return angekommen.Count == 1; },
+                          "die zugestellte Nachricht");
+
+            Assert.That(alice.StreamManagement.UnackedCount, Is.GreaterThan(0),
+                        "Nichts offen - dann gäbe es auch nichts fälschlich für verloren zu erklären.");
+
+            Server.ResumptionTimeout = TimeSpan.Zero;
+
+            await KillAndAwaitParked(sitzung);
+
+            // Auf den abgeschlossenen Neuaufbau warten, nicht auf die blosse
+            // Verbindung: Zwischen der Abfuhr und dem neuen <enabled/> ist die
+            // Kennung null, und ein „ungleich der alten" träfe schon dort zu.
+            await WaitFor(() => alice.IsConnected &&
+                                alice.StreamManagement.ResumeId is not null &&
+                                alice.StreamManagement.ResumeId != alteKennung,
+                          "den neuen Aufbau nach der Abfuhr",
+                          TimeSpan.FromSeconds(20));
+
+            Assert.That((verloren ?? []).Any(s => s.Contains("Verarbeitet")), Is.False,
+                        "Der Client hält eine Nachricht für verloren, die der Server zugestellt hat.");
 
         }
 

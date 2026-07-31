@@ -194,11 +194,31 @@ public sealed class StreamManagementManager
     /// <summary>
     /// Verarbeitet <c>&lt;failed/&gt;</c>
     /// </summary>
-    public void ProcessFailed()
+    /// <param name="xml">
+    /// Der Rahmen selbst, sofern zur Hand - er kann ein <c>h</c> tragen.
+    /// Ohne ihn bleibt es bei „alles Offene ist verloren".
+    /// </param>
+    public void ProcessFailed(string? xml = null)
     {
         // Gilt für beides: eine abgelehnte Aushandlung und ein
         // fehlgeschlagenes Resume.
         _negotiation?.TrySetResult(false);
+
+        // XEP-0198 Abschnitt 5: Nennt der Server einen Stand, gilt bis dorthin
+        // dasselbe wie bei jedem <a h='…'/> - verarbeitet ist verarbeitet, und
+        // zwar unabhängig davon, dass der Stream selbst nicht weitergeht.
+        //
+        // Ohne diesen Schritt gilt jede unbestätigte Stanza als verloren, auch
+        // die längst zugestellte: Der Server bestätigt nur auf Nachfrage, und
+        // wer gerade abgerissen ist, hat nicht mehr nachgefragt. Abschnitt 4
+        // empfiehlt, Verlorenes erneut zu schicken - auf dieser Grundlage
+        // stellte das alles ein zweites Mal zu.
+        //
+        // Über ProcessAck und nicht über einen eigenen Vergleich: die
+        // Modulo-Arithmetik des überlaufenden Zählers steht dort, und zwei
+        // Auffassungen derselben Rechnung sind eine zu viel.
+        if (xml is not null)
+            ProcessAck(xml);
 
         List<string> lost;
         lock (_lock)
