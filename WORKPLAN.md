@@ -3720,16 +3720,80 @@ Label-Ebene — Punycode, Bidi-Regel, Label-Längen.
 
 ---
 
+### D43. Ein Domainname ist keine Zeichenkette ✅ — IDNA2008
+
+Die zweite Hälfte von D42. Der Domainpart wurde bis hierher nur grob geprüft:
+keine Steuerzeichen, kein Leerzeichen. Alles andere ging durch — ein
+Unterstrich, ein Symbol, ein Label mit 200 Zeichen, ein `xn--`, hinter dem
+nichts steht.
+
+**Dieselben Bausteine, eine andere Leiter.** RFC 5892, Abschnitt 1 sieht aus wie
+die aus RFC 8264 und beantwortet dieselbe Frage anders. Wo PRECIS **ASCII7**
+sagt, sagt IDNA **LDH**: Bindestrich, Ziffern, Kleinbuchstaben — und sonst
+nichts aus ASCII. Wo PRECIS am Ende Symbole und Satzzeichen auffängt (FREE_PVAL),
+endet IDNA mit DISALLOWED. Dazu zwei Zweige, die es nur hier gibt: **Unstable**
+(was sich unter Normalisierung und Kleinschreibung verändert) und
+**IgnorableBlocks**.
+
+Deshalb stehen die beiden Leitern getrennt, auf einem gemeinsamen Unterbau
+(`UnicodeSets`). Ein Verfahren mit Schaltern wäre kürzer und stellte beim Lesen
+bei jeder Zeile die Frage „gilt das jetzt für Labels oder für Localparts?".
+
+**Punycode ist selbst gerechnet** (RFC 3492), obwohl .NET mit `IdnMapping`
+etwas Ähnliches mitbringt. Der Grund ist nicht Stolz: `IdnMapping` bringt seine
+eigene Auslegung mit (UTS 46 über ICU) und **bildet ab, wo IDNA2008 ablehnt** —
+Grossbuchstaben etwa. Wer prüfen will, ob ein Label gültig ist, darf die Prüfung
+nicht an etwas abgeben, das vorher zurechtbiegt. Geprüft wird gegen die elf
+Beispiele aus Abschnitt 7.1, in beide Richtungen.
+
+**Ein A-Label wird nicht geglaubt, sondern nachgerechnet.** Dekodieren, die
+Label-Regeln auf das U-Label anwenden, zurückrechnen — und wenn dabei etwas
+anderes herauskommt als das, was dastand, ist es abgewiesen. Zwei Fälle machen
+das anschaulich: `xn--TDA` bedeutet dasselbe wie `xn--tda` (Punycode-Ziffern
+sind schreibweisenlos) und ist trotzdem keine gültige Schreibweise; `xn--abc-`
+verpackt reines ASCII, und dann stünde dasselbe Label zweimal da — einmal als es
+selbst, einmal in Verpackung. **Beides sind zwei Adressen für dieselbe Sache,
+und genau das soll IDNA verhindern.**
+
+**Adressliterale gehen daran vorbei, und zwar nach Vorschrift:** RFC 7622,
+Abschnitt 3.2 lässt neben dem Domainnamen eine IPv4-Adresse und ein
+eingeklammertes IPv6-Literal zu. `[::1]` ist kein Domainname; Doppelpunkte sind
+keine Label-Zeichen, und ohne diese Ausnahme wäre die Adresse ungültig.
+
+Neunzehn Mutationen, alle erschlagen — **zwei davon erst, nachdem die Tests
+schärfer wurden**, und beide Male aus demselben Grund wie in D5 und D36: Der
+Testfall traf schon eine frühere Regel.
+
+| Überlebende Mutation | Warum sie zuerst überlebte | Der Fall, der sie erschlägt |
+|---|---|---|
+| Die ignorierbaren Zeichen zählen nicht | U+3164 fällt schon über **Unstable**, U+00AD über den Auffangzweig | U+FE00 und U+180B: Variantenselektoren, Kategorie Mn — sie wären ohne diesen Zweig **Buchstaben** |
+| Die IDNA-Prüfung im JID wird nicht mehr gefragt | Alle Label-Tests fragen `Idna` unmittelbar | Ein JID mit `exa_mple.com`, `-example.com`, `a..example.com` |
+
+Die zweite ist die unangenehmere: **Die Prüfung war geprüft, ihre Verdrahtung
+nicht.** Eine Mutation, die das Ergebnis wegwirft und weitermacht, kam durch die
+ganze Sammlung. Dieselbe Sorte Lücke wie die Wache aus D19 — was die Frage
+stellt, muss selbst jemand prüfen.
+
+**Was offen bleibt, ist die Bidi-Regel** (RFC 5893): Sie verlangt `Bidi_Class`
+für jeden Codepoint eines Labels, und .NET liefert die Eigenschaft nicht. Aus
+Blockgrenzen geraten wäre sie dieselbe Näherung, die D42 abgeschafft hat — hier
+sogar folgenreicher, denn die Regel entscheidet über ganze Labels statt über
+einzelne Zeichen.
+
+---
+
 ## Später
 
 ### Protokoll
 - XEP-0160: eine Nachricht mit ausschliesslich XEP-0085-Inhalt soll nicht
   abgelegt werden; dieser Client schickt keine, die Regel wäre ungetestet
   (siehe D14)
-- **IDNA2008 für Domain-Labels fehlt** — geprüft wird die Form, nicht die
-  Gültigkeit eines Labels: keine Punycode-Behandlung von A-Labels, keine
-  Bidi-Regel (RFC 5893), keine Label-Längen. Die Codepoint-Tabelle dafür ist mit
-  `Precis` da; es fehlt die Label-Ebene (siehe D42)
+- **Die Bidi-Regel aus RFC 5893 fehlt** — ein Label mit Zeichen aus einer
+  rechtsläufigen Schrift wird nicht daraufhin geprüft, ob es die Regel für
+  „Bidi-Domainnamen" erfüllt. Sie verlangt `Bidi_Class` für jeden Codepoint;
+  .NET liefert die Eigenschaft nicht, und aus Blockgrenzen geraten wäre sie
+  wieder die Näherung aus D42 — hier über ganze Labels statt über einzelne
+  Zeichen (siehe D43)
 - RFC 5892, Anhang A: die kontextabhängigen Regeln, bis auf A.8 und A.9. A.1/A.2
   brauchen `Joining_Type` und die Virama-Eigenschaft, A.3 bis A.7 brauchen
   `Script` — Eigenschaften, die .NET nicht ausliefert. Betroffen sind fünf

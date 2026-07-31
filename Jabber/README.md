@@ -136,7 +136,7 @@ beide Beispieltabellen aus §3.5 (fünfzehn gültige und acht ungültige Adresse
 | Zerlegung in der Reihenfolge aus §3.2 (erst `/`, dann `@`) | ✅ |
 | Localpart: UsernameCaseMapped, plus die Ausschlüsse aus §3.3.1 | ✅ Abbildungsregeln vollständig, IdentifierClass aus den abgeleiteten Eigenschaften nach RFC 8264 §8 |
 | Resourcepart: OpaqueString, **nicht** kleingeschrieben | ✅ ebenso, mit der FreeformClass |
-| Domainpart: kleingeschrieben, NFC | ⚠️ kein IDNA2008 |
+| Domainpart: kleingeschrieben, NFC | ⚠️ IDNA2008 Label für Label (RFC 5891/5892), Punycode selbst gerechnet (RFC 3492); ohne die Bidi-Regel aus RFC 5893 |
 | Höchstlänge 1023 Oktette je Teil | ✅ |
 | Vergleich: Local-/Domainpart schreibweisenunabhängig, Resourcepart nicht | ✅ |
 
@@ -149,11 +149,20 @@ Reihenfolge, denn viele Codepoints stehen in mehreren dieser Kategorien.
 `Hangul_Syllable_Type` liefert .NET nicht; sie stehen als Bereichstabellen im
 Quelltext, mit der Unicode-Fassung benannt, aus der sie stammen (15.1.0).
 
-**Was fehlt:** die kontextabhängigen Regeln aus RFC 5892 Anhang A — bis auf A.8
-und A.9 (die beiden Reihen arabisch-indischer Ziffern dürfen nicht gemischt
-werden), die ohne Unicode-Eigenschaften auskommen. Die übrigen brauchen
-`Joining_Type` bzw. `Script`; ohne sie werden die betroffenen fünf Satzzeichen
-und die beiden Joiner abgewiesen. Ebenfalls offen: IDNA2008 für Domain-Labels.
+Der Domainpart geht durch `Idna` — dieselben Bausteine, aber die Leiter aus
+RFC 5892 §1 statt der aus RFC 8264 §8, und darum andere Antworten: Ein
+Unterstrich gehört in einen Localpart und in kein Label, ein Symbol in einen
+Resourcepart und in kein Label. Ein A-Label (`xn--…`) wird dekodiert, auf die
+Label-Regeln geprüft und zurückgerechnet; ergibt die Rückrechnung eine andere
+Schreibweise, wird es abgewiesen. Adressliterale (`127.0.0.1`, `[::1]`) sind
+nach RFC 7622 §3.2 ausgenommen.
+
+**Was fehlt:** die Bidi-Regel aus RFC 5893 (sie braucht `Bidi_Class`) und die
+kontextabhängigen Regeln aus RFC 5892 Anhang A — bis auf A.8 und A.9 (die beiden
+Reihen arabisch-indischer Ziffern dürfen nicht gemischt werden), die ohne
+Unicode-Eigenschaften auskommen. Die übrigen brauchen `Joining_Type` bzw.
+`Script`; ohne sie werden die betroffenen fünf Satzzeichen und die beiden Joiner
+abgewiesen.
 
 **Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
 (`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird
@@ -713,6 +722,7 @@ nicht gegen sich selbst:
 | XEP-0115 §5.3 | Verification String `q07IKJEyjvHSyhy//CH0CxmKi8w=` (zwei Sprachen, ein Datenformular) | ✅ exakt reproduziert |
 | RFC 4013 §3 | SASLprep-Beispieltabelle, alle sieben Zeilen | ✅ exakt reproduziert |
 | RFC 7622 §3.5 | JID-Beispieltabellen: 15 gültige, 8 ungültige Adressen | ✅ reproduziert (Ausnahme: Beispiel 18, siehe oben) |
+| RFC 3492 §7.1 | Punycode: elf Beispiele in acht Schriften | ✅ exakt reproduziert, in beide Richtungen |
 | RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
 | XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 

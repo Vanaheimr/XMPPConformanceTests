@@ -52,9 +52,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// <see cref="Precis"/> und damit aus den abgeleiteten Eigenschaften nach
 /// RFC 8264, Abschnitt 8.
 ///
-/// <b>Was hier noch fehlt</b>, ist der Domainpart: Er ist ein
-/// internationalisierter Domainname, und IDNA2008 prüft Label für Label.
-/// Geprüft wird bisher nur die Form, nicht die Gültigkeit eines Labels.
+/// <b>Der Domainpart</b> ist ein internationalisierter Domainname; er geht
+/// Label für Label durch <see cref="Idna"/> (RFC 5891/5892). Ein
+/// Adressliteral - IPv4 oder eingeklammertes IPv6 - ist davon ausgenommen, so
+/// wie RFC 7622, Abschnitt 3.2 es vorsieht.
 /// </remarks>
 public static class JidUtilities
 {
@@ -222,16 +223,11 @@ public static class JidUtilities
 
         CheckLength(jid, vorbereitet, "Domainpart");
 
-        // Hier steht bewusst eine grobe Prüfung und keine Klassenprüfung:
         // Der Domainpart ist nach RFC 7622, Abschnitt 3.2 ein
-        // internationalisierter Domainname, und dafür gilt IDNA2008 mit
-        // eigenen Regeln je Label - die fehlen weiterhin (siehe „Später").
-        // Was hier abgewiesen wird, wäre unter jeder dieser Regeln unzulässig.
-        foreach (var codePoint in CodePoints(jid, vorbereitet))
-            if (IsForbiddenInDomain(codePoint) || codePoint == ' ')
-                throw new JidFormatException(
-                          jid,
-                          $"U+{codePoint:X4} gehört nicht in einen Domainpart.");
+        // internationalisierter Domainname - und damit gilt IDNA2008, Label
+        // für Label.
+        if (!Idna.IsValidDomain(vorbereitet, out var grund))
+            throw new JidFormatException(jid, grund!);
 
         return vorbereitet;
 
@@ -388,28 +384,6 @@ public static class JidUtilities
 
            };
 
-    /// <summary>
-    /// Steuerzeichen, Formatzeichen, Surrogate, Private Use und nicht
-    /// Zugewiesenes - in keinem Domainpart zulässig.
-    /// </summary>
-    /// <remarks>
-    /// Der Platzhalter für IDNA2008: Was hier durchkommt, ist noch lange kein
-    /// gültiges Label. Was hier hängen bleibt, ist unter keiner Auslegung
-    /// eines.
-    /// </remarks>
-    private static Boolean IsForbiddenInDomain(UInt32 CodePoint)
-    {
-
-        var zeichen = Char.ConvertFromUtf32((Int32) CodePoint);
-
-        return CharUnicodeInfo.GetUnicodeCategory(zeichen, 0) is
-                   UnicodeCategory.Control    or
-                   UnicodeCategory.Format     or
-                   UnicodeCategory.Surrogate  or
-                   UnicodeCategory.PrivateUse or
-                   UnicodeCategory.OtherNotAssigned;
-
-    }
 
     #endregion
 
