@@ -4844,6 +4844,88 @@ melden ihn.
 
 ---
 
+### D62. Fremde Zahlen ✅ — OMEMO, Etappe 1 von 7: die Kryptobausteine
+
+OMEMO ist keine Erweiterung, die man an einem Abend einbaut. XEP-0384 (Fassung
+0.9.1, `urn:xmpp:omemo:2`) verlangt X3DH, den Double Ratchet, ein
+protobuf-Drahtformat, PEP-Verteilung von Device-Liste und Bundles, einen
+Sitzungsspeicher, der einen Neustart übersteht, und eine Vertrauensentscheidung
+für den Menschen davor. Das sind sieben Etappen; hier ist die erste, und sie
+ist die einzige, die ohne XMPP auskommt.
+
+**Der Unterbau war schon da.** BouncyCastle 2.6.2 hängt über Hermod ohnehin im
+Baum — X25519 und Ed25519 gibt es also, ohne eine neue Abhängigkeit zu wählen.
+.NET 10 hat X25519 nicht: In `System.Security.Cryptography.dll` kommt die
+Zeichenfolge kein einziges Mal vor. Das Paket steht jetzt ausdrücklich in der
+`.csproj`, obwohl es transitiv schon da war — wer eine transitive Abhängigkeit
+direkt benutzt, verliert sie in dem Augenblick, in dem der Vorbesitzer sie
+ablegt.
+
+**Eine Lücke musste ich selbst füllen, und der Weg dorthin gehört
+aufgeschrieben.** BouncyCastle gibt sein `ScalarMultBase` für Ed25519 nicht
+heraus; öffentlich sind nur `Sign` und `Verify`, und beide leiten den Skalar
+aus einem Seed ab. XEdDSA braucht aber einen *gegebenen* Skalar. Der naheliegende
+Ausweg — den Nonce über `GeneratePublicKey` aus einem zufälligen Seed erzeugen —
+ist eine Falle: Der Skalar wäre dann **geklammert**, also ein Vielfaches von 8
+in einem festen Fenster, rund vier Bit vorhersagbar. Genau darauf zielt der
+Angriff auf verzerrte Nonces; wenige hundert Signaturen genügen, und der
+Identitätsschlüssel fällt. **Ein verzerrter Nonce ist kein Schönheitsfehler,
+sondern der übliche Weg, wie solche Schlüssel gestohlen werden.** Also die
+Punktarithmetik selbst, mit den vollständigen Formeln aus RFC 8032, Abschnitt
+5.1.4 — und mit dem ausdrücklichen Vermerk im Quelltext, dass sie **nicht**
+gegen Zeitmessung gehärtet ist. Für einen Client auf dem Gerät seines Benutzers
+ist das die richtige Reihenfolge der Sorgen; für einen Server wäre es die
+falsche, und es steht dort, damit niemand es später für erledigt hält.
+
+**Geprüft wird gegen fremde Zahlen.** Eine Verschlüsselung prüft sich selbst zu
+leicht: Wer entschlüsseln kann, was er selbst verschlüsselt hat, hat gezeigt,
+dass er zweimal denselben Fehler macht. Beweiskraft haben nur veröffentlichte
+Vektoren — RFC 7748 (Abschnitte 5.2 und 6.1), RFC 8032 (Abschnitt 7.1, drei
+Vektoren, über den Umweg der Ed25519-eigenen Skalarbildung), RFC 5869, RFC 4231,
+NIST SP 800-38A. Dazu ein Punkt, den beide Kurven benennen: Der
+X25519-Basispunkt `u = 9` muss nach der Umrechnung der Ed25519-Basispunkt sein.
+
+**Der erste Lauf hat zwei Fehler gefunden, und sie sind verschieden
+gefährlich:**
+
+- `Aes.Create().DecryptCbc(…)` entschlüsselte mit einem **zufälligen**
+  Schlüssel — ich hatte ihn nur beim Verschlüsseln ans Objekt gehängt. Das
+  scheitert immer und fällt sofort auf.
+- In XEdDSA wird mit `-k` weitergerechnet, wenn `kB` das Vorzeichenbit trägt.
+  Meine Negation lief über die Gruppenordnung hinaus und ergab eine negative
+  Zahl — und das trifft **jeden zweiten Schlüssel**. Ein Test mit einem
+  erzeugten Schlüssel wäre in jedem zweiten Lauf grün gewesen. Dagegen steht
+  jetzt einer, der 32 Schlüssel durchgeht *und hinterher nachzählt, dass beide
+  Vorzeichen vorkamen* — sonst prüft er den halben Weg und sagt es nicht.
+
+**26 Mutationen, 23 erschlagen, drei beweisbar gleichwertig:**
+
+- Die Längenprüfung der Signatur — ohne sie wirft der fremde Prüfer, und die
+  Ausnahme wird ohnehin zu „ungültig".
+- Der Schleifenanfang bei Bit 254 statt 253 — der Skalar wird vorher modulo der
+  Gruppenordnung reduziert, die oberen Bits sind danach immer null.
+- Das Salz aus 32 Nullbyte gegen 16 — HMAC füllt jeden Schlüssel unterhalb der
+  Blocklänge mit Nullen auf, beide ergeben denselben Wert. Die 32 stehen
+  trotzdem da, weil die Spezifikation sie so nennt.
+
+**Eine überlebende Mutation war ein echtes Loch und hat einen Test erzwungen:**
+Der Info-String der Ableitung liess sich auf `""` setzen, ohne dass etwas
+scheiterte — alle Tests prüften die Struktur der 80 Byte, keiner ihren Wert.
+Der Fehler wäre in diesem Haus nie aufgefallen: **Zwei Clients mit demselben
+falschen String verstehen sich bestens.** Erst eine fremde Gegenstelle bekäme
+Buchstabensalat, und die gibt es hier nicht. Jetzt rechnet ein zweites HKDF —
+das von BouncyCastle statt das der BCL — dieselben 80 Byte nach, mit den
+Parametern aus Abschnitt 4.4 buchstäblich hingeschrieben.
+
+Das ist zugleich die Grenze dieser Etappe und der ganzen Reihe, und sie gehört
+vorweg gesagt: **Gegen einen echten OMEMO-Client ist hier nichts geprüft.**
+Prosody und ejabberd tragen OMEMO nur, sie sprechen es nicht; Conversations,
+Dino und Gajim gibt es im Testaufbau nicht. Was bleibt, sind veröffentlichte
+Vektoren und buchstäblich hingeschriebene Vorschriften — beides prüft die
+Übereinstimmung mit dem Text, nicht mit der Wirklichkeit.
+
+---
+
 ## Später
 
 ### Testsammlung

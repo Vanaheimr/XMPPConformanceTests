@@ -11,6 +11,18 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.9" />
+
+    <!--
+      OMEMO (XEP-0384) braucht X25519 und Ed25519. Die BCL hat beides nicht -
+      in System.Security.Cryptography.dll von .NET 10 kommt "X25519" kein
+      einziges Mal vor -, und Kurvenarithmetik von Hand ist der eine Ort, an
+      dem ein Fehler nicht auffaellt und alles kostet.
+
+      Ausdruecklich aufgefuehrt, obwohl Hermod dasselbe Paket schon mitbringt:
+      Wer eine transitive Abhaengigkeit direkt benutzt, verliert sie in dem
+      Augenblick, in dem der Vorbesitzer sie ablegt.
+    -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
   </ItemGroup>
 
   <ItemGroup>

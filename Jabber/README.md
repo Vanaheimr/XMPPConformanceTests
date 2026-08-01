@@ -873,7 +873,13 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 ### Funktionsumfang
 - Kein Multi-User Chat (XEP-0045)
 - Kein Message Archive Management (XEP-0313)
-- Keine Ende-zu-Ende-Verschlüsselung (OMEMO, XEP-0384)
+- **OMEMO (XEP-0384) ist angefangen, nicht fertig.** Etappe 1 von 7 steht: die
+  Kryptobausteine — X25519 (RFC 7748), XEdDSA-Signaturen, HKDF-SHA-256,
+  AES-256-CBC mit HMAC-SHA-256 und die Ableitung aus Abschnitt 4.4. Alles
+  gegen veröffentlichte Prüfvektoren. Es fehlen X3DH, der Double Ratchet, das
+  Drahtformat, die PEP-Verteilung, der Sitzungsspeicher und die
+  Vertrauensentscheidung; **verschlüsselt senden kann dieser Client noch
+  nichts.** Siehe [WORKPLAN.md](../WORKPLAN.md), D62
 - Kein HTTP File Upload (XEP-0363)
 - ~~Keine Client State Indication (XEP-0352)~~ Umgesetzt in D61, auf beiden
   Seiten — siehe die Tabelle oben
