@@ -434,6 +434,197 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TwoSubscriptions_AreBothRemembered()
+
+        /// <summary>
+        /// Wer zweimal abonniert, hat zwei Abonnements - und der Client weiss
+        /// von beiden.
+        /// </summary>
+        /// <remarks>
+        /// Bis K4 stand je Knoten genau eines in der Buchführung, und das
+        /// zweite überschrieb das erste. Damit war die Kennung des ersten weg,
+        /// und weg heisst hier: <b>Es liess sich nie wieder abbestellen</b> -
+        /// der Dienst verlangt bei mehreren eine Kennung, und die kannte
+        /// niemand mehr.
+        /// </remarks>
+        [Test]
+        public async Task TwoSubscriptions_AreBothRemembered()
+        {
+
+            await PublishingBobAsync();
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var abos   = alice.Connection.PubSub!.SubscriptionsOf(Node);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(abos, Has.Count.EqualTo(2));
+                Assert.That(abos.Select(a => a.SubId),
+                            Is.EquivalentTo(new[] { erste?.SubId, zweite?.SubId }));
+                Assert.That(erste?.SubId, Is.Not.EqualTo(zweite?.SubId));
+            });
+
+        }
+
+        #endregion
+
+        #region UnsubscribingWithoutASubId_WhenThereAreSeveral_IsRefused()
+
+        /// <summary>
+        /// Bei mehreren Abonnements wird ohne Kennung nicht einmal gefragt.
+        /// </summary>
+        /// <remarks>
+        /// Der Dienst würde es mit <c>&lt;subid-required/&gt;</c> abweisen -
+        /// der Client weiss das aber selbst und muss die Anfrage nicht erst
+        /// stellen. <b>Wichtiger ist, was er nicht tut:</b> sich eines
+        /// aussuchen. Das beendete vielleicht das falsche, und der Aufrufer
+        /// hielte es für das gemeinte.
+        /// </remarks>
+        [Test]
+        public async Task UnsubscribingWithoutASubId_WhenThereAreSeveral_IsRefused()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var sitzung = Server.SessionOf(alice.FullJid)!;
+            var vorher  = sitzung.Received.Count(f => f.Contains("<unsubscribe", StringComparison.Ordinal));
+
+            var beendet = await alice.PubSubUnsubscribeAsync(Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(beendet, Is.False);
+
+                Assert.That(sitzung.Received.Count(f => f.Contains("<unsubscribe", StringComparison.Ordinal)),
+                            Is.EqualTo(vorher),
+                            "Eine Anfrage, die nur abgewiesen werden kann, muss nicht gestellt werden.");
+
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node), Has.Count.EqualTo(2),
+                            "Es darf keines verschwinden, wenn keines beendet wurde.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region UnsubscribingWithASubId_EndsOnlyThatOne()
+
+        /// <summary>
+        /// Mit Kennung endet genau das benannte, und das andere bleibt.
+        /// </summary>
+        [Test]
+        public async Task UnsubscribingWithASubId_EndsOnlyThatOne()
+        {
+
+            await PublishingBobAsync();
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(await alice.PubSubUnsubscribeAsync(Node, BobsJid, erste!.SubId), Is.True);
+
+            var abos = alice.Connection.PubSub!.SubscriptionsOf(Node);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(abos,                    Has.Count.EqualTo(1));
+                Assert.That(abos[0].SubId,           Is.EqualTo(zweite!.SubId));
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region EachEvent_NamesItsSubscription()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 12.20: Die Meldung sagt, zu welchem Abonnement
+        /// sie gehört.
+        /// </summary>
+        /// <remarks>
+        /// Ohne diese Angabe wären zwei Zustellungen derselben Sache nicht
+        /// auseinanderzuhalten - und ein Empfänger, der eines der beiden
+        /// Abonnements beenden will, wüsste nicht, welches er gerade hört.
+        /// </remarks>
+        [Test]
+        public async Task EachEvent_NamesItsSubscription()
+        {
+
+            var bob    = await PublishingBobAsync();
+            var alice  = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var gemeldet = new List<PubSubEvent>();
+            alice.OnPubSubEvent += e => { lock (gemeldet) gemeldet.Add(e); };
+
+            Assert.That(await bob.PubSubPublishAsync(Node, "2", Payload("Regen"), bob.BareJid), Is.True);
+
+            await WaitFor(() => { lock (gemeldet) return gemeldet.Count > 1; },
+                          "beide Meldungen");
+
+            lock (gemeldet)
+                Assert.That(gemeldet.Select(e => e.SubId),
+                            Is.EquivalentTo(new[] { erste!.SubId, zweite!.SubId }));
+
+        }
+
+        #endregion
+
+        #region AfterTheLastUnsubscribe_TheEventsAreRejectedAgain()
+
+        /// <summary>
+        /// Ist das letzte Abonnement beendet, ist der Absender wieder ein
+        /// Fremder.
+        /// </summary>
+        /// <remarks>
+        /// Die Erlaubnis hängt an der Buchführung; bliebe dort ein Rest
+        /// stehen, bliebe auch die Erlaubnis - und der Spoofing-Schutz wäre
+        /// nach dem ersten Abonnement für diesen Knoten dauerhaft offen.
+        /// </remarks>
+        [Test]
+        public async Task AfterTheLastUnsubscribe_TheEventsAreRejectedAgain()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(await alice.PubSubUnsubscribeAsync(Node, BobsJid, abo!.SubId), Is.True);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            await Server.SessionOf(alice.FullJid)!.SendAsync(
+                $"<message from='{BobsJid}' type='headline' to='{alice.FullJid}'>" +
+                "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                $"<items node='{Node}'>" +
+                "<item id='9'><wetter xmlns='urn:example:x'>nachträglich</wetter></item>" +
+                "</items></event></message>");
+
+            await WaitAgainst(() => gemeldet is not null,
+                              "ein Ereignis für einen Knoten, der nicht mehr abonniert ist");
+
+        }
+
+        #endregion
+
         #region Unsubscribing_SendsTheSubId_AndClearsTheRecord()
 
         /// <summary>

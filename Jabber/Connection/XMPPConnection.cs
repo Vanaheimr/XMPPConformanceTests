@@ -3010,12 +3010,20 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// <summary>
     /// XEP-0060, Abschnitt 6.2: Beendet ein Abonnement.
     /// </summary>
+    /// <param name="subId">
+    /// Welches Abonnement gemeint ist. Ohne Angabe geht es nur, solange es
+    /// genau eines gibt.
+    /// </param>
     /// <remarks>
     /// Die <c>subid</c> aus der Zusage geht mit, wenn es eine gibt. Sie ist
     /// vorgeschrieben, sobald ein JID mehrere Abonnements auf denselben Knoten
-    /// hält (Abschnitt 6.2.3.1) - dieser Client hält nie mehrere, aber die
-    /// Kennung benennt auch das eine eindeutig, und ein Dienst darf sie
-    /// verlangen.
+    /// hält (Abschnitt 6.2.3.1), und benennt auch das eine eindeutig.
+    ///
+    /// <b>Bei mehreren und ohne Kennung wird gar nicht erst gefragt.</b> Der
+    /// Dienst wiese es mit <c>&lt;subid-required/&gt;</c> ab; das weiss dieser
+    /// Client selbst. Was er nicht tut, ist wichtiger: sich eines aussuchen.
+    /// Das beendete vielleicht das falsche, und der Aufrufer hielte es für das
+    /// gemeinte.
     ///
     /// Der Eintrag fällt erst nach dem <c>result</c>. Ihn vorher zu löschen
     /// wäre derselbe Fehler wie vorher einzutragen, nur andersherum: Man
@@ -3023,15 +3031,32 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// </remarks>
     public async Task<Boolean> PubSubUnsubscribeAsync(String             nodeId,
                                                       String?            service  = null,
+                                                      String?            subId    = null,
                                                       CancellationToken  ct       = default)
     {
 
-        var abo      = PubSub!.SubscriptionOf(nodeId);
-        var ziel     = service ?? abo?.ServiceJid ?? PubSub!.PubSubService;
-        var id       = NextPubSubId();
-        var antwort  = await SendIqAsync(id,
-                                         PubSubBuilder.Unsubscribe(ziel, nodeId, BareJid, id, abo?.SubId),
-                                         ct);
+        var abos = PubSub!.SubscriptionsOf(nodeId);
+
+        if (subId is null && abos.Count > 1)
+        {
+            _logger.LogWarning("PubSub: {Count} Abonnements auf {Node} - ohne subid ist nicht zu sagen, welches gemeint ist",
+                               abos.Count, nodeId);
+            return false;
+        }
+
+        var gemeint  = subId is not null
+                           ? abos.FirstOrDefault(a => String.Equals(a.SubId, subId, StringComparison.Ordinal))
+                           : abos.FirstOrDefault();
+
+        // Die mitgeschickte Kennung ist die des Aufrufers, auch wenn hier kein
+        // Abonnement dazu steht: Ein anderes Gerät desselben Kontos kann eines
+        // halten, von dem dieser Client nichts weiss.
+        var verwendet  = subId ?? gemeint?.SubId;
+        var ziel       = service ?? gemeint?.ServiceJid ?? PubSub!.PubSubService;
+        var id         = NextPubSubId();
+        var antwort    = await SendIqAsync(id,
+                                           PubSubBuilder.Unsubscribe(ziel, nodeId, BareJid, id, verwendet),
+                                           ct);
 
         if (antwort is null || antwort.Attr("type") != "result")
         {
@@ -3041,7 +3066,7 @@ public sealed class XMPPConnection : IAsyncDisposable
             return false;
         }
 
-        PubSub!.RemoveSubscription(nodeId);
+        PubSub!.RemoveSubscription(nodeId, verwendet);
 
         return true;
 

@@ -774,8 +774,12 @@ public sealed class XMPPClient : IAsyncDisposable
     public Task<PubSubSubscription?> PubSubSubscribeAsync(String nodeId, String? service = null)
         => _connection.PubSubSubscribeAsync(nodeId, service);
 
-    public Task<Boolean> PubSubUnsubscribeAsync(String nodeId, String? service = null)
-        => _connection.PubSubUnsubscribeAsync(nodeId, service);
+    /// <summary>
+    /// Beendet ein Abonnement. <paramref name="subId"/> sagt, welches - ohne
+    /// Angabe geht es nur, solange es genau eines gibt.
+    /// </summary>
+    public Task<Boolean> PubSubUnsubscribeAsync(String nodeId, String? service = null, String? subId = null)
+        => _connection.PubSubUnsubscribeAsync(nodeId, service, subId);
 
     public Task<Boolean> PubSubPublishAsync(String nodeId, String itemId, String payload, String? service = null)
         => _connection.PubSubPublishAsync(nodeId, itemId, payload, service);

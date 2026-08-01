@@ -934,7 +934,8 @@ class Program
         {
             Console.WriteLine("PubSub-Befehle:");
             Console.WriteLine("  /pubsub sub <node> [jid]     Node abonnieren");
-            Console.WriteLine("  /pubsub unsub <node> [jid]   Abo beenden");
+            Console.WriteLine("  /pubsub unsub <node> [jid] [subid]  Abo beenden");
+            Console.WriteLine("  /pubsub abos                 Eigene Abonnements samt subid");
             Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
             Console.WriteLine("  /pubsub create <node>        Node erstellen");
@@ -970,9 +971,26 @@ class Program
                 break;
 
             case "unsub" or "unsubscribe":
-                Console.WriteLine(await _client!.PubSubUnsubscribeAsync(nodeId, parts.Length > 2 ? parts[2] : null)
+                Console.WriteLine(await _client!.PubSubUnsubscribeAsync(nodeId,
+                                                                        parts.Length > 2 ? parts[2] : null,
+                                                                        parts.Length > 3 ? parts[3] : null)
                                       ? $"🔕 Abo beendet: {nodeId}"
                                       : $"⚠️ Abo nicht beendet: {nodeId} - siehe Log");
+                break;
+
+            // Bei mehreren Abonnements auf denselben Knoten ist die Kennung das
+            // einzige, was sie unterscheidet - wer abbestellen will, muss sie
+            // nachsehen können.
+            case "abos" or "subs":
+                var abos = _client!.Connection.PubSub!.Subscriptions;
+
+                if (abos.Count == 0)
+                    Console.WriteLine("Keine Abonnements.");
+
+                else
+                    foreach (var eintrag in abos)
+                        Console.WriteLine($"   {eintrag.NodeId} bei {eintrag.ServiceJid}" +
+                                          (eintrag.SubId is not null ? $" (subid {eintrag.SubId})" : ""));
                 break;
 
             case "pub" or "publish":

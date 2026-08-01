@@ -45,8 +45,14 @@ public sealed class PubSubManager
     /// Was jetzt hier liegt, hat der Dienst gesagt und nicht dieser Client
     /// vermutet: die Kennung, die er vergeben hat, und die Adresse, unter der
     /// er es tat.
+    ///
+    /// <b>Eine Liste je Knoten und kein einzelner Eintrag</b> (seit D73): Auf
+    /// denselben Knoten kann es mehrere Abonnements geben, und das zweite
+    /// überschrieb bis dahin das erste. Damit war dessen Kennung weg - und weg
+    /// heisst hier, dass es sich nie wieder abbestellen liess, denn der Dienst
+    /// verlangt bei mehreren eine Kennung.
     /// </remarks>
-    private readonly Dictionary<String, PubSubSubscription> _subscriptions =
+    private readonly Dictionary<String, List<PubSubSubscription>> _subscriptions =
         new(StringComparer.OrdinalIgnoreCase);
 
     private readonly string _pubsubService;
@@ -85,6 +91,8 @@ public sealed class PubSubManager
             return false;
         }
 
+        var subId = SubIdOf(stanza);
+
         // Items- oder Retract-Event: beide stecken in <items node='…'/>.
         var itemsElement = eventElement.Child(EventNamespace, "items");
 
@@ -96,7 +104,7 @@ public sealed class PubSubManager
             if (retracted.Count > 0)
             {
 
-                var retractEvent = new PubSubEvent(nodeId, PubSubEventType.Retract);
+                var retractEvent = new PubSubEvent(nodeId, PubSubEventType.Retract, subId);
 
                 foreach (var retract in retracted)
                 {
@@ -110,7 +118,7 @@ public sealed class PubSubManager
 
             }
 
-            var itemsEvent = new PubSubEvent(nodeId, PubSubEventType.Items);
+            var itemsEvent = new PubSubEvent(nodeId, PubSubEventType.Items, subId);
 
             foreach (var item in itemsElement.Children(EventNamespace, "item"))
             {
@@ -137,13 +145,13 @@ public sealed class PubSubManager
 
         if (eventElement.Child(EventNamespace, "purge") is not null)
         {
-            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Purge));
+            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Purge, subId));
             return true;
         }
 
         if (eventElement.Child(EventNamespace, "delete") is not null)
         {
-            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Delete));
+            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Delete, subId));
             return true;
         }
 
@@ -160,6 +168,25 @@ public sealed class PubSubManager
                        .FirstOrDefault(e => e.Name.NamespaceName == EventNamespace &&
                                             e.Name.LocalName is "items" or "purge" or "delete")
                       ?.Attr("node") ?? "";
+
+    /// <summary>Der Namensraum der SHIM-Kopfzeilen (XEP-0131).</summary>
+    public const string ShimNamespace = "http://jabber.org/protocol/shim";
+
+    /// <summary>
+    /// Das Abonnement, zu dem eine Meldung gehört - aus der SHIM-Kopfzeile
+    /// <c>SubID</c> (XEP-0060, Abschnitt 12.20), oder null.
+    /// </summary>
+    /// <remarks>
+    /// Sie steht neben dem <c>event</c> und nicht darin: Sie sagt etwas über
+    /// die Zustellung und nicht über das Ereignis. Dieselbe Veröffentlichung
+    /// kann mehrfach ankommen, einmal je Abonnement - dann ist diese Kopfzeile
+    /// das einzige, worin sich die Meldungen unterscheiden.
+    /// </remarks>
+    private static String? SubIdOf(XElement stanza)
+        => stanza.Child(ShimNamespace, "headers")
+                ?.Children(ShimNamespace, "header")
+                 .FirstOrDefault(h => h.Attr("name") == "SubID")
+                ?.Value;
 
     /// <summary>
     /// Darf von diesem Absender eine Meldung über diesen Knoten kommen?
@@ -188,23 +215,62 @@ public sealed class PubSubManager
             return true;
         }
 
-        return SubscriptionOf(nodeId) is { } abo &&
-               String.Equals(bareFrom, JidUtilities.Bare(abo.ServiceJid),
-                             StringComparison.OrdinalIgnoreCase);
+        return SubscriptionsOf(nodeId).Any(
+                   abo => String.Equals(bareFrom, JidUtilities.Bare(abo.ServiceJid),
+                                        StringComparison.OrdinalIgnoreCase));
 
     }
 
     /// <summary>
     /// Trägt ein zugesagtes Abonnement ein.
     /// </summary>
+    /// <remarks>
+    /// Dieselbe Kennung ein zweites Mal ersetzt den Eintrag, statt ihn zu
+    /// verdoppeln: Das ist keine zweite Zusage, sondern dieselbe noch einmal.
+    /// </remarks>
     public void AddSubscription(PubSubSubscription subscription)
     {
-        lock (_lock) _subscriptions[subscription.NodeId] = subscription;
+        lock (_lock)
+        {
+
+            if (!_subscriptions.TryGetValue(subscription.NodeId, out var abos))
+                _subscriptions[subscription.NodeId] = abos = [];
+
+            abos.RemoveAll(a => a.SubId is not null &&
+                                String.Equals(a.SubId, subscription.SubId, StringComparison.Ordinal));
+
+            abos.Add(subscription);
+
+        }
     }
 
-    public void RemoveSubscription(String nodeId)
+    /// <summary>
+    /// Streicht ein Abonnement aus der Buchführung.
+    /// </summary>
+    /// <param name="subId">
+    /// Die Kennung des beendeten Abonnements, oder null für alle dieses
+    /// Knotens - letzteres nur dort richtig, wo es nachweislich nur eines gab.
+    /// </param>
+    public void RemoveSubscription(String nodeId, String? subId = null)
     {
-        lock (_lock) _subscriptions.Remove(nodeId);
+        lock (_lock)
+        {
+
+            if (subId is null)
+            {
+                _subscriptions.Remove(nodeId);
+                return;
+            }
+
+            if (!_subscriptions.TryGetValue(nodeId, out var abos))
+                return;
+
+            abos.RemoveAll(a => String.Equals(a.SubId, subId, StringComparison.Ordinal));
+
+            if (abos.Count == 0)
+                _subscriptions.Remove(nodeId);
+
+        }
     }
 
     public Boolean IsSubscribed(String nodeId)
@@ -213,10 +279,16 @@ public sealed class PubSubManager
     }
 
     /// <summary>
-    /// Das Abonnement dieses Knotens, oder null.
+    /// Die Abonnements dieses Knotens - keines, eines oder mehrere.
     /// </summary>
-    public PubSubSubscription? SubscriptionOf(String nodeId)
+    public IReadOnlyList<PubSubSubscription> SubscriptionsOf(String nodeId)
     {
-        lock (_lock) return _subscriptions.TryGetValue(nodeId, out var abo) ? abo : null;
+        lock (_lock) return _subscriptions.TryGetValue(nodeId, out var abos) ? [.. abos] : [];
+    }
+
+    /// <summary>Alle Abonnements, über alle Knoten.</summary>
+    public IReadOnlyList<PubSubSubscription> Subscriptions
+    {
+        get { lock (_lock) return [.. _subscriptions.Values.SelectMany(a => a)]; }
     }
 }

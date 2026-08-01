@@ -27,9 +27,22 @@ public sealed class PubSubEvent
     public List<PubSubItem> Items { get; } = [];
     public List<string> RetractedIds { get; } = [];
 
-    public PubSubEvent(string nodeId, PubSubEventType type)
+    /// <summary>
+    /// Das Abonnement, zu dem diese Meldung gehört - aus der SHIM-Kopfzeile
+    /// <c>SubID</c> (XEP-0060, Abschnitt 12.20), oder null.
+    /// </summary>
+    /// <remarks>
+    /// Null heisst nicht „unbekannt", sondern meistens: Es gibt nur eines,
+    /// und dann muss der Dienst die Kennung nicht mitschicken. Bei mehreren
+    /// muss er - sonst wären zwei Zustellungen derselben Sache nicht
+    /// auseinanderzuhalten.
+    /// </remarks>
+    public string? SubId { get; }
+
+    public PubSubEvent(string nodeId, PubSubEventType type, string? subId = null)
     {
         NodeId = nodeId;
         Type = type;
+        SubId = subId;
     }
 }

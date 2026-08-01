@@ -5559,6 +5559,46 @@ Fünfzehn Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 980 bestanden,
 
 ---
 
+### D73. Zwei Abonnements, die niemand verwechselt ✅ — die Kennung auf der Clientseite
+
+Die Gegenseite zu D72, und sie hatte einen eigenen Fehler: **Der Client hielt je
+Knoten genau ein Abonnement fest**, und ein zweites überschrieb das erste. Damit
+war dessen Kennung weg — und weg heisst hier mehr als „vergessen": Es liess sich
+**nie wieder abbestellen**, denn der Dienst verlangt bei mehreren eine Kennung,
+und die kannte niemand mehr.
+
+Jetzt steht je Knoten eine Liste. Daraus folgt das Verhalten, auf das es
+ankommt: **Bei mehreren und ohne Kennung fragt der Client gar nicht erst.** Der
+Dienst wiese es mit `<subid-required/>` ab, das weiss der Client selbst — und
+was er nicht tut, ist wichtiger als was er tut: sich eines aussuchen. Das
+beendete vielleicht das falsche, und der Aufrufer hielte es für das gemeinte.
+
+Eine Kennung, die hier nicht steht, geht trotzdem hinaus, wenn der Aufrufer sie
+nennt: Ein anderes Gerät desselben Kontos kann ein Abonnement halten, von dem
+dieser Client nichts weiss. Die Buchführung ist die eigene Sicht und nicht die
+Wahrheit über den Dienst.
+
+Eingehend liest der Client jetzt die SHIM-Kopfzeile `SubID` und hängt sie an das
+Ereignis. Sie steht **neben** dem `event` und nicht darin, und das ist keine
+Formsache: Sie sagt etwas über die Zustellung, nicht über das Ereignis.
+Dieselbe Veröffentlichung kommt bei zwei Abonnements zweimal an — dann ist diese
+Kopfzeile das einzige, worin sich die beiden Meldungen unterscheiden.
+
+Ein Test hält fest, was leicht verlorengeht: **Nach dem letzten Abbestellen ist
+der Absender wieder ein Fremder.** Die Erlaubnis des Spoofing-Schutzes hängt an
+der Buchführung; bliebe dort ein leerer Rest stehen, bliebe auch die Erlaubnis,
+und der Schutz wäre für diesen Knoten dauerhaft offen. Genau das war eine der
+acht Mutationen.
+
+Die Konsole kann jetzt `/pubsub abos` — bei mehreren Abonnements auf denselben
+Knoten ist die Kennung das einzige, was sie unterscheidet, und wer abbestellen
+will, muss sie nachsehen können.
+
+Zweiundzwanzig Tests, acht Mutationen, alle erschlagen. Voller Lauf: 985
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
