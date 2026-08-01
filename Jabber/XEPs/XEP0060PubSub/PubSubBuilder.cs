@@ -106,15 +106,46 @@ public static class PubSubBuilder
                $"</pubsub></iq>";
     }
 
+    /// <summary>Der Namensraum der Eigentümer-Anfragen (XEP-0060, Abschnitt 8).</summary>
+    public const string OwnerNamespace = "http://jabber.org/protocol/pubsub#owner";
+
     /// <summary>
     /// Create a new node
     /// </summary>
-    public static string CreateNode(string pubsubJid, string nodeId, string id = "pubsub-create")
+    /// <param name="configuration">
+    /// Das abgeschickte Knotenformular als fertiges XML, oder null. Anlegen
+    /// und einstellen in einem Zug (XEP-0060, Abschnitt 8.1.3): Zwei Schritte
+    /// hätten eine Lücke, in der der Knoten offen steht.
+    /// </param>
+    public static string CreateNode(string pubsubJid, string nodeId, string id = "pubsub-create", string? configuration = null)
     {
         return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
                $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
                $"<create node='{XmlEscaping.Escape(nodeId)}'/>" +
+               (configuration is not null ? $"<configure>{configuration}</configure>" : "") +
                $"</pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.2.1: Die Einstellungen eines Knotens abfragen.
+    /// </summary>
+    public static string GetNodeConfig(string pubsubJid, string nodeId, string id = "pubsub-cfg")
+    {
+        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<configure node='{XmlEscaping.Escape(nodeId)}'/>" +
+               "</pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.2.4: Die Einstellungen eines Knotens setzen.
+    /// </summary>
+    public static string SetNodeConfig(string pubsubJid, string nodeId, string id, string form)
+    {
+        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<configure node='{XmlEscaping.Escape(nodeId)}'>{form}</configure>" +
+               "</pubsub></iq>";
     }
 
     /// <summary>

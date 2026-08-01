@@ -3199,15 +3199,76 @@ public sealed class XMPPConnection : IAsyncDisposable
                                     "Veröffentlichen", nodeId, ct);
 
     /// <summary>
-    /// XEP-0060, Abschnitt 8.1: Legt einen Knoten an.
+    /// XEP-0060, Abschnitt 8.1: Legt einen Knoten an, wahlweise gleich mit
+    /// seinen Einstellungen.
     /// </summary>
-    public async Task<Boolean> PubSubCreateNodeAsync(String             nodeId,
-                                                     String?            service  = null,
-                                                     CancellationToken  ct       = default)
+    /// <remarks>
+    /// Anlegen und einstellen in einem Zug, weil zwei Schritte eine Lücke
+    /// hätten: Zwischen dem Anlegen und dem Einstellen stünde der Knoten
+    /// offen, und wer in dieser Zeit fragt, bekommt.
+    /// </remarks>
+    public async Task<Boolean> PubSubCreateNodeAsync(String                    nodeId,
+                                                     PubSubNodeConfiguration?  configuration  = null,
+                                                     String?                   service        = null,
+                                                     CancellationToken         ct             = default)
 
         => await PubSubRequestAsync(PubSubBuilder.CreateNode(service ?? PubSub!.PubSubService,
-                                                             nodeId, NextPubSubId()),
+                                                             nodeId, NextPubSubId(),
+                                                             configuration?.ToSubmit()
+                                                                           .ToString(SaveOptions.DisableFormatting)),
                                     "Anlegen", nodeId, ct);
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.2.1: Holt die Einstellungen eines Knotens.
+    /// </summary>
+    /// <returns>
+    /// Was der Dienst sagt, oder null bei Absage und Schweigen - und auch
+    /// dann, wenn im Angebot nichts steht, was dieser Client versteht.
+    /// </returns>
+    public async Task<PubSubNodeConfiguration?> PubSubGetNodeConfigAsync(String             nodeId,
+                                                                         String?            service  = null,
+                                                                         CancellationToken  ct       = default)
+    {
+
+        var ziel     = service ?? PubSub!.PubSubService;
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id, PubSubBuilder.GetNodeConfig(ziel, nodeId, id), ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: Einstellungen des Knotens {Node} bei {Service} nicht gelesen: {Reason}",
+                               nodeId, ziel,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return null;
+        }
+
+        var formular = antwort.Child(PubSubBuilder.OwnerNamespace, "pubsub")
+                             ?.Child(PubSubBuilder.OwnerNamespace, "configure")
+                             ?.Child(DataForm.Namespace, "x");
+
+        if (formular is null || !PubSubNodeConfiguration.TryReadForm(formular, out var einstellung))
+        {
+            _logger.LogWarning("PubSub: die Antwort über den Knoten {Node} enthält kein lesbares Formular", nodeId);
+            return null;
+        }
+
+        return einstellung;
+
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.2.4: Stellt einen Knoten ein.
+    /// </summary>
+    public async Task<Boolean> PubSubConfigureNodeAsync(String                   nodeId,
+                                                        PubSubNodeConfiguration  configuration,
+                                                        String?                  service  = null,
+                                                        CancellationToken        ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.SetNodeConfig(service ?? PubSub!.PubSubService,
+                                                                nodeId, NextPubSubId(),
+                                                                configuration.ToSubmit()
+                                                                             .ToString(SaveOptions.DisableFormatting)),
+                                    "Einstellen", nodeId, ct);
 
     /// <summary>
     /// XEP-0060, Abschnitt 8.4: Löscht einen Knoten.

@@ -940,7 +940,9 @@ class Program
             Console.WriteLine("  /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus");
             Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
-            Console.WriteLine("  /pubsub create <node>        Node erstellen");
+            Console.WriteLine("  /pubsub create <node> [open|presence]  Node erstellen");
+            Console.WriteLine("  /pubsub cfg <node>           Knoteneinstellungen");
+            Console.WriteLine("  /pubsub access <node> <open|presence>  Zugriff umstellen");
             Console.WriteLine("  /pubsub delete <node>        Node löschen");
             Console.WriteLine();
             Console.WriteLine("  Ohne <jid> geht die Anfrage an pubsub.<domain>. Ein PEP-Knoten");
@@ -953,7 +955,7 @@ class Program
 
         string[] nodeCommands = ["sub", "subscribe", "unsub", "unsubscribe",
                                  "pub", "publish", "get", "items", "create", "delete",
-                                 "opts", "options", "deliver"];
+                                 "opts", "options", "deliver", "cfg", "nodecfg", "access"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1048,10 +1050,51 @@ class Program
                 }
                 break;
 
+            // Anlegen und einstellen in einem Zug: Zwei Schritte hätten eine
+            // Lücke, in der der Knoten offen steht.
             case "create":
-                Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId)
-                                      ? $"➕ Node erstellt: {nodeId}"
+                var zugang = parts.Length > 2 && parts[2].ToLower() == "presence"
+                                 ? new PubSubNodeConfiguration(PubSubAccessModel.Presence)
+                                 : null;
+                Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId, zugang)
+                                      ? $"➕ Node erstellt: {nodeId}" + (zugang is not null ? " (presence)" : "")
                                       : $"⚠️ Node nicht erstellt: {nodeId} - siehe Log");
+                break;
+
+            case "cfg" or "nodecfg":
+                var knoten = await _client!.PubSubGetNodeConfigAsync(nodeId);
+                Console.WriteLine(knoten is not null
+                                      ? $"⚙️ {nodeId}: Zugriff {PubSubNodeConfiguration.NameOf(knoten.AccessModel)}, " +
+                                        $"{knoten.MaxItems} Einträge, Ablage {(knoten.PersistItems ? "an" : "aus")}"
+                                      : $"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
+                break;
+
+            case "access":
+                if (parts.Length < 3 || parts[2].ToLower() is not ("open" or "presence"))
+                {
+                    Console.WriteLine("Syntax: /pubsub access <node> <open|presence>");
+                    return;
+                }
+                var bestand = await _client!.PubSubGetNodeConfigAsync(nodeId);
+
+                if (bestand is null)
+                {
+                    Console.WriteLine($"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
+                    return;
+                }
+
+                // Auf dem gelesenen Stand aufsetzen und nicht auf der Vorgabe:
+                // Sonst setzte ein Umstellen des Zugriffs nebenbei die Ablage
+                // und die Zahl der Einträge zurück.
+                var gewuenscht = bestand with {
+                                     AccessModel = parts[2].ToLower() == "presence"
+                                                       ? PubSubAccessModel.Presence
+                                                       : PubSubAccessModel.Open
+                                 };
+
+                Console.WriteLine(await _client!.PubSubConfigureNodeAsync(nodeId, gewuenscht)
+                                      ? $"⚙️ {nodeId}: Zugriff {parts[2].ToLower()}"
+                                      : $"⚠️ Knoten nicht eingestellt: {nodeId} - siehe Log");
                 break;
 
             case "delete":

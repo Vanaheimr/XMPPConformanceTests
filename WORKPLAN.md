@@ -5777,6 +5777,38 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D78. Anlegen und einstellen in einem Zug ✅ — die Knoten auf der Clientseite
+
+Die Clientseite von D76/D77, und sie hat eine eigene Pointe: **`<create/>` und
+`<configure/>` gehen zusammen hinaus.** Zwei Schritte hätten eine Lücke — der
+Knoten stünde zwischen dem Anlegen und dem Einstellen offen, und wer in dieser
+Zeit fragt, bekommt. XEP-0060, Abschnitt 8.1.3 sieht das nicht ohne Grund vor.
+
+Ansonsten dieselben Regeln wie in D75, und das ist der Punkt: Sie sind nicht
+für die Abonnement-Einstellungen erfunden worden, sondern für Formulare
+überhaupt. Ein `result` ohne Formular ist keine Auskunft — hier wäre die
+Vorgabe besonders irreführend, denn sie sagt `open`, und der Client zeigte
+einen geschützten Knoten als offen an. Ein `type='error'` bleibt eine Absage,
+auch wenn ein vollständiges Formular darin steht; das war die einzige
+überlebende Mutation, und der Test dazu ist wörtlich derselbe Gedanke wie in
+D71.
+
+Die Konsole setzt beim Umstellen des Zugriffs auf dem **gelesenen Stand** auf
+und nicht auf der Vorgabe. Sonst setzte ein `/pubsub access` nebenbei die
+Ablage und die Zahl der Einträge zurück — eine Änderung, nach der niemand
+gefragt hat, und die stillste Art, die eigene Konfiguration zu verlieren.
+
+Vierunddreissig Tests, acht Mutationen, alle erschlagen. Voller Lauf: 1030
+bestanden, 7 übersprungen.
+
+Damit ist die PubSub-Reihe (D70–D78) abgeschlossen. **Was von XEP-0060
+weiterhin fehlt**, und es steht so im README: Sammelabfragen (`<subscriptions/>`,
+`<affiliations/>`), das Löschen und Leeren von Knoten, `<retract/>`, die
+Genehmigungsvorgänge hinter `authorize`, und die Zugriffsmodelle `roster` und
+`whitelist`.
+
+---
+
 ## Später
 
 ### Testsammlung

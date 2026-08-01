@@ -50,7 +50,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 |-----|------|--------|-----------|
 | XEP-0013 | Flexible Offline Message Retrieval | ⛔ | Von der XSF als *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the protocol described herein is not recommended." Die Offline-Ablage bleibt beim automatischen Nachreichen nach RFC 6121 §8.5.2.2.1 und XEP-0160 — siehe [WORKPLAN.md](../WORKPLAN.md), D37 |
 | XEP-0030 | Service Discovery | ✅ | disco#info und disco#items, abgefragt und beantwortet. Das `node` der Anfrage wird nach §3.2 gespiegelt; beantwortet werden nur Nodes, die diese Entity bezeichnen — der Caps-Node mit und ohne aktuelles `#ver` (XEP-0115 §6.2). Jeder andere, auch ein veraltetes `ver`, bekommt `<item-not-found/>` mit der Anfrage zurück. disco#items antwortet aus `DiscoManager.LocalItems` (leer als Vorgabe: ein Client hat keine Untereinheiten); ein `node` ist dort ein Ast im Baum und wird abgewiesen. Der Testserver führt keine Nodes und weist jeden ab |
-| XEP-0060 | Publish-Subscribe | ⚠️ | Eingehende Events werden geparst, gegen Spoofing geprüft und tragen ihre `SubID` aus der SHIM-Kopfzeile. Ausgehend wird jede Anfrage mit ihrer Antwort korreliert: Ein Abonnement gilt erst nach der Zusage des Dienstes, `pending` zählt nicht als Zusage, mehrere Abonnements auf denselben Knoten stehen nebeneinander, und ohne `subid` wird bei mehreren weder abbestellt noch eingestellt. Die Konfiguration je Abonnement (§6.3) wird gelesen und gesetzt — vermerkt wird nur, was der Dienst bestätigt hat. Nicht umgesetzt: Knotenkonfiguration, Sammelabfragen. Siehe [WORKPLAN.md](../WORKPLAN.md), D70–D75 |
+| XEP-0060 | Publish-Subscribe | ⚠️ | Eingehende Events werden geparst, gegen Spoofing geprüft und tragen ihre `SubID` aus der SHIM-Kopfzeile. Ausgehend wird jede Anfrage mit ihrer Antwort korreliert: Ein Abonnement gilt erst nach der Zusage des Dienstes, `pending` zählt nicht als Zusage, mehrere Abonnements auf denselben Knoten stehen nebeneinander, und ohne `subid` wird bei mehreren weder abbestellt noch eingestellt. Die Konfiguration je Abonnement (§6.3) und die eines Knotens (§8.2) werden gelesen und gesetzt — vermerkt wird nur, was der Dienst bestätigt hat, und `<create/>` schickt seine Einstellungen gleich mit, damit der Knoten nicht dazwischen offen steht. Nicht umgesetzt: Sammelabfragen (`<subscriptions/>`, `<affiliations/>`), Löschen und Leeren von Knoten, `<retract/>`. Siehe [WORKPLAN.md](../WORKPLAN.md), D70–D78 |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
@@ -275,7 +275,9 @@ Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
 /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus
 /pubsub pub <node> <id> <data> Item veröffentlichen (Alias: publish)
 /pubsub get <node> [max]       Items abrufen (Alias: items)
-/pubsub create <node>          Node erstellen
+/pubsub create <node> [open|presence]  Node erstellen
+/pubsub cfg <node>             Knoteneinstellungen (Alias: nodecfg)
+/pubsub access <node> <open|presence>  Zugriff umstellen
 /pubsub delete <node>          Node löschen
 ```
 

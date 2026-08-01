@@ -735,6 +735,148 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region CreatingANode_WithItsConfiguration_IsConfirmed()
+
+        /// <summary>
+        /// Anlegen und einstellen in einem Zug - und der Client erfährt, ob
+        /// es geklappt hat.
+        /// </summary>
+        /// <remarks>
+        /// Zwei Schritte hätten eine Lücke: Zwischen dem Anlegen und dem
+        /// Einstellen stünde der Knoten offen, und wer in dieser Zeit fragt,
+        /// bekommt.
+        /// </remarks>
+        [Test]
+        public async Task CreatingANode_WithItsConfiguration_IsConfirmed()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            Assert.That(await bob.PubSubCreateNodeAsync("urn:example:neu",
+                                                        new PubSubNodeConfiguration(PubSubAccessModel.Presence,
+                                                                                    MaxItems: 3),
+                                                        bob.BareJid),
+                        Is.True);
+
+            var gelesen = await bob.PubSubGetNodeConfigAsync("urn:example:neu", bob.BareJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(gelesen,              Is.Not.Null);
+                Assert.That(gelesen!.AccessModel, Is.EqualTo(PubSubAccessModel.Presence));
+                Assert.That(gelesen!.MaxItems,    Is.EqualTo(3));
+            });
+
+        }
+
+        #endregion
+
+        #region CreatingANodeTwice_IsReported()
+
+        /// <summary>
+        /// Der zweite Versuch wird als Fehlschlag gemeldet und nicht als
+        /// Erfolg.
+        /// </summary>
+        [Test]
+        public async Task CreatingANodeTwice_IsReported()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            Assert.That(await bob.PubSubCreateNodeAsync("urn:example:neu", service: bob.BareJid), Is.True);
+            Assert.That(await bob.PubSubCreateNodeAsync("urn:example:neu", service: bob.BareJid), Is.False,
+                        "Was es gibt, wird nicht noch einmal angelegt.");
+
+        }
+
+        #endregion
+
+        #region ConfiguringSomebodyElsesNode_IsReported()
+
+        /// <summary>
+        /// Eine abgewiesene Einstellung wird als solche gemeldet.
+        /// </summary>
+        [Test]
+        public async Task ConfiguringSomebodyElsesNode_IsReported()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await alice.PubSubConfigureNodeAsync(Node,
+                                                             new PubSubNodeConfiguration(PersistItems: false),
+                                                             BobsJid),
+                        Is.False);
+
+            Assert.That(Server.GetAccount(BobsJid)!.PepNodeConfiguration(Node)!.PersistItems,
+                        Is.True,
+                        "Und sie darf nichts geändert haben.");
+
+        }
+
+        #endregion
+
+        #region AnErrorCarryingAForm_IsStillARejection()
+
+        /// <summary>
+        /// Ein <c>type='error'</c> bleibt eine Absage, auch wenn ein
+        /// vollständiges Knotenformular darin steht.
+        /// </summary>
+        /// <remarks>
+        /// Dieselbe Stelle wie bei der Zusage in D71: Ohne die Prüfung auf den
+        /// Typ hinge die Ablehnung allein daran, dass in einer Fehlerantwort
+        /// zufällig kein Formular steht. Das ist keine Entscheidung, sondern
+        /// ein Zufall, der lange gutgeht.
+        /// </remarks>
+        [Test]
+        public async Task AnErrorCarryingAForm_IsStillARejection()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            PlayTheService("<configure",
+                           "<iq type='error' id='{id}'>" +
+                           "<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
+                           $"<configure node='{Node}'>" +
+                           "<x xmlns='jabber:x:data' type='form'>" +
+                           "<field var='FORM_TYPE' type='hidden'>" +
+                           "<value>http://jabber.org/protocol/pubsub#node_config</value></field>" +
+                           "<field var='pubsub#access_model' type='list-single'><value>open</value></field>" +
+                           "</x></configure></pubsub>" +
+                           "<error type='auth'><forbidden xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>");
+
+            Assert.That(await bob.PubSubGetNodeConfigAsync(Node, bob.BareJid), Is.Null);
+
+        }
+
+        #endregion
+
+        #region AResultWithoutAForm_IsNoNodeConfiguration()
+
+        /// <summary>
+        /// Auch beim Knoten gilt: Ein <c>result</c> ohne Formular ist keine
+        /// Auskunft.
+        /// </summary>
+        /// <remarks>
+        /// Hier wäre die Vorgabe besonders irreführend, denn sie sagt
+        /// <c>open</c> - der Client zeigte einen geschützten Knoten als offen
+        /// an.
+        /// </remarks>
+        [Test]
+        public async Task AResultWithoutAForm_IsNoNodeConfiguration()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            PlayTheService("<configure", "<iq type='result' id='{id}'/>");
+
+            Assert.That(await bob.PubSubGetNodeConfigAsync(Node, bob.BareJid), Is.Null);
+
+        }
+
+        #endregion
+
         #region AResultWithoutAForm_IsNoAnswerAboutTheOptions()
 
         /// <summary>

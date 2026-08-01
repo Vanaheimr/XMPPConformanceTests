@@ -797,8 +797,19 @@ public sealed class XMPPClient : IAsyncDisposable
     public Task<Boolean> PubSubPublishAsync(String nodeId, String itemId, String payload, String? service = null)
         => _connection.PubSubPublishAsync(nodeId, itemId, payload, service);
 
-    public Task<Boolean> PubSubCreateNodeAsync(String nodeId, String? service = null)
-        => _connection.PubSubCreateNodeAsync(nodeId, service);
+    /// <summary>
+    /// Legt einen Knoten an, wahlweise gleich mit seinen Einstellungen.
+    /// </summary>
+    public Task<Boolean> PubSubCreateNodeAsync(String nodeId, PubSubNodeConfiguration? configuration = null, String? service = null)
+        => _connection.PubSubCreateNodeAsync(nodeId, configuration, service);
+
+    /// <summary>Liest die Einstellungen eines Knotens.</summary>
+    public Task<PubSubNodeConfiguration?> PubSubGetNodeConfigAsync(String nodeId, String? service = null)
+        => _connection.PubSubGetNodeConfigAsync(nodeId, service);
+
+    /// <summary>Stellt einen Knoten ein - nur der Eigentümer darf das.</summary>
+    public Task<Boolean> PubSubConfigureNodeAsync(String nodeId, PubSubNodeConfiguration configuration, String? service = null)
+        => _connection.PubSubConfigureNodeAsync(nodeId, configuration, service);
 
     public Task<Boolean> PubSubDeleteNodeAsync(String nodeId, String? service = null)
         => _connection.PubSubDeleteNodeAsync(nodeId, service);
