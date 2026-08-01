@@ -5977,6 +5977,44 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D83. Zum dritten Mal dieselbe Stelle ✅ — Rollen auf der Clientseite
+
+Vergeben, nachsehen, wirken lassen — die Clientseite von D81/D82. Drei Fragen,
+die auseinandergehalten gehören: **was habe ich vergeben** (Abschnitt 8.9.1),
+**was bin ich anderswo** (5.7), und darf ich, was die Rolle verspricht.
+
+Beide Listen sehen gleich aus und werden von einer Stelle gelesen; sie
+unterscheiden sich im Namensraum und darin, ob der Eintrag einen Knoten oder
+einen JID nennt. Zwei Mutationen haben genau diese Verwechslung geprüft.
+
+**Ein Eintrag mit einer unbekannten Rolle lässt die ganze Liste scheitern**,
+statt still zu fehlen. Eine Liste, aus der einzelne Zeilen verschwinden, ist
+schlimmer als keine: Wer sie ansieht, hält jemanden für rechtlos, der es nicht
+ist — und nimmt ihm womöglich auch noch die Rolle, die er zu haben glaubte.
+
+Und die überlebende Mutation war zum dritten Mal dieselbe: **Ein `type='error'`
+bleibt eine Absage, auch wenn eine vollständige Liste darin steht.** Ohne die
+Prüfung auf den Typ hinge die Ablehnung daran, dass in einer Fehlerantwort
+zufällig keine Liste steht. Hier wäre die Verwechslung besonders unangenehm —
+der Client zeigte eine Rollenliste an, die er nicht einsehen darf, und der
+Eigentümer erführe daraus, dass sein Knoten offener steht, als er steht.
+
+Beim Testschreiben eine eigene Falle vermieden: `Assert.Multiple` nimmt eine
+`Action`. Ein `async`-Lambda darin liefe als `async void` weiter, und die
+Zusicherungen fielen womöglich nach dem Block — also nirgends. Erst awaiten,
+dann prüfen.
+
+Fünfundvierzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1061
+bestanden, 7 übersprungen.
+
+Damit sind die Rollen fertig (D81–D83) und von XEP-0060 bleibt: die
+Eigentümer-Sicht auf die **Abonnenten** eines Knotens (Abschnitt 8.8), das
+Löschen und Leeren von Knoten, `<retract/>`, sowie die Zugriffsmodelle
+`authorize` und `roster` — für die es einen Genehmigungsvorgang und
+Rostergruppen als Zugriffsregel bräuchte.
+
+---
+
 ## Später
 
 ### Testsammlung

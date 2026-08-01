@@ -3129,6 +3129,105 @@ public sealed class XMPPConnection : IAsyncDisposable
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 5.7: Holt die eigenen Rollen - was bin ich wo?
+    /// </summary>
+    /// <returns>
+    /// Je Knoten die Rolle, oder null bei Absage und Schweigen.
+    /// </returns>
+    public async Task<IReadOnlyList<(String NodeId, PubSubAffiliation Affiliation)>?>
+        PubSubGetAffiliationsAsync(String? service = null, CancellationToken ct = default)
+
+        => await ReadAffiliationsAsync(PubSubBuilder.GetAffiliations(service ?? PubSub!.PubSubService,
+                                                                     NextPubSubId()),
+                                       PubSubSubscription.Namespace, "node", ct);
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.9.1: Holt als Eigentümer die Rollen an einem
+    /// Knoten.
+    /// </summary>
+    /// <returns>
+    /// Je Eintrag der JID und seine Rolle, oder null - <b>etwa, weil der
+    /// Knoten einem anderen gehört.</b> Das ist keine leere Liste: „Ich weiss
+    /// es nicht" und „da ist niemand" sind zwei Antworten.
+    /// </returns>
+    public async Task<IReadOnlyList<(String Jid, PubSubAffiliation Affiliation)>?>
+        PubSubGetNodeAffiliationsAsync(String             nodeId,
+                                       String?            service  = null,
+                                       CancellationToken  ct       = default)
+
+        => await ReadAffiliationsAsync(PubSubBuilder.GetNodeAffiliations(service ?? PubSub!.PubSubService,
+                                                                         nodeId, NextPubSubId()),
+                                       PubSubBuilder.OwnerNamespace, "jid", ct);
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.9.2: Setzt als Eigentümer eine Rolle.
+    /// </summary>
+    public async Task<Boolean> PubSubSetAffiliationAsync(String             nodeId,
+                                                         String             jid,
+                                                         PubSubAffiliation  affiliation,
+                                                         String?            service  = null,
+                                                         CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.SetAffiliation(service ?? PubSub!.PubSubService,
+                                                                 nodeId, NextPubSubId(), jid,
+                                                                 PubSubAffiliations.NameOf(affiliation)),
+                                    "Rolle setzen", nodeId, ct);
+
+    /// <summary>
+    /// Liest eine Rollenliste - beide sehen gleich aus, nur der Namensraum und
+    /// das kennzeichnende Attribut unterscheiden sich.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ein Eintrag mit einer unbekannten Rolle lässt die ganze Liste
+    /// scheitern</b>, statt still zu fehlen. Eine Liste, aus der einzelne
+    /// Zeilen verschwinden, ist schlimmer als keine: Wer sie ansieht, hält
+    /// jemanden für rechtlos, der es nicht ist.
+    /// </remarks>
+    private async Task<IReadOnlyList<(String, PubSubAffiliation)>?> ReadAffiliationsAsync(String             iq,
+                                                                                          String             ns,
+                                                                                          String             key,
+                                                                                          CancellationToken  ct)
+    {
+
+        var id       = XElement.Parse(iq).Attr("id")!;
+        var antwort  = await SendIqAsync(id, iq, ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: die Rollen nicht gelesen: {Reason}",
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return null;
+        }
+
+        var liste = antwort.Child(ns, "pubsub")?.Child(ns, "affiliations");
+
+        if (liste is null)
+        {
+            _logger.LogWarning("PubSub: die Antwort enthält keine Rollenliste");
+            return null;
+        }
+
+        var gelesen = new List<(String, PubSubAffiliation)>();
+
+        foreach (var eintrag in liste.Children(ns, "affiliation"))
+        {
+
+            if (eintrag.Attr(key) is not String wer ||
+                !PubSubAffiliations.TryRead(eintrag.Attr("affiliation"), out var rolle))
+            {
+                _logger.LogWarning("PubSub: unlesbarer Eintrag in der Rollenliste: {Eintrag}", eintrag);
+                return null;
+            }
+
+            gelesen.Add((wer, rolle));
+
+        }
+
+        return gelesen;
+
+    }
+
+    /// <summary>
     /// XEP-0060, Abschnitt 6.3.1: Holt die Einstellungen eines Abonnements.
     /// </summary>
     /// <returns>

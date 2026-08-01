@@ -943,7 +943,9 @@ class Program
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
             Console.WriteLine("  /pubsub create <node> [open|presence]  Node erstellen");
             Console.WriteLine("  /pubsub cfg <node>           Knoteneinstellungen");
-            Console.WriteLine("  /pubsub access <node> <open|presence>  Zugriff umstellen");
+            Console.WriteLine("  /pubsub access <node> <open|presence|whitelist>  Zugriff umstellen");
+            Console.WriteLine("  /pubsub rollen <node>        Wer ist was an diesem Knoten");
+            Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
             Console.WriteLine("  /pubsub delete <node>        Node löschen");
             Console.WriteLine();
             Console.WriteLine("  Ohne <jid> geht die Anfrage an pubsub.<domain>. Ein PEP-Knoten");
@@ -956,7 +958,8 @@ class Program
 
         string[] nodeCommands = ["sub", "subscribe", "unsub", "unsubscribe",
                                  "pub", "publish", "get", "items", "create", "delete",
-                                 "opts", "options", "deliver", "cfg", "nodecfg", "access"];
+                                 "opts", "options", "deliver", "cfg", "nodecfg", "access",
+                                 "rollen", "affiliations", "rolle"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1079,6 +1082,36 @@ class Program
                 Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId, zugang)
                                       ? $"➕ Node erstellt: {nodeId}" + (zugang is not null ? " (presence)" : "")
                                       : $"⚠️ Node nicht erstellt: {nodeId} - siehe Log");
+                break;
+
+            // Wer ist was an meinem Knoten - und was bin ich anderswo?
+            case "rollen" or "affiliations":
+                var amKnoten = await _client!.PubSubGetNodeAffiliationsAsync(nodeId);
+
+                if (amKnoten is null)
+                    Console.WriteLine($"⚠️ Rollen nicht gelesen: {nodeId} - siehe Log");
+
+                else
+                    foreach (var (wer, rolle) in amKnoten)
+                        Console.WriteLine($"   {wer}: {PubSubAffiliations.NameOf(rolle)}");
+                break;
+
+            case "rolle":
+                if (parts.Length < 4)
+                {
+                    Console.WriteLine("Syntax: /pubsub rolle <node> <jid> <owner|publisher|member|outcast|none>");
+                    return;
+                }
+
+                if (!PubSubAffiliations.TryRead(parts[3].ToLower(), out var gewuenschte))
+                {
+                    Console.WriteLine($"Unbekannte Rolle: {parts[3]}");
+                    return;
+                }
+
+                Console.WriteLine(await _client!.PubSubSetAffiliationAsync(nodeId, parts[2], gewuenschte)
+                                      ? $"👤 {parts[2]} ist jetzt {parts[3].ToLower()} an {nodeId}"
+                                      : $"⚠️ Rolle nicht gesetzt: {nodeId} - siehe Log");
                 break;
 
             case "cfg" or "nodecfg":

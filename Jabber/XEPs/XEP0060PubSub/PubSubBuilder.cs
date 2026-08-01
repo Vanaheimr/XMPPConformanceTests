@@ -66,6 +66,38 @@ public static class PubSubBuilder
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 5.7: Die eigenen Rollen abfragen.
+    /// </summary>
+    public static string GetAffiliations(string pubsubJid, string id = "pubsub-affs")
+    {
+        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='http://jabber.org/protocol/pubsub'><affiliations/></pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.9.1: Die Rollen an einem eigenen Knoten abfragen.
+    /// </summary>
+    public static string GetNodeAffiliations(string pubsubJid, string nodeId, string id = "pubsub-nodeaffs")
+    {
+        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<affiliations node='{XmlEscaping.Escape(nodeId)}'/>" +
+               "</pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.9.2: Eine Rolle setzen.
+    /// </summary>
+    public static string SetAffiliation(string pubsubJid, string nodeId, string id, string jid, string affiliation)
+    {
+        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<affiliations node='{XmlEscaping.Escape(nodeId)}'>" +
+               $"<affiliation jid='{XmlEscaping.Escape(jid)}' affiliation='{affiliation}'/>" +
+               "</affiliations></pubsub></iq>";
+    }
+
+    /// <summary>
     /// XEP-0060, Abschnitt 6.3.1: Die Einstellungen eines Abonnements abfragen.
     /// </summary>
     public static string GetOptions(string pubsubJid, string nodeId, string myJid, string id = "pubsub-opts", string? subId = null)

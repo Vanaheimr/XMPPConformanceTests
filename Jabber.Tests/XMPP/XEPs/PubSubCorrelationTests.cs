@@ -1026,6 +1026,141 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region ARole_IsGrantedAndThenVisibleOnBothSides()
+
+        /// <summary>
+        /// Vergeben, nachsehen, wirken lassen - alles über den Client.
+        /// </summary>
+        /// <remarks>
+        /// Drei Fragen, die auseinandergehalten gehören: Was habe ich vergeben
+        /// (Abschnitt 8.9.1), was bin ich anderswo (5.7), und darf ich, was
+        /// die Rolle verspricht.
+        /// </remarks>
+        [Test]
+        public async Task ARole_IsGrantedAndThenVisibleOnBothSides()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await bob.PubSubSetAffiliationAsync(Node, alice.BareJid,
+                                                            PubSubAffiliation.Publisher, bob.BareJid),
+                        Is.True);
+
+            var amKnoten = await bob.PubSubGetNodeAffiliationsAsync(Node, bob.BareJid);
+
+            Assert.That(amKnoten, Is.EquivalentTo(new[] {
+                            (bob.BareJid,   PubSubAffiliation.Owner),
+                            (alice.BareJid, PubSubAffiliation.Publisher)
+                        }));
+
+            var alices = await alice.PubSubGetAffiliationsAsync(BobsJid);
+
+            Assert.That(alices, Is.EqualTo(new[] { (Node, PubSubAffiliation.Publisher) }));
+
+            Assert.That(await alice.PubSubPublishAsync(Node, "70", Payload("von Alice"), BobsJid),
+                        Is.True,
+                        "Und die Rolle erlaubt, was sie verspricht.");
+
+        }
+
+        #endregion
+
+        #region ARoleTheServiceRefuses_IsReported()
+
+        /// <summary>
+        /// Eine abgelehnte Vergabe wird als solche gemeldet.
+        /// </summary>
+        [Test]
+        public async Task ARoleTheServiceRefuses_IsReported()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            // Kein Assert.Multiple mit async-Lambda: Das nimmt eine Action,
+            // der Rumpf liefe als async void weiter, und die Zusicherungen
+            // fielen womöglich nach dem Block - also nirgends.
+            var vergeben  = await alice.PubSubSetAffiliationAsync(Node, alice.BareJid,
+                                                                  PubSubAffiliation.Publisher, BobsJid);
+
+            var eingesehen = await alice.PubSubGetNodeAffiliationsAsync(Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(vergeben,   Is.False, "Rollen vergibt der Eigentümer.");
+                Assert.That(eingesehen, Is.Null,  "Und wer sie nicht vergeben darf, sieht sie auch nicht ein.");
+            });
+
+        }
+
+        #endregion
+
+        #region AnErrorCarryingARoleList_IsStillARejection()
+
+        /// <summary>
+        /// Zum dritten Mal dieselbe Stelle: Ein <c>type='error'</c> bleibt eine
+        /// Absage, auch mit vollständiger Liste darin.
+        /// </summary>
+        /// <remarks>
+        /// Hier wäre die Verwechslung besonders unangenehm: Der Client zeigte
+        /// eine Rollenliste an, die er nicht einsehen darf - und der
+        /// Eigentümer erführe daraus, dass sein Knoten offener steht, als er
+        /// steht.
+        /// </remarks>
+        [Test]
+        public async Task AnErrorCarryingARoleList_IsStillARejection()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            PlayTheService("<affiliations",
+                           "<iq type='error' id='{id}'>" +
+                           "<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
+                           $"<affiliations node='{Node}'>" +
+                           $"<affiliation jid='bob@{Server.Domain}' affiliation='owner'/>" +
+                           "</affiliations></pubsub>" +
+                           "<error type='auth'><forbidden xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>");
+
+            Assert.That(await bob.PubSubGetNodeAffiliationsAsync(Node, bob.BareJid), Is.Null);
+
+        }
+
+        #endregion
+
+        #region AnUnreadableEntry_InvalidatesTheWholeList()
+
+        /// <summary>
+        /// Ein Eintrag mit einer unbekannten Rolle lässt die ganze Liste
+        /// scheitern.
+        /// </summary>
+        /// <remarks>
+        /// <b>Eine Liste, aus der einzelne Zeilen verschwinden, ist schlimmer
+        /// als keine:</b> Wer sie ansieht, hält jemanden für rechtlos, der es
+        /// nicht ist - und nimmt ihm womöglich auch noch die Rolle, die er zu
+        /// haben glaubte.
+        /// </remarks>
+        [Test]
+        public async Task AnUnreadableEntry_InvalidatesTheWholeList()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            PlayTheService("<affiliations",
+                           "<iq type='result' id='{id}'>" +
+                           "<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
+                           $"<affiliations node='{Node}'>" +
+                           $"<affiliation jid='bob@{Server.Domain}' affiliation='owner'/>" +
+                           $"<affiliation jid='alice@{Server.Domain}' affiliation='publish-only'/>" +
+                           "</affiliations></pubsub></iq>");
+
+            Assert.That(await bob.PubSubGetNodeAffiliationsAsync(Node, bob.BareJid), Is.Null);
+
+        }
+
+        #endregion
+
         #region CreatingANode_WithItsConfiguration_IsConfirmed()
 
         /// <summary>
