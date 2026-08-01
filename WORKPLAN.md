@@ -5809,6 +5809,40 @@ Genehmigungsvorgänge hinter `authorize`, und die Zugriffsmodelle `roster` und
 
 ---
 
+### D79. Die Frage, die sich niemand selbst beantworten kann ✅ — `<subscriptions/>`
+
+XEP-0060, Abschnitt 5.6: eine Anfrage, und alle eigenen Abonnements stehen da —
+über alle Knoten hinweg, mit Knoten, Kennung und Zustand; auf Wunsch auf einen
+Knoten eingeschränkt.
+
+**Der Anlass ist ein Loch, das die letzten Etappen selbst aufgemacht haben.**
+Der `PubSubManager` wird in `InitialiseManagers` erzeugt, und das läuft bei
+jedem Verbindungsaufbau — nur der Stream-Management-Manager überlebt einen
+Reconnect, ausdrücklich und kommentiert. Danach ist die Buchführung leer, die
+Abonnements aber nicht: Sie stehen am Konto und überdauern. Der Client kennt
+also keine einzige `subid` mehr, und seit D72 weist der Dienst ein `unsubscribe`
+ohne Kennung ab, sobald es mehrere gibt. Wer dann neu abonniert, hat zwei und
+kann keines davon beenden.
+
+Das ist genau die Klemme, mit der ich D72 begründet habe („ein Client startet
+neu und abonniert wieder") — **ohne zu bemerken, dass unser eigener Client bei
+jedem Abriss hineinläuft.**
+
+Die schärfste Regel steht in einem Satz: **Aufgezählt werden die Abonnements
+des Fragenden, nie die eines anderen.** Das ist keine Auslegungsfrage — wer
+fremde aufzählen dürfte, erführe, wer sich wofür interessiert. Eine Auskunft
+über Menschen, nicht über Knoten.
+
+Und keine Abonnements sind eine leere Liste und kein Fehler: Die Frage war
+beantwortbar, die Antwort lautet „keine". Ein Fehler hiesse etwas anderes —
+dass sich die Frage nicht stellen liess —, und ein Client müsste anschliessend
+raten, woran es lag.
+
+Dreiundfünfzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1035
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

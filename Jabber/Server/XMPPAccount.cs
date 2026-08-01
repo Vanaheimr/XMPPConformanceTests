@@ -666,6 +666,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                            : [];
         }
 
+        /// <summary>
+        /// Alle Abonnements eines JIDs über alle Knoten dieses Kontos
+        /// (XEP-0060, Abschnitt 5.6).
+        /// </summary>
+        /// <remarks>
+        /// <b>Die Frage, die sich ein Client nicht selbst beantworten kann.</b>
+        /// Seine Buchführung steht im Arbeitsspeicher und ist nach einem
+        /// Verbindungsabriss leer; die Abonnements bestehen weiter, denn sie
+        /// stehen hier am Konto. Ohne diesen Weg kennt er danach keine einzige
+        /// Kennung mehr - und kann bei mehreren Abonnements auf denselben
+        /// Knoten keines davon beenden.
+        /// </remarks>
+        public IReadOnlyList<(String Node, PepSubscription Subscription)> PepSubscriptionsOf(String subscriberBareJid)
+        {
+            lock (_lock)
+                return [.. _pepSubscriptions
+                           .SelectMany(knoten => knoten.Value.Select(a => (knoten.Key, a)))
+                           .Where(e => String.Equals(e.a.Jid, subscriberBareJid, StringComparison.OrdinalIgnoreCase))];
+        }
+
         #endregion
 
         /// <summary>

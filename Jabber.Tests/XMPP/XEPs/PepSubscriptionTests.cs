@@ -225,6 +225,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private static String DeliverField(String wert)
             => $"<field var='pubsub#deliver'><value>{wert}</value></field>";
 
+        /// <summary>Eine Sammelabfrage der eigenen Abonnements.</summary>
+        private String SubscriptionsIq(String id, String? node = null)
+            => $"<iq type='get' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{PubSubNamespace}'>" +
+               "<subscriptions" + (node is null ? "" : $" node='{node}'") + "/>" +
+               "</pubsub></iq>";
+
+        /// <summary>Die Einträge einer Sammelabfrage.</summary>
+        private static List<XElement> SubscriptionsIn(XElement antwort)
+            => [.. antwort.Child(PubSubNamespace, "pubsub")
+                         ?.Child(PubSubNamespace, "subscriptions")
+                         ?.Children(PubSubNamespace, "subscription") ?? []];
+
         private const String OwnerNamespace = "http://jabber.org/protocol/pubsub#owner";
 
         /// <summary>Ein <c>&lt;configure/&gt;</c>-IQ im Eigentümer-Namensraum.</summary>
@@ -1683,6 +1696,183 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node).Select(e => e.ItemId),
                         Does.Not.Contain("43"));
+
+        }
+
+        #endregion
+
+        #region TheSubscriptionList_NamesEveryNodeAndSubId()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 5.6: Eine Anfrage, und alle eigenen
+        /// Abonnements stehen da.
+        /// </summary>
+        /// <remarks>
+        /// Das ist die Frage, die sich ein Client nicht selbst beantworten
+        /// kann: Seine Buchführung steht im Arbeitsspeicher, die Abonnements
+        /// stehen am Konto.
+        /// </remarks>
+        [Test]
+        public async Task TheSubscriptionList_NamesEveryNodeAndSubId()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "new-10",
+                           PubSubBuilder.CreateNode($"bob@{Server.Domain}", "urn:example:zweiter", "new-10"));
+
+            var alice   = await ConnectClientAsync("alice");
+            var ersteId = await SubscribeAsync(alice, "sub-50");
+
+            var zweite  = await AskAsync(alice, "sub-51",
+                                         PubSubBuilder.Subscribe($"bob@{Server.Domain}", "urn:example:zweiter",
+                                                                 alice.BareJid, "sub-51"));
+
+            var zweiteId = SubscriptionOf(zweite)?.Attr("subid");
+
+            var liste = await AskAsync(alice, "list-1", SubscriptionsIq("list-1"));
+
+            var eintraege = SubscriptionsIn(liste);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(liste.Attr("type"), Is.EqualTo("result"));
+
+                Assert.That(eintraege.Select(e => (e.Attr("node"), e.Attr("subid"))),
+                            Is.EquivalentTo(new[] { (Node, ersteId), ("urn:example:zweiter", zweiteId) }));
+
+                Assert.That(eintraege.Select(e => e.Attr("jid")).Distinct(),
+                            Is.EqualTo(new[] { alice.BareJid }));
+
+                Assert.That(eintraege.Select(e => e.Attr("subscription")).Distinct(),
+                            Is.EqualTo(new[] { "subscribed" }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheSubscriptionList_ShowsOnlyMyOwn()
+
+        /// <summary>
+        /// Fremde Abonnements zählt niemand auf.
+        /// </summary>
+        /// <remarks>
+        /// <b>Das ist eine Auskunft über Menschen und nicht über Knoten.</b>
+        /// Wer sie bekäme, erführe, wer sich wofür interessiert - und Carol
+        /// hätte niemandem etwas gesagt.
+        /// </remarks>
+        [Test]
+        public async Task TheSubscriptionList_ShowsOnlyMyOwn()
+        {
+
+            await PublishingBobAsync();
+
+            var carol = await ConnectClientAsync("carol");
+            await SubscribeAsync(carol, "sub-52");
+
+            var alice = await ConnectClientAsync("alice");
+            await SubscribeAsync(alice, "sub-53");
+
+            var liste = await AskAsync(alice, "list-2", SubscriptionsIq("list-2"));
+
+            Assert.That(SubscriptionsIn(liste).Select(e => e.Attr("jid")),
+                        Is.EqualTo(new[] { alice.BareJid }),
+                        "In der Liste stehen fremde Abonnements.");
+
+        }
+
+        #endregion
+
+        #region TheSubscriptionList_CanBeScopedToOneNode()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 5.6: mit <c>node</c> nur dessen Abonnements.
+        /// </summary>
+        [Test]
+        public async Task TheSubscriptionList_CanBeScopedToOneNode()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "new-11",
+                           PubSubBuilder.CreateNode($"bob@{Server.Domain}", "urn:example:zweiter", "new-11"));
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-54");
+
+            await AskAsync(alice, "sub-55",
+                           PubSubBuilder.Subscribe($"bob@{Server.Domain}", "urn:example:zweiter",
+                                                   alice.BareJid, "sub-55"));
+
+            var liste = await AskAsync(alice, "list-3", SubscriptionsIq("list-3", "urn:example:zweiter"));
+
+            Assert.That(SubscriptionsIn(liste).Select(e => e.Attr("node")),
+                        Is.EqualTo(new[] { "urn:example:zweiter" }));
+
+        }
+
+        #endregion
+
+        #region TwoSubscriptionsOnOneNode_AppearTwice()
+
+        /// <summary>
+        /// Und damit wird die Klemme aus K3 auflösbar: Beide Kennungen stehen
+        /// in der Liste.
+        /// </summary>
+        /// <remarks>
+        /// Wer nach einem Verbindungsabriss zweimal abonniert hat, konnte
+        /// bisher keines davon beenden - der Dienst verlangt bei mehreren eine
+        /// Kennung, und der Client kannte keine mehr. Hier stehen sie.
+        /// </remarks>
+        [Test]
+        public async Task TwoSubscriptionsOnOneNode_AppearTwice()
+        {
+
+            await PublishingBobAsync();
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var erste  = await SubscribeAsync(alice, "sub-56");
+            var zweite = await SubscribeAsync(alice, "sub-57");
+
+            var liste = await AskAsync(alice, "list-4", SubscriptionsIq("list-4"));
+
+            Assert.That(SubscriptionsIn(liste).Select(e => e.Attr("subid")),
+                        Is.EquivalentTo(new[] { erste, zweite }));
+
+        }
+
+        #endregion
+
+        #region WithoutAnySubscription_TheListIsEmptyAndNoError()
+
+        /// <summary>
+        /// Keine Abonnements sind eine leere Liste und kein Fehler.
+        /// </summary>
+        /// <remarks>
+        /// Die Frage war beantwortbar, die Antwort lautet „keine". Ein Fehler
+        /// hiesse etwas anderes - nämlich dass sich die Frage nicht stellen
+        /// liess, und ein Client müsste anschliessend raten, woran es lag.
+        /// </remarks>
+        [Test]
+        public async Task WithoutAnySubscription_TheListIsEmptyAndNoError()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var liste = await AskAsync(alice, "list-5", SubscriptionsIq("list-5"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(liste.Attr("type"), Is.EqualTo("result"));
+                Assert.That(SubscriptionsIn(liste), Is.Empty);
+            });
 
         }
 

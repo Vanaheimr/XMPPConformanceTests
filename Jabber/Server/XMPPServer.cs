@@ -2309,6 +2309,48 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             #endregion
 
+            #region Abonnements aufzählen
+
+            if (type == "get" && pubsub.Child(OmemoPep.PubSubNamespace, "subscriptions") is { } aufzaehlung)
+            {
+
+                var konto = to is null
+                                ? session.Account
+                                : GetAccount(BareOf(to));
+
+                var knoten = aufzaehlung.Attr("node");
+
+                // XEP-0060, Abschnitt 5.6: die Abonnements *des Fragenden*.
+                //
+                // Nie die eines anderen, und das ist keine Auslegungsfrage:
+                // Wer fremde aufzählen dürfte, erführe, wer sich wofür
+                // interessiert - eine Auskunft über Menschen, nicht über
+                // Knoten.
+                var seine = konto?.PepSubscriptionsOf(session.BareJid!) ?? [];
+
+                if (!String.IsNullOrEmpty(knoten))
+                    seine = [.. seine.Where(e => String.Equals(e.Node, knoten, StringComparison.Ordinal))];
+
+                // Keine Abonnements ist eine leere Liste und kein Fehler: Die
+                // Frage war beantwortbar, die Antwort lautet „keine".
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'" +
+                    (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + ">" +
+                    $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
+                    "<subscriptions" + (String.IsNullOrEmpty(knoten) ? "" : $" node='{XmlEscaping.Escape(knoten)}'") + ">" +
+                    String.Concat(seine.Select(e =>
+                        $"<subscription node='{XmlEscaping.Escape(e.Node)}'" +
+                        $" jid='{XmlEscaping.Escape(e.Subscription.Jid)}'" +
+                        $" subid='{e.Subscription.SubId}'" +
+                        " subscription='subscribed'/>")) +
+                    "</subscriptions></pubsub></iq>");
+
+                return true;
+
+            }
+
+            #endregion
+
             #region Abonnieren
 
             if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "subscribe") is { } subscribe)

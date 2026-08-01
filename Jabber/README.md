@@ -661,6 +661,10 @@ miteinander sprechen:
   mit `<conflict/>` und `<precondition-not-met/>` abgewiesen. Damit hat die
   Bedingung Wirkung, die OMEMO seit jeher mitschickt (XEP-0384 §5.2: ein Bundle
   muss offen abrufbar sein)
+- XEP-0060 §5.6 `<subscriptions/>`: alle Abonnements des Fragenden über alle
+  Knoten, mit Kennung und Zustand, auf Wunsch auf einen Knoten eingeschränkt.
+  **Nur die eigenen** — wer fremde aufzählen dürfte, erführe, wer sich wofür
+  interessiert. Keine Abonnements sind eine leere Liste und kein Fehler
 - XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
   **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
   ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die
