@@ -5599,6 +5599,55 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D74. Ein Feld, und das ist die Aussage ✅ — Konfiguration je Abonnement
+
+Der letzte offene Punkt aus D72: **die Konfiguration je Abonnement** (XEP-0060,
+Abschnitt 6.3) — der Grund, aus dem sich zwei Abonnements desselben JIDs auf
+denselben Knoten überhaupt unterscheiden können. Bis hierher waren zwei
+Abonnements zwei gleiche Dinge, und das zweite brachte nichts ein als eine
+zweite Zustellung. Jetzt ist die `subid` nicht nur eine Kennung, sondern **die
+Adresse einer Einstellung**.
+
+**Das Formular hat genau ein Feld: `pubsub#deliver`.** XEP-0060 kennt ein
+Dutzend weitere — Zusammenfassungen, Ablauffristen, Tiefe, Presence-Filter. Was
+dieser Server nicht kann, bietet er auch nicht an: Ein Formular mit
+`pubsub#digest` darin, das dann nichts bewirkt, wäre eine Zusage ohne Deckung,
+und zwar eine, die der Abonnent nicht nachprüfen kann — **eine ausbleibende
+Zusammenfassung sieht aus wie Ruhe.**
+
+Aus demselben Grund wird ein Feld, das im Angebot nicht stand, **abgewiesen
+statt übergangen**. Das ist strenger, als XEP-0004 verlangt: Wer Unbekanntes
+stillschweigend schluckt, lässt den Absender in dem Glauben, seine Einstellung
+gelte. Eine Absage kann man lesen, eine ausbleibende Wirkung nicht.
+
+Drei Entscheidungen, die auch anders hätten ausfallen können:
+
+- **Ein stillgelegtes Abonnement fällt nicht auf die Presence-Zustellung
+  zurück.** Wer gesagt hat, dass er nichts bekommen will, bekommt nichts — auch
+  wenn er nebenbei im Roster steht. Alles andere hiesse, eine ausdrückliche
+  Einstellung über einen zweiten Weg zu unterlaufen.
+- **Ein `set` ohne Formular wird abgewiesen**, statt die Vorgaben einzusetzen.
+  Aus einer unvollständigen Anfrage würde sonst eine Änderung, die niemand
+  verlangt hat — und sie träfe ausgerechnet den, der gerade etwas anderes
+  eingestellt hatte.
+- **Fehlt bei mehreren die Kennung, ist der Fehler ein anderer als beim
+  Abbestellen**: `<not-acceptable/>` statt `<bad-request/>` (Abschnitte 6.3.3
+  gegen 6.2.3.1). Das ist keine Willkür des XEP — dort ist die Anfrage
+  unvollständig, hier ist sie in Ordnung und nur in dieser Lage nicht zu
+  beantworten. Eine Umsetzung, die beide Stellen gleich behandelt, hat eine
+  davon nicht gelesen. Deshalb liefert die gemeinsame Suche den **Befund** und
+  nicht die Antwort.
+
+Die JID-Prüfung steht jetzt an drei Stellen, und die dritte ist die stillste:
+**Wer fremde Abonnements einstellen dürfte, könnte sie lautlos abschalten.** Das
+Abonnement bliebe stehen — es käme nur nichts mehr an, und der Betroffene fände
+in seiner eigenen Liste nichts Auffälliges.
+
+Sechsundzwanzig Tests, elf Mutationen, alle erschlagen. Voller Lauf: 996
+bestanden, 7 übersprungen — und damit hat die Sammlung die tausend überschritten.
+
+---
+
 ## Später
 
 ### Testsammlung

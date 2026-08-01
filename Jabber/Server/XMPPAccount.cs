@@ -69,7 +69,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <see cref="_pepNodes"/>, der Abonnent beim Vergleichen ohne Rücksicht
         /// auf Gross- und Kleinschreibung wie jeder JID.
         /// </remarks>
-        private readonly Dictionary<String, List<(String Jid, String SubId)>> _pepSubscriptions =
+        private readonly Dictionary<String, List<PepSubscription>> _pepSubscriptions =
             new(StringComparer.Ordinal);
 
         #endregion
@@ -434,7 +434,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 var subId = Guid.NewGuid().ToString("N")[..12];
 
-                abonnements.Add((subscriberBareJid, subId));
+                abonnements.Add(new PepSubscription(subscriberBareJid,
+                                                    subId,
+                                                    new PubSubSubscriptionOptions()));
 
                 return subId;
 
@@ -443,61 +445,119 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// Beendet ein Abonnement (XEP-0060, Abschnitt 6.2).
+        /// Sucht das gemeinte Abonnement heraus.
         /// </summary>
         /// <param name="subId">
         /// Die Kennung aus der Zusage, oder null. Sie darf fehlen, solange es
-        /// nur ein Abonnement gibt (Abschnitt 6.2.3.1); gibt es mehrere, ist
+        /// nur eines gibt (XEP-0060, Abschnitt 6.2.3.1); gibt es mehrere, ist
         /// sie die einzige Auskunft darüber, welches gemeint ist.
         /// </param>
-        public PepUnsubscribeResult RemovePepSubscription(String   node,
-                                                          String   subscriberBareJid,
-                                                          String?  subId = null)
+        /// <remarks>
+        /// Eine Stelle für zwei Fragen: Abbestellen und Einstellen suchen
+        /// dasselbe. Nur die Fehlermeldung darauf unterscheidet sich, und die
+        /// baut der Aufrufer.
+        /// </remarks>
+        public PepSubscriptionResult FindPepSubscription(String              node,
+                                                         String              subscriberBareJid,
+                                                         String?             subId,
+                                                         out PepSubscription?  subscription)
         {
+
+            subscription = null;
 
             lock (_lock)
             {
 
                 if (!_pepSubscriptions.TryGetValue(node, out var abonnements))
-                    return PepUnsubscribeResult.NotSubscribed;
+                    return PepSubscriptionResult.NotSubscribed;
 
                 var seine = abonnements.FindAll(
                                 a => String.Equals(a.Jid, subscriberBareJid, StringComparison.OrdinalIgnoreCase));
 
                 if (seine.Count == 0)
-                    return PepUnsubscribeResult.NotSubscribed;
+                    return PepSubscriptionResult.NotSubscribed;
 
                 if (subId is null && seine.Count > 1)
-                    return PepUnsubscribeResult.SubIdRequired;
+                    return PepSubscriptionResult.SubIdRequired;
 
-                var gemeint = subId is null
-                                  ? seine[0]
-                                  : seine.Find(a => String.Equals(a.SubId, subId, StringComparison.Ordinal));
+                subscription = subId is null
+                                   ? seine[0]
+                                   : seine.Find(a => String.Equals(a.SubId, subId, StringComparison.Ordinal));
 
-                if (gemeint.SubId is null)
-                    return PepUnsubscribeResult.WrongSubId;
-
-                abonnements.Remove(gemeint);
-
-                if (abonnements.Count == 0)
-                    _pepSubscriptions.Remove(node);
-
-                return PepUnsubscribeResult.Removed;
+                return subscription is null
+                           ? PepSubscriptionResult.WrongSubId
+                           : PepSubscriptionResult.Ok;
 
             }
 
         }
 
         /// <summary>
-        /// Die Abonnements dieses Knotens - je Eintrag ein Bare-JID und die
-        /// Kennung seines Abonnements.
+        /// Beendet ein Abonnement (XEP-0060, Abschnitt 6.2).
+        /// </summary>
+        public PepSubscriptionResult RemovePepSubscription(String   node,
+                                                           String   subscriberBareJid,
+                                                           String?  subId = null)
+        {
+
+            lock (_lock)
+            {
+
+                var befund = FindPepSubscription(node, subscriberBareJid, subId, out var abonnement);
+
+                if (befund != PepSubscriptionResult.Ok)
+                    return befund;
+
+                var abonnements = _pepSubscriptions[node];
+
+                abonnements.Remove(abonnement!);
+
+                if (abonnements.Count == 0)
+                    _pepSubscriptions.Remove(node);
+
+                return PepSubscriptionResult.Ok;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Stellt ein Abonnement ein (XEP-0060, Abschnitt 6.3).
+        /// </summary>
+        public PepSubscriptionResult SetPepSubscriptionOptions(String                     node,
+                                                               String                     subscriberBareJid,
+                                                               String?                    subId,
+                                                               PubSubSubscriptionOptions  options)
+        {
+
+            lock (_lock)
+            {
+
+                var befund = FindPepSubscription(node, subscriberBareJid, subId, out var abonnement);
+
+                if (befund != PepSubscriptionResult.Ok)
+                    return befund;
+
+                var abonnements = _pepSubscriptions[node];
+
+                abonnements[abonnements.IndexOf(abonnement!)] = abonnement! with { Options = options };
+
+                return PepSubscriptionResult.Ok;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Die Abonnements dieses Knotens.
         /// </summary>
         /// <remarks>
         /// Derselbe JID kann mehrfach vorkommen. Wer die Empfänger will und
         /// nicht die Abonnements, muss also selbst zusammenfassen - und wer
-        /// zustellt, gerade nicht: Jedes Abonnement ist eine eigene Zusage.
+        /// zustellt, gerade nicht: Jedes Abonnement ist eine eigene Zusage,
+        /// mit eigener Einstellung.
         /// </remarks>
-        public IReadOnlyList<(String Jid, String SubId)> PepSubscriptions(String node)
+        public IReadOnlyList<PepSubscription> PepSubscriptions(String node)
         {
             lock (_lock)
                 return _pepSubscriptions.TryGetValue(node, out var abonnements)

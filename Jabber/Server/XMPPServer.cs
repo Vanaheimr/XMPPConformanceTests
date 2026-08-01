@@ -2217,29 +2217,124 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var ergebnis = konto?.RemovePepSubscription(node,
                                                             session.BareJid!,
                                                             unsubscribe.Attr("subid"))
-                                   ?? PepUnsubscribeResult.NotSubscribed;
+                                   ?? PepSubscriptionResult.NotSubscribed;
 
                 await session.SendAsync(ergebnis switch {
 
-                    // XEP-0060, Abschnitt 6.2.3.2
-                    PepUnsubscribeResult.NotSubscribed
-                        => StanzaErrorIq(id, "unexpected-request", "cancel",
-                                         applicationError: $"<not-subscribed xmlns='{PubSubErrorNamespace}'/>"),
-
-                    // XEP-0060, Abschnitt 6.2.3.1
-                    PepUnsubscribeResult.WrongSubId
-                        => StanzaErrorIq(id, "not-acceptable", "modify",
-                                         applicationError: $"<invalid-subid xmlns='{PubSubErrorNamespace}'/>"),
-
-                    // XEP-0060, Abschnitt 6.2.3.1: mehrere, und keines benannt
-                    PepUnsubscribeResult.SubIdRequired
+                    // XEP-0060, Abschnitt 6.2.3.1: mehrere, und keines benannt.
+                    // Hier ein bad-request, beim Einstellen ein not-acceptable
+                    // - siehe PepSubscriptionResult.
+                    PepSubscriptionResult.SubIdRequired
                         => StanzaErrorIq(id, "bad-request", "modify",
                                          applicationError: $"<subid-required xmlns='{PubSubErrorNamespace}'/>"),
 
-                    _   => $"<iq type='result' id='{id}'" +
-                           (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + "/>"
+                    PepSubscriptionResult.Ok
+                        => $"<iq type='result' id='{id}'" +
+                           (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + "/>",
+
+                    _   => SubscriptionErrorIq(id, ergebnis)
 
                 });
+
+                return true;
+
+            }
+
+            #endregion
+
+            #region Einstellen
+
+            if (pubsub.Child(OmemoPep.PubSubNamespace, "options") is { } optionen &&
+                type is "get" or "set")
+            {
+
+                var node = optionen.Attr("node");
+
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                // Die dritte Stelle mit derselben Prüfung, und die stillste:
+                // Wer fremde Abonnements einstellen dürfte, könnte sie lautlos
+                // abschalten. Das Abonnement bliebe stehen - es käme nur nichts
+                // mehr an, und der Betroffene fände in seiner eigenen Liste
+                // nichts Auffälliges.
+                if (optionen.Attr("jid") is not String werEinstellt ||
+                    !String.Equals(BareOf(werEinstellt), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(
+                        StanzaErrorIq(id, "bad-request", "modify",
+                                      applicationError: $"<invalid-jid xmlns='{PubSubErrorNamespace}'/>"));
+                    return true;
+                }
+
+                var konto = to is null
+                                ? session.Account
+                                : GetAccount(BareOf(to));
+
+                var subId = optionen.Attr("subid");
+
+                // Kein `konto?.Find(...)`: Ein bedingter Aufruf lässt den
+                // out-Parameter im Zweifel unbeschrieben, und der Compiler
+                // sagt das zu Recht.
+                PepSubscription? abonnement = null;
+
+                var befund = konto is null
+                                 ? PepSubscriptionResult.NotSubscribed
+                                 : konto.FindPepSubscription(node, session.BareJid!, subId, out abonnement);
+
+                if (befund != PepSubscriptionResult.Ok)
+                {
+
+                    // XEP-0060, Abschnitt 6.3.3: hier not-acceptable, beim
+                    // Abbestellen bad-request. Die Anfrage ist in Ordnung, sie
+                    // lässt sich nur in dieser Lage nicht beantworten.
+                    await session.SendAsync(
+                        befund == PepSubscriptionResult.SubIdRequired
+                            ? StanzaErrorIq(id, "not-acceptable", "modify",
+                                            applicationError: $"<subid-required xmlns='{PubSubErrorNamespace}'/>")
+                            : SubscriptionErrorIq(id, befund));
+
+                    return true;
+
+                }
+
+                // Das Angebot: was sich einstellen lässt und was gerade gilt.
+                if (type == "get")
+                {
+
+                    await session.SendAsync(
+                        $"<iq type='result' id='{id}'" +
+                        (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + ">" +
+                        $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
+                        $"<options node='{XmlEscaping.Escape(node)}'" +
+                        $" jid='{XmlEscaping.Escape(session.BareJid!)}'" +
+                        $" subid='{abonnement!.SubId}'>" +
+                        abonnement.Options.ToForm().ToString(SaveOptions.DisableFormatting) +
+                        "</options></pubsub></iq>");
+
+                    return true;
+
+                }
+
+                var formular = optionen.Child(PubSubSubscriptionOptions.DataFormNamespace, "x");
+
+                if (formular is null ||
+                    !PubSubSubscriptionOptions.TryRead(formular, out var eingestellt))
+                {
+                    await session.SendAsync(
+                        StanzaErrorIq(id, "bad-request", "modify",
+                                      applicationError: $"<invalid-options xmlns='{PubSubErrorNamespace}'/>"));
+                    return true;
+                }
+
+                konto!.SetPepSubscriptionOptions(node, session.BareJid!, abonnement!.SubId, eingestellt!);
+
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'" +
+                    (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + "/>");
 
                 return true;
 
@@ -2250,6 +2345,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             return false;
 
         }
+
+        /// <summary>
+        /// Die Ablehnungen, die für Abbestellen und Einstellen dieselben sind
+        /// (XEP-0060, Abschnitte 6.2.3 und 6.3.3).
+        /// </summary>
+        /// <remarks>
+        /// <c>SubIdRequired</c> steht bewusst nicht darin: Dafür verlangt das
+        /// XEP an den beiden Stellen verschiedene Fehler, und ein gemeinsamer
+        /// Helfer, der sich für einen entschiede, würde eine der beiden
+        /// Stellen still falsch beantworten.
+        /// </remarks>
+        private String SubscriptionErrorIq(String? id, PepSubscriptionResult result)
+
+            => result switch {
+
+                   PepSubscriptionResult.WrongSubId
+                       => StanzaErrorIq(id, "not-acceptable", "modify",
+                                        applicationError: $"<invalid-subid xmlns='{PubSubErrorNamespace}'/>"),
+
+                   _   => StanzaErrorIq(id, "unexpected-request", "cancel",
+                                        applicationError: $"<not-subscribed xmlns='{PubSubErrorNamespace}'/>")
+
+               };
 
         /// <summary>
         /// Schickt eine PEP-Benachrichtigung an alle, die den Zustand dieses
@@ -2300,6 +2418,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             var abonnements = session.Account?.PepSubscriptions(node) ?? [];
 
+            // Auch die stillgelegten stehen hier drin, und das ist der Punkt:
+            // Wer gesagt hat, dass er nichts bekommen will, soll es auch nicht
+            // über die Presence bekommen. Sonst unterliefe ein zweiter Weg eine
+            // ausdrückliche Einstellung.
             var ausdruecklich = new HashSet<String>(abonnements.Select(a => a.Jid),
                                                     StringComparer.OrdinalIgnoreCase);
 
@@ -2307,10 +2429,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (!ausdruecklich.Contains(ziel.BareJid ?? ""))
                     await ziel.SendAsync(StampTo(Ereignis(null), ziel.FullJid!));
 
-            foreach (var (jid, subId) in abonnements)
-                foreach (var ziel in SessionsOf(jid))
+            foreach (var abonnement in abonnements.Where(a => a.Options.Deliver))
+                foreach (var ziel in SessionsOf(abonnement.Jid))
                     if (ziel != session && ziel.FullJid is not null)
-                        await ziel.SendAsync(StampTo(Ereignis(subId), ziel.FullJid));
+                        await ziel.SendAsync(StampTo(Ereignis(abonnement.SubId), ziel.FullJid));
 
         }
 

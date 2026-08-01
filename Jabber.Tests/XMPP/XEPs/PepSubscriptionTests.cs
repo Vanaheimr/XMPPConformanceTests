@@ -199,6 +199,43 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         }
 
         /// <summary>
+        /// Ein <c>&lt;options/&gt;</c>-IQ, wahlweise mit Formular.
+        /// </summary>
+        private String OptionsIq(String   id,
+                                 String   art,
+                                 String?  subId    = null,
+                                 String?  formular = null,
+                                 String?  jid      = null)
+
+            => $"<iq type='{art}' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{PubSubNamespace}'>" +
+               $"<options node='{Node}' jid='{jid ?? $"alice@{Server.Domain}"}'" +
+               (subId is not null ? $" subid='{subId}'" : "") +
+               (formular is null ? "/>" : $">{formular}</options>") +
+               "</pubsub></iq>";
+
+        /// <summary>Ein abgeschicktes Formular mit den angegebenen Feldern.</summary>
+        private static String SubmitForm(String felder, String art = "submit")
+            => $"<x xmlns='jabber:x:data' type='{art}'>" +
+               "<field var='FORM_TYPE' type='hidden'>" +
+               "<value>http://jabber.org/protocol/pubsub#subscribe_options</value></field>" +
+               felder +
+               "</x>";
+
+        private static String DeliverField(String wert)
+            => $"<field var='pubsub#deliver'><value>{wert}</value></field>";
+
+        /// <summary>Der Wert eines Formularfeldes in einer Antwort.</summary>
+        private static String? FieldValue(XElement antwort, String var)
+            => antwort.Child(PubSubNamespace, "pubsub")
+                     ?.Child(PubSubNamespace, "options")
+                     ?.Child("jabber:x:data", "x")
+                     ?.Children("jabber:x:data", "field")
+                      .FirstOrDefault(f => f.Attr("var") == var)
+                     ?.Child("jabber:x:data", "value")
+                     ?.Value;
+
+        /// <summary>
         /// Bob veröffentlicht - den Knoten gibt es danach.
         /// </summary>
         private async Task<XMPPClient> PublishingBobAsync(String itemId = "1", String inhalt = "sonnig")
@@ -768,6 +805,467 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(SubIdsIn(ereignisse), Is.EqualTo(new[] { zweite }),
                         "Es blieb nicht das übrig, das bleiben sollte.");
+
+        }
+
+        #endregion
+
+        #region TheOptionsForm_OffersDelivery()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 6.3.2: Das Formular sagt, was sich einstellen
+        /// lässt.
+        /// </summary>
+        /// <remarks>
+        /// <b>Es enthält genau ein Feld</b>, und das ist die Aussage: Was
+        /// dieser Server nicht kann, bietet er auch nicht an. Ein Formular mit
+        /// <c>pubsub#digest</c> darin, das dann nichts bewirkt, wäre eine
+        /// Zusage ohne Deckung - und zwar eine, die der Abonnent nie
+        /// nachprüfen kann, weil ausbleibende Zusammenfassungen wie Ruhe
+        /// aussehen.
+        /// </remarks>
+        [Test]
+        public async Task TheOptionsForm_OffersDelivery()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-20");
+
+            var antwort = await AskAsync(alice, "opt-20", OptionsIq("opt-20", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+                Assert.That(FieldValue(antwort, "FORM_TYPE"),
+                            Is.EqualTo("http://jabber.org/protocol/pubsub#subscribe_options"));
+
+                Assert.That(FieldValue(antwort, "pubsub#deliver"), Is.EqualTo("1"),
+                            "Zugestellt wird, solange niemand widerspricht.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheSubmittedForm_IsReadStrictly()
+
+        /// <summary>
+        /// Was ein abgeschicktes Formular sagt - und was es nicht sagen darf.
+        /// </summary>
+        /// <remarks>
+        /// Ohne Server, weil es hier um das Lesen geht und nicht um den Weg.
+        /// Die vier Schreibweisen aus XEP-0004, Abschnitt 3.3 stehen alle
+        /// darin: Was hereinkommt, hat ein anderer geschrieben, und der darf
+        /// wählen.
+        /// </remarks>
+        [Test]
+        public void TheSubmittedForm_IsReadStrictly()
+        {
+
+            static XElement Formular(String inhalt)
+                => XElement.Parse($"<x xmlns='jabber:x:data' type='submit'>{inhalt}</x>");
+
+            static String Feld(String wert)
+                => $"<field var='pubsub#deliver'><value>{wert}</value></field>";
+
+            Assert.Multiple(() =>
+            {
+
+                foreach (var (wert, erwartet) in new[] { ("1", true), ("true", true),
+                                                         ("0", false), ("false", false) })
+                {
+                    Assert.That(PubSubSubscriptionOptions.TryRead(Formular(Feld(wert)), out var gelesen),
+                                Is.True, $"'{wert}' ist eine zulässige Schreibweise.");
+                    Assert.That(gelesen!.Deliver, Is.EqualTo(erwartet), $"'{wert}'");
+                }
+
+                Assert.That(PubSubSubscriptionOptions.TryRead(Formular(Feld("vielleicht")), out _),
+                            Is.False, "Alles andere ist kein Wahrheitswert.");
+
+                Assert.That(PubSubSubscriptionOptions.TryRead(Formular(""), out var leer), Is.True);
+                Assert.That(leer!.Deliver, Is.True,
+                            "Ein fehlendes Feld steht auf der Vorgabe.");
+
+                // Ein Formular für einen anderen Zweck - etwa die
+                // publish-options aus XEP-0384 - trägt zufällig kein bekanntes
+                // Feld und ginge sonst als leere Einstellung durch.
+                Assert.That(PubSubSubscriptionOptions.TryRead(
+                                Formular("<field var='FORM_TYPE' type='hidden'>" +
+                                         "<value>http://jabber.org/protocol/pubsub#publish-options</value></field>"),
+                                out _),
+                            Is.False,
+                            "Ein Formular für einen anderen Zweck ist keine Einstellung.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TurningDeliveryOff_SilencesTheSubscription()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 12.18: <c>pubsub#deliver=0</c> - das Abonnement
+        /// bleibt, die Zustellung nicht.
+        /// </summary>
+        /// <remarks>
+        /// <b>Und es fällt nicht auf die Presence-Zustellung zurück.</b> Wer
+        /// gesagt hat, dass er nichts bekommen will, bekommt nichts - auch
+        /// wenn er nebenbei im Roster steht. Alles andere hiesse, eine
+        /// Einstellung mit einem anderen Weg zu unterlaufen.
+        /// </remarks>
+        [Test]
+        public async Task TurningDeliveryOff_SilencesTheSubscription()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-21");
+
+            var gesetzt = await AskAsync(alice, "opt-21",
+                                         OptionsIq("opt-21", "set",
+                                                   formular: SubmitForm(DeliverField("0"))));
+
+            Assert.That(gesetzt.Attr("type"), Is.EqualTo("result"));
+
+            var gelesen = await AskAsync(alice, "opt-21b", OptionsIq("opt-21b", "get"));
+
+            Assert.That(FieldValue(gelesen, "pubsub#deliver"), Is.EqualTo("0"),
+                        "Das Formular muss zeigen, was gilt, und nicht, was vorgesehen war.");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-20",
+                           PublishIq("pub-20", Node, "20", "<wetter xmlns='urn:example:x'>still</wetter>"));
+
+            await WaitAgainst(() => Count(ereignisse) > 0,
+                              "eine Benachrichtigung an ein stillgelegtes Abonnement");
+
+        }
+
+        #endregion
+
+        #region TurningDeliveryOnAgain_ResumesIt()
+
+        /// <summary>
+        /// Die Gegenprobe: Was sich abschalten lässt, lässt sich auch wieder
+        /// einschalten.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie bestünde der vorige Test auch gegen eine Umsetzung, die
+        /// jede Einstellung als „nicht zustellen" liest.
+        /// </remarks>
+        [Test]
+        public async Task TurningDeliveryOnAgain_ResumesIt()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-22");
+
+            await AskAsync(alice, "opt-22a",
+                           OptionsIq("opt-22a", "set", formular: SubmitForm(DeliverField("0"))));
+
+            await AskAsync(alice, "opt-22b",
+                           OptionsIq("opt-22b", "set", formular: SubmitForm(DeliverField("true"))));
+
+            var gelesen = await AskAsync(alice, "opt-22c", OptionsIq("opt-22c", "get"));
+
+            Assert.That(FieldValue(gelesen, "pubsub#deliver"), Is.EqualTo("1"),
+                        "Auch 'true' ist ein Ja - XEP-0004 kennt beide Schreibweisen.");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-21",
+                           PublishIq("pub-21", Node, "21", "<wetter xmlns='urn:example:x'>wieder da</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0, "die wieder zugestellte Benachrichtigung");
+
+        }
+
+        #endregion
+
+        #region WithTwoSubscriptions_OnlyTheConfiguredOneGoesQuiet()
+
+        /// <summary>
+        /// Der Grund, aus dem sich zwei Abonnements desselben JIDs auf
+        /// denselben Knoten überhaupt unterscheiden können.
+        /// </summary>
+        /// <remarks>
+        /// Bis hierher waren zwei Abonnements zwei gleiche Dinge, und das
+        /// zweite brachte nichts ein als eine zweite Zustellung. Mit der
+        /// Konfiguration je Abonnement bekommen sie verschiedene Eigenschaften
+        /// - und erst damit ist die <c>subid</c> nicht nur eine Kennung,
+        /// sondern die Adresse einer Einstellung.
+        /// </remarks>
+        [Test]
+        public async Task WithTwoSubscriptions_OnlyTheConfiguredOneGoesQuiet()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste  = await SubscribeAsync(alice, "sub-23a");
+            var zweite = await SubscribeAsync(alice, "sub-23b");
+
+            var gesetzt = await AskAsync(alice, "opt-23",
+                                         OptionsIq("opt-23", "set", erste,
+                                                   SubmitForm(DeliverField("0"))));
+
+            Assert.That(gesetzt.Attr("type"), Is.EqualTo("result"));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-22",
+                           PublishIq("pub-22", Node, "22", "<wetter xmlns='urn:example:x'>halb</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung des lauten Abonnements");
+
+            await WaitAgainst(() => Count(ereignisse) > 1,
+                              "eine Benachrichtigung des stillgelegten Abonnements");
+
+            Assert.That(SubIdsIn(ereignisse), Is.EqualTo(new[] { zweite }),
+                        "Es wurde das falsche stillgelegt.");
+
+        }
+
+        #endregion
+
+        #region Options_WithoutASubId_WhenSeveralExist_AreRejected()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 6.3.3: Auch hier muss gesagt werden, welches
+        /// Abonnement gemeint ist - nur mit einem anderen Fehler als beim
+        /// Abbestellen.
+        /// </summary>
+        /// <remarks>
+        /// <c>&lt;not-acceptable/&gt;</c> statt <c>&lt;bad-request/&gt;</c>,
+        /// und das ist keine Willkür des XEP: Die Anfrage <i>ist</i> in Ordnung,
+        /// sie lässt sich nur in dieser Lage nicht beantworten. Eine Umsetzung,
+        /// die beide Stellen gleich behandelt, hat eine davon nicht gelesen.
+        /// </remarks>
+        [Test]
+        public async Task Options_WithoutASubId_WhenSeveralExist_AreRejected()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-24a");
+            await SubscribeAsync(alice, "sub-24b");
+
+            var antwort = await AskAsync(alice, "opt-24", OptionsIq("opt-24", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort),       Is.EqualTo("not-acceptable"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("subid-required"));
+            });
+
+        }
+
+        #endregion
+
+        #region Options_OfANodeNobodySubscribed_AreRejected()
+
+        /// <summary>
+        /// Ohne Abonnement gibt es nichts einzustellen.
+        /// </summary>
+        [Test]
+        public async Task Options_OfANodeNobodySubscribed_AreRejected()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var antwort = await AskAsync(alice, "opt-25", OptionsIq("opt-25", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort),       Is.EqualTo("unexpected-request"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("not-subscribed"));
+            });
+
+        }
+
+        #endregion
+
+        #region Options_ForSomebodyElse_AreRejected()
+
+        /// <summary>
+        /// Und auch hier darf den <c>jid</c> nur setzen, wem er gehört.
+        /// </summary>
+        /// <remarks>
+        /// Die dritte Stelle mit derselben Prüfung, und die stillste: Wer
+        /// fremde Abonnements einstellen dürfte, könnte sie lautlos
+        /// abschalten. Das Abonnement bliebe stehen - es käme nur nichts mehr
+        /// an, und der Betroffene fände in seiner eigenen Liste nichts
+        /// Auffälliges.
+        /// </remarks>
+        [Test]
+        public async Task Options_ForSomebodyElse_AreRejected()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var carol = await ConnectClientAsync("carol");
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(carol, "sub-26");
+
+            var antwort = await AskAsync(alice, "opt-26",
+                                         OptionsIq("opt-26", "set",
+                                                   formular: SubmitForm(DeliverField("0")),
+                                                   jid:      carol.BareJid));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("invalid-jid"));
+            });
+
+            var ereignisse = CollectEvents(carol);
+
+            await AskAsync(bob, "pub-23",
+                           PublishIq("pub-23", Node, "23", "<wetter xmlns='urn:example:x'>laut</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0,
+                          "die Benachrichtigung an Carol, die niemand abschalten durfte");
+
+        }
+
+        #endregion
+
+        #region AnOptionNobodyOffered_IsRejected()
+
+        /// <summary>
+        /// Ein Feld, das im Formular nicht stand, wird abgewiesen statt
+        /// übergangen.
+        /// </summary>
+        /// <remarks>
+        /// <b>Das ist strenger als üblich und Absicht.</b> Ein Dienst, der
+        /// Unbekanntes stillschweigend schluckt, lässt den Abonnenten in dem
+        /// Glauben, seine Einstellung gelte - und ausbleibende Wirkung sieht
+        /// aus wie ein Fehler anderswo. Lieber eine Absage, die man lesen
+        /// kann.
+        /// </remarks>
+        [Test]
+        public async Task AnOptionNobodyOffered_IsRejected()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-27");
+
+            var antwort = await AskAsync(alice, "opt-27",
+                                         OptionsIq("opt-27", "set",
+                                                   formular: SubmitForm(
+                                                       "<field var='pubsub#digest'><value>1</value></field>")));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort),       Is.EqualTo("bad-request"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("invalid-options"));
+            });
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-24",
+                           PublishIq("pub-24", Node, "24", "<wetter xmlns='urn:example:x'>unverändert</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0,
+                          "die Benachrichtigung - eine abgewiesene Einstellung ändert nichts");
+
+        }
+
+        #endregion
+
+        #region ASetWithoutAForm_IsRejected()
+
+        /// <summary>
+        /// Ein <c>set</c> ohne Formular sagt nicht, was eingestellt werden
+        /// soll.
+        /// </summary>
+        /// <remarks>
+        /// Die Vorgaben einzusetzen wäre die freundliche Auslegung und die
+        /// gefährliche: Aus einer unvollständigen Anfrage würde eine Änderung,
+        /// die niemand verlangt hat - und sie träfe ausgerechnet den, der
+        /// gerade etwas anderes eingestellt hatte.
+        /// </remarks>
+        [Test]
+        public async Task ASetWithoutAForm_IsRejected()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-29");
+
+            await AskAsync(alice, "opt-29a",
+                           OptionsIq("opt-29a", "set", formular: SubmitForm(DeliverField("0"))));
+
+            var antwort = await AskAsync(alice, "opt-29b", OptionsIq("opt-29b", "set"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("invalid-options"));
+            });
+
+            var gelesen = await AskAsync(alice, "opt-29c", OptionsIq("opt-29c", "get"));
+
+            Assert.That(FieldValue(gelesen, "pubsub#deliver"), Is.EqualTo("0"),
+                        "Eine abgewiesene Anfrage darf nichts zurückgesetzt haben.");
+
+        }
+
+        #endregion
+
+        #region AFormThatIsNotSubmitted_IsRejected()
+
+        /// <summary>
+        /// XEP-0004: Was zurückkommt, muss ein <c>submit</c> sein.
+        /// </summary>
+        /// <remarks>
+        /// Ein zurückgeschicktes <c>form</c> ist das Angebot und keine
+        /// Antwort. Es anzunehmen hiesse, den Vorschlag des Dienstes für den
+        /// Willen des Abonnenten zu halten.
+        /// </remarks>
+        [Test]
+        public async Task AFormThatIsNotSubmitted_IsRejected()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-28");
+
+            var antwort = await AskAsync(alice, "opt-28",
+                                         OptionsIq("opt-28", "set",
+                                                   formular: SubmitForm(DeliverField("0"), "form")));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("invalid-options"));
+            });
 
         }
 

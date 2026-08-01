@@ -637,9 +637,15 @@ miteinander sprechen:
   legt eines an, zugestellt wird **je Abonnement** mit der SHIM-Kopfzeile
   `SubID` (§12.20), und Abbestellen ohne `subid` wird bei mehreren abgewiesen.
   Ein ausdrückliches Abonnement verdrängt die Presence-Zustellung, damit die
-  Zahl der Zustellungen nicht davon abhängt, wer nebenbei im Roster steht.
-  Nicht umgesetzt: die Konfiguration je Abonnement (§6.3) — ohne sie bringt ein
-  zweites Abonnement nichts ein als eine zweite Zustellung
+  Zahl der Zustellungen nicht davon abhängt, wer nebenbei im Roster steht
+- XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
+  **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
+  ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die
+  Presence-Zustellung zurück. Ein Feld, das im Angebot nicht stand, wird
+  abgewiesen statt übergangen; ein `set` ohne Formular ebenso. Was der Server
+  nicht kann, bietet er nicht an: Ein `pubsub#digest`, das nichts bewirkt, wäre
+  eine Zusage ohne Deckung, und ausbleibende Zusammenfassungen sehen aus wie
+  Ruhe
 - XEP-0352 Client State Indication: Erklärt sich ein Client für inaktiv, hält
   der Server zurück, was warten kann — Presence (nur die letzte je Full-JID),
   Empfangsbestätigungen, Marker. Ein Chat State wird fallengelassen statt
