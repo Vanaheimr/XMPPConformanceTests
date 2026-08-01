@@ -340,6 +340,26 @@ class Program
                 }
                 break;
 
+            // XEP-0308: Berichtigt die letzte Nachricht an den aktuellen
+            // Gesprächspartner. Was hier steht, ist der vollständige neue Text
+            // und nicht die Änderung daran.
+            case "/fix" or "/korr":
+                if (args.Length == 0)
+                {
+                    Console.WriteLine("Syntax: /fix <richtiger text>");
+                }
+                else if (await client.CorrectLastMessageAsync(args) is null)
+                {
+                    Console.WriteLine(client.CurrentChatPartner is null
+                                          ? "Kein Empfänger gesetzt. Nutze /to <jid>"
+                                          : "An diesen Empfänger ist noch nichts hinausgegangen.");
+                }
+                else
+                {
+                    Console.WriteLine($"  ✎ Berichtigt an {GetShortJid(client.CurrentChatPartner!)}");
+                }
+                break;
+
             case "/status" or "/s":
                 await ProcessStatusCommandAsync(args);
                 break;
@@ -968,7 +988,20 @@ class Program
                           : $"[{message.Timestamp:HH:mm:ss}] ");
 
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.Write($"{GetShortJid(message.From)}: ");
+        Console.Write($"{GetShortJid(message.From)}");
+
+        // XEP-0308: Eine Konsole kann Geschriebenes nicht zurücknehmen - die
+        // Korrektur erscheint deshalb als eigene Zeile und sagt dazu, dass sie
+        // eine ist. Das ist ehrlicher als sie zu verschweigen: Der Empfänger
+        // sieht beide Fassungen und weiss, welche gilt.
+        if (message.IsCorrection)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.Write(" ✎");
+            Console.ForegroundColor = ConsoleColor.Green;
+        }
+
+        Console.Write(": ");
         Console.ResetColor();
         Console.Write(message.Body);
 
@@ -1224,6 +1257,7 @@ Nachrichten:
   /to <jid>          Chat-Partner setzen (dann direkt tippen)
   /to                Chat-Partner zurücksetzen
   /msg <jid> <text>  Einzelne Nachricht senden
+  /fix <text>        Letzte Nachricht berichtigen (XEP-0308)
   /status [show] [text]  Status ändern (available/away/chat/dnd/xa)
 
 Kontakte (Roster):

@@ -61,6 +61,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird; auch die Abweisung wird ausgewertet — ein `h` im `<failed/>` bestätigt, was der Server noch verarbeitet hat |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
+| XEP-0308 | Last Message Correction | ✅ | Empfangen: `XMPPMessage.ReplacesId` nennt die abgelöste Nachricht, `IsCorrection` die Tatsache. Senden: `CorrectLastMessageAsync` berichtigt die letzte Nachricht **an denselben Empfänger** (Abschnitt 5) und wird selbst zur letzten, sodass sich eine Berichtigung berichtigen lässt. In der Konsole `/fix <text>`; angekündigt in disco#info (D60) |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
 
 ## RFC-Konformität
@@ -867,7 +868,6 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 - Keine Ende-zu-Ende-Verschlüsselung (OMEMO, XEP-0384)
 - Kein HTTP File Upload (XEP-0363)
 - Keine Client State Indication (XEP-0352)
-- Kein Last Message Correction (XEP-0308)
 - Kein Flexible Offline Message Retrieval (XEP-0013) — die Ablage kommt beim
   Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln
   abholen. Bewusst so: Die XSF führt XEP-0013 als *Deprecated* (siehe D37)

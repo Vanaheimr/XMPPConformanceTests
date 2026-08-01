@@ -287,9 +287,21 @@ public sealed class XMPPConnection : IAsyncDisposable
     #region Events
 
     // Events - Core
-    // from, to, body, id, type, geschrieben, empfangen, aufgehoben von
-    public event Action<string, string, string, string?, MessageType,
-                        DateTime, DateTime, string?>? OnMessage;
+    /// <summary>
+    /// Eine empfangene Nachricht - fertig zusammengesetzt.
+    /// </summary>
+    /// <remarks>
+    /// Hier stand eine Liste einzelner Werte, die mit jeder Erweiterung länger
+    /// wurde: erst fünf, mit dem Verzugsstempel acht, mit der Korrektur neun.
+    /// Eine Reihe gleichartiger Zeichenketten, deren Bedeutung nur an ihrer
+    /// Stellung hängt, ist eine Verwechslung, die auf ihre Gelegenheit wartet.
+    ///
+    /// Zusammengesetzt wird sie hier und nicht beim Aufrufer: <b>Nur hier
+    /// liegt die Stanza noch vor.</b> Genau daran ist der Verzugsstempel
+    /// vorbeigegangen - der Aufrufer setzte die Uhrzeit selbst und konnte gar
+    /// nicht wissen, dass in der Stanza eine andere stand (siehe D59).
+    /// </remarks>
+    public event Action<XMPPMessage>? OnMessage;
     public event Action<string, string>? OnPresence;
     public event Action<string, ChatState>? OnChatState;
     public event Action<string, string>? OnReceiptReceived;
@@ -1558,7 +1570,15 @@ public sealed class XMPPConnection : IAsyncDisposable
                                   ? stempel.ToLocalTime().DateTime
                                   : empfangen;
 
-            OnMessage?.Invoke(from, to, body, msgId, messageType, geschrieben, empfangen, aufgehobenVon);
+            OnMessage?.Invoke(new XMPPMessage(from,
+                                              to,
+                                              body,
+                                              msgId,
+                                              geschrieben,
+                                              messageType,
+                                              empfangen,
+                                              aufgehobenVon,
+                                              MessageCorrection.ReplacedId(element)));
 
             // Von selbst geantwortet wird nur, wo eine Antwort hingehört.
             // Einem Zuruf ist nicht zu quittieren, und in einen Raum schon gar
@@ -2357,7 +2377,8 @@ public sealed class XMPPConnection : IAsyncDisposable
                                                string       body,
                                                bool         requestReceipt  = true,
                                                bool         markable        = true,
-                                               MessageType  type            = MessageType.Chat)
+                                               MessageType  type            = MessageType.Chat,
+                                               string?      corrects        = null)
     {
         var messageId = GenerateMessageId();
 
@@ -2366,6 +2387,13 @@ public sealed class XMPPConnection : IAsyncDisposable
         var sb = new StringBuilder();
         sb.Append($"<message to='{XmlEscaping.Escape(to)}'{typeAttr} id='{messageId}'>");
         sb.Append($"<body>{XmlEscaping.Escape(body)}</body>");
+
+        // XEP-0308: Eine eigene id und der volle neue Text - das <replace/>
+        // nennt nur, welche Nachricht abgelöst wird. Ein Empfänger ohne diese
+        // Erweiterung zeigt sie als zweite Nachricht an, und das ist
+        // beabsichtigt: unschön, aber vollständig.
+        if (corrects is not null)
+            sb.Append(MessageCorrection.ReplaceXml(corrects));
 
         // Was keine Antwort erwartet, bekommt auch keine angefordert.
         if (!type.ExpectsAReply())

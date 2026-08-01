@@ -47,6 +47,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// der Server, ein Raum. Freiwillig, deshalb oft null, auch bei einer
 /// nachgereichten Nachricht.
 /// </param>
+/// <param name="ReplacesId">
+/// XEP-0308: Die <c>id</c> der Nachricht, die diese hier ablöst - oder null
+/// für eine gewöhnliche. Der <c>Body</c> ist auch dann der vollständige neue
+/// Text und nicht die Änderung daran.
+/// </param>
 public sealed record XMPPMessage(string       From,
                                  string       To,
                                  string       Body,
@@ -54,8 +59,12 @@ public sealed record XMPPMessage(string       From,
                                  DateTime     Timestamp,
                                  MessageType  Type        = MessageType.Normal,
                                  DateTime?    ReceivedAt  = null,
-                                 string?      DelayedBy   = null)
+                                 string?      DelayedBy   = null,
+                                 string?      ReplacesId  = null)
 {
+
+    /// <summary>Berichtigt diese Nachricht eine frühere (XEP-0308)?</summary>
+    public bool IsCorrection => ReplacesId is not null;
 
     /// <summary>
     /// Absender ohne Resource.

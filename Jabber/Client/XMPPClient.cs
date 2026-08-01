@@ -86,6 +86,18 @@ public sealed class XMPPClient : IAsyncDisposable
     public string? LastReceivedMessageId { get; private set; }
 
     /// <summary>
+    /// Die zuletzt an einen Empfänger geschickte Nachricht - Bezugspunkt für
+    /// eine Korrektur nach XEP-0308.
+    /// </summary>
+    /// <remarks>
+    /// Je Empfänger und nicht insgesamt: Abschnitt 5 lässt nur die jeweils
+    /// letzte Nachricht <b>an denselben Empfänger</b> berichtigen. Ein
+    /// einzelner Merkposten wäre nach jedem Themenwechsel falsch - und zwar
+    /// so, dass die Korrektur beim vorigen Gesprächspartner landet.
+    /// </remarks>
+    private readonly Dictionary<string, string> _lastSentTo = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Noch nicht beantwortete Kontaktanfragen, in Eingangsreihenfolge.
     /// </summary>
     public IReadOnlyList<string> PendingSubscriptions
@@ -228,17 +240,12 @@ public sealed class XMPPClient : IAsyncDisposable
     private void WireUpConnection()
     {
 
-        _connection.OnMessage += (from, to, body, id, type, geschrieben, empfangen, aufgehobenVon) =>
+        _connection.OnMessage += nachricht =>
         {
-            if (!string.IsNullOrEmpty(id))
-                LastReceivedMessageId = id;
+            if (!string.IsNullOrEmpty(nachricht.MessageId))
+                LastReceivedMessageId = nachricht.MessageId;
 
-            // Die Uhrzeit kommt von der Verbindung und nicht von hier: Nur dort
-            // ist die Stanza noch zu sehen, und in ihr steht, ob die Nachricht
-            // eben erst entstand oder aufgehoben war (XEP-0203). Hier stand
-            // bis D59 ein DateTime.Now, das die Auskunft überschrieb.
-            OnMessage?.Invoke(new XMPPMessage(from, to, body, id, geschrieben, type,
-                                              empfangen, aufgehobenVon));
+            OnMessage?.Invoke(nachricht);
         };
 
         _connection.OnCarbonMessage   += c            => OnCarbonMessage?.Invoke(c);
@@ -381,16 +388,70 @@ public sealed class XMPPClient : IAsyncDisposable
         if (partner == null)
             return null;
 
-        return await _connection.SendMessageAsync(partner, body);
+        return await SendMessageAsync(partner, body);
     }
 
     /// <summary>
     /// Sendet eine Nachricht an einen beliebigen JID, ohne den aktuellen
     /// Chatpartner zu ändern.
     /// </summary>
-    public Task<string> SendMessageAsync(string to, string body,
-                                         MessageType type = MessageType.Chat)
-        => _connection.SendMessageAsync(to, body, type: type);
+    public async Task<string> SendMessageAsync(string to, string body,
+                                               MessageType type = MessageType.Chat)
+    {
+
+        var id = await _connection.SendMessageAsync(to, body, type: type);
+
+        // Für eine spätere Korrektur (XEP-0308). Gemerkt wird auch das, was
+        // nie berichtigt wird - der Preis ist ein Eintrag je Gesprächspartner.
+        lock (_lastSentTo)
+            _lastSentTo[JidUtilities.Bare(to)] = id;
+
+        return id;
+
+    }
+
+    /// <summary>
+    /// XEP-0308: Berichtigt die zuletzt an diesen Empfänger geschickte
+    /// Nachricht.
+    /// </summary>
+    /// <param name="to">Der Empfänger; ohne Angabe der aktuelle Chatpartner.</param>
+    /// <param name="body">Der vollständige neue Text.</param>
+    /// <returns>
+    /// Die ID der Korrektur, oder null - dann gibt es nichts zu berichtigen:
+    /// kein Empfänger, oder an diesen ist in dieser Sitzung noch nichts
+    /// hinausgegangen.
+    /// </returns>
+    /// <remarks>
+    /// Berichtigt wird ausschliesslich die <b>letzte</b> Nachricht an diesen
+    /// Empfänger (Abschnitt 5) - und die Korrektur wird selbst zur letzten,
+    /// sodass sich eine Berichtigung wiederum berichtigen lässt. Das ist keine
+    /// Spitzfindigkeit, sondern der übliche Fall: Wer sich vertippt, vertippt
+    /// sich auch in der Berichtigung.
+    /// </remarks>
+    public async Task<string?> CorrectLastMessageAsync(string body, string? to = null)
+    {
+
+        var empfaenger = to ?? CurrentChatPartner;
+
+        if (empfaenger is null)
+            return null;
+
+        var bare = JidUtilities.Bare(empfaenger);
+
+        string? vorherige;
+
+        lock (_lastSentTo)
+            if (!_lastSentTo.TryGetValue(bare, out vorherige))
+                return null;
+
+        var id = await _connection.SendMessageAsync(empfaenger, body, corrects: vorherige);
+
+        lock (_lastSentTo)
+            _lastSentTo[bare] = id;
+
+        return id;
+
+    }
 
     /// <summary>
     /// XEP-0085: Sendet einen Tippstatus an den aktuellen Chatpartner.

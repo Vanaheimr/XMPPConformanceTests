@@ -4709,6 +4709,50 @@ Die Konsole zeigt eine nachgereichte Nachricht jetzt mit Datum und dem Vermerk
 
 ---
 
+### D60. „Ich meinte: morgen." ✅ — XEP-0308
+
+Die Korrektur ist eine gewöhnliche Nachricht mit eigener `id` und
+**vollständigem** Text; das `<replace/>` nennt nur, welche sie ablöst. Das ist
+Absicht: Ein Empfänger, der die Erweiterung nicht kennt, zeigt sie als zweite
+Nachricht an — unschön, aber vollständig. Wer stattdessen nur den geänderten
+Teil schickte, hinterliesse bei ihm eine leere Zeile.
+
+**Die Grenze aus Abschnitt 5 ist die eigentliche Entscheidung.** Berichtigen
+lässt sich nur die zuletzt an **denselben Empfänger** geschickte Nachricht.
+Deshalb merkt sich der Client die letzte Kennung *je Empfänger* und nicht
+insgesamt: Ein einzelner Merkposten wäre nach jedem Themenwechsel falsch — und
+zwar so, dass die Berichtigung beim vorigen Gesprächspartner landet. Die
+Mutation, die das Merken vom Empfänger löst, fällt an genau diesem Fall.
+
+Und die Korrektur wird selbst zur letzten Nachricht, sodass sich eine
+Berichtigung wiederum berichtigen lässt. Kein Sonderfall, sondern der übliche:
+Wer sich vertippt, vertippt sich auch in der Berichtigung. Zeigte die zweite
+Korrektur weiter auf das Original, hinge die erste beim Empfänger in der Luft.
+
+**Beim Empfangen wird gemeldet, nicht entschieden.** `ReplacesId` und
+`IsCorrection` stehen an der Nachricht; was daraus wird, ist Sache der
+Oberfläche. Eine Konsole kann Geschriebenes nicht zurücknehmen — sie setzt ein
+`✎` an den Absender und zeigt beide Fassungen. Das ist ehrlicher, als die
+Korrektur zu verschweigen: Der Leser sieht, dass es eine gab, und welche gilt.
+
+Nebenbei ist die Parameterliste des Nachrichten-Ereignisses verschwunden. Sie
+war mit jeder Erweiterung länger geworden — fünf Werte, mit dem Verzugsstempel
+acht, mit der Korrektur neun —, und **eine Reihe gleichartiger Zeichenketten,
+deren Bedeutung nur an ihrer Stellung hängt, ist eine Verwechslung, die auf
+ihre Gelegenheit wartet.** Die Verbindung setzt die `XMPPMessage` jetzt selbst
+zusammen; sie ist ohnehin die einzige Stelle, an der die Stanza noch vorliegt.
+Genau daran war der Verzugsstempel in D59 vorbeigegangen.
+
+Sechs Mutationen, alle erschlagen: Vermerk nicht gelesen, ganze Stanza
+durchsucht, leere `id` als Ziel, `<replace/>` geht nicht mit hinaus, Korrektur
+wird nicht zur neuen letzten, Merken hängt nicht am Empfänger.
+
+Angekündigt wird die Erweiterung in disco#info (Abschnitt 4) — ohne die
+Ankündigung muss ein Gegenüber annehmen, dass seine Korrektur als zweite
+Nachricht erscheint, und schickt dann lieber keine.
+
+---
+
 ## Später
 
 ### Testsammlung

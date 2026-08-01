@@ -67,7 +67,12 @@ public sealed class DiscoManager
         "urn:xmpp:carbons:2",
         "urn:xmpp:chat-markers:0",
         "http://jabber.org/protocol/chatstates",
-        "http://jabber.org/protocol/caps"
+        "http://jabber.org/protocol/caps",
+
+        // XEP-0308, Abschnitt 4: Ohne diese Ankündigung weiss ein Gegenüber
+        // nicht, ob eine Korrektur ankommt - und muss vorsichtshalber annehmen,
+        // dass sie als zweite Nachricht erscheint.
+        "urn:xmpp:message-correct:0"
     ];
 
     /// <summary>
