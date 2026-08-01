@@ -878,8 +878,10 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   HKDF-SHA-256, AES-256-CBC mit HMAC-SHA-256, die Ableitung aus Abschnitt 4.4,
   alles gegen veröffentlichte Prüfvektoren (D62) — und **X3DH**: IdentityKey,
   Signed PreKey samt Signatur und Wechsel, hundert PreKeys, das Bundle und die
-  vier Diffie-Hellman zum gemeinsamen Geheimnis (D63). Es fehlen der Double
-  Ratchet, das Drahtformat, die PEP-Verteilung, der Sitzungsspeicher und die
+  vier Diffie-Hellman zum gemeinsamen Geheimnis (D63) — und der **Double
+  Ratchet** samt Zustellung ausser der Reihe, Nachrichten aus der vorigen
+  Kette und einer Obergrenze für übersprungene Schlüssel (D64). Es fehlen das
+  Drahtformat der Stanza, die PEP-Verteilung, der Sitzungsspeicher und die
   Vertrauensentscheidung; **verschlüsselt senden kann dieser Client noch
   nichts.** Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
   prüfen liesse — geprüft ist die Übereinstimmung mit dem Text, nicht mit der

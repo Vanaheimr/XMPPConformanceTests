@@ -4983,6 +4983,82 @@ und es gibt hier keine Gegenstelle, an der sich das entscheiden liesse.
 
 ---
 
+### D64. Zwei Ratschen, sieben Überlebende ✅ — OMEMO, Etappe 3 von 7
+
+Das Herzstück. Die symmetrische Ratsche läuft mit jeder Nachricht und gibt
+**Forward Secrecy** — wer den heutigen Zustand stiehlt, kann gestern nicht mehr
+lesen. Die Diffie-Hellman-Ratsche läuft bei jedem Richtungswechsel und gibt
+**Break-in Recovery** — wer den Zustand gestohlen hat, verliert ihn wieder,
+sobald die beiden einmal in beide Richtungen geschrieben haben.
+
+**Fehler sind hier still, und deshalb sehen die Tests anders aus.** Eine
+Ratsche, die nicht weiterläuft, verschlüsselt weiterhin einwandfrei — sie tut
+es nur immer wieder mit demselben Schlüssel. Ein Test, der „hin und zurück
+ergibt den Klartext" prüft, bestünde auch dann. Geprüft wird deshalb
+zusätzlich, dass Geheimtexte sich *unterscheiden*, dass Schlüssel
+*verschwinden* und dass eine Nachricht an falscher Stelle *abgewiesen* wird.
+
+**Und trotzdem überlebten sieben von zwanzig Mutationen den ersten Lauf.**
+Das ist der wichtigste Befund dieser Reihe, denn drei davon waren nicht bloss
+Interop-Fragen, sondern Aufhebungen der Sicherheit:
+
+- **`mk` und `ck` aus derselben Konstante.** Dann ist der
+  Nachrichtenschlüssel zugleich der nächste Kettenschlüssel: Wer eine einzige
+  Nachricht mitliest, rechnet die ganze weitere Kette aus. **Aus Forward
+  Secrecy wird ihr genaues Gegenteil.**
+- **Wurzel und Kette aus derselben Hälfte** der 64 abgeleiteten Byte. Dann ist
+  der Wurzelschlüssel bekannt, sobald ein Kettenschlüssel es ist.
+- **Salz und Eingabematerial der Wurzelkette vertauscht.**
+
+Der Grund ist immer derselbe und inzwischen der rote Faden dieses Vorhabens:
+**beide Seiten rechnen mit derselben Funktion und kommen weiterhin überein.**
+Bei D62 und D63 kostete das nur die Verständigung mit fremden Clients — hier
+kostet es die Eigenschaft, um derentwillen es das ganze Verfahren gibt.
+
+Das Gegenmittel ist dasselbe wie zweimal zuvor: **die Vorschrift ein zweites
+Mal wörtlich hinschreiben.** Dafür sind `DeriveRootChain`, `AdvanceChain` und
+`Material` jetzt einzeln greifbar und werden gegen ein zweites HKDF gehalten.
+
+**Zwei eigene Testfehler kamen dabei ans Licht, und beide sind lehrreicher als
+der Code:**
+
+- `TheChainConstants_AreDistinct` **prüfte gar nichts.** Er rechnete
+  `HMAC(ck,0x01)` und `HMAC(ck,0x02)` im Test selbst nach und stellte fest,
+  dass sie sich unterscheiden — über den Quelltext sagte er kein Wort. Er
+  hätte auch bestanden, wenn die Implementierung beide Male `0x01` genommen
+  hätte. **Ein Test, der die Vorschrift nachrechnet statt den Code zu fragen,
+  ist eine Verdopplung der Vorschrift und keine Prüfung.**
+- `ATamperedMessage_IsRefused` **vergiftete sich selbst.** Drei Fälle
+  nacheinander auf demselben Ratchet-Paar — aber eine *abgewiesene* Nachricht
+  verändert den Zustand trotzdem: Es wurde vorgespult, ein Schlüssel ist
+  verbraucht. Der dritte Fall, die fremde Beigabe, hätte die HMAC-Mutation
+  erschlagen, warf aber aus einem ganz anderen Grund. Jeder Fall bekommt jetzt
+  ein frisches Paar.
+
+**Die Obergrenze der übersprungenen Schlüssel hat ihren eigenen Beweis
+geliefert.** Ohne sie stürzte der Testhost ab — nicht ein Test schlug fehl,
+der ganze Prozess starb an einer einzigen Nachricht mit `n = 4000000000` und
+hinterliess ein **32 GB grosses Absturzabbild**. Genau das ist der Angriff:
+Ein Fremder braucht weder Schlüssel noch Zugang, nur diese eine Zahl. Der
+Lauf meldete dabei zunächst „Bestanden, 4 von 13" — und das ist die Falle aus
+D54 in Reinform: **Ein Lauf, der vier von dreizehn Tests meldet, ist kein
+bestandener Lauf.** Nachgesehen, wo er starb, statt die Zusammenfassung zu
+glauben.
+
+Nebenbei hat sich die Kodierung des Nachrichtenkopfes nach vorn gezogen,
+obwohl sie zu Etappe 4 gehört: Die Beigabe der Verschlüsselung ist
+`ad ‖ OMEMOMessage.proto(header)` (Abschnitt 4.3). Mit einer provisorischen
+Kodierung wäre der Ratchet gegen etwas geprüft worden, das später ersetzt wird.
+Protocol Buffers von Hand, und der Grund ist nicht Sparsamkeit: Diese Bytes
+müssen **bitgenau reproduzierbar** sein, und eine Bibliothek, die Felder
+umsortiert oder Vorgabewerte weglässt, wäre hier keine Hilfe, sondern eine
+Fehlerquelle, die niemand sieht.
+
+20 Mutationen, alle erschlagen — sechs davon erst, nachdem die Tests
+nachgebessert waren, und eine dadurch, dass sie den Prozess umbringt.
+
+---
+
 ## Später
 
 ### Testsammlung
