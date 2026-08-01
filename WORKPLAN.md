@@ -4926,6 +4926,63 @@ Vektoren und buchstäblich hingeschriebene Vorschriften — beides prüft die
 
 ---
 
+### D63. Vier Handschläge ✅ — OMEMO, Etappe 2 von 7: X3DH
+
+Eine Sitzung beginnt, ohne dass beide gleichzeitig da sind: Bob ist offline,
+Alice schreibt ihm trotzdem verschlüsselt. Das geht nur, weil sein Server seine
+Schlüssel vorrätig hält — **und damit ist der Server auch der naheliegende
+Angreifer.** Genau dagegen steht die Signatur über den Signed PreKey, und
+deshalb bricht ein Bundle mit falscher Signatur hier ab, statt eine Warnung zu
+melden: Eine Sitzung darauf wäre schlimmer als keine, denn sie sähe aus wie
+eine verschlüsselte.
+
+**Die vier Diffie-Hellman beantworten vier verschiedene Fragen** — wer schreibt
+(DH1), wer liest (DH2), ist es frisch (DH3), und ist diese erste Nachricht von
+jeder anderen verschieden (DH4). Der vierte entfällt, wenn der PreKey-Vorrat
+leer ist; das ist ausdrücklich vorgesehen und kostet genau diese eine
+Eigenschaft. Eine Verweigerung wäre die schlechtere Antwort — sie machte aus
+einem leeren Vorrat einen Ausfall der Erreichbarkeit.
+
+**Der Fehler, den ich beim Schreiben gemacht habe, ist der, vor dem diese
+Erweiterung am lautesten warnt.** XEP-0384 überträgt den IdentityKey *immer* in
+Ed25519-Form (Abschnitt 5.3.2), der Diffie-Hellman rechnet aber in
+Montgomery-Form. Ich habe die eine Fassung an die Methode für die andere
+gegeben — und bekam keine Fehlermeldung: Beides sind 32 gültige Byte, die
+Umrechnung läuft durch, und heraus kommt ein Schlüssel, zu dem keine Signatur
+passt. Jetzt heissen die beiden Wege `Verify` und `VerifyEdwards`. **Ein
+`Boolean istEdwards` wäre an der Aufrufstelle unsichtbar gewesen, und die
+Aufrufstelle ist der Ort, an dem man sich irrt.**
+
+**Zum dritten Mal dasselbe Muster bei den Mutationen, und es ist das Muster
+dieses ganzen Vorhabens:** Der `0xFF`-Vorspann, der Info-String und die
+Reihenfolge der beiden IdentityKeys in der Beigabe liessen sich alle drei
+ändern, ohne dass ein Test etwas sagte. Der Grund ist immer derselbe — **beide
+Seiten rechnen mit derselben Funktion und kommen weiterhin überein.** Ein Test,
+der prüft „beide bekommen dasselbe heraus", kann so etwas grundsätzlich nicht
+finden. Der Schaden träte erst gegenüber einem fremden Client auf, und den gibt
+es hier nicht.
+
+Dagegen hilft nur eines: **die Vorschrift ein zweites Mal wörtlich
+hinschreiben.** Die Ableitung wird jetzt mit einem zweiten HKDF nachgerechnet,
+und die Beigabe wird nicht auf „beide gleich" geprüft, sondern darauf, welche
+Hälfte wem gehört. Wer den Wert im Quelltext ändert, muss ihn zweimal ändern —
+und sieht dabei, dass er die Spezifikation verlässt.
+
+19 Mutationen, alle erschlagen: Signatur ungeprüft, DH1 und DH2 mit
+vertauschten Schlüsseln, Vorspann weg, Info-String weg, Beigabe verdreht
+(zweimal), gewechselter Signed PreKey übergangen, verbrauchter PreKey
+angenommen, PreKey beim Entnehmen nicht gelöscht, Kennungen wiederverwendet,
+gewechselter Schlüssel nicht neu unterschrieben, IdentityKey in falscher Form
+veröffentlicht, Signatur gegen die falsche Form geprüft.
+
+**Eine ungeprüfte Annahme steht ausdrücklich im Quelltext:** Der Signed PreKey
+wird in Montgomery-Form unterschrieben. Abschnitt 5.3.2 sagt nur „the signed
+PreKey signature" und lässt offen, welche Kodierung gemeint ist. Stimmt die
+Lesart nicht, scheitert die Prüfung gegen fremde Clients an dieser einen Zeile —
+und es gibt hier keine Gegenstelle, an der sich das entscheiden liesse.
+
+---
+
 ## Später
 
 ### Testsammlung

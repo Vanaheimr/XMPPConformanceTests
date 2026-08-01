@@ -242,14 +242,45 @@ public static class Curve25519
     public static Boolean Verify(Byte[] publicKey, Byte[] message, Byte[] signature)
     {
 
-        if (publicKey.Length != KeyLength || signature.Length != SignatureLength)
+        if (publicKey.Length != KeyLength)
             return false;
 
         try
         {
-            return Ed25519.Verify(signature, 0,
-                                  MontgomeryToEdwards(publicKey), 0,
-                                  message, 0, message.Length);
+            return VerifyEdwards(MontgomeryToEdwards(publicKey), message, signature);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+    }
+
+    /// <summary>
+    /// Prüft eine Signatur gegen den Schlüssel <b>in Ed25519-Form</b>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Dieselbe Frage, zwei Schreibweisen des Schlüssels - und das ist die
+    /// Falle dieser Erweiterung.</b> XEP-0384 überträgt den IdentityKey immer
+    /// in Ed25519-Form, gerechnet wird der Diffie-Hellman aber in
+    /// Montgomery-Form. Wer die eine Fassung in die Methode für die andere
+    /// gibt, bekommt keine Fehlermeldung: Beides sind 32 Byte, die Umrechnung
+    /// läuft durch, und heraus kommt ein Schlüssel, zu dem keine Signatur
+    /// passt. Beim ersten Schreiben dieser Zeilen ist mir genau das passiert.
+    ///
+    /// Deshalb zwei Methoden mit verschiedenen Namen statt einer mit einem
+    /// Schalter. Ein <c>Boolean istEdwards</c> wäre an der Aufrufstelle
+    /// unsichtbar, und die Aufrufstelle ist der Ort, an dem man sich irrt.
+    /// </remarks>
+    public static Boolean VerifyEdwards(Byte[] edwardsPublicKey, Byte[] message, Byte[] signature)
+    {
+
+        if (edwardsPublicKey.Length != KeyLength || signature.Length != SignatureLength)
+            return false;
+
+        try
+        {
+            return Ed25519.Verify(signature, 0, edwardsPublicKey, 0, message, 0, message.Length);
         }
         catch (Exception)
         {
@@ -297,6 +328,46 @@ public static class Curve25519
             throw new CryptographicException("Der öffentliche Schlüssel lässt sich nicht umrechnen (u = -1).");
 
         return ToLittleEndian(zaehler * nenner % P);
+
+    }
+
+    #endregion
+
+    #region EdwardsToMontgomery(publicKey)
+
+    /// <summary>
+    /// Die Gegenrichtung: <c>u = (1 + y) / (1 - y) mod p</c>.
+    /// </summary>
+    /// <remarks>
+    /// Gebraucht für fremde Bundles: XEP-0384 überträgt den IdentityKey
+    /// <b>immer</b> in Ed25519-Form („The public key is ALWAYS transferred in
+    /// its Ed25519 form"), gerechnet wird damit aber ein Diffie-Hellman, und
+    /// das kann nur die Montgomery-Form.
+    ///
+    /// Das Vorzeichenbit wird verworfen, und das ist kein Verlust: Die
+    /// u-Koordinate kennt es nicht, und beide Punkte mit demselben y ergeben
+    /// denselben gemeinsamen Geheimwert. Genau deshalb ist der Rückweg aus
+    /// <see cref="MontgomeryToEdwards"/> überhaupt eindeutig genug, um zu
+    /// tragen.
+    /// </remarks>
+    public static Byte[] EdwardsToMontgomery(Byte[] publicKey)
+    {
+
+        if (publicKey.Length != KeyLength)
+            throw new ArgumentException($"Ein Ed25519-Schlüssel hat {KeyLength} Byte, nicht {publicKey.Length}.",
+                                        nameof(publicKey));
+
+        var roh = (Byte[]) publicKey.Clone();
+        roh[31] &= 127;   // das Vorzeichenbit von x gehört nicht zu y
+
+        var y = new BigInteger(roh, isUnsigned: true, isBigEndian: false);
+
+        var nenner = BigInteger.ModPow(((1 - y) % P + P) % P, P - 2, P);
+
+        if (nenner.IsZero)
+            throw new CryptographicException("Der öffentliche Schlüssel lässt sich nicht umrechnen (y = 1).");
+
+        return ToLittleEndian(((1 + y) % P + P) % P * nenner % P);
 
     }
 
