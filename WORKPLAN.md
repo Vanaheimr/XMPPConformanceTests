@@ -5888,6 +5888,57 @@ prüft.
 
 ---
 
+### D81. Rollen, die etwas entscheiden ✅ — Affiliations
+
+In D80 stand, `<affiliations/>` lohne sich erst, wenn `publisher`, `member` und
+`outcast` beim Veröffentlichen und Abonnieren tatsächlich etwas entscheiden.
+Also nicht die Aufzählung zuerst, sondern das, was sie aufzählt:
+
+- **`publisher`** darf in einen fremden Knoten schreiben. Die Meldung kommt
+  trotzdem **vom Eigentümer** — käme sie vom Schreibenden, wäre sie eine
+  Falschaussage über die Herkunft, und der Spoofing-Schutz des Empfängers hätte
+  recht, sie zu verwerfen.
+- **`outcast`** kommt an keinen Knoten, gleich wie offen der steht, **und
+  verliert bestehende Abonnements** (Abschnitt 8.9.4). Ihn nur an neuen zu
+  hindern hiesse, den Ausschluss von dem Zufall abhängig zu machen, ob er
+  vorher schon da war.
+- **`member`** entscheidet noch nichts — das ist K13, und bis dahin steht es so
+  im README. Angeboten wird die Rolle trotzdem, weil sie sich sonst nicht
+  vergeben liesse, bevor das Zugriffsmodell sie braucht.
+
+**Der Eigentümer ist kein Eintrag, sondern das Konto.** Er steht in der Liste,
+ohne dass ihn jemand eingetragen hätte, und lässt sich nicht umtragen: Wer das
+könnte, könnte einem anderen sein eigenes Konto wegnehmen.
+
+Zwei Absagen statt einer, weil sie Verschiedenes sagen: `<not-authorized/>`
+heisst „dieser Knoten steht dir nicht offen" und nennt mit
+`<presence-subscription-required/>` den Weg hinein; `<forbidden/>` für einen
+Ausgeschlossenen sagt „du nicht", und einen Weg gibt es nicht. Ihn auf eine
+Presence-Anfrage zu schicken, die nichts ändern wird, wäre eine falsche
+Auskunft.
+
+## Drei Mutationen gegen Code, der nichts entschied
+
+Sie überlebten nicht, weil Tests fehlten, sondern weil es an drei Stellen
+**zwei Wege zu derselben Entscheidung** gab:
+
+- Die Eigentümer-Erkennung in `PepAffiliationOf` wurde nirgends benutzt — das
+  Veröffentlichen verglich stattdessen JIDs. Jetzt fragt es nach der Rolle, und
+  die Regel steht einmal statt zweimal: **schreiben darf, wer besitzt oder wem
+  der Besitzer es erlaubt hat.**
+- Der Ausschluss wurde in `MayAccessPepNode` <i>und</i> in der Fehlerauswahl
+  geprüft. Die zweite Prüfung entscheidet, also ist die erste weg.
+- Und die eigens geschriebene Prüfung „ein Publizierender legt keine Knoten an"
+  war unerreichbar: **An einem Knoten, den es nicht gibt, hat niemand eine
+  Rolle**, die Absage kommt schon von der Rollenprüfung. Der Test dazu prüft
+  jetzt die Regel dahinter — eine Rolle gehört einem Knoten und nicht einem
+  Konto.
+
+Vierundsechzig Tests, fünfzehn Mutationen, alle erschlagen. Voller Lauf: 1053
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

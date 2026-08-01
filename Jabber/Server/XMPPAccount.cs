@@ -64,6 +64,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Die Rollen je Knoten (XEP-0060, Abschnitt 4.1).
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Eigentümer steht hier nicht drin.</b> Er ist das Konto, und
+        /// eine Eintragung, die immer dasselbe sagt, kann nur fehlen oder
+        /// falsch werden.
+        /// </remarks>
+        private readonly Dictionary<String, Dictionary<String, PubSubAffiliation>> _pepAffiliations =
+            new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Die Abonnements je Knoten, jedes mit seinem Abonnenten und seiner
         /// Kennung (XEP-0060, Abschnitt 6.1).
         /// </summary>
@@ -664,6 +675,139 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return _pepSubscriptions.TryGetValue(node, out var abonnements)
                            ? [.. abonnements]
                            : [];
+        }
+
+        /// <summary>
+        /// Was jemand an einem Knoten ist (XEP-0060, Abschnitt 4.1).
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Eigentümer wird nicht nachgeschlagen, sondern erkannt.</b>
+        /// Ein PEP-Knoten gehört dem Konto, in dem er steht - das ist keine
+        /// Eintragung, die fehlen könnte, sondern eine Tatsache über die
+        /// Adresse.
+        /// </remarks>
+        public PubSubAffiliation PepAffiliationOf(String node, String bareJid)
+        {
+
+            if (String.Equals(BareJid, bareJid, StringComparison.OrdinalIgnoreCase))
+                return PubSubAffiliation.Owner;
+
+            lock (_lock)
+                return _pepAffiliations.TryGetValue(node, out var rollen) &&
+                       rollen.TryGetValue(bareJid, out var rolle)
+                           ? rolle
+                           : PubSubAffiliation.None;
+
+        }
+
+        /// <summary>
+        /// Setzt eine Rolle (XEP-0060, Abschnitt 8.9.2).
+        /// </summary>
+        /// <returns>
+        /// false, wenn es den Knoten nicht gibt oder wenn jemand die Rolle des
+        /// Eigentümers ändern will - beides ist kein Formfehler, sondern eine
+        /// Anweisung, die es nicht gibt.
+        /// </returns>
+        /// <remarks>
+        /// <c>None</c> löscht den Eintrag, statt ihn auf einen Wert zu setzen:
+        /// „keine Rolle" ist die Abwesenheit einer Rolle und nicht eine unter
+        /// mehreren.
+        /// </remarks>
+        public Boolean SetPepAffiliation(String node, String bareJid, PubSubAffiliation affiliation)
+        {
+
+            if (String.Equals(BareJid, bareJid, StringComparison.OrdinalIgnoreCase) ||
+                affiliation == PubSubAffiliation.Owner)
+            {
+                return false;
+            }
+
+            lock (_lock)
+            {
+
+                if (!PepNodeExists(node))
+                    return false;
+
+                if (affiliation == PubSubAffiliation.None)
+                {
+
+                    if (_pepAffiliations.TryGetValue(node, out var bestand))
+                    {
+
+                        bestand.Remove(bareJid);
+
+                        if (bestand.Count == 0)
+                            _pepAffiliations.Remove(node);
+
+                    }
+
+                    return true;
+
+                }
+
+                if (!_pepAffiliations.TryGetValue(node, out var rollen))
+                    _pepAffiliations[node] = rollen = new Dictionary<String, PubSubAffiliation>(StringComparer.OrdinalIgnoreCase);
+
+                rollen[bareJid] = affiliation;
+
+                // XEP-0060, Abschnitt 8.9.4: Wer ausgeschlossen wird, verliert
+                // seine Abonnements. Ihn nur an neuen zu hindern hiesse, den
+                // Ausschluss von dem Zufall abhängig zu machen, ob er vorher
+                // schon da war.
+                if (affiliation == PubSubAffiliation.Outcast &&
+                    _pepSubscriptions.TryGetValue(node, out var abonnements))
+                {
+
+                    abonnements.RemoveAll(a => String.Equals(a.Jid, bareJid, StringComparison.OrdinalIgnoreCase));
+
+                    if (abonnements.Count == 0)
+                        _pepSubscriptions.Remove(node);
+
+                }
+
+                return true;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Alle Rollen an einem Knoten, den Eigentümer eingeschlossen
+        /// (XEP-0060, Abschnitt 8.9.1).
+        /// </summary>
+        public IReadOnlyList<(String Jid, PubSubAffiliation Affiliation)> PepAffiliations(String node)
+        {
+            lock (_lock)
+                return [(BareJid, PubSubAffiliation.Owner),
+                        .. (_pepAffiliations.TryGetValue(node, out var rollen)
+                                ? rollen.Select(r => (r.Key, r.Value))
+                                : [])];
+        }
+
+        /// <summary>
+        /// Die Rollen eines JIDs über alle Knoten dieses Kontos (XEP-0060,
+        /// Abschnitt 5.7).
+        /// </summary>
+        public IReadOnlyList<(String Node, PubSubAffiliation Affiliation)> PepAffiliationsOf(String bareJid)
+        {
+
+            lock (_lock)
+            {
+
+                // Dem Eigentümer gehören alle seine Knoten - auch die, an
+                // denen nie jemand eine Rolle eingetragen hat.
+                if (String.Equals(BareJid, bareJid, StringComparison.OrdinalIgnoreCase))
+                    return [.. _pepNodeConfigs.Keys
+                               .Concat(_pepNodes.Keys)
+                               .Distinct(StringComparer.Ordinal)
+                               .Select(n => (n, PubSubAffiliation.Owner))];
+
+                return [.. _pepAffiliations
+                           .Where (n => n.Value.ContainsKey(bareJid))
+                           .Select(n => (n.Key, n.Value[bareJid]))];
+
+            }
+
         }
 
         /// <summary>

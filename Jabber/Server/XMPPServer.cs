@@ -2055,11 +2055,90 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (owner is not null)
             {
 
-                if (type is not ("get" or "set") ||
-                    owner.Child(PubSubOwnerNamespace, "configure") is not { } konfiguration)
-                {
+                if (type is not ("get" or "set"))
                     return false;
+
+                #region Rollen verwalten (XEP-0060, Abschnitt 8.9)
+
+                if (owner.Child(PubSubOwnerNamespace, "affiliations") is { } rollen)
+                {
+
+                    if (to is not null &&
+                        !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+                        return true;
+                    }
+
+                    var wessen = rollen.Attr("node");
+
+                    if (String.IsNullOrEmpty(wessen) || !session.Account.PepNodeExists(wessen))
+                    {
+                        await session.SendAsync(
+                            String.IsNullOrEmpty(wessen)
+                                ? BadRequestIq(id)
+                                : StanzaErrorIq(id, "item-not-found"));
+                        return true;
+                    }
+
+                    if (type == "get")
+                    {
+
+                        await session.SendAsync(
+                            $"<iq type='result' id='{id}'>" +
+                            $"<pubsub xmlns='{PubSubOwnerNamespace}'>" +
+                            $"<affiliations node='{XmlEscaping.Escape(wessen)}'>" +
+                            String.Concat(session.Account.PepAffiliations(wessen).Select(r =>
+                                $"<affiliation jid='{XmlEscaping.Escape(r.Jid)}'" +
+                                $" affiliation='{PubSubAffiliations.NameOf(r.Affiliation)}'/>")) +
+                            "</affiliations></pubsub></iq>");
+
+                        return true;
+
+                    }
+
+                    foreach (var eintrag in rollen.Children(PubSubOwnerNamespace, "affiliation"))
+                    {
+
+                        // Erst alles prüfen, dann alles ausführen: Eine
+                        // Anfrage, die zur Hälfte gilt, wäre schlimmer als
+                        // eine, die ganz abgewiesen wird - der Absender
+                        // wüsste nicht, welche Hälfte.
+                        if (eintrag.Attr("jid") is not String wer ||
+                            !PubSubAffiliations.TryRead(eintrag.Attr("affiliation"), out var rolle))
+                        {
+                            await session.SendAsync(BadRequestIq(id));
+                            return true;
+                        }
+
+                        // XEP-0060, Abschnitt 8.9.2: Der Eigentümer ist das
+                        // Konto. Wer ihn umtragen könnte, könnte einem anderen
+                        // sein eigenes Konto wegnehmen.
+                        if (String.Equals(BareOf(wer), session.BareJid, StringComparison.OrdinalIgnoreCase) ||
+                            rolle == PubSubAffiliation.Owner)
+                        {
+                            await session.SendAsync(StanzaErrorIq(id, "not-allowed", "cancel"));
+                            return true;
+                        }
+
+                    }
+
+                    foreach (var eintrag in rollen.Children(PubSubOwnerNamespace, "affiliation"))
+                    {
+                        PubSubAffiliations.TryRead(eintrag.Attr("affiliation"), out var rolle);
+                        session.Account.SetPepAffiliation(wessen, BareOf(eintrag.Attr("jid")!)!, rolle);
+                    }
+
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                    return true;
+
                 }
+
+                #endregion
+
+                if (owner.Child(PubSubOwnerNamespace, "configure") is not { } konfiguration)
+                    return false;
 
                 // Ein PEP-Knoten gehört einem Menschen, und einstellen darf ihn
                 // nur der. Fremde Knoten sind hier nicht bloss unzugänglich -
@@ -2185,23 +2264,37 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "publish") is { } publish)
             {
 
-                // Nur im eigenen Konto. Ein PEP-Knoten gehört einem Menschen,
-                // und wer in einen fremden schreiben dürfte, könnte fremde
-                // Bundles austauschen - das wäre der Angriff, gegen den die
-                // Signatur über den Signed PreKey steht.
-                if (to is not null &&
-                    !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
-                {
-                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
-                    return true;
-                }
-
                 var node = publish.Attr("node");
                 var item = publish.Elements().FirstOrDefault(e => e.Name.LocalName == "item");
 
                 if (String.IsNullOrEmpty(node) || item is null)
                 {
                     await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                // Der Knoten gehört dem Konto und nicht dem, der schreibt.
+                var besitzer = to is null ||
+                               String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase)
+                                   ? session.Account
+                                   : GetAccount(BareOf(to));
+
+                // Schreiben darf, wer den Knoten besitzt oder wem der Besitzer
+                // es erlaubt hat - eine Regel für beide Fälle.
+                //
+                // Ohne sie könnte jeder fremde Bundles austauschen; das wäre
+                // der Angriff, gegen den die Signatur über den Signed PreKey
+                // steht. Mit ihr ist es eine Rolle, die der Eigentümer vergeben
+                // hat und jederzeit wieder nimmt.
+                //
+                // Dass ein Publizierender in einem fremden Konto keinen Knoten
+                // anlegen kann, folgt daraus von selbst: Eine Rolle gehört
+                // einem Knoten, und an einem, den es nicht gibt, hat niemand
+                // eine.
+                if (besitzer?.PepAffiliationOf(node, session.BareJid!)
+                        is not (PubSubAffiliation.Owner or PubSubAffiliation.Publisher))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
                     return true;
                 }
 
@@ -2220,10 +2313,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                         return true;
                     }
 
-                    var bestand = session.Account.PepNodeConfiguration(node);
+                    var bestand = besitzer.PepNodeConfiguration(node);
 
                     if (bestand is null)
-                        session.Account.CreatePepNode(node, verlangt!.ApplyTo(PubSubNodeConfiguration.Default));
+                        besitzer.CreatePepNode(node, verlangt!.ApplyTo(PubSubNodeConfiguration.Default));
 
                     else if (!verlangt!.AreMetBy(bestand))
                     {
@@ -2238,7 +2331,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var itemId  = item.Attr("id") ?? Guid.NewGuid().ToString("N")[..8];
                 var inhalt  = item.Elements().FirstOrDefault()?.ToString(SaveOptions.DisableFormatting) ?? "";
 
-                session.Account.PublishPepItem(node, itemId, inhalt);
+                besitzer.PublishPepItem(node, itemId, inhalt);
 
                 await session.SendAsync(
                     $"<iq type='result' id='{id}'>" +
@@ -2247,7 +2340,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     $"<item id='{XmlEscaping.Escape(itemId)}'/>" +
                     "</publish></pubsub></iq>");
 
-                await NotifyPepAsync(session, node, itemId, inhalt);
+                await NotifyPepAsync(besitzer, session, node, itemId, inhalt);
 
                 return true;
 
@@ -2279,9 +2372,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // (RFC 6120, Abschnitt 13.11, siehe D50).
                 if (konto is not null &&
                     konto.PepNodeExists(node) &&
-                    !MayAccessPepNode(konto, node, session.BareJid!))
+                    PepAccessErrorIq(id, konto, node, session.BareJid!) is { } abgewiesen)
                 {
-                    await session.SendAsync(NotAuthorizedForPepNodeIq(id));
+                    await session.SendAsync(abgewiesen);
                     return true;
                 }
 
@@ -2302,6 +2395,34 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     String.Concat(eintraege.Select(e =>
                         $"<item id='{XmlEscaping.Escape(e.ItemId)}'>{e.Payload}</item>")) +
                     "</items></pubsub></iq>");
+
+                return true;
+
+            }
+
+            #endregion
+
+            #region Eigene Rollen aufzählen
+
+            if (type == "get" && pubsub.Child(OmemoPep.PubSubNamespace, "affiliations") is not null)
+            {
+
+                var konto = to is null
+                                ? session.Account
+                                : GetAccount(BareOf(to));
+
+                // Wie bei den Abonnements: die Rollen *des Fragenden*. Wer
+                // fremde aufzählen dürfte, erführe, wer wo etwas darf.
+                var meine = konto?.PepAffiliationsOf(session.BareJid!) ?? [];
+
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'" +
+                    (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + ">" +
+                    $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'><affiliations>" +
+                    String.Concat(meine.Select(r =>
+                        $"<affiliation node='{XmlEscaping.Escape(r.Node)}'" +
+                        $" affiliation='{PubSubAffiliations.NameOf(r.Affiliation)}'/>")) +
+                    "</affiliations></pubsub></iq>");
 
                 return true;
 
@@ -2397,10 +2518,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     return true;
                 }
 
-                // XEP-0060, Abschnitt 6.1.3.4
-                if (!MayAccessPepNode(konto, node, session.BareJid!))
+                // XEP-0060, Abschnitte 6.1.3.4 und 6.1.3.8
+                if (PepAccessErrorIq(id, konto, node, session.BareJid!) is { } abgewiesen)
                 {
-                    await session.SendAsync(NotAuthorizedForPepNodeIq(id));
+                    await session.SendAsync(abgewiesen);
                     return true;
                 }
 
@@ -2595,6 +2716,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Existenz ein Geheimnis wäre, ist <c>presence</c> das falsche
         /// Mittel.
         /// </remarks>
+        /// <remarks>
+        /// <b>Nur die Hälfte der Frage</b>, und zwar die nach dem
+        /// Zugriffsmodell: Wer <i>hereindarf</i>. Wer draussen bleibt, sagt die
+        /// Rolle, und das steht in <see cref="PepAccessErrorIq"/> - beides hier
+        /// zu prüfen hiesse, dieselbe Entscheidung an zwei Stellen zu treffen,
+        /// und eine davon würde beim nächsten Mal vergessen.
+        /// </remarks>
         private static Boolean MayAccessPepNode(XMPPAccount account, String node, String requesterBareJid)
 
             => account.PepNodeConfiguration(node)?.AccessModel != PubSubAccessModel.Presence ||
@@ -2609,6 +2737,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             => StanzaErrorIq(id, "not-authorized", "auth",
                              applicationError: $"<presence-subscription-required xmlns='{PubSubErrorNamespace}'/>");
+
+        /// <summary>
+        /// Die Absage auf einen Zugriff, oder null, wenn er erlaubt ist.
+        /// </summary>
+        /// <remarks>
+        /// <b>Zwei Absagen und nicht eine</b>, weil sie Verschiedenes sagen:
+        /// <c>&lt;not-authorized/&gt;</c> heisst „dieser Knoten steht dir nicht
+        /// offen" und nennt mit
+        /// <c>&lt;presence-subscription-required/&gt;</c> gleich den Weg
+        /// hinein. <c>&lt;forbidden/&gt;</c> für einen Ausgeschlossenen
+        /// (Abschnitt 6.1.3.8) sagt „du nicht" - und es gibt keinen Weg, den
+        /// er selbst gehen könnte. Beides gleich zu beantworten hiesse, einen
+        /// Ausgeschlossenen auf eine Presence-Anfrage zu schicken, die nichts
+        /// ändern wird.
+        /// </remarks>
+        private String? PepAccessErrorIq(String? id, XMPPAccount account, String node, String requesterBareJid)
+
+            => account.PepAffiliationOf(node, requesterBareJid) == PubSubAffiliation.Outcast
+                   ? StanzaErrorIq(id, "forbidden", "auth")
+                   : MayAccessPepNode(account, node, requesterBareJid)
+                         ? null
+                         : NotAuthorizedForPepNodeIq(id);
 
         /// <summary>
         /// Die Ablehnungen, die für Abbestellen und Einstellen dieselben sind
@@ -2661,14 +2811,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// schlimmer als keine - der Empfänger könnte danach abbestellen
         /// wollen, was nie bestellt wurde.
         /// </remarks>
-        private async Task NotifyPepAsync(XMPPSession session, String node, String itemId, String payload)
+        /// <param name="owner">
+        /// Das Konto, dem der Knoten gehört - nicht unbedingt das des
+        /// Absenders: Ein <c>publisher</c> schreibt in einen fremden Knoten,
+        /// und die Meldung kommt trotzdem von dessen Eigentümer. Alles andere
+        /// wäre eine Falschaussage über die Herkunft, und der Spoofing-Schutz
+        /// des Empfängers hätte recht, sie zu verwerfen.
+        /// </param>
+        /// <param name="sender">
+        /// Die Sitzung, die veröffentlicht hat - sie bekommt ihre eigene
+        /// Meldung nicht.
+        /// </param>
+        private async Task NotifyPepAsync(XMPPAccount   owner,
+                                          XMPPSession   sender,
+                                          String        node,
+                                          String        itemId,
+                                          String        payload)
         {
 
-            if (!RouteStanzas || session.FullJid is null)
+            if (!RouteStanzas || sender.FullJid is null)
                 return;
 
             String Ereignis(String? subId)
-                => $"<message from='{session.BareJid}' type='headline'>" +
+                => $"<message from='{owner.BareJid}' type='headline'>" +
                    "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
                    $"<items node='{XmlEscaping.Escape(node)}'>" +
                    $"<item id='{XmlEscaping.Escape(itemId)}'>{payload}</item>" +
@@ -2680,7 +2845,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                         : "") +
                    "</message>";
 
-            var abonnements = session.Account?.PepSubscriptions(node) ?? [];
+            var abonnements = owner.PepSubscriptions(node);
 
             // Auch die stillgelegten stehen hier drin, und das ist der Punkt:
             // Wer gesagt hat, dass er nichts bekommen will, soll es auch nicht
@@ -2689,13 +2854,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var ausdruecklich = new HashSet<String>(abonnements.Select(a => a.Jid),
                                                     StringComparer.OrdinalIgnoreCase);
 
-            foreach (var ziel in PresenceTargetsOf(session))
+            foreach (var ziel in PresenceTargetsOf(owner, sender))
                 if (!ausdruecklich.Contains(ziel.BareJid ?? ""))
                     await ziel.SendAsync(StampTo(Ereignis(null), ziel.FullJid!));
 
             foreach (var abonnement in abonnements.Where(a => a.Options.Deliver))
                 foreach (var ziel in SessionsOf(abonnement.Jid))
-                    if (ziel != session && ziel.FullJid is not null)
+                    if (ziel != sender && ziel.FullJid is not null)
                         await ziel.SendAsync(StampTo(Ereignis(abonnement.SubId), ziel.FullJid));
 
         }
@@ -4019,14 +4184,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         private IEnumerable<XMPPSession> PresenceTargetsOf(XMPPSession session)
+            => session.Account is null
+                   ? []
+                   : PresenceTargetsOf(session.Account, session);
+
+        /// <summary>
+        /// Wer bekommt, was von diesem Konto ausgeht?
+        /// </summary>
+        /// <param name="except">
+        /// Eine Sitzung, die es nicht bekommt - die des Absenders. Sie muss
+        /// nicht zu diesem Konto gehören: Ein <c>publisher</c> schreibt in
+        /// einen fremden Knoten und braucht seine eigene Meldung nicht.
+        /// </param>
+        private IEnumerable<XMPPSession> PresenceTargetsOf(XMPPAccount account, XMPPSession? except)
         {
 
-            var account = session.Account;
-
-            if (account is null)
-                yield break;
-
-            foreach (var other in Sessions.Where(s => s != session && s.FullJid is not null))
+            foreach (var other in Sessions.Where(s => s != except && s.FullJid is not null))
             {
 
                 if (String.Equals(other.BareJid, account.BareJid, StringComparison.OrdinalIgnoreCase) ||

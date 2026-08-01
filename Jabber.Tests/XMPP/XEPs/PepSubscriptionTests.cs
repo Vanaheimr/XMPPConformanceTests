@@ -252,6 +252,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                (formular is null ? "/>" : $">{formular}</configure>") +
                "</pubsub></iq>";
 
+        /// <summary>Eine Rollen-Anfrage des Eigentümers (XEP-0060, Abschnitt 8.9).</summary>
+        private String AffiliationsIq(String   id,
+                                      String   art,
+                                      String?  inhalt = null,
+                                      String?  node   = null)
+
+            => $"<iq type='{art}' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<affiliations node='{node ?? Node}'" +
+               (inhalt is null ? "/>" : $">{inhalt}</affiliations>") +
+               "</pubsub></iq>";
+
+        /// <summary>Die Frage nach den eigenen Rollen (XEP-0060, Abschnitt 5.7).</summary>
+        private String OwnAffiliationsIq(String id)
+            => $"<iq type='get' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{PubSubNamespace}'><affiliations/></pubsub></iq>";
+
+        /// <summary>Die Einträge einer Rollenliste.</summary>
+        private static List<XElement> AffiliationsIn(XElement antwort, String? ns = null)
+            => [.. antwort.Child(ns ?? OwnerNamespace, "pubsub")
+                         ?.Child(ns ?? OwnerNamespace, "affiliations")
+                         ?.Children(ns ?? OwnerNamespace, "affiliation") ?? []];
+
         /// <summary>Ein abgeschicktes Knotenformular.</summary>
         private static String ConfigForm(String felder)
             => "<x xmlns='jabber:x:data' type='submit'>" +
@@ -1873,6 +1896,453 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(liste.Attr("type"), Is.EqualTo("result"));
                 Assert.That(SubscriptionsIn(liste), Is.Empty);
             });
+
+        }
+
+        #endregion
+
+        #region TheOwner_IsTheAccountAndCannotBeChanged()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.9: Der Eigentümer steht in der Liste, ohne
+        /// dass ihn jemand eingetragen hätte - und lässt sich nicht umtragen.
+        /// </summary>
+        /// <remarks>
+        /// Ein PEP-Knoten gehört dem Menschen, in dessen Konto er steht. Wer
+        /// den Eigentümer wechseln könnte, könnte einem anderen sein eigenes
+        /// Konto wegnehmen.
+        /// </remarks>
+        [Test]
+        public async Task TheOwner_IsTheAccountAndCannotBeChanged()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var liste = await AskAsync(bob, "aff-1", AffiliationsIq("aff-1", "get"));
+
+            Assert.That(AffiliationsIn(liste).Select(e => (e.Attr("jid"), e.Attr("affiliation"))),
+                        Is.EqualTo(new[] { ($"bob@{Server.Domain}", "owner") }));
+
+            var abgewiesen = await AskAsync(bob, "aff-2",
+                                            AffiliationsIq("aff-2", "set",
+                                                           $"<affiliation jid='{alice.BareJid}' affiliation='owner'/>"));
+
+            var selbst = await AskAsync(bob, "aff-3",
+                                        AffiliationsIq("aff-3", "set",
+                                                       $"<affiliation jid='bob@{Server.Domain}' affiliation='member'/>"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(abgewiesen), Is.EqualTo("not-allowed"),
+                            "Einen zweiten Eigentümer gibt es nicht.");
+                Assert.That(ConditionOf(selbst),     Is.EqualTo("not-allowed"),
+                            "Und der Eigentümer kann sich nicht selbst herabstufen.");
+            });
+
+        }
+
+        #endregion
+
+        #region TheAccountApi_RefusesToMoveTheOwnership()
+
+        /// <summary>
+        /// Auch unterhalb des Protokolls: Die Eigentümerschaft ist nicht
+        /// setzbar.
+        /// </summary>
+        /// <remarks>
+        /// Der Server weist es schon ab, bevor es hierher kommt - diese Prüfung
+        /// ist trotzdem keine doppelte, sondern die Zusage einer öffentlichen
+        /// Methode. Eine, die den Eigentümer stillschweigend änderte, wäre eine
+        /// Falle für den nächsten Aufrufer.
+        /// </remarks>
+        [Test]
+        public async Task TheAccountApi_RefusesToMoveTheOwnership()
+        {
+
+            await PublishingBobAsync();
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(konto.SetPepAffiliation(Node, $"alice@{Server.Domain}", PubSubAffiliation.Owner),
+                            Is.False,
+                            "Einen zweiten Eigentümer gibt es nicht.");
+
+                Assert.That(konto.SetPepAffiliation(Node, $"bob@{Server.Domain}", PubSubAffiliation.Member),
+                            Is.False,
+                            "Und der Eigentümer ist nicht herabzustufen.");
+
+                Assert.That(konto.PepAffiliationOf(Node, $"bob@{Server.Domain}"),
+                            Is.EqualTo(PubSubAffiliation.Owner));
+
+                Assert.That(konto.PepAffiliationOf(Node, $"alice@{Server.Domain}"),
+                            Is.EqualTo(PubSubAffiliation.None));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AffiliationsOfANode_AreTheOwnersBusiness()
+
+        /// <summary>
+        /// Wer an einem Knoten was ist, geht nur den Eigentümer an.
+        /// </summary>
+        [Test]
+        public async Task AffiliationsOfANode_AreTheOwnersBusiness()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var antwort = await AskAsync(alice, "aff-4", AffiliationsIq("aff-4", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+            });
+
+        }
+
+        #endregion
+
+        #region APublisher_MayPublishIntoAForeignNode()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 4.1: Ein <c>publisher</c> darf in einen fremden
+        /// Knoten schreiben - und die Meldung kommt trotzdem vom Eigentümer.
+        /// </summary>
+        /// <remarks>
+        /// Der zweite Teil ist der wichtige. Käme sie vom Schreibenden, wäre
+        /// sie eine Falschaussage über die Herkunft - und der Spoofing-Schutz
+        /// des Empfängers hätte recht, sie zu verwerfen.
+        /// </remarks>
+        [Test]
+        public async Task APublisher_MayPublishIntoAForeignNode()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "aff-5",
+                           AffiliationsIq("aff-5", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>"));
+
+            var carol = await ConnectClientAsync("carol");
+            await SubscribeAsync(carol, "sub-60");
+
+            var ereignisse = CollectEvents(carol);
+
+            var antwort = await AskAsync(alice, "pub-50",
+                                         $"<iq type='set' to='bob@{Server.Domain}' id='pub-50'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='50'>" +
+                                         "<w xmlns='urn:example:x'>von Alice</w></item></publish>" +
+                                         "</pubsub></iq>");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+            Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node).Select(e => e.ItemId),
+                        Does.Contain("50"),
+                        "Der Eintrag gehört in Bobs Knoten und nicht in Alices.");
+
+            await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung an den Abonnenten");
+
+            Assert.That(ereignisse[0], Does.Contain($"from='bob@{Server.Domain}'"),
+                        "Die Meldung kommt vom Eigentümer des Knotens.");
+
+        }
+
+        #endregion
+
+        #region WithoutTheRole_PublishingIntoAForeignNodeStaysForbidden()
+
+        /// <summary>
+        /// Die Gegenprobe: Ohne Rolle bleibt es bei der Absage.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie prüfte der vorige Test nur, dass überhaupt jemand schreiben
+        /// darf - und die Prüfung, gegen die die OMEMO-Signatur steht, wäre
+        /// stillschweigend entfallen.
+        /// </remarks>
+        [Test]
+        public async Task WithoutTheRole_PublishingIntoAForeignNodeStaysForbidden()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var antwort = await AskAsync(alice, "pub-51",
+                                         $"<iq type='set' to='bob@{Server.Domain}' id='pub-51'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='51'>" +
+                                         "<w xmlns='urn:example:x'>gefälscht</w></item></publish>" +
+                                         "</pubsub></iq>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node).Select(e => e.ItemId),
+                            Does.Not.Contain("51"));
+            });
+
+        }
+
+        #endregion
+
+        #region APublisher_MayNotConfigureTheNode()
+
+        /// <summary>
+        /// Schreiben dürfen heisst nicht bestimmen dürfen.
+        /// </summary>
+        [Test]
+        public async Task APublisher_MayNotConfigureTheNode()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "aff-6",
+                           AffiliationsIq("aff-6", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>"));
+
+            var antwort = await AskAsync(alice, "cfg-30",
+                                         ConfigureIq("cfg-30", "set",
+                                                     ConfigForm("<field var='pubsub#persist_items'><value>0</value></field>")));
+
+            Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+
+        }
+
+        #endregion
+
+        #region ARole_BelongsToANodeAndNotToAnAccount()
+
+        /// <summary>
+        /// Wer an einem Knoten schreiben darf, darf es nicht überall.
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Test hiess zuerst „ein Publizierender kann keine Knoten
+        /// anlegen" und prüfte etwas, das es gar nicht gibt:</b> An einem
+        /// Knoten, den es nicht gibt, hat niemand eine Rolle - die Absage
+        /// kommt schon von der Rollenprüfung. Die eigens dafür geschriebene
+        /// Prüfung auf die Existenz war damit unerreichbar und ist wieder
+        /// draussen.
+        ///
+        /// Was übrig bleibt, ist die Regel dahinter, und die ist prüfbar: Eine
+        /// Rolle gehört einem Knoten und nicht einem Konto. Sonst wäre ein
+        /// einmal vergebenes Schreibrecht ein Schreibrecht auf alles - auch
+        /// auf den OMEMO-Knoten, an dem sonst die Signatur steht.
+        /// </remarks>
+        [Test]
+        public async Task ARole_BelongsToANodeAndNotToAnAccount()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "new-21",
+                           PubSubBuilder.CreateNode($"bob@{Server.Domain}", "urn:example:zweiter", "new-21"));
+
+            await AskAsync(bob, "aff-7",
+                           AffiliationsIq("aff-7", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>"));
+
+            var antwort = await AskAsync(alice, "pub-52",
+                                         $"<iq type='set' to='bob@{Server.Domain}' id='pub-52'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'>" +
+                                         "<publish node='urn:example:zweiter'><item id='52'>" +
+                                         "<w xmlns='urn:example:x'>a</w></item></publish>" +
+                                         "</pubsub></iq>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems("urn:example:zweiter"),
+                            Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region AnOutcast_IsLockedOutAndLosesHisSubscription()
+
+        /// <summary>
+        /// XEP-0060, Abschnitte 6.1.3.8 und 8.9.4: Ausgeschlossen heisst
+        /// ausgeschlossen - und bestehende Abonnements enden.
+        /// </summary>
+        /// <remarks>
+        /// Ihn nur an neuen zu hindern hiesse, den Ausschluss von dem Zufall
+        /// abhängig zu machen, ob er vorher schon da war.
+        ///
+        /// Die Absage ist eine andere als beim Zugriffsmodell:
+        /// <c>&lt;forbidden/&gt;</c> statt <c>&lt;not-authorized/&gt;</c>.
+        /// Letzteres nennt mit der Presence-Anfrage den Weg hinein - für einen
+        /// Ausgeschlossenen gäbe es den nicht, und ihn darauf zu schicken wäre
+        /// eine falsche Auskunft.
+        /// </remarks>
+        [Test]
+        public async Task AnOutcast_IsLockedOutAndLosesHisSubscription()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-61");
+
+            await AskAsync(bob, "aff-8",
+                           AffiliationsIq("aff-8", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='outcast'/>"));
+
+            var abgerufen = await AskAsync(alice, "get-30",
+                                           $"<iq type='get' to='bob@{Server.Domain}' id='get-30'>" +
+                                           $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            var abonniert = await AskAsync(alice, "sub-62",
+                                           PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                   alice.BareJid, "sub-62"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(abgerufen), Is.EqualTo("forbidden"));
+                Assert.That(ConditionOf(abonniert), Is.EqualTo("forbidden"));
+
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.PepSubscriptions(Node), Is.Empty,
+                            "Das bestehende Abonnement hätte enden müssen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AnUnknownRole_IsRejectedAndChangesNothing()
+
+        /// <summary>
+        /// Eine Rolle, die dieser Dienst nicht kennt, wird abgewiesen.
+        /// </summary>
+        /// <remarks>
+        /// <b>Besonders teuer wäre hier die Nachsicht:</b> Wer jemanden
+        /// ausschliessen will und sich vertippt, bekäme sonst ein
+        /// <c>result</c> und hielte den Ausschluss für vollzogen.
+        ///
+        /// Und geprüft wird alles, bevor irgendetwas gilt: Eine Anfrage, die
+        /// zur Hälfte wirkt, wäre schlimmer als eine, die ganz abgewiesen wird
+        /// - der Absender wüsste nicht, welche Hälfte.
+        /// </remarks>
+        [Test]
+        public async Task AnUnknownRole_IsRejectedAndChangesNothing()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var antwort = await AskAsync(bob, "aff-9",
+                                         AffiliationsIq("aff-9", "set",
+                                                        $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>" +
+                                                        $"<affiliation jid='carol@{Server.Domain}' affiliation='publish-only'/>"));
+
+            Assert.That(ConditionOf(antwort), Is.EqualTo("bad-request"));
+
+            var liste = await AskAsync(bob, "aff-10", AffiliationsIq("aff-10", "get"));
+
+            Assert.That(AffiliationsIn(liste).Select(e => e.Attr("jid")),
+                        Is.EqualTo(new[] { $"bob@{Server.Domain}" }),
+                        "Auch die gültige Hälfte darf nicht gewirkt haben.");
+
+        }
+
+        #endregion
+
+        #region TakingTheRoleBack_EndsThePermission()
+
+        /// <summary>
+        /// <c>none</c> nimmt die Rolle zurück - und mit ihr, was sie erlaubte.
+        /// </summary>
+        [Test]
+        public async Task TakingTheRoleBack_EndsThePermission()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "aff-11",
+                           AffiliationsIq("aff-11", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>"));
+
+            await AskAsync(bob, "aff-12",
+                           AffiliationsIq("aff-12", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='none'/>"));
+
+            var antwort = await AskAsync(alice, "pub-53",
+                                         $"<iq type='set' to='bob@{Server.Domain}' id='pub-53'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='53'>" +
+                                         "<w xmlns='urn:example:x'>zu spät</w></item></publish>" +
+                                         "</pubsub></iq>");
+
+            Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+
+            var liste = await AskAsync(bob, "aff-13", AffiliationsIq("aff-13", "get"));
+
+            Assert.That(AffiliationsIn(liste).Select(e => e.Attr("jid")),
+                        Is.EqualTo(new[] { $"bob@{Server.Domain}" }),
+                        "Eine zurückgenommene Rolle steht nicht mehr in der Liste.");
+
+        }
+
+        #endregion
+
+        #region MyOwnAffiliations_AreListedAcrossNodes()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 5.7: Was bin ich wo?
+        /// </summary>
+        /// <remarks>
+        /// Wie bei den Abonnements: die Rollen des Fragenden, nie die eines
+        /// anderen. Wer fremde aufzählen dürfte, erführe, wer wo etwas darf.
+        /// </remarks>
+        [Test]
+        public async Task MyOwnAffiliations_AreListedAcrossNodes()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "new-20",
+                           PubSubBuilder.CreateNode($"bob@{Server.Domain}", "urn:example:zweiter", "new-20"));
+
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await AskAsync(bob, "aff-14",
+                           AffiliationsIq("aff-14", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>"));
+
+            await AskAsync(bob, "aff-15",
+                           AffiliationsIq("aff-15", "set", node: "urn:example:zweiter",
+                                          inhalt: $"<affiliation jid='{carol.BareJid}' affiliation='member'/>"));
+
+            var meine = await AskAsync(alice, "own-1", OwnAffiliationsIq("own-1"));
+
+            Assert.That(AffiliationsIn(meine, PubSubNamespace)
+                            .Select(e => (e.Attr("node"), e.Attr("affiliation"))),
+                        Is.EqualTo(new[] { (Node, "publisher") }),
+                        "Carols Rolle geht Alice nichts an.");
+
+            var bobs = await AskAsync(bob, "own-2", OwnAffiliationsIq("own-2"));
+
+            Assert.That(AffiliationsIn(bobs, PubSubNamespace).Select(e => e.Attr("affiliation")).Distinct(),
+                        Is.EqualTo(new[] { "owner" }),
+                        "Dem Eigentümer gehören alle seine Knoten.");
 
         }
 

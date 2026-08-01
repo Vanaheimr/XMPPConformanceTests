@@ -662,6 +662,13 @@ miteinander sprechen:
   mit `<conflict/>` und `<precondition-not-met/>` abgewiesen. Damit hat die
   Bedingung Wirkung, die OMEMO seit jeher mitschickt (XEP-0384 §5.2: ein Bundle
   muss offen abrufbar sein)
+- XEP-0060 §4.1/§8.9 Rollen je Knoten: `publisher` darf in einen fremden Knoten
+  schreiben (die Meldung kommt trotzdem vom Eigentümer), `outcast` kommt an
+  keinen Knoten und **verliert bestehende Abonnements**, `member` wird vergeben,
+  entscheidet aber erst mit dem Zugriffsmodell `whitelist` etwas. Der Eigentümer
+  ist das Konto und nicht umtragbar; `publish-only` wird abgewiesen statt
+  angeboten. Verwaltet werden die Rollen vom Eigentümer (§8.9), die eigenen
+  listet §5.7
 - XEP-0060 §5.6 `<subscriptions/>`: alle Abonnements des Fragenden über alle
   Knoten, mit Kennung und Zustand, auf Wunsch auf einen Knoten eingeschränkt.
   **Nur die eigenen** — wer fremde aufzählen dürfte, erführe, wer sich wofür
