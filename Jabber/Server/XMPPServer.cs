@@ -338,6 +338,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Int32 MaxHeldWhileInactive { get; set; } = 100;
 
         /// <summary>
+        /// XEP-0163: Beantwortet der Server PEP-Anfragen für seine Konten?
+        /// </summary>
+        /// <remarks>
+        /// Auf false verhält er sich wie ein Server ohne Personal Eventing:
+        /// Eine Anfrage an einen fremden Bare-JID geht dann den gewöhnlichen
+        /// Weg und landet bei dessen Client - der sie nicht kennt und mit
+        /// <c>&lt;service-unavailable/&gt;</c> antwortet. Genau daran muss ein
+        /// OMEMO-Client erkennen, dass hier nichts zu holen ist.
+        /// </remarks>
+        public Boolean OfferPersonalEventing { get; set; } = true;
+
+        /// <summary>
         /// Verwirft eingehende Stanzas des Clients, ohne sie zu zählen oder
         /// weiterzureichen.
         /// </summary>
@@ -1874,6 +1886,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
+            // XEP-0163: PEP beantwortet der Server für das Konto - und zwar
+            // VOR der Weiterleitung.
+            //
+            // Das ist der Kern der Sache und leicht falsch zu machen: Eine
+            // Anfrage an bob@domain sieht aus wie eine Anfrage an Bob und
+            // ginge unten an seine Sitzung. Dann wäre ein Bundle nur abrufbar,
+            // solange Bob online ist - und genau dafür gibt es PEP nicht. Der
+            // Server antwortet stellvertretend für einen Menschen, der gerade
+            // nicht da ist.
+            if (OfferPersonalEventing &&
+                frame.Contains(OmemoPep.PubSubNamespace, StringComparison.Ordinal) &&
+                await HandlePepAsync(session, frame, id, type, to))
+            {
+                return;
+            }
+
             // An eine andere Entity gerichtet? Dann weiterleiten.
             if (RouteStanzas &&
                 to is not null &&
@@ -1936,6 +1964,175 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // braucht es diese Sitzung nicht mehr, nur noch einen Rückweg.
             if (AnswerAboutSelf(frame, id, type) is { } antwort)
                 await session.SendAsync(antwort);
+
+        }
+
+        /// <summary>
+        /// XEP-0163 Personal Eventing: Veröffentlichen und Abrufen der
+        /// PEP-Knoten eines Kontos.
+        /// </summary>
+        /// <returns>
+        /// false, wenn dieses IQ nichts mit PEP zu tun hat - dann nimmt es der
+        /// Aufrufer wie jedes andere.
+        /// </returns>
+        /// <remarks>
+        /// <b>Eine Teilmenge, und das gehört gesagt.</b> Es gibt keine
+        /// Knotenkonfiguration, keine Zugriffsmodelle, keine Abonnements und
+        /// keine gefilterten Benachrichtigungen über XEP-0115. Der Knoten ist
+        /// offen, wer fragt, bekommt - für einen Testserver ist das die
+        /// richtige Menge, für einen echten wäre es zu wenig: Dort entscheidet
+        /// das Zugriffsmodell, wer ein Bundle sehen darf, und über die
+        /// Merkmalsankündigung, wer eine Benachrichtigung überhaupt will.
+        ///
+        /// Benachrichtigt werden dieselben, die auch Presence bekommen -
+        /// Kontakte mit <c>from</c> oder <c>both</c> und die eigenen weiteren
+        /// Resourcen. Das ist bei PEP die übliche Regel und hier ohnehin die
+        /// einzige, die dieser Server kennt.
+        /// </remarks>
+        private async Task<Boolean> HandlePepAsync(XMPPSession  session,
+                                                   String       frame,
+                                                   String?      id,
+                                                   String?      type,
+                                                   String?      to)
+        {
+
+            XElement iq;
+
+            try
+            {
+                iq = XElement.Parse(frame);
+            }
+            catch (System.Xml.XmlException)
+            {
+                return false;
+            }
+
+            var pubsub = iq.Child(OmemoPep.PubSubNamespace, "pubsub");
+
+            if (pubsub is null || session.Account is null)
+                return false;
+
+            #region Veröffentlichen
+
+            if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "publish") is { } publish)
+            {
+
+                // Nur im eigenen Konto. Ein PEP-Knoten gehört einem Menschen,
+                // und wer in einen fremden schreiben dürfte, könnte fremde
+                // Bundles austauschen - das wäre der Angriff, gegen den die
+                // Signatur über den Signed PreKey steht.
+                if (to is not null &&
+                    !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+                    return true;
+                }
+
+                var node = publish.Attr("node");
+                var item = publish.Elements().FirstOrDefault(e => e.Name.LocalName == "item");
+
+                if (String.IsNullOrEmpty(node) || item is null)
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                var itemId  = item.Attr("id") ?? Guid.NewGuid().ToString("N")[..8];
+                var inhalt  = item.Elements().FirstOrDefault()?.ToString(SaveOptions.DisableFormatting) ?? "";
+
+                session.Account.PublishPepItem(node, itemId, inhalt);
+
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'>" +
+                    $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
+                    $"<publish node='{XmlEscaping.Escape(node)}'>" +
+                    $"<item id='{XmlEscaping.Escape(itemId)}'/>" +
+                    "</publish></pubsub></iq>");
+
+                await NotifyPepAsync(session, node, itemId, inhalt);
+
+                return true;
+
+            }
+
+            #endregion
+
+            #region Abrufen
+
+            if (type == "get" && pubsub.Child(OmemoPep.PubSubNamespace, "items") is { } items)
+            {
+
+                var node = items.Attr("node");
+
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                var konto = to is null
+                                ? session.Account
+                                : GetAccount(BareOf(to));
+
+                // Ein Konto, das es nicht gibt, wird nicht von einem
+                // unterschieden, das nichts veröffentlicht hat: Sonst liesse
+                // sich über PEP herausfinden, welche Konten es auf diesem
+                // Server gibt - dieselbe Überlegung wie bei der Anmeldung
+                // (RFC 6120, Abschnitt 13.11, siehe D50).
+                var gesuchte  = items.Elements().FirstOrDefault(e => e.Name.LocalName == "item")?.Attr("id");
+                var eintraege = konto?.GetPepItems(node, gesuchte) ?? [];
+
+                if (eintraege.Count == 0)
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "item-not-found", "cancel"));
+                    return true;
+                }
+
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'" +
+                    (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + ">" +
+                    $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
+                    $"<items node='{XmlEscaping.Escape(node)}'>" +
+                    String.Concat(eintraege.Select(e =>
+                        $"<item id='{XmlEscaping.Escape(e.ItemId)}'>{e.Payload}</item>")) +
+                    "</items></pubsub></iq>");
+
+                return true;
+
+            }
+
+            #endregion
+
+            return false;
+
+        }
+
+        /// <summary>
+        /// Schickt eine PEP-Benachrichtigung an alle, die den Zustand dieses
+        /// Kontos sehen dürfen.
+        /// </summary>
+        /// <remarks>
+        /// <b>Die eigenen weiteren Resourcen gehören ausdrücklich dazu.</b>
+        /// Bei OMEMO hängt daran mehr als Bequemlichkeit: Abschnitt 5.2
+        /// verlangt von einem Client, sich <i>wieder einzutragen</i>, wenn er
+        /// aus der eigenen Geräteliste verschwunden ist. Erfährt er von der
+        /// Änderung nichts, kann er das nicht - und ist von da an für alle
+        /// unerreichbar, ohne dass irgendetwas nach einem Fehler aussieht.
+        /// </remarks>
+        private async Task NotifyPepAsync(XMPPSession session, String node, String itemId, String payload)
+        {
+
+            if (!RouteStanzas || session.FullJid is null)
+                return;
+
+            var ereignis = $"<message from='{session.BareJid}' type='headline'>" +
+                           "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                           $"<items node='{XmlEscaping.Escape(node)}'>" +
+                           $"<item id='{XmlEscaping.Escape(itemId)}'>{payload}</item>" +
+                           "</items></event></message>";
+
+            foreach (var ziel in PresenceTargetsOf(session))
+                await ziel.SendAsync(StampTo(ereignis, ziel.FullJid!));
 
         }
 

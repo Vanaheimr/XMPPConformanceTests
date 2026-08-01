@@ -603,6 +603,12 @@ miteinander sprechen:
   aus; `ask='subscribe'` hält eine offene Anfrage fest
 - XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
 - serverseitiger Roster mit Roster-Push
+- XEP-0163 Personal Eventing als Teilmenge: Ein Konto kann in PEP-Knoten
+  veröffentlichen, jeder kann sie abrufen, und Kontakte mit `from` oder `both`
+  werden benachrichtigt. **Der Server antwortet dabei für das Konto und nicht
+  der Client** — sonst wäre ein OMEMO-Bundle nur abrufbar, solange sein
+  Besitzer online ist. Was fehlt: Knotenkonfiguration, Zugriffsmodelle,
+  gefilterte Benachrichtigungen über XEP-0115
 - XEP-0352 Client State Indication: Erklärt sich ein Client für inaktiv, hält
   der Server zurück, was warten kann — Presence (nur die letzte je Full-JID),
   Empfangsbestätigungen, Marker. Ein Chat State wird fallengelassen statt
@@ -882,9 +888,10 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Ratchet** samt Zustellung ausser der Reihe, Nachrichten aus der vorigen
   Kette und einer Obergrenze für übersprungene Schlüssel (D64) — und das
   **Drahtformat**: die drei Protobuf-Nachrichten, das `<encrypted/>`-Element
-  und die SCE-Hülle nach XEP-0420 (D65). Es fehlen die PEP-Verteilung, der
-  Sitzungsspeicher und die Vertrauensentscheidung; **verschlüsselt senden kann
-  dieser Client noch nichts.** Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
+  und die SCE-Hülle nach XEP-0420 (D65) — und die **PEP-Verteilung** von
+  Geräteliste und Bundles, samt einer PEP-Teilmenge im Testserver (D66). Es
+  fehlen der Sitzungsspeicher und die Vertrauensentscheidung; **verschlüsselt
+  senden kann dieser Client noch nichts.** Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
   prüfen liesse — geprüft ist die Übereinstimmung mit dem Text, nicht mit der
   Wirklichkeit
 - Kein HTTP File Upload (XEP-0363)

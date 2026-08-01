@@ -38,6 +38,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly List<OfflineMessage> _offlineMessages = [];
         private readonly Lock _lock = new();
 
+        /// <summary>
+        /// Die PEP-Knoten dieses Kontos (XEP-0163): je Knoten die Einträge
+        /// nach ihrer Kennung.
+        /// </summary>
+        /// <remarks>
+        /// Am Konto und nicht an der Sitzung, und das ist der ganze Sinn von
+        /// PEP: Ein Bundle muss abrufbar sein, <b>während sein Besitzer
+        /// offline ist</b> - sonst könnte niemand ihm verschlüsselt schreiben,
+        /// bevor er das nächste Mal erscheint. Der Server antwortet hier
+        /// stellvertretend für einen Menschen, der gerade nicht da ist.
+        /// </remarks>
+        private readonly Dictionary<String, Dictionary<String, String>> _pepNodes =
+            new(StringComparer.Ordinal);
+
         #endregion
 
         #region Properties
@@ -285,6 +299,91 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             lock (_lock)
                 return _pendingRequests.ContainsKey(bareJid);
         }
+
+        #region PEP (XEP-0163)
+
+        /// <summary>
+        /// Legt einen Eintrag in einem PEP-Knoten ab und ersetzt einen
+        /// gleichnamigen.
+        /// </summary>
+        /// <param name="maxItems">
+        /// Wie viele Einträge der Knoten höchstens hält. Ist die Grenze
+        /// erreicht, weicht der älteste.
+        /// </param>
+        /// <remarks>
+        /// <b>Ersetzen und nicht danebenlegen</b>: Die Kennung <i>ist</i> die
+        /// Aussage. Die Geräteliste steht unter <c>current</c>, ein Bundle
+        /// unter der Gerätekennung - zwei Einträge unter derselben Kennung
+        /// wären keine zwei Angaben, sondern eine Unklarheit darüber, welche
+        /// gilt.
+        ///
+        /// Hier weicht der älteste Eintrag, anders als bei der Offline-Ablage
+        /// (siehe <see cref="StoreOfflineMessage"/>), wo die <i>neue</i>
+        /// Nachricht abgewiesen wird. Der Unterschied ist der Inhalt: Eine
+        /// Nachricht ist einmalig und ihr Verlust endgültig; ein PEP-Eintrag
+        /// ist der aktuelle Stand einer Sache, und der neueste ist der, auf
+        /// den es ankommt.
+        /// </remarks>
+        public void PublishPepItem(String  node,
+                                   String  itemId,
+                                   String  payload,
+                                   Int32   maxItems = 256)
+        {
+
+            lock (_lock)
+            {
+
+                if (!_pepNodes.TryGetValue(node, out var eintraege))
+                    _pepNodes[node] = eintraege = new Dictionary<String, String>(StringComparer.Ordinal);
+
+                eintraege[itemId] = payload;
+
+                while (eintraege.Count > maxItems)
+                    eintraege.Remove(eintraege.Keys.First());
+
+            }
+
+        }
+
+        /// <summary>
+        /// Die Einträge eines PEP-Knotens.
+        /// </summary>
+        /// <param name="itemId">
+        /// Ein bestimmter Eintrag, oder null für alle.
+        /// </param>
+        /// <returns>
+        /// Die Einträge, oder eine leere Liste - <b>auch dann, wenn es den
+        /// Knoten gar nicht gibt</b>. Der Unterschied zwischen „leerer Knoten"
+        /// und „kein Knoten" beantwortet die Frage nicht, die der Abrufer
+        /// stellt: Er will wissen, ob es etwas abzuholen gibt.
+        /// </returns>
+        public IReadOnlyList<(String ItemId, String Payload)> GetPepItems(String node, String? itemId = null)
+        {
+
+            lock (_lock)
+            {
+
+                if (!_pepNodes.TryGetValue(node, out var eintraege))
+                    return [];
+
+                if (itemId is not null)
+                    return eintraege.TryGetValue(itemId, out var einer)
+                               ? [(itemId, einer)]
+                               : [];
+
+                return [.. eintraege.Select(e => (e.Key, e.Value))];
+
+            }
+
+        }
+
+        /// <summary>Die Knoten, in denen dieses Konto etwas veröffentlicht hat.</summary>
+        public IReadOnlyCollection<String> PepNodes
+        {
+            get { lock (_lock) return [.. _pepNodes.Keys]; }
+        }
+
+        #endregion
 
         /// <summary>
         /// Bewahrt eine Nachricht auf, bis das Konto wieder erreichbar ist.

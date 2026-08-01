@@ -5122,6 +5122,64 @@ Lesen.
 
 ---
 
+### D66. Der Server antwortet für einen Abwesenden ✅ — OMEMO, Etappe 5 von 7
+
+Die erste Etappe seit vier, die wieder XMPP prüft statt Kryptographie — und
+damit die erste, bei der ein Durchlauf mehr aussagt als eine nachgerechnete
+Vorschrift.
+
+**Dafür hat der Testserver PEP bekommen** (XEP-0163, als Teilmenge:
+veröffentlichen, abrufen, benachrichtigen). Ohne das wäre O5 gar nicht prüfbar
+gewesen: Prosody und ejabberd erreichen wir nur über S2S, nie als eigenen
+Heimatserver, und unser Client spricht ausschliesslich WebSocket. Was fehlt,
+steht im Quelltext — keine Knotenkonfiguration, keine Zugriffsmodelle, keine
+gefilterten Benachrichtigungen über XEP-0115.
+
+**Die wichtigste Entscheidung: PEP wird vor der Weiterleitung behandelt.** Eine
+Anfrage an `bob@domain` sieht aus wie eine Anfrage an Bob und ginge sonst an
+seine Sitzung — dann wäre ein Bundle nur abrufbar, solange Bob online ist, und
+genau dafür gibt es PEP nicht. **Der Server antwortet stellvertretend für einen
+Menschen, der gerade nicht da ist**, und das ist die ganze Zusage dieser
+Etappe.
+
+**Ein alter Fehler kam dabei ans Licht, und er lag nicht im neuen Code.**
+PubSub-Benachrichtigungen wurden ausschliesslich in `ProcessIq` behandelt. In
+der Praxis kommen sie als `<message type='headline'/>` — die Hälfte gab es
+nicht, obwohl der Kommentar daneben seit jeher „kann als message oder iq
+kommen" behauptete. Aufgefallen ist es erst, als mit OMEMO zum ersten Mal
+jemand auf eine Benachrichtigung *angewiesen* war; dieselbe halb verdrahtete
+Ecke wie in D38.
+
+21 Mutationen, alle erschlagen — **sechs überlebten den ersten Lauf, und fünf
+davon waren echte Lücken**, keine Gleichwertigkeiten:
+
+- **Ein leeres `<spk/>` kam durch.** Leeres Base64 ist gültiges Base64 und
+  ergibt ein Feld von null Byte; daraus wäre weiter unten eine Ausnahme aus der
+  Kurvenarithmetik geworden, mit einer Meldung, die niemandem sagt, dass ein
+  Bundle unbrauchbar war. Jetzt werden die Längen geprüft, dort wo sie zählen.
+- **Die Eintragskennung `current` liess sich umbenennen** — zum fünften Mal die
+  Familie „beide Seiten benutzen dieselbe Konstante und finden sich weiterhin".
+- **Die Eintragskennung beim Abrufen liess sich übergehen.** Mit einem
+  veröffentlichten Gerät dasselbe Ergebnis; mit zweien bekommt der Absender das
+  **falsche Bundle** und verschlüsselt für ein Telefon, das gar nicht mitliest.
+- **Eine Ablehnung des Servers galt als Erfolg** — genau der Rückgabewert,
+  dessentwegen diese Methoden überhaupt einen haben.
+- Ein leerer Knoten wurde als leeres Ergebnis statt als `<item-not-found/>`
+  beantwortet.
+
+**Und ein Testfehler, der eine eigene Lehre trägt:** Mein Test für „eine fremde
+Geräteliste löst keinen Wiedereintrag aus" prüfte, ob Alices Liste unverändert
+blieb. Das war wertlos — **der Server weist fremde Knoten ohnehin ab**, also
+blieb sie auch dann sauber, wenn Bobs Client es versuchte. Gefragt werden muss,
+ob der Prüfling etwas geschickt hat, nicht ob sein Nachbar es abgewehrt hat.
+**Ein Test, der die Wirkung an der falschen Stelle misst, prüft die falsche
+Sicherung.**
+
+Nebenbei hat eine Nullable-Warnung des Kompilers einen vertauschten Parameter
+gefangen, bevor irgendein Test lief: ein JID an der Stelle der Fehlerbedingung.
+
+---
+
 ## Später
 
 ### Testsammlung

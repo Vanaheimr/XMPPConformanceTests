@@ -141,6 +141,7 @@ public sealed class XMPPConnection : IAsyncDisposable
     private Task? _keepaliveTask;
 
     private int _messageIdCounter;
+    private int _pepCounter;
     private int _reconnectAttempts;
     private bool _intentionalDisconnect;
 
@@ -1529,6 +1530,27 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         }
 
+        // XEP-0060/XEP-0163: eine PubSub-Benachrichtigung.
+        //
+        // Sie kommt in der Praxis fast immer als <message type='headline'/> -
+        // und wurde bis hierher nur in ProcessIq behandelt, wo sie so gut wie
+        // nie ankommt. Der Kommentar dort behauptete seit jeher „kann als
+        // message oder iq kommen"; die message-Hälfte gab es nicht. Aufgefallen
+        // ist es erst, als mit OMEMO zum ersten Mal jemand auf eine
+        // Benachrichtigung angewiesen war - dieselbe halb verdrahtete Ecke wie
+        // in D38.
+        if (element.Child(PubSubManager.EventNamespace, "event") is not null &&
+            element.Attr("from") is not null)
+        {
+
+            PubSub?.ProcessEvent(element, from, PubSub.PubSubService);
+
+            _ = ProcessPepEventAsync(element, from);
+
+            return;
+
+        }
+
         // XEP-0280: Carbon Check
         if (element.HasNamespace(CarbonManager.Namespace))
         {
@@ -1876,6 +1898,11 @@ public sealed class XMPPConnection : IAsyncDisposable
         if (element.Child(PubSubManager.EventNamespace, "event") is not null && from != null)
         {
             PubSub?.ProcessEvent(element, from, PubSub.PubSubService);
+
+            // XEP-0384, Abschnitt 5.2: Die Geräteliste kommt über denselben
+            // Weg, verlangt aber eine Antwort - fehlt das eigene Gerät darin,
+            // muss es sich wieder eintragen.
+            _ = ProcessPepEventAsync(element, from);
 
             // Kommt das Event als iq set statt als message, ist es eine
             // Anfrage und braucht nach Abschnitt 8.2.3 ein Ergebnis.
@@ -2286,6 +2313,184 @@ public sealed class XMPPConnection : IAsyncDisposable
             _logger.LogWarning("Message Carbons nicht verfügbar: {Reason}", DescribeRejection(response));
 
     }
+
+    #region OMEMO (XEP-0384), PEP-Verteilung
+
+    /// <summary>
+    /// XEP-0384: Veröffentlicht die eigene Geräteliste.
+    /// </summary>
+    /// <returns>false, wenn der Server es abgelehnt hat.</returns>
+    /// <remarks>
+    /// <b>Der Rückgabewert ist der Punkt.</b> Bis hierher hat dieses Haus
+    /// PubSub-Anfragen abgeschickt und nicht nachgesehen, was zurückkam (siehe
+    /// D38) - für ein Abonnement war das lässlich. Hier ist es das nicht: Wer
+    /// seine Geräteliste veröffentlicht und nicht erfährt, dass es misslang,
+    /// ist für alle seine Kontakte unerreichbar und merkt nichts davon. Alles
+    /// sieht aus wie immer, nur schreibt ihm niemand mehr verschlüsselt.
+    /// </remarks>
+    public async Task<bool> PublishOmemoDeviceListAsync(OmemoDeviceList   list,
+                                                        CancellationToken ct = default)
+        => await PublishPepAsync(OmemoDeviceList.Node, OmemoDeviceList.ItemId, list.ToXml(), ct);
+
+    /// <summary>
+    /// XEP-0384: Veröffentlicht das eigene Bundle unter der Gerätekennung.
+    /// </summary>
+    public async Task<bool> PublishOmemoBundleAsync(UInt32             deviceId,
+                                                    OmemoBundle        bundle,
+                                                    CancellationToken  ct = default)
+        => await PublishPepAsync(OmemoPep.BundlesNode, deviceId.ToString(), bundle.ToXml(), ct);
+
+    private async Task<bool> PublishPepAsync(string             node,
+                                             string             itemId,
+                                             XElement           payload,
+                                             CancellationToken  ct)
+    {
+
+        var id       = $"pep-{Interlocked.Increment(ref _pepCounter)}";
+        var response = await SendIqAsync(id, OmemoPep.PublishIq(id, node, itemId, payload), ct);
+
+        if (response is null)
+        {
+            _logger.LogWarning("PEP: keine Antwort auf das Veröffentlichen in {Node}", node);
+            return false;
+        }
+
+        if (response.Attr("type") != "result")
+        {
+            _logger.LogWarning("PEP: {Node} abgelehnt: {Reason}", node, DescribeRejection(response));
+            return false;
+        }
+
+        return true;
+
+    }
+
+    /// <summary>
+    /// XEP-0384: Holt die Geräteliste eines Kontos.
+    /// </summary>
+    /// <returns>
+    /// null, wenn es keine gibt - dieser Mensch benutzt OMEMO nicht, oder
+    /// sein Server hält nichts bereit. Beides ist dasselbe für den, der
+    /// schreiben will.
+    /// </returns>
+    public async Task<OmemoDeviceList?> FetchOmemoDeviceListAsync(string             bareJid,
+                                                                  CancellationToken  ct = default)
+    {
+
+        var inhalt = await FetchPepAsync(bareJid, OmemoDeviceList.Node, OmemoDeviceList.ItemId, ct);
+
+        return inhalt is not null && OmemoDeviceList.TryRead(inhalt, out var liste)
+                   ? liste
+                   : null;
+
+    }
+
+    /// <summary>
+    /// XEP-0384: Holt das Bundle eines bestimmten Geräts.
+    /// </summary>
+    /// <remarks>
+    /// <b>Die Signatur wird hier geprüft und nicht erst beim Aufrufer.</b> Ein
+    /// Bundle kommt vom Server der Gegenstelle - also von der Partei, gegen
+    /// die OMEMO schützt. Ein ungeprüftes Bundle weiterzureichen hiesse, die
+    /// Prüfung dem zu überlassen, der sie am ehesten vergisst.
+    /// </remarks>
+    public async Task<OmemoBundle?> FetchOmemoBundleAsync(string             bareJid,
+                                                          UInt32             deviceId,
+                                                          CancellationToken  ct = default)
+    {
+
+        var inhalt = await FetchPepAsync(bareJid, OmemoPep.BundlesNode, deviceId.ToString(), ct);
+
+        if (inhalt is null || !OmemoPep.TryReadBundle(inhalt, out var bundle))
+            return null;
+
+        if (!bundle!.SignatureIsValid())
+        {
+            _logger.LogWarning("OMEMO: Das Bundle von {Jid}/{Device} ist nicht gültig unterschrieben",
+                               bareJid, deviceId);
+            return null;
+        }
+
+        return bundle;
+
+    }
+
+    private async Task<XElement?> FetchPepAsync(string             bareJid,
+                                                string             node,
+                                                string             itemId,
+                                                CancellationToken  ct)
+    {
+
+        var id       = $"pep-{Interlocked.Increment(ref _pepCounter)}";
+        var response = await SendIqAsync(id, OmemoPep.FetchIq(id, bareJid, node, itemId), ct);
+
+        if (response is null || response.Attr("type") != "result")
+            return null;
+
+        return response.Child(OmemoPep.PubSubNamespace, "pubsub")
+                      ?.Child(OmemoPep.PubSubNamespace, "items")
+                      ?.Elements().FirstOrDefault(e => e.Name.LocalName == "item")
+                      ?.Elements().FirstOrDefault();
+
+    }
+
+    /// <summary>
+    /// Eine fremde Geräteliste ist eingetroffen - über PEP, ohne dass jemand
+    /// gefragt hätte.
+    /// </summary>
+    public event Action<string, OmemoDeviceList>? OnOmemoDeviceListChanged;
+
+    /// <summary>
+    /// Die eigene Gerätekennung, sobald sie feststeht - daran hängt der
+    /// Wiedereintrag nach Abschnitt 5.2.
+    /// </summary>
+    public UInt32? OmemoDeviceId { get; set; }
+
+    /// <summary>
+    /// Verarbeitet eine PEP-Benachrichtigung (XEP-0163).
+    /// </summary>
+    /// <remarks>
+    /// <b>Der Wiedereintrag ist ein MUSS der Spezifikation</b>, und der Grund
+    /// ist unangenehm: Ein anderes Gerät desselben Menschen - oder ein
+    /// aufräumender Server - kann die Liste neu schreiben und dieses Gerät
+    /// dabei vergessen. Von da an schreibt niemand mehr an dieses Gerät
+    /// verschlüsselt, und es merkt nichts davon, weil ihm nichts fehlt: Es
+    /// bekommt weiterhin alles, was unverschlüsselt kommt.
+    ///
+    /// Ergänzt wird, nicht ersetzt: Wer hier eine Liste mit nur dem eigenen
+    /// Gerät veröffentlichte, machte aus dem Wiedereintrag eine Verdrängung
+    /// aller anderen Geräte.
+    /// </remarks>
+    internal async Task ProcessPepEventAsync(XElement stanza, string from)
+    {
+
+        var items = stanza.Child("http://jabber.org/protocol/pubsub#event", "event")
+                         ?.Child("http://jabber.org/protocol/pubsub#event", "items");
+
+        if (items?.Attr("node") != OmemoDeviceList.Node)
+            return;
+
+        var payload = items.Elements().FirstOrDefault(e => e.Name.LocalName == "item")
+                          ?.Elements().FirstOrDefault();
+
+        if (payload is null || !OmemoDeviceList.TryRead(payload, out var liste) || liste is null)
+            return;
+
+        OnOmemoDeviceListChanged?.Invoke(JidUtilities.Bare(from), liste);
+
+        if (OmemoDeviceId is not UInt32 eigenes ||
+            !string.Equals(JidUtilities.Bare(from), BareJid, StringComparison.OrdinalIgnoreCase) ||
+            liste.Contains(eigenes))
+            return;
+
+        _logger.LogWarning("OMEMO: Das eigene Gerät {Device} fehlt in der Geräteliste - trage es wieder ein",
+                           eigenes);
+
+        await PublishOmemoDeviceListAsync(liste.With(new OmemoDevice(eigenes)));
+
+    }
+
+    #endregion
 
     /// <summary>
     /// XEP-0352: Sagt dem Server, ob gerade ein Mensch hinsieht.
