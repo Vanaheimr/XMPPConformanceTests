@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2010-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of Hermod <https://www.github.com/Vanaheimr/Hermod>
  *
@@ -19,6 +19,8 @@
 
 using Microsoft.Extensions.Logging;
 
+using org.GraphDefined.Vanaheimr.Hermod.XMPP.ConsoleUI;
+
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
@@ -37,6 +39,12 @@ class Program
     #region Data
 
     private static XMPPClient? _client;
+    /// <summary>
+    /// Die gemeinsame Ausgabe: Ereignisse, Systemmeldungen und das Protokoll
+    /// gehen durch dieselbe Sperre und lassen die Eingabezeile heil.
+    /// </summary>
+    private static ConsoleOutput? _ausgabe;
+
     private static bool _showRawXml;
     private static volatile bool _running = true;
 
@@ -62,14 +70,19 @@ class Program
             return;
         }
 
+        // Alles, was auf die Konsole geht, geht durch dieselbe Tuer - auch das
+        // Protokoll. Ein AddSimpleConsole schriebe mitten in die halb getippte
+        // Eingabezeile und liesse den Anwender ohne Eingabeaufforderung zurueck
+        // (siehe ConsoleOutput).
+        _ausgabe = new ConsoleOutput(BuildPrompt);
+
         using var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
         {
-            builder.AddSimpleConsole(o =>
-            {
-                o.SingleLine       = true;
-                o.TimestampFormat  = "HH:mm:ss ";
-                o.IncludeScopes    = false;
-            });
+            builder.AddProvider(
+                new ConsoleOutputLoggerProvider(
+                    _ausgabe,
+                    verbose ? LogLevel.Trace : LogLevel.Information));
+
             builder.SetMinimumLevel(verbose ? LogLevel.Trace : LogLevel.Information);
         });
 
@@ -944,7 +957,7 @@ class Program
     private static void HandleMessage(XMPPMessage message)
     {
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.Write($"[{message.Timestamp:HH:mm:ss}] ");
@@ -953,7 +966,6 @@ class Program
         Console.ResetColor();
         Console.WriteLine(message.Body);
 
-        WritePrompt();
 
     }
 
@@ -964,19 +976,17 @@ class Program
 
         if (state == ChatState.Composing)
         {
-            ClearCurrentLine();
+            using var sperre = Ausgabe();
             Console.ForegroundColor = ConsoleColor.DarkYellow;
             Console.WriteLine($"✏️ {shortFrom} tippt...");
             Console.ResetColor();
-            WritePrompt();
         }
         else if (state == ChatState.Paused)
         {
-            ClearCurrentLine();
+            using var sperre = Ausgabe();
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine($"⏸️ {shortFrom} hat aufgehört zu tippen");
             Console.ResetColor();
-            WritePrompt();
         }
 
     }
@@ -984,11 +994,10 @@ class Program
     private static void HandleReceipt(string from, string messageId)
     {
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.DarkGreen;
         Console.WriteLine($"✓ Zugestellt an {GetShortJid(from)}");
         Console.ResetColor();
-        WritePrompt();
 
     }
 
@@ -997,7 +1006,7 @@ class Program
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.Magenta;
 
         if (carbon.IsSent)
@@ -1017,28 +1026,26 @@ class Program
 
         Console.ResetColor();
         Console.WriteLine(carbon.Body ?? "(kein Inhalt)");
-        WritePrompt();
 
     }
 
     private static void HandleChatMarker(ChatMarker marker)
     {
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         var shortFrom = GetShortJid(marker.From);
         var symbol    = ChatMarkers.GetSymbol(marker.Type);
 
         Console.ForegroundColor = ConsoleColor.DarkCyan;
         Console.WriteLine($"{symbol} {shortFrom}: {marker.Type} (Msg: {marker.MessageId[..Math.Min(12, marker.MessageId.Length)]}...)");
         Console.ResetColor();
-        WritePrompt();
 
     }
 
     private static void HandlePubSubEvent(PubSubEvent evt)
     {
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.Yellow;
 
         switch (evt.Type)
@@ -1063,7 +1070,6 @@ class Program
         }
 
         Console.ResetColor();
-        WritePrompt();
 
     }
 
@@ -1076,22 +1082,20 @@ class Program
         if (JidUtilities.Bare(from).Equals(_client!.BareJid, StringComparison.OrdinalIgnoreCase))
             return;
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {GetShortJid(from)} → {type}");
         Console.ResetColor();
-        WritePrompt();
 
     }
 
     private static void HandleError(string error)
     {
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"[!] {error}");
         Console.ResetColor();
-        WritePrompt();
 
     }
 
@@ -1100,11 +1104,10 @@ class Program
 
         if (!_showRawXml) return;
 
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.DarkMagenta;
         Console.WriteLine($"[XML] {xml.Trim()}");
         Console.ResetColor();
-        WritePrompt();
 
     }
 
@@ -1114,32 +1117,44 @@ class Program
 
     private static void WriteSystemMessage(string message)
     {
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"[*] {message}");
         Console.ResetColor();
-        WritePrompt();
     }
 
     private static void WriteWarning(string message)
     {
-        ClearCurrentLine();
+        using var sperre = Ausgabe();
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"[!] {message}");
         Console.ResetColor();
-        WritePrompt();
     }
 
-    private static void ClearCurrentLine()
+    /// <summary>
+    /// Eröffnet einen Ausgabebereich: Die angefangene Eingabezeile weicht,
+    /// beim Verlassen steht die Eingabeaufforderung wieder da - und dazwischen
+    /// gehört die Konsole dem Aufrufer allein.
+    /// </summary>
+    /// <remarks>
+    /// Hier standen bis D58 zwei getrennte Aufrufe, die jede
+    /// Ereignisbehandlung selbst um ihre Ausgabe legen musste: Zeile löschen,
+    /// schreiben, Eingabeaufforderung nachziehen. Elfmal dieselben zwei Zeilen,
+    /// und wer eine davon vergass, merkte es erst im Betrieb. Vor allem aber
+    /// fehlte die Sperre dazwischen - und der Logger schrieb ohnehin daran
+    /// vorbei.
+    ///
+    /// Vor dem Verbinden gibt es die gemeinsame Ausgabe noch nicht; dann ist
+    /// auch keine Eingabezeile zu retten, und der Bereich tut nichts.
+    /// </remarks>
+    private static IDisposable Ausgabe()
+        => _ausgabe?.Begin() ?? Nichts.Instanz;
+
+    /// <summary>Ein Ausgabebereich, der nichts tut.</summary>
+    private sealed class Nichts : IDisposable
     {
-        try
-        {
-            Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
-        }
-        catch
-        {
-            Console.WriteLine();
-        }
+        internal static readonly Nichts Instanz = new();
+        public void Dispose() { }
     }
 
     private static string BuildPrompt()
@@ -1147,7 +1162,23 @@ class Program
                ? $"[{GetShortJid(_client.CurrentChatPartner)}] > "
                : "> ";
 
-    private static void WritePrompt() => Console.Write(BuildPrompt());
+    /// <summary>
+    /// Schreibt etwas, das ungefragt kommt, und stellt die Eingabezeile wieder
+    /// her. Vor <see cref="_ausgabe"/> - also vor dem Verbinden - gibt es noch
+    /// keine Eingabeaufforderung, die zu retten waere.
+    /// </summary>
+    private static void Melden(Action<TextWriter> ausgabe)
+    {
+
+        if (_ausgabe is not null)
+            _ausgabe.Write(ausgabe);
+
+        else
+            ausgabe(Console.Out);
+
+    }
+
+    private static void WritePrompt() => _ausgabe?.WritePrompt();
 
     private static string GetShortJid(string jid)
     {

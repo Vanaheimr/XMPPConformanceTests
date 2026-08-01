@@ -4600,6 +4600,63 @@ immer aktuell.
 
 ---
 
+### D58. Eine Tür für alles, was auf die Konsole geht ✅
+
+Der Punkt lautete: „Der Standard-Konsolenlogger schreibt in dieselbe Konsole
+wie die Eingabezeile und zerlegt den Prompt. Ein eigener `ILoggerProvider` über
+die **synchronisierte Ausgabe** wäre die saubere Lösung."
+
+**Die synchronisierte Ausgabe gab es nicht.** Was es gab, war eine Verabredung:
+Jede Ereignisbehandlung klammerte ihre Ausgabe von Hand in `ClearCurrentLine()`
+… `WritePrompt()` — elfmal dieselben zwei Zeilen. Wer eine davon vergisst,
+merkt es erst im Betrieb, und **eine Sperre lag über keiner von ihnen**. Die
+Ereignisse kommen aus dem Empfangsfaden, das Protokoll aus jedem beliebigen;
+zwei gleichzeitige Ausgaben verschränken sich mitten im Wort, samt der Farbe,
+die die eine gesetzt und die andere zurückgestellt hat.
+
+Der Logger war also nur der auffälligste von drei Fällen desselben Problems.
+
+`ConsoleOutput` ist jetzt die eine Tür. Sie kann zweierlei:
+
+- `Write(w => …)` für eine Ausgabe in einem Zug,
+- `Begin()` für die, die sich nicht in einen Rückruf fassen lassen, ohne
+  unleserlich zu werden — die PubSub-Ausgabe wechselt in einer `switch`-Weiche
+  die Farbe. Der Bereich hält die Sperre bis zum Verlassen und zieht dann die
+  Eingabeaufforderung nach.
+
+Damit schrumpfen die elf Klammern auf je eine Zeile (`using var sperre =
+Ausgabe();`), und der Logger geht durch dieselbe Tür — das ist der ganze
+Unterschied zwischen `AddSimpleConsole` und `ConsoleOutputLoggerProvider`.
+
+**Zwei Kleinigkeiten, die dabei mit abfielen:**
+
+- Der volle Kategoriename ist der Typname samt Namensraum, hier rund fünfzig
+  Zeichen — auf einer Konsole mit Eingabezeile die halbe Breite für eine
+  Auskunft, die in jeder Zeile dieselbe ist. Es steht jetzt nur der letzte Teil
+  da.
+- `ILogger` reicht die Ausnahme **getrennt** vom Text durch, und der
+  Formatierer lässt sie weg. Wer sie nicht selbst anhängt, protokolliert
+  „Verbindung verloren" und verschweigt, woran.
+
+**Der Teil des Projekts, der bis hierher gar keine Tests hatte**, hat jetzt
+acht. Geprüft wird gegen einen `StringWriter` mit vorgegebener Breite: Auf
+einem Testläufer gibt es kein Fenster, und der Test soll die Zeile löschen und
+nicht die Umgebung ausmessen.
+
+Fünf Mutationen, alle erschlagen: Zeile nicht räumen, Eingabeaufforderung nicht
+nachziehen, Sperre nur halb entfernt (das wirft beim Verlassen und reisst alle
+acht mit), Logger schreibt an der Ausgabe vorbei — und **die Sperre
+vollständig entfernt**. Die letzte ist die interessante: Sie tötet **genau
+einen** Test, `ParallelWriters_DoNotInterleave`. Damit ist belegt, dass er die
+gegenseitige Ausschliessung wirklich misst und nicht nur mitläuft.
+
+Ein Test, der beim ersten Lauf rot war, hatte übrigens unrecht und nicht der
+Code: `WriteLine` endet unter Windows auf `\r\n`, und „die Ausgabe enthält
+keinen Wagenrücklauf" ist deshalb nie wahr. Gemeint war die Löschfolge am
+Anfang — geprüft wird jetzt der Anfang.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -4650,9 +4707,11 @@ das unbekannte Konto — D50) und Stanza-Fehler ohne Schalter (D51 bis D53).
 - `Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst aufgeschoben;
   Namespaces, Ordnerschnitt und der doppelte `InternalsVisibleTo`-Eintrag in
   `Jabber.csproj` sind bereits darauf ausgelegt, dass das eine Kopie wird.
-- Konsolen-UI und Logger trennen: der Standard-Konsolenlogger schreibt in
+- ~~Konsolen-UI und Logger trennen: der Standard-Konsolenlogger schreibt in
   dieselbe Konsole wie die Eingabezeile und zerlegt den Prompt. Ein eigener
-  `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.
+  `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.~~
+  ✅ erledigt in D58 — die synchronisierte Ausgabe gab es dabei noch gar nicht:
+  Die Ereignisbehandlung klammerte jede Ausgabe von Hand, ohne Sperre
 - ~~Ungenutzte öffentliche Member entscheiden: benutzen oder streichen. Liste in
   [Jabber/README.md](Jabber/README.md).~~ ✅ erledigt in D57
 

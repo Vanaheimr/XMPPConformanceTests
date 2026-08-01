@@ -836,10 +836,12 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   der Client einen Hash an, den seine Antwort nicht mehr ergibt, und eine
   Gegenstelle, die nach XEP-0115 §5.4 nachrechnet, verwirft die Auskunft (zu
   Recht) als nicht belegt.
-- **Log-Ausgabe und Konsolen-UI überlagern sich.** Der Standard-Konsolenlogger
-  schreibt in dieselbe Konsole wie die Eingabezeile und stört den Prompt. Ein
-  eigener `ILoggerProvider`, der über dieselbe synchronisierte Ausgabe läuft,
-  wäre die saubere Lösung.
+- ~~**Log-Ausgabe und Konsolen-UI überlagern sich.**~~ Behoben: Alles, was auf
+  die Konsole geht, läuft über `ConsoleUI/ConsoleOutput` — Ereignisse,
+  Systemmeldungen und das Protokoll über `ConsoleOutputLoggerProvider`. Die
+  angefangene Eingabezeile weicht, die Ausgabe erscheint, die
+  Eingabeaufforderung steht wieder da, und **eine Sperre** hält zwei
+  gleichzeitige Ausgaben auseinander (D58).
 - **XEP-0198 ist per Default an, samt Wiederaufnahme.** Die Zählung ist gegen
   Prosody 13 geprüft: nach einem vollständigen Sitzungsaufbau melden beide
   Seiten denselben Stand, und zwar auf den Zähler genau — nicht nur „die
