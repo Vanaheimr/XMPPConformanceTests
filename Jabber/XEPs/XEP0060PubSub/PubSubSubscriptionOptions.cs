@@ -162,6 +162,58 @@ public sealed record PubSubSubscriptionOptions(Boolean Deliver = true)
     }
 
     /// <summary>
+    /// Liest das Angebot eines Dienstes (<c>type='form'</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Hier werden unbekannte Felder übergangen, in <see cref="TryRead"/>
+    /// abgewiesen</b> - und das ist kein Widerspruch, sondern die Richtung:
+    ///
+    /// Ein Angebot ist eine Auskunft. Ein fremder Dienst bietet ein Dutzend
+    /// Felder an, von denen dieser Client nur eines setzen kann; wer daran
+    /// scheitert, kann mit keinem echten Dienst sprechen. Ein abgeschicktes
+    /// Formular ist dagegen eine Anweisung, und ein übergangenes Feld darin
+    /// ist eine verworfene Anweisung, von der der Absender nichts erfährt.
+    /// </remarks>
+    public static Boolean TryReadForm(XElement x, out PubSubSubscriptionOptions? options)
+    {
+
+        options = null;
+
+        if (x.Name.NamespaceName != DataFormNamespace ||
+            x.Name.LocalName     != "x" ||
+            x.Attr("type")       != "form")
+        {
+            return false;
+        }
+
+        foreach (var field in x.Children(DataFormNamespace, "field"))
+        {
+
+            var wert = field.Child(DataFormNamespace, "value")?.Value;
+
+            if (field.Attr("var") == "FORM_TYPE" && wert != FormType)
+                return false;
+
+            if (field.Attr("var") == DeliverVariable)
+            {
+
+                if (!TryReadBoolean(wert, out var deliver))
+                    return false;
+
+                options = new PubSubSubscriptionOptions(deliver);
+
+            }
+
+        }
+
+        // Ohne das Feld gibt es nichts zu lesen: Ein Angebot, das die
+        // Zustellung nicht nennt, sagt über sie auch nichts - und die Vorgabe
+        // anzunehmen hiesse, sie zu erfinden.
+        return options is not null;
+
+    }
+
+    /// <summary>
     /// XEP-0004, Abschnitt 3.3: Ein Wahrheitswert steht als 0/1 oder
     /// false/true.
     /// </summary>

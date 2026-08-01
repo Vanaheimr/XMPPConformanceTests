@@ -625,6 +625,273 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheOptions_AreReadFromTheService()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 6.3.1: Was gilt, sagt der Dienst.
+        /// </summary>
+        /// <remarks>
+        /// Nicht der Client - er kennt nur, was er selbst gesetzt hat, und das
+        /// ist etwas anderes: Ein anderes Gerät desselben Kontos kann dasselbe
+        /// Abonnement umgestellt haben.
+        /// </remarks>
+        [Test]
+        public async Task TheOptions_AreReadFromTheService()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var optionen = await alice.PubSubGetOptionsAsync(Node, BobsJid, abo!.SubId);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(optionen,          Is.Not.Null);
+                Assert.That(optionen!.Deliver, Is.True,
+                            "Zugestellt wird, solange niemand widerspricht.");
+            });
+
+        }
+
+        #endregion
+
+        #region SettingTheOptions_SilencesTheSubscription()
+
+        /// <summary>
+        /// Gesetzt, bestätigt, gemerkt - und die Meldungen bleiben aus.
+        /// </summary>
+        [Test]
+        public async Task SettingTheOptions_SilencesTheSubscription()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(await alice.PubSubSetOptionsAsync(Node,
+                                                          new PubSubSubscriptionOptions(Deliver: false),
+                                                          BobsJid,
+                                                          abo!.SubId),
+                        Is.True);
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node)[0].Options?.Deliver,
+                        Is.False,
+                        "Was der Dienst bestätigt hat, gehört in die eigene Buchführung.");
+
+            Assert.That((await alice.PubSubGetOptionsAsync(Node, BobsJid, abo.SubId))?.Deliver,
+                        Is.False,
+                        "Und beim Nachfragen muss dasselbe herauskommen.");
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            Assert.That(await bob.PubSubPublishAsync(Node, "2", Payload("still"), bob.BareJid), Is.True);
+
+            await WaitAgainst(() => gemeldet is not null,
+                              "eine Meldung an ein stillgelegtes Abonnement");
+
+        }
+
+        #endregion
+
+        #region ARejectedSetting_IsNotRecorded()
+
+        /// <summary>
+        /// Eine abgelehnte Einstellung darf nicht als geltende dastehen.
+        /// </summary>
+        /// <remarks>
+        /// Derselbe Fehler wie beim Abonnieren in D71, eine Ebene tiefer: Wer
+        /// die Antwort nicht liest, hält seinen Wunsch für den Zustand. Hier
+        /// lehnt der Dienst ab, weil das Abonnement einem anderen gehört.
+        /// </remarks>
+        [Test]
+        public async Task ARejectedSetting_IsNotRecorded()
+        {
+
+            await PublishingBobAsync();
+
+            var carol = await ConnectClientAsync("carol");
+            var fremd = await carol.PubSubSubscribeAsync(Node, BobsJid);
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(await alice.PubSubSetOptionsAsync(Node,
+                                                          new PubSubSubscriptionOptions(Deliver: false),
+                                                          BobsJid,
+                                                          fremd!.SubId),
+                        Is.False,
+                        "Die Kennung gehört zu Carols Abonnement.");
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node)[0].Options,
+                        Is.Null,
+                        "Was nicht angenommen wurde, ist auch nicht bekannt.");
+
+            Assert.That(abo!.SubId, Is.Not.EqualTo(fremd!.SubId));
+
+        }
+
+        #endregion
+
+        #region AResultWithoutAForm_IsNoAnswerAboutTheOptions()
+
+        /// <summary>
+        /// Ein <c>result</c> ohne Formular sagt über die Einstellungen nichts.
+        /// </summary>
+        /// <remarks>
+        /// Dieselbe Stelle wie bei der Zusage in D71, nur eine Ebene tiefer:
+        /// Aus dem Ausbleiben eines Fehlers auf einen Zustand zu schliessen ist
+        /// die bequemste Art, sich etwas einzubilden. Die Vorgaben einzusetzen
+        /// wäre hier besonders heikel, denn sie sagen „wird zugestellt" - der
+        /// Client hielte ein stillgelegtes Abonnement für ein lautes.
+        /// </remarks>
+        [Test]
+        public async Task AResultWithoutAForm_IsNoAnswerAboutTheOptions()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            PlayTheService("<options", "<iq type='result' id='{id}'/>");
+
+            Assert.That(await alice.PubSubGetOptionsAsync(Node, BobsJid, abo!.SubId), Is.Null);
+
+        }
+
+        #endregion
+
+        #region SettingOptions_MarksOnlyTheNamedSubscription()
+
+        /// <summary>
+        /// Die Einstellung gehört einem Abonnement, nicht dem Knoten.
+        /// </summary>
+        /// <remarks>
+        /// Der Fehler wäre in der eigenen Buchführung und deshalb still: Der
+        /// Dienst stellt das richtige ein, der Client merkt es sich am
+        /// falschen mit - und von da an zeigt er einen Zustand an, den es
+        /// nicht gibt.
+        /// </remarks>
+        [Test]
+        public async Task SettingOptions_MarksOnlyTheNamedSubscription()
+        {
+
+            await PublishingBobAsync();
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(await alice.PubSubSetOptionsAsync(Node,
+                                                          new PubSubSubscriptionOptions(Deliver: false),
+                                                          BobsJid,
+                                                          erste!.SubId),
+                        Is.True);
+
+            var abos = alice.Connection.PubSub!.SubscriptionsOf(Node);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abos.First(a => a.SubId == erste!.SubId).Options?.Deliver, Is.False);
+
+                Assert.That(abos.First(a => a.SubId == zweite!.SubId).Options, Is.Null,
+                            "Über das andere Abonnement ist nichts bekannt - und nichts zu behaupten.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheOfferedForm_IsReadLeniently()
+
+        /// <summary>
+        /// Ein Angebot ist eine Auskunft: Was dieser Client nicht kennt,
+        /// übergeht er - was nicht dasteht, erfindet er nicht.
+        /// </summary>
+        /// <remarks>
+        /// <b>Die Gegenrichtung zu <c>TryRead</c></b>, das ein abgeschicktes
+        /// Formular streng liest. Kein Widerspruch, sondern die Richtung: Ein
+        /// fremder Dienst bietet ein Dutzend Felder an, von denen dieser Client
+        /// nur eines setzen kann - wer daran scheitert, kann mit keinem echten
+        /// Dienst sprechen. Ein übergangenes Feld in einer <i>Anweisung</i> ist
+        /// dagegen eine verworfene Anweisung.
+        /// </remarks>
+        [Test]
+        public void TheOfferedForm_IsReadLeniently()
+        {
+
+            static System.Xml.Linq.XElement Angebot(String inhalt)
+                => System.Xml.Linq.XElement.Parse($"<x xmlns='jabber:x:data' type='form'>{inhalt}</x>");
+
+            const String deliver = "<field var='pubsub#deliver' type='boolean'><value>0</value></field>";
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(PubSubSubscriptionOptions.TryReadForm(
+                                Angebot(deliver +
+                                        "<field var='pubsub#digest' type='boolean'><value>1</value></field>"),
+                                out var gelesen),
+                            Is.True,
+                            "Ein Feld, das dieser Client nicht setzen kann, darf ihn nicht aufhalten.");
+
+                Assert.That(gelesen!.Deliver, Is.False);
+
+                Assert.That(PubSubSubscriptionOptions.TryReadForm(
+                                Angebot("<field var='pubsub#digest' type='boolean'><value>1</value></field>"),
+                                out _),
+                            Is.False,
+                            "Ein Angebot ohne die Zustellung sagt über sie nichts - " +
+                            "die Vorgabe anzunehmen hiesse, sie zu erfinden.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region OptionsWithoutASubId_WhenThereAreSeveral_AreRefused()
+
+        /// <summary>
+        /// Auch beim Einstellen sucht sich der Client keines aus.
+        /// </summary>
+        [Test]
+        public async Task OptionsWithoutASubId_WhenThereAreSeveral_AreRefused()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var sitzung = Server.SessionOf(alice.FullJid)!;
+            var vorher  = sitzung.Received.Count(f => f.Contains("<options", StringComparison.Ordinal));
+
+            var gelesen = await alice.PubSubGetOptionsAsync(Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gelesen, Is.Null);
+
+                Assert.That(sitzung.Received.Count(f => f.Contains("<options", StringComparison.Ordinal)),
+                            Is.EqualTo(vorher),
+                            "Eine Anfrage, die nur abgewiesen werden kann, muss nicht gestellt werden.");
+
+            });
+
+        }
+
+        #endregion
+
         #region Unsubscribing_SendsTheSubId_AndClearsTheRecord()
 
         /// <summary>

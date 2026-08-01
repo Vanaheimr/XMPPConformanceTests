@@ -781,6 +781,19 @@ public sealed class XMPPClient : IAsyncDisposable
     public Task<Boolean> PubSubUnsubscribeAsync(String nodeId, String? service = null, String? subId = null)
         => _connection.PubSubUnsubscribeAsync(nodeId, service, subId);
 
+    /// <summary>
+    /// Liest die Einstellungen eines Abonnements beim Dienst nach.
+    /// </summary>
+    public Task<PubSubSubscriptionOptions?> PubSubGetOptionsAsync(String nodeId, String? service = null, String? subId = null)
+        => _connection.PubSubGetOptionsAsync(nodeId, service, subId);
+
+    /// <summary>
+    /// Stellt ein Abonnement ein - vermerkt wird erst, was der Dienst
+    /// bestätigt hat.
+    /// </summary>
+    public Task<Boolean> PubSubSetOptionsAsync(String nodeId, PubSubSubscriptionOptions options, String? service = null, String? subId = null)
+        => _connection.PubSubSetOptionsAsync(nodeId, options, service, subId);
+
     public Task<Boolean> PubSubPublishAsync(String nodeId, String itemId, String payload, String? service = null)
         => _connection.PubSubPublishAsync(nodeId, itemId, payload, service);
 

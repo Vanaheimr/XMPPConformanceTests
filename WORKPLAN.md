@@ -5648,6 +5648,48 @@ bestanden, 7 übersprungen — und damit hat die Sammlung die tausend überschri
 
 ---
 
+### D75. Streng beim Befolgen, nachsichtig beim Lesen ✅ — die Einstellung auf der Clientseite
+
+Die Gegenseite zu D74, und sie brachte eine Unterscheidung mit, die vorher
+nirgends stand: **Dasselbe Formular wird in zwei Richtungen verschieden
+gelesen.**
+
+- Ein **abgeschicktes** Formular ist eine *Anweisung*. Ein Feld darin, das
+  niemand angeboten hat, wird abgewiesen — ein übergangenes wäre eine
+  verworfene Anweisung, von der der Absender nichts erfährt.
+- Ein **angebotenes** Formular ist eine *Auskunft*. Ein Feld darin, das dieser
+  Client nicht setzen kann, wird übergangen — wer daran scheiterte, könnte mit
+  keinem echten Dienst sprechen, denn der bietet ein Dutzend an.
+
+Das ist kein Widerspruch, sondern die Richtung. Es hat auch eine Grenze, und
+die zeigte eine überlebende Mutation: **Ein Angebot, das die Zustellung gar
+nicht nennt, sagt über sie nichts** — die Vorgabe einzusetzen hiesse, sie zu
+erfinden. Dasselbe eine Ebene höher, ebenfalls von einer Mutation gefunden: Ein
+`result` ohne Formular ist keine Auskunft über die Einstellungen. Aus dem
+Ausbleiben eines Fehlers auf einen Zustand zu schliessen ist die bequemste Art,
+sich etwas einzubilden — und hier besonders heikel, weil die Vorgabe „wird
+zugestellt" sagt: Der Client hielte ein stillgelegtes Abonnement für ein lautes.
+
+Vermerkt wird erst, was der Dienst bestätigt hat — derselbe Fehler wie in D71,
+nur eine Ebene tiefer. Und die Vormerkung trifft **das benannte Abonnement**,
+nicht den Knoten: Eine dritte überlebende Mutation zeigte, dass der Fehler
+stumm wäre, denn der Dienst stellte das richtige ein und nur die eigene
+Buchführung zeigte danach einen Zustand, den es nicht gibt.
+
+`null` heisst in dieser Buchführung **„nicht gefragt" und nicht „Vorgabe"**.
+Gefragt wird auch dann, wenn schon etwas dasteht: Ein anderes Gerät desselben
+Kontos kann dasselbe Abonnement inzwischen umgestellt haben, und dann wäre die
+eigene Angabe eine Erinnerung und keine Auskunft.
+
+Die Auswahl des gemeinten Abonnements teilen Abbestellen und Einstellen sich
+jetzt — dieselbe Regel, eine Stelle: **Bei mehreren und ohne Kennung wird gar
+nicht erst gefragt.**
+
+Neunundzwanzig Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 1003
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

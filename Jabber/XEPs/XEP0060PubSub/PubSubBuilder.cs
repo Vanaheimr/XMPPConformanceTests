@@ -51,6 +51,34 @@ public static class PubSubBuilder
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 6.3.1: Die Einstellungen eines Abonnements abfragen.
+    /// </summary>
+    public static string GetOptions(string pubsubJid, string nodeId, string myJid, string id = "pubsub-opts", string? subId = null)
+    {
+        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
+               $"<options node='{XmlEscaping.Escape(nodeId)}' jid='{XmlEscaping.Escape(myJid)}'" +
+               (subId is not null ? $" subid='{XmlEscaping.Escape(subId)}'" : "") +
+               "/></pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 6.3.5: Die Einstellungen eines Abonnements setzen.
+    /// </summary>
+    /// <param name="form">
+    /// Das abgeschickte Datenformular als fertiges XML - es wird wie eine
+    /// Nutzlast durchgereicht und nicht escaped.
+    /// </param>
+    public static string SetOptions(string pubsubJid, string nodeId, string myJid, string id, string? subId, string form)
+    {
+        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
+               $"<options node='{XmlEscaping.Escape(nodeId)}' jid='{XmlEscaping.Escape(myJid)}'" +
+               (subId is not null ? $" subid='{XmlEscaping.Escape(subId)}'" : "") +
+               $">{form}</options></pubsub></iq>";
+    }
+
+    /// <summary>
     /// Publish an item to a node
     /// </summary>
     /// <remarks>

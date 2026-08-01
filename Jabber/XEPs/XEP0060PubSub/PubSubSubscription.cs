@@ -35,16 +35,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// solange es nur eines gibt (Abschnitt 12.19).
 /// </param>
 /// <param name="State">Der Zustand aus der Antwort.</param>
+/// <param name="Options">
+/// Die Einstellungen dieses Abonnements, oder null - <b>null heisst „nicht
+/// gefragt" und nicht „Vorgabe".</b> Was gilt, sagt der Dienst; ein anderes
+/// Gerät desselben Kontos kann dasselbe Abonnement umgestellt haben.
+/// </param>
 /// <remarks>
 /// <b>Das ist der Ertrag der Korrelation.</b> Nichts davon kann ein Client
 /// wissen, bevor die Antwort da ist - die Kennung schon gar nicht, denn sie
 /// kommt vom Dienst. Wer die Anfrage abschickt und sein Abonnement gleich
 /// einträgt, verwechselt eine Absicht mit einer Tatsache.
 /// </remarks>
-public sealed record PubSubSubscription(String                   NodeId,
-                                        String                   ServiceJid,
-                                        String?                  SubId,
-                                        PubSubSubscriptionState  State)
+public sealed record PubSubSubscription(String                      NodeId,
+                                        String                      ServiceJid,
+                                        String?                     SubId,
+                                        PubSubSubscriptionState     State,
+                                        PubSubSubscriptionOptions?  Options = null)
 {
 
     /// <summary>Der Namensraum von XEP-0060.</summary>

@@ -279,6 +279,30 @@ public sealed class PubSubManager
     }
 
     /// <summary>
+    /// Vermerkt, was der Dienst über die Einstellungen eines Abonnements
+    /// gesagt hat.
+    /// </summary>
+    /// <remarks>
+    /// Nur was bestätigt wurde: Ein Wunsch, den der Dienst abgelehnt hat, darf
+    /// hier nicht als geltender Zustand landen - derselbe Fehler wie ein
+    /// Abonnement, das vor der Zusage eingetragen wird.
+    /// </remarks>
+    public void SetOptions(String nodeId, String? subId, PubSubSubscriptionOptions options)
+    {
+        lock (_lock)
+        {
+
+            if (!_subscriptions.TryGetValue(nodeId, out var abos))
+                return;
+
+            for (var i = 0; i < abos.Count; i++)
+                if (subId is null || String.Equals(abos[i].SubId, subId, StringComparison.Ordinal))
+                    abos[i] = abos[i] with { Options = options };
+
+        }
+    }
+
+    /// <summary>
     /// Die Abonnements dieses Knotens - keines, eines oder mehrere.
     /// </summary>
     public IReadOnlyList<PubSubSubscription> SubscriptionsOf(String nodeId)

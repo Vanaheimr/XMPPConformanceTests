@@ -3035,28 +3035,13 @@ public sealed class XMPPConnection : IAsyncDisposable
                                                       CancellationToken  ct       = default)
     {
 
-        var abos = PubSub!.SubscriptionsOf(nodeId);
-
-        if (subId is null && abos.Count > 1)
-        {
-            _logger.LogWarning("PubSub: {Count} Abonnements auf {Node} - ohne subid ist nicht zu sagen, welches gemeint ist",
-                               abos.Count, nodeId);
+        if (!TryPickSubscription(nodeId, subId, service, out var ziel, out var verwendet))
             return false;
-        }
 
-        var gemeint  = subId is not null
-                           ? abos.FirstOrDefault(a => String.Equals(a.SubId, subId, StringComparison.Ordinal))
-                           : abos.FirstOrDefault();
-
-        // Die mitgeschickte Kennung ist die des Aufrufers, auch wenn hier kein
-        // Abonnement dazu steht: Ein anderes Gerät desselben Kontos kann eines
-        // halten, von dem dieser Client nichts weiss.
-        var verwendet  = subId ?? gemeint?.SubId;
-        var ziel       = service ?? gemeint?.ServiceJid ?? PubSub!.PubSubService;
-        var id         = NextPubSubId();
-        var antwort    = await SendIqAsync(id,
-                                           PubSubBuilder.Unsubscribe(ziel, nodeId, BareJid, id, verwendet),
-                                           ct);
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id,
+                                         PubSubBuilder.Unsubscribe(ziel, nodeId, BareJid, id, verwendet),
+                                         ct);
 
         if (antwort is null || antwort.Attr("type") != "result")
         {
@@ -3067,6 +3052,134 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
 
         PubSub!.RemoveSubscription(nodeId, verwendet);
+
+        return true;
+
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 6.3.1: Holt die Einstellungen eines Abonnements.
+    /// </summary>
+    /// <returns>
+    /// Was der Dienst sagt, oder null bei Absage und Schweigen.
+    /// </returns>
+    /// <remarks>
+    /// <b>Gefragt wird auch dann, wenn die Einstellungen schon in der eigenen
+    /// Buchführung stehen.</b> Dort steht, was dieser Client gesetzt hat - ein
+    /// anderes Gerät desselben Kontos kann dasselbe Abonnement inzwischen
+    /// umgestellt haben, und dann wäre die eigene Angabe eine Erinnerung und
+    /// keine Auskunft.
+    /// </remarks>
+    public async Task<PubSubSubscriptionOptions?> PubSubGetOptionsAsync(String             nodeId,
+                                                                        String?            service  = null,
+                                                                        String?            subId    = null,
+                                                                        CancellationToken  ct       = default)
+    {
+
+        if (!TryPickSubscription(nodeId, subId, service, out var ziel, out var verwendet))
+            return null;
+
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id, PubSubBuilder.GetOptions(ziel, nodeId, BareJid, id, verwendet), ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: Einstellungen von {Node} bei {Service} nicht gelesen: {Reason}",
+                               nodeId, ziel,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return null;
+        }
+
+        var formular = antwort.Child(PubSubSubscription.Namespace, "pubsub")
+                             ?.Child(PubSubSubscription.Namespace, "options")
+                             ?.Child(PubSubSubscriptionOptions.DataFormNamespace, "x");
+
+        if (formular is null || !PubSubSubscriptionOptions.TryReadForm(formular, out var optionen))
+        {
+            _logger.LogWarning("PubSub: die Antwort auf die Einstellungen von {Node} enthält kein lesbares Formular",
+                               nodeId);
+            return null;
+        }
+
+        PubSub!.SetOptions(nodeId, verwendet, optionen!);
+
+        return optionen;
+
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 6.3.5: Stellt ein Abonnement ein.
+    /// </summary>
+    /// <remarks>
+    /// Vermerkt wird erst nach dem <c>result</c>. Ein abgelehnter Wunsch als
+    /// geltender Zustand wäre derselbe Fehler wie ein Abonnement, das vor der
+    /// Zusage eingetragen wird - nur eine Ebene tiefer.
+    /// </remarks>
+    public async Task<Boolean> PubSubSetOptionsAsync(String                     nodeId,
+                                                     PubSubSubscriptionOptions  options,
+                                                     String?                    service  = null,
+                                                     String?                    subId    = null,
+                                                     CancellationToken          ct       = default)
+    {
+
+        if (!TryPickSubscription(nodeId, subId, service, out var ziel, out var verwendet))
+            return false;
+
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id,
+                                         PubSubBuilder.SetOptions(ziel, nodeId, BareJid, id, verwendet,
+                                                                  options.ToSubmit()
+                                                                         .ToString(SaveOptions.DisableFormatting)),
+                                         ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: Einstellungen von {Node} bei {Service} nicht gesetzt: {Reason}",
+                               nodeId, ziel,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return false;
+        }
+
+        PubSub!.SetOptions(nodeId, verwendet, options);
+
+        return true;
+
+    }
+
+    /// <summary>
+    /// Sucht heraus, welches Abonnement gemeint ist und wohin die Anfrage
+    /// geht.
+    /// </summary>
+    /// <returns>
+    /// false, wenn es mehrere gibt und keine Kennung sagt, welches - dann wird
+    /// gar nicht erst gefragt. Dieselbe Regel wie beim Abbestellen, und aus
+    /// demselben Grund: Der Client sucht sich keines aus.
+    /// </returns>
+    private Boolean TryPickSubscription(String       nodeId,
+                                        String?      subId,
+                                        String?      service,
+                                        out String   target,
+                                        out String?  usedSubId)
+    {
+
+        var abos = PubSub!.SubscriptionsOf(nodeId);
+
+        target     = service ?? PubSub!.PubSubService;
+        usedSubId  = subId;
+
+        if (subId is null && abos.Count > 1)
+        {
+            _logger.LogWarning("PubSub: {Count} Abonnements auf {Node} - ohne subid ist nicht zu sagen, welches gemeint ist",
+                               abos.Count, nodeId);
+            return false;
+        }
+
+        var gemeint = subId is not null
+                          ? abos.FirstOrDefault(a => String.Equals(a.SubId, subId, StringComparison.Ordinal))
+                          : abos.FirstOrDefault();
+
+        target     = service ?? gemeint?.ServiceJid ?? PubSub!.PubSubService;
+        usedSubId  = subId ?? gemeint?.SubId;
 
         return true;
 

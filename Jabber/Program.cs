@@ -936,6 +936,8 @@ class Program
             Console.WriteLine("  /pubsub sub <node> [jid]     Node abonnieren");
             Console.WriteLine("  /pubsub unsub <node> [jid] [subid]  Abo beenden");
             Console.WriteLine("  /pubsub abos                 Eigene Abonnements samt subid");
+            Console.WriteLine("  /pubsub opts <node> [subid]  Einstellungen des Abonnements");
+            Console.WriteLine("  /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus");
             Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
             Console.WriteLine("  /pubsub create <node>        Node erstellen");
@@ -950,7 +952,8 @@ class Program
         var nodeId = parts.Length > 1 ? parts[1] : "";
 
         string[] nodeCommands = ["sub", "subscribe", "unsub", "unsubscribe",
-                                 "pub", "publish", "get", "items", "create", "delete"];
+                                 "pub", "publish", "get", "items", "create", "delete",
+                                 "opts", "options", "deliver"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -976,6 +979,30 @@ class Program
                                                                         parts.Length > 3 ? parts[3] : null)
                                       ? $"🔕 Abo beendet: {nodeId}"
                                       : $"⚠️ Abo nicht beendet: {nodeId} - siehe Log");
+                break;
+
+            // Das Ziel kommt aus dem Abonnement selbst: Wer eingestellt hat,
+            // wo er abonniert hat, muss es nicht noch einmal sagen.
+            case "opts" or "options":
+                var optionen = await _client!.PubSubGetOptionsAsync(nodeId,
+                                                                    subId: parts.Length > 2 ? parts[2] : null);
+                Console.WriteLine(optionen is not null
+                                      ? $"⚙️ {nodeId}: Zustellung {(optionen.Deliver ? "an" : "aus")}"
+                                      : $"⚠️ Einstellungen nicht gelesen: {nodeId} - siehe Log");
+                break;
+
+            case "deliver":
+                if (parts.Length < 3 || parts[2].ToLower() is not ("on" or "off"))
+                {
+                    Console.WriteLine("Syntax: /pubsub deliver <node> <on|off> [subid]");
+                    return;
+                }
+                var an = parts[2].ToLower() == "on";
+                Console.WriteLine(await _client!.PubSubSetOptionsAsync(nodeId,
+                                                                       new PubSubSubscriptionOptions(an),
+                                                                       subId: parts.Length > 3 ? parts[3] : null)
+                                      ? $"⚙️ {nodeId}: Zustellung {(an ? "an" : "aus")}"
+                                      : $"⚠️ Einstellung nicht gesetzt: {nodeId} - siehe Log");
                 break;
 
             // Bei mehreren Abonnements auf denselben Knoten ist die Kennung das
