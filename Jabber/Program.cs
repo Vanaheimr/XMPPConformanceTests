@@ -960,11 +960,26 @@ class Program
         using var sperre = Ausgabe();
 
         Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.Write($"[{message.Timestamp:HH:mm:ss}] ");
+
+        // Eine nachgereichte Nachricht bekommt ihr Datum dazu (XEP-0203): Sie
+        // kann von gestern sein, und eine blosse Uhrzeit sähe aus wie heute.
+        Console.Write(message.IsDelayed
+                          ? $"[{message.Timestamp:dd.MM. HH:mm:ss}] "
+                          : $"[{message.Timestamp:HH:mm:ss}] ");
+
         Console.ForegroundColor = ConsoleColor.Green;
         Console.Write($"{GetShortJid(message.From)}: ");
         Console.ResetColor();
-        Console.WriteLine(message.Body);
+        Console.Write(message.Body);
+
+        if (message.IsDelayed)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  (nachgereicht)");
+            Console.ResetColor();
+        }
+
+        Console.WriteLine();
 
 
     }

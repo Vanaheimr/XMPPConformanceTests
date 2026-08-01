@@ -287,7 +287,9 @@ public sealed class XMPPConnection : IAsyncDisposable
     #region Events
 
     // Events - Core
-    public event Action<string, string, string, string?, MessageType>? OnMessage;  // from, to, body, id, type
+    // from, to, body, id, type, geschrieben, empfangen, aufgehoben von
+    public event Action<string, string, string, string?, MessageType,
+                        DateTime, DateTime, string?>? OnMessage;
     public event Action<string, string>? OnPresence;
     public event Action<string, ChatState>? OnChatState;
     public event Action<string, string>? OnReceiptReceived;
@@ -1547,7 +1549,16 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             var messageType = MessageTypeExtensions.Parse(element.Attr("type"));
 
-            OnMessage?.Invoke(from, to, body, msgId, messageType);
+            // XEP-0203: Wurde sie aufgehoben, gilt ihre eigene Zeit und nicht
+            // die des Empfangs. Der Stempel steht nur an der äusseren Stanza -
+            // deshalb hier und nicht im Carbon-Zweig, der seine eigene innere
+            // Nachricht mitbringt.
+            var empfangen  = DateTime.Now;
+            var geschrieben = DelayedDelivery.TryRead(element, out var stempel, out var aufgehobenVon)
+                                  ? stempel.ToLocalTime().DateTime
+                                  : empfangen;
+
+            OnMessage?.Invoke(from, to, body, msgId, messageType, geschrieben, empfangen, aufgehobenVon);
 
             // Von selbst geantwortet wird nur, wo eine Antwort hingehört.
             // Einem Zuruf ist nicht zu quittieren, und in einen Raum schon gar

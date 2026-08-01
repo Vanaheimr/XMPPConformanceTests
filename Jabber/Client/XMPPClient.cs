@@ -228,12 +228,17 @@ public sealed class XMPPClient : IAsyncDisposable
     private void WireUpConnection()
     {
 
-        _connection.OnMessage += (from, to, body, id, type) =>
+        _connection.OnMessage += (from, to, body, id, type, geschrieben, empfangen, aufgehobenVon) =>
         {
             if (!string.IsNullOrEmpty(id))
                 LastReceivedMessageId = id;
 
-            OnMessage?.Invoke(new XMPPMessage(from, to, body, id, DateTime.Now, type));
+            // Die Uhrzeit kommt von der Verbindung und nicht von hier: Nur dort
+            // ist die Stanza noch zu sehen, und in ihr steht, ob die Nachricht
+            // eben erst entstand oder aufgehoben war (XEP-0203). Hier stand
+            // bis D59 ein DateTime.Now, das die Auskunft überschrieb.
+            OnMessage?.Invoke(new XMPPMessage(from, to, body, id, geschrieben, type,
+                                              empfangen, aufgehobenVon));
         };
 
         _connection.OnCarbonMessage   += c            => OnCarbonMessage?.Invoke(c);

@@ -57,7 +57,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0156 | Discovering Alternative XMPP Connection Methods | ✅ | Nur der HTTP-Weg, und nur so weit er sicher ist: `host-meta` wird ausschliesslich über HTTPS geladen, übernommen werden ausschliesslich `wss://`-Endpunkte. BOSH (`xbosh`) wird gelesen und übergangen — dieser Client spricht es nicht. Der DNS-Weg über `_xmppconnect` fehlt nicht, er ist aus dem XEP entfernt worden |
 | XEP-0160 | Best Practices for Handling Offline Messages | ✅ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; ein `chat` mit ausschliesslich Tippstatus-Inhalt (XEP-0085) ebenfalls, und zwar ohne Fehler an den Absender. Nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern |
 | XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0203 | Delayed Delivery | ⚠️ | Der Server stempelt nachgereichte Nachrichten; der Client liest den Stempel nicht — `XMPPMessage.Timestamp` ist die Empfangszeit |
+| XEP-0203 | Delayed Delivery | ✅ | Der Server stempelt nachgereichte Nachrichten, der Client liest den Stempel: `XMPPMessage.Timestamp` ist die Zeit, zu der die Nachricht **geschrieben** wurde, `ReceivedAt` die des Empfangs, `IsDelayed` der Unterschied. Gelesen wird nur an der äusseren Stanza — ein Carbon bringt den Stempel seiner inneren Nachricht mit —, und nur mit Zonenangabe: eine Uhrzeit ohne Zone ist keine (D59) |
 | XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird; auch die Abweisung wird ausgewertet — ein `h` im `<failed/>` bestätigt, was der Server noch verarbeitet hat |
 | XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
@@ -871,8 +871,9 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 - Kein Flexible Offline Message Retrieval (XEP-0013) — die Ablage kommt beim
   Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln
   abholen. Bewusst so: Die XSF führt XEP-0013 als *Deprecated* (siehe D37)
-- Der Client liest den XEP-0203-Stempel nicht; eine nachgereichte Nachricht
-  erscheint mit ihrer Empfangszeit, obwohl der Server den Verzug mitteilt
+- ~~Der Client liest den XEP-0203-Stempel nicht; eine nachgereichte Nachricht
+  erscheint mit ihrer Empfangszeit, obwohl der Server den Verzug mitteilt~~
+  Behoben in D59: Sie erscheint mit Datum und dem Vermerk „(nachgereicht)"
 - **Kein TCP-Transport** — der Client spricht ausschliesslich XMPP über
   WebSocket (RFC 7395). Die Fabrikmethode `CreateTcp`, die eine `tcp://`-URI
   erzeugte und dabei funktionslos war, ist entfernt: Eine öffentliche Methode,

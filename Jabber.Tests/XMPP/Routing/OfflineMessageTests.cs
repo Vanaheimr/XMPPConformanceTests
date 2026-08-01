@@ -638,6 +638,115 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region AStoredMessage_KeepsTheTimeItWasWritten()
+
+        /// <summary>
+        /// Der Empfänger zeigt die Zeit, zu der die Nachricht geschrieben
+        /// wurde - nicht die, zu der sie ihn erreicht.
+        /// </summary>
+        /// <remarks>
+        /// Die andere Hälfte von <see cref="AStoredMessage_CarriesADelayStamp"/>.
+        /// Der Server hat den Stempel seit jeher geschrieben und der Client ihn
+        /// nie gelesen: <c>XMPPMessage.Timestamp</c> war der Zeitpunkt des
+        /// Empfangs, und eine Nachricht von gestern Abend erschien nach dem
+        /// Anmelden mit der Uhrzeit von jetzt. <b>Eine Uhrzeit, die dasteht und
+        /// nicht stimmt, ist schlimmer als keine</b> - sie lädt dazu ein, auf
+        /// eine Frage zu antworten, die sich längst erledigt hat.
+        ///
+        /// Geprüft wird gegen ein Zeitfenster um das Senden herum. Die genaue
+        /// Zahl kennt der Test nicht - sie kommt vom Server -, wohl aber die
+        /// Grenzen: vor dem Senden kann sie nicht liegen und nach dem
+        /// Wiederanmelden auch nicht.
+        /// </remarks>
+        [Test]
+        public async Task AStoredMessage_KeepsTheTimeItWasWritten()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            var vorDemSenden = DateTime.Now.AddSeconds(-1);
+
+            await alice.SendMessageAsync(Bob, "Von gestern");
+
+            await WarteAufAblage(Bob, 1);
+
+            var nachDemSenden = DateTime.Now.AddSeconds(1);
+
+            var (bob, eingang) = VorbereiteterClient("bob");
+            await bob.ConnectAsync();
+
+            await WaitFor(() => !eingang.IsEmpty, "die nachgereichte Nachricht");
+
+            eingang.TryDequeue(out var nachricht);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(nachricht!.IsDelayed, Is.True,
+                            "Eine nachgereichte Nachricht muss als solche erkennbar sein.");
+
+                Assert.That(nachricht.Timestamp, Is.InRange(vorDemSenden, nachDemSenden),
+                            "Angezeigt wird die Zeit des Empfangs statt der des Schreibens.");
+
+                Assert.That(nachricht.ReceivedAt, Is.GreaterThanOrEqualTo(nachricht.Timestamp),
+                            "Angekommen ist sie nach dem Schreiben, nicht davor.");
+
+                Assert.That(nachricht.DelayedBy, Is.EqualTo(Server.Domain),
+                            "XEP-0203, Abschnitt 4: aufgehoben hat sie der Server.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ALiveMessage_IsNotDelayed()
+
+        /// <summary>
+        /// Die Gegenprobe: Eine Nachricht an einen anwesenden Empfänger gilt
+        /// nicht als nachgereicht.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie wäre „immer nachgereicht" eine bestandene Lösung, und jede
+        /// laufende Unterhaltung trüge den Vermerk. Zugleich hält der Test
+        /// fest, dass die angezeigte Zeit im Normalfall weiterhin die des
+        /// Empfangs ist - für alles Laufende sind die beiden dasselbe.
+        /// </remarks>
+        [Test]
+        public async Task ALiveMessage_IsNotDelayed()
+        {
+
+            var alice = await ConnectClientAsync("alice");
+            Server.AddAccount("bob");
+
+            var (bob, eingang) = VorbereiteterClient("bob");
+
+            await bob.ConnectAsync();
+
+            var vorher = DateTime.Now.AddSeconds(-1);
+
+            await alice.SendMessageAsync(Bob, "Jetzt gerade");
+
+            await WaitFor(() => !eingang.IsEmpty, "die zugestellte Nachricht");
+
+            eingang.TryDequeue(out var nachricht);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(nachricht!.IsDelayed, Is.False);
+
+                Assert.That(nachricht.Timestamp,  Is.InRange(vorher, DateTime.Now.AddSeconds(1)));
+
+                Assert.That(nachricht.DelayedBy,  Is.Null);
+
+            });
+
+        }
+
+        #endregion
+
         #region AStoredMessage_CarriesADelayStamp()
 
         /// <summary>

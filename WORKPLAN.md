@@ -4657,6 +4657,58 @@ Anfang — geprüft wird jetzt der Anfang.
 
 ---
 
+### D59. Eine Uhrzeit, die dasteht und nicht stimmt ✅ — XEP-0203 gelesen
+
+Der Server schreibt den Verzugsstempel seit jeher — `AStoredMessage_CarriesADelayStamp`
+hält seit D-lang fest, dass jede nachgereichte Nachricht ein `<delay/>` trägt,
+mit UTC-Zeit und dem Server als Urheber. **Der Client hat ihn nie gelesen.**
+`urn:xmpp:delay` kam in seinem gesamten Quelltext nicht vor, und
+`XMPPMessage.Timestamp` war laut eigener Dokumentation „Zeitpunkt des Empfangs
+(lokale Uhr)".
+
+Die Folge war eine Lüge mit Uhrzeit: Eine Nachricht von gestern Abend erschien
+nach dem Anmelden mit der Uhrzeit von jetzt. **Das ist schlimmer als eine
+fehlende Angabe** — es lädt dazu ein, auf eine Frage zu antworten, die sich
+längst erledigt hat.
+
+Von allen sieben Punkten der Umfangsliste war das der einzige, bei dem etwas
+Falsches angezeigt wurde statt etwas zu fehlen.
+
+`Timestamp` ist jetzt die Zeit, zu der die Nachricht **geschrieben** wurde,
+`ReceivedAt` die des Empfangs, `IsDelayed` der Unterschied zwischen beiden.
+Gelesen wird die Stanza dort, wo sie noch vorliegt — in der Verbindung; das
+`DateTime.Now` im Client, das die Auskunft überschrieb, ist fort.
+
+**Zwei Feinheiten, beide mit eigenem Test:**
+
+- **Nur direkte Kinder.** Ein Carbon (XEP-0280) und eine Weiterleitung
+  (XEP-0297) bringen in ihrem `<forwarded/>` den Stempel der *inneren*
+  Nachricht mit. Wer die ganze Stanza durchsucht, datiert die äussere auf die
+  Zeit der inneren — und liegt genau dann falsch, wenn es darauf ankommt.
+- **Nur mit Zonenangabe.** Das kam durch eine überlebende Mutation dazu, und
+  sie war die lehrreichste des Tages: `RoundtripKind` gegen `AssumeUniversal`
+  liess sich nicht erschlagen. Der Grund war keine schwache Prüfung, sondern
+  eine Lücke dahinter — ein Stempel **ohne** Zone verstösst gegen Abschnitt 3,
+  liess sich aber lesen und wurde als hiesige Zeit gedeutet. **Die
+  schlechteste aller Auslegungen:** Die Nachricht verschiebt sich um genau den
+  Zonenunterschied und sieht dabei vollkommen plausibel aus. Jetzt gilt sie wie
+  kein Stempel.
+
+Nach dieser Verschärfung ist dieselbe Mutation **gleichwertig statt
+überlebend**: Mit erzwungener Zone können sich die beiden Auslegungen nicht
+mehr unterscheiden, denn `AssumeUniversal` greift nur, wo keine Zone steht. Ein
+Überlebender, dessen Gleichwertigkeit sich beweisen lässt, ist etwas anderes
+als einer, der ungeprüft danebensteht.
+
+Fünf Mutationen: vier erschlagen (Stempel gar nicht gelesen, ganze Stanza
+durchsucht, unlesbarer Stempel wirft statt zu verneinen, Zonenangabe nicht mehr
+verlangt), eine gleichwertig.
+
+Die Konsole zeigt eine nachgereichte Nachricht jetzt mit Datum und dem Vermerk
+„(nachgereicht)" — ohne das Datum sähe eine Uhrzeit von gestern aus wie heute.
+
+---
+
 ## Später
 
 ### Testsammlung
