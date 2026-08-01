@@ -5939,6 +5939,44 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D82. Eine Liste entsteht nicht nebenbei ✅ — `whitelist`
+
+Das dritte Zugriffsmodell, und der einzige Grund, aus dem es diese Etappe gibt:
+**`member` entschied bis hierher nichts.** Die Rolle war vergebbar und
+folgenlos — in D81 ausdrücklich so notiert, damit sie sich vergeben lässt,
+bevor das Modell sie braucht. Jetzt braucht es sie.
+
+Der Unterschied zu `presence` ist der Punkt: **Presence-Berechtigung entsteht
+nebenbei.** Jemand nimmt einen Kontakt auf, und schon sieht er mehr. Eine Liste
+entsteht nicht nebenbei — auf ihr steht nur, wen der Eigentümer ausdrücklich
+daraufgesetzt hat. Der Test hält das fest, indem Carol Kontakt ist und trotzdem
+draussen bleibt.
+
+Zwei Entscheidungen, die auch anders hätten ausfallen können:
+
+- **Ein `publisher` steht auch auf der Liste.** Alles andere wäre eine Rolle,
+  die man nur mit einer zweiten zusammen gebrauchen kann, und der Eigentümer
+  müsste bei jedem Publizierenden daran denken, ihn zusätzlich zum Mitglied zu
+  machen.
+- **Der Ausschluss steht über dem Modell.** Ein Ausgeschlossener, den jemand
+  versehentlich auf die Liste setzt, bleibt draussen — sonst hinge der
+  Ausschluss davon ab, in welcher Reihenfolge zwei Anweisungen kamen.
+
+Nebenbei aufgeräumt: Das Zugriffsmodell wurde an **vier Stellen** gelesen und
+geschrieben — Knotenformular hin, Knotenformular zurück, Bedingungen einer
+Veröffentlichung, Serverprüfung. Vier Stellen, die dieselbe Liste führen,
+führen sie irgendwann verschieden, und die eine, die ein Modell nicht kennt,
+lässt es still als `open` durchgehen. Jetzt gibt es eine.
+
+Ein Test aus D76 musste umgeschrieben werden: Er benutzte `whitelist` als
+Beispiel für ein nicht angebotenes Modell. Er prüft jetzt `authorize` — der
+Genehmigungsvorgang dahinter fehlt weiterhin, und darum wird es abgewiesen.
+
+Achtundsechzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1057
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

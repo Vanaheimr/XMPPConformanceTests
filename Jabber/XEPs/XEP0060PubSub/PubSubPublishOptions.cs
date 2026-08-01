@@ -86,9 +86,9 @@ public sealed record PubSubPublishOptions(PubSubAccessModel?  AccessModel   = nu
                     break;
 
                 case PubSubNodeConfiguration.AccessModelVariable:
-                    if (wert is not ("open" or "presence"))
+                    if (!PubSubNodeConfiguration.TryReadAccessModel(wert, out var verlangtes))
                         return false;
-                    zugriff = wert == "presence" ? PubSubAccessModel.Presence : PubSubAccessModel.Open;
+                    zugriff = verlangtes;
                     break;
 
                 case PubSubNodeConfiguration.MaxItemsVariable:

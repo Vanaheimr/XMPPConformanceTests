@@ -2724,10 +2724,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// und eine davon würde beim nächsten Mal vergessen.
         /// </remarks>
         private static Boolean MayAccessPepNode(XMPPAccount account, String node, String requesterBareJid)
+        {
 
-            => account.PepNodeConfiguration(node)?.AccessModel != PubSubAccessModel.Presence ||
-               String.Equals(account.BareJid, requesterBareJid, StringComparison.OrdinalIgnoreCase) ||
-               account.IsPresenceSubscriber(requesterBareJid);
+            // Der Eigentümer kommt an seinen Knoten, gleich welches Modell
+            // gilt. Er ist bei sich selbst weder Presence-Abonnent noch auf
+            // einer Liste.
+            if (String.Equals(account.BareJid, requesterBareJid, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return account.PepNodeConfiguration(node)?.AccessModel switch {
+
+                       PubSubAccessModel.Presence
+                           => account.IsPresenceSubscriber(requesterBareJid),
+
+                       // Auf der Liste steht, wen der Eigentümer ausdrücklich
+                       // daraufgesetzt hat - eine Presence-Berechtigung
+                       // entsteht nebenbei, eine Rolle nicht.
+                       PubSubAccessModel.Whitelist
+                           => account.PepAffiliationOf(node, requesterBareJid)
+                                  is PubSubAffiliation.Publisher or PubSubAffiliation.Member,
+
+                       _   => true
+
+                   };
+
+        }
 
         /// <summary>
         /// XEP-0060, Abschnitte 6.1.3.4 und 6.5.3: Der Knoten steht nur denen

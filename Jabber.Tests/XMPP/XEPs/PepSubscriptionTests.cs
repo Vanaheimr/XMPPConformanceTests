@@ -1353,13 +1353,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region AnAccessModelNobodyOffered_IsRejected()
 
         /// <summary>
-        /// <c>whitelist</c> steht nicht im Angebot - und wird nicht
+        /// <c>authorize</c> steht nicht im Angebot - und wird nicht
         /// stillschweigend zu <c>open</c>.
         /// </summary>
         /// <remarks>
         /// <b>Der teuerste Ort für eine Zusage ohne Deckung.</b> Wer
-        /// <c>whitelist</c> einstellt und <c>open</c> bekommt, glaubt seine
-        /// Einträge geschützt und hat sie veröffentlicht.
+        /// <c>authorize</c> einstellt und <c>open</c> bekommt, glaubt jedes
+        /// Abonnement genehmigen zu müssen und hat seine Einträge
+        /// veröffentlicht.
+        ///
+        /// Der Test hiess bis K13 <c>whitelist</c> - das ist seitdem
+        /// angeboten, weil es sich durchsetzen lässt. Der Genehmigungsvorgang
+        /// hinter <c>authorize</c> fehlt weiterhin, und darum wird er
+        /// abgewiesen.
         /// </remarks>
         [Test]
         public async Task AnAccessModelNobodyOffered_IsRejected()
@@ -1369,7 +1375,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var antwort = await AskAsync(bob, "cfg-9",
                                          ConfigureIq("cfg-9", "set",
-                                                     ConfigForm("<field var='pubsub#access_model'><value>whitelist</value></field>")));
+                                                     ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
 
             Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
 
@@ -2343,6 +2349,195 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.That(AffiliationsIn(bobs, PubSubNamespace).Select(e => e.Attr("affiliation")).Distinct(),
                         Is.EqualTo(new[] { "owner" }),
                         "Dem Eigentümer gehören alle seine Knoten.");
+
+        }
+
+        #endregion
+
+        #region OnAWhitelistedNode_OnlyTheListGetsIn()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 4.5: <c>whitelist</c> - und damit entscheidet
+        /// <c>member</c> zum ersten Mal etwas.
+        /// </summary>
+        /// <remarks>
+        /// <b>Das strengste der drei Modelle und das einzige, bei dem der
+        /// Roster nichts entscheidet.</b> Presence-Berechtigung entsteht
+        /// nebenbei - jemand nimmt einen Kontakt auf, und schon sieht er mehr.
+        /// Eine Liste entsteht nicht nebenbei.
+        /// </remarks>
+        [Test]
+        public async Task OnAWhitelistedNode_OnlyTheListGetsIn()
+        {
+
+            // Carol ist Kontakt und stünde bei 'presence' drin - hier nicht.
+            MakeContacts("carol", "bob");
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await AskAsync(bob, "aff-20",
+                           AffiliationsIq("aff-20", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='member'/>"));
+
+            await AskAsync(bob, "cfg-40",
+                           ConfigureIq("cfg-40", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>whitelist</value></field>")));
+
+            var gelesen = await AskAsync(bob, "cfg-40b", ConfigureIq("cfg-40b", "get"));
+
+            Assert.That(ConfigField(gelesen, "pubsub#access_model"), Is.EqualTo("whitelist"),
+                        "Das Formular muss das Modell beim Namen nennen - sonst hielte der " +
+                        "Eigentümer den Knoten für offen und liesse ihn geschlossen, oder umgekehrt.");
+
+            var mitglied = await AskAsync(alice, "get-40",
+                                          $"<iq type='get' to='bob@{Server.Domain}' id='get-40'>" +
+                                          $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            var kontakt = await AskAsync(carol, "get-41",
+                                         $"<iq type='get' to='bob@{Server.Domain}' id='get-41'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            var eigener = await AskAsync(bob, "get-42",
+                                         $"<iq type='get' id='get-42'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(mitglied.Attr("type"), Is.EqualTo("result"),
+                            "Wer auf der Liste steht, kommt herein.");
+
+                Assert.That(kontakt.Attr("type"), Is.EqualTo("error"),
+                            "Ein Kontakt steht nicht deshalb auf der Liste.");
+                Assert.That(ConditionOf(kontakt),  Is.EqualTo("not-authorized"));
+
+                Assert.That(eigener.Attr("type"), Is.EqualTo("result"),
+                            "Der Eigentümer steht auf keiner Liste und kommt trotzdem an seinen Knoten.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region OnAWhitelistedNode_AMemberMaySubscribe()
+
+        /// <summary>
+        /// Und dasselbe beim Abonnieren.
+        /// </summary>
+        /// <remarks>
+        /// Beide Wege gehören geprüft: Ein Modell, das nur beim Abrufen gilt,
+        /// liesse sich mit einem Abonnement umgehen - der Ausgesperrte bekäme
+        /// die Einträge zugestellt, statt sie zu holen.
+        /// </remarks>
+        [Test]
+        public async Task OnAWhitelistedNode_AMemberMaySubscribe()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await AskAsync(bob, "aff-21",
+                           AffiliationsIq("aff-21", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='member'/>"));
+
+            await AskAsync(bob, "cfg-41",
+                           ConfigureIq("cfg-41", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>whitelist</value></field>")));
+
+            var mitglied = await AskAsync(alice, "sub-70",
+                                          PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                  alice.BareJid, "sub-70"));
+
+            var fremder  = await AskAsync(carol, "sub-71",
+                                          PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                  carol.BareJid, "sub-71"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(mitglied.Attr("type"), Is.EqualTo("result"));
+                Assert.That(fremder.Attr("type"),  Is.EqualTo("error"));
+                Assert.That(ConditionOf(fremder),  Is.EqualTo("not-authorized"));
+            });
+
+        }
+
+        #endregion
+
+        #region APublisher_IsOnTheListToo()
+
+        /// <summary>
+        /// Wer schreiben darf, darf auch lesen.
+        /// </summary>
+        /// <remarks>
+        /// Alles andere wäre eine Rolle, die man nur mit einer zweiten
+        /// zusammen gebrauchen kann - und der Eigentümer müsste jedem
+        /// Publizierenden daran denken, ihn auch noch auf die Liste zu setzen.
+        /// </remarks>
+        [Test]
+        public async Task APublisher_IsOnTheListToo()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "aff-22",
+                           AffiliationsIq("aff-22", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='publisher'/>"));
+
+            await AskAsync(bob, "cfg-42",
+                           ConfigureIq("cfg-42", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>whitelist</value></field>")));
+
+            var antwort = await AskAsync(alice, "get-43",
+                                         $"<iq type='get' to='bob@{Server.Domain}' id='get-43'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region AnOutcast_StaysOutOfAnOpenNodeToo()
+
+        /// <summary>
+        /// Und der Ausschluss steht über dem Modell - auch über
+        /// <c>whitelist</c>.
+        /// </summary>
+        /// <remarks>
+        /// Das Zugriffsmodell sagt, wer hereindarf; die Rolle sagt, wer
+        /// draussen bleibt. Ein Ausgeschlossener, den jemand versehentlich auf
+        /// die Liste setzt, bleibt draussen - sonst hinge der Ausschluss davon
+        /// ab, in welcher Reihenfolge zwei Anweisungen kamen.
+        /// </remarks>
+        [Test]
+        public async Task AnOutcast_StaysOutOfAnOpenNodeToo()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "aff-23",
+                           AffiliationsIq("aff-23", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='outcast'/>"));
+
+            // Der Knoten bleibt offen - der Ausschluss allein muss reichen.
+            var antwort = await AskAsync(alice, "get-44",
+                                         $"<iq type='get' to='bob@{Server.Domain}' id='get-44'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!
+                                  .PepNodeConfiguration(Node)!.AccessModel,
+                            Is.EqualTo(PubSubAccessModel.Open),
+                            "Der Knoten stand offen - es lag allein an der Rolle.");
+            });
 
         }
 

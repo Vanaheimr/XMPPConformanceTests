@@ -648,9 +648,8 @@ miteinander sprechen:
   Eigentümer**. Ein angelegter Knoten existiert, bevor etwas darin steht.
   Wirksame Felder: `pubsub#max_items` (eine kleinere Grenze gilt sofort),
   `pubsub#persist_items` (ein Knoten ohne Ablage meldet nur) und
-  `pubsub#access_model`. Angeboten werden nur `open` und `presence`;
-  `authorize`, `roster` und `whitelist` werden abgewiesen statt zu `open`
-  verkürzt
+  `pubsub#access_model`. Angeboten werden `open`, `presence` und `whitelist`;
+  `authorize` und `roster` werden abgewiesen statt zu `open` verkürzt
 - Das Zugriffsmodell wird durchgesetzt: `presence` sperrt beim Abrufen und beim
   Abonnieren aus, wer die Presence des Eigentümers nicht sehen darf
   (`<not-authorized/>` mit `<presence-subscription-required/>`); der Eigentümer
@@ -664,11 +663,14 @@ miteinander sprechen:
   muss offen abrufbar sein)
 - XEP-0060 §4.1/§8.9 Rollen je Knoten: `publisher` darf in einen fremden Knoten
   schreiben (die Meldung kommt trotzdem vom Eigentümer), `outcast` kommt an
-  keinen Knoten und **verliert bestehende Abonnements**, `member` wird vergeben,
-  entscheidet aber erst mit dem Zugriffsmodell `whitelist` etwas. Der Eigentümer
-  ist das Konto und nicht umtragbar; `publish-only` wird abgewiesen statt
-  angeboten. Verwaltet werden die Rollen vom Eigentümer (§8.9), die eigenen
-  listet §5.7
+  keinen Knoten und **verliert bestehende Abonnements**, `member` kommt an
+  einen Knoten mit dem Zugriffsmodell `whitelist`. Der Eigentümer ist das Konto
+  und nicht umtragbar; `publish-only` wird abgewiesen statt angeboten.
+  Verwaltet werden die Rollen vom Eigentümer (§8.9), die eigenen listet §5.7
+- Drittes Zugriffsmodell `whitelist`: Herein kommt, wen der Eigentümer
+  ausdrücklich daraufgesetzt hat — `member` oder `publisher`. **Der Unterschied
+  zu `presence`:** Eine Presence-Berechtigung entsteht nebenbei, eine Liste
+  nicht. Der Ausschluss steht über beiden Modellen
 - XEP-0060 §5.6 `<subscriptions/>`: alle Abonnements des Fragenden über alle
   Knoten, mit Kennung und Zustand, auf Wunsch auf einen Knoten eingeschränkt.
   **Nur die eigenen** — wer fremde aufzählen dürfte, erführe, wer sich wofür

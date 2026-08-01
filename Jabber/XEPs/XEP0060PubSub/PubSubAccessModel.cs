@@ -21,17 +21,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// Wer an die Einträge eines Knotens kommt (XEP-0060, Abschnitt 4.5).
 /// </summary>
 /// <remarks>
-/// <b>Zwei von fünf.</b> XEP-0060 kennt ausserdem <c>authorize</c> (der
-/// Eigentümer genehmigt jedes Abonnement einzeln), <c>roster</c> (nur
-/// bestimmte Rostergruppen) und <c>whitelist</c> (eine gepflegte Liste). Alle
-/// drei brauchen etwas, das dieser Server nicht hat - einen
-/// Genehmigungsvorgang, Rostergruppen als Zugriffsregel, die Verwaltung von
-/// Affiliations.
+/// <b>Drei von fünf.</b> XEP-0060 kennt ausserdem <c>authorize</c> (der
+/// Eigentümer genehmigt jedes Abonnement einzeln) und <c>roster</c> (nur
+/// bestimmte Rostergruppen). Beide brauchen etwas, das dieser Server nicht
+/// hat - einen Genehmigungsvorgang, Rostergruppen als Zugriffsregel.
 ///
 /// Sie werden deshalb nicht angeboten, statt angeboten und ignoriert zu
 /// werden. Bei einem Zugriffsmodell wäre das der teuerste Ort für eine Zusage
 /// ohne Deckung: Wer <c>whitelist</c> einstellt und <c>open</c> bekommt,
 /// glaubt seine Einträge geschützt und hat sie veröffentlicht.
+///
+/// <see cref="Whitelist"/> kam mit den Rollen dazu (K13): Es ist das Modell,
+/// das <see cref="PubSubAffiliation.Member"/> überhaupt einen Sinn gibt.
 /// </remarks>
 public enum PubSubAccessModel
 {
@@ -49,6 +50,20 @@ public enum PubSubAccessModel
     /// <summary>
     /// Nur, wer die Presence des Eigentümers sehen darf.
     /// </summary>
-    Presence
+    Presence,
+
+    /// <summary>
+    /// Nur, wer auf der Liste steht: der Eigentümer, ein
+    /// <see cref="PubSubAffiliation.Publisher"/> und ein
+    /// <see cref="PubSubAffiliation.Member"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Das strengste der drei Modelle und das einzige, bei dem der Roster
+    /// nichts entscheidet.</b> Presence-Berechtigung entsteht nebenbei -
+    /// jemand nimmt einen Kontakt auf, und schon sieht er mehr. Eine Liste
+    /// entsteht nicht nebenbei: Auf ihr steht nur, wen der Eigentümer
+    /// ausdrücklich daraufgesetzt hat.
+    /// </remarks>
+    Whitelist
 
 }

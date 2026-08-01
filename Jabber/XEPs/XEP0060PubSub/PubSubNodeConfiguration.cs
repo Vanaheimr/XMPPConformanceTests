@@ -64,7 +64,41 @@ public sealed record PubSubNodeConfiguration(PubSubAccessModel  AccessModel   = 
 
     /// <summary>Das Zugriffsmodell, wie es im Formular steht.</summary>
     public static String NameOf(PubSubAccessModel model)
-        => model == PubSubAccessModel.Presence ? "presence" : "open";
+        => model switch {
+               PubSubAccessModel.Presence   => "presence",
+               PubSubAccessModel.Whitelist  => "whitelist",
+               _                            => "open"
+           };
+
+    /// <summary>
+    /// Liest ein Zugriffsmodell.
+    /// </summary>
+    /// <returns>
+    /// false bei allem, was dieser Server nicht durchsetzen kann - auch bei
+    /// <c>authorize</c> und <c>roster</c>.
+    /// </returns>
+    /// <remarks>
+    /// <b>Eine Stelle für alle, die danach fragen</b>: das Knotenformular in
+    /// beide Richtungen und die Bedingungen einer Veröffentlichung. Vier
+    /// Stellen, die dieselbe Liste führen, führen sie irgendwann verschieden -
+    /// und die eine, die ein Modell nicht kennt, lässt es still als
+    /// <c>open</c> durchgehen.
+    /// </remarks>
+    public static Boolean TryReadAccessModel(String? name, out PubSubAccessModel model)
+    {
+
+        switch (name)
+        {
+
+            case "open":       model = PubSubAccessModel.Open;       return true;
+            case "presence":   model = PubSubAccessModel.Presence;   return true;
+            case "whitelist":  model = PubSubAccessModel.Whitelist;  return true;
+
+            default:           model = PubSubAccessModel.Open;       return false;
+
+        }
+
+    }
 
     /// <summary>
     /// Das Angebot des Dienstes (<c>type='form'</c>) - was sich einstellen
@@ -123,16 +157,11 @@ public sealed record PubSubNodeConfiguration(PubSubAccessModel  AccessModel   = 
                     break;
 
                 case AccessModelVariable:
-                    switch (wert)
-                    {
-                        case "open":      zugriff = PubSubAccessModel.Open;     break;
-                        case "presence":  zugriff = PubSubAccessModel.Presence; break;
-
-                        // authorize, roster und whitelist stehen nicht im
-                        // Angebot. Sie anzunehmen und offen zu bleiben wäre
-                        // die gefährlichste Höflichkeit dieses Servers.
-                        default:          return false;
-                    }
+                    // authorize und roster stehen nicht im Angebot. Sie
+                    // anzunehmen und offen zu bleiben wäre die gefährlichste
+                    // Höflichkeit dieses Servers.
+                    if (!TryReadAccessModel(wert, out zugriff))
+                        return false;
                     break;
 
                 case MaxItemsVariable:
@@ -195,13 +224,12 @@ public sealed record PubSubNodeConfiguration(PubSubAccessModel  AccessModel   = 
 
                 case AccessModelVariable:
                     // Ein fremdes Modell wird gelesen, wie es ist: Ein Client,
-                    // der 'whitelist' zu 'open' verkürzte, zeigte dem Menschen
+                    // der 'authorize' zu 'open' verkürzte, zeigte dem Menschen
                     // das Gegenteil dessen, was gilt. Hier gibt es dafür keinen
                     // Wert - also ist das Angebot nicht zu lesen.
-                    if (wert is not ("open" or "presence"))
+                    if (!TryReadAccessModel(wert, out zugriff))
                         return false;
-                    zugriff   = wert == "presence" ? PubSubAccessModel.Presence : PubSubAccessModel.Open;
-                    gefunden  = true;
+                    gefunden = true;
                     break;
 
                 case MaxItemsVariable:
