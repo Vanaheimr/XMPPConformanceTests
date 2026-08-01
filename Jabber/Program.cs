@@ -488,6 +488,10 @@ class Program
                 await ProcessClientStateCommandAsync(args);
                 break;
 
+            case "/omemo":
+                await ProcessOmemoCommandAsync(args);
+                break;
+
             case "/keepalive":
                 ProcessKeepaliveCommand(args);
                 break;
@@ -659,6 +663,153 @@ class Program
                               : $"[+] {ChatMarkers.GetSymbol(markerType.Value)} Marker gesendet");
 
     }
+
+    /// <summary>
+    /// XEP-0384: <c>/omemo an</c>, <c>/omemo fingerabdruecke</c>,
+    /// <c>/omemo vertrauen &lt;jid&gt; &lt;geraet&gt;</c> und
+    /// <c>/omemo an &lt;jid&gt; &lt;text&gt;</c>.
+    /// </summary>
+    private static async Task ProcessOmemoCommandAsync(String args)
+    {
+
+        var client = _client!;
+        var teile  = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        var befehl = teile.Length > 0 ? teile[0].ToLowerInvariant() : "";
+
+        switch (befehl)
+        {
+
+            case "an" when teile.Length == 1:
+            {
+
+                // Der Speicher liegt neben der Anwendung und trägt den JID im
+                // Namen: Zwei Konten auf demselben Rechner sind zwei Geräte
+                // und dürfen sich keinen Fingerabdruck teilen.
+                var datei = Path.Combine(AppContext.BaseDirectory,
+                                         $"omemo-{client.BareJid.Replace('@', '_')}.json");
+
+                if (await client.EnableOmemoAsync(new OmemoFileStore(datei)))
+                {
+                    Console.WriteLine($"[+] OMEMO an. Gerät {client.Omemo!.Identity.DeviceId}");
+                    Console.WriteLine($"    Eigener Fingerabdruck: {Gruppiert(client.Omemo.Fingerprint)}");
+                    Console.WriteLine($"    Speicher: {datei}");
+                    Console.WriteLine("    Die Datei ist NICHT verschlüsselt - wer sie liest, liest mit.");
+                }
+                else
+                    Console.WriteLine("[!] OMEMO liess sich nicht einschalten - der Server nimmt " +
+                                      "die Geräteliste nicht an.");
+
+                return;
+
+            }
+
+            case "an" when teile.Length >= 3:
+            {
+
+                if (!client.OmemoEnabled)
+                {
+                    Console.WriteLine("[!] Erst /omemo an.");
+                    return;
+                }
+
+                var uebersprungen = await client.SendEncryptedMessageAsync(teile[1], teile[2]);
+
+                Console.WriteLine($"[→] verschlüsselt an {teile[1]}");
+
+                // Wer nicht mitlesen kann, wird genannt. Ein Absender, der das
+                // nicht erfährt, hält sein Gespräch für geführt.
+                foreach (var u in uebersprungen)
+                    Console.WriteLine($"    ✗ {u.Jid}/{u.DeviceId}: {u.Reason}");
+
+                return;
+
+            }
+
+            case "fingerabdruecke" or "fp":
+            {
+
+                if (!client.OmemoEnabled)
+                {
+                    Console.WriteLine("[!] Erst /omemo an.");
+                    return;
+                }
+
+                Console.WriteLine($"Eigener Fingerabdruck ({client.Omemo!.Identity.DeviceId}):");
+                Console.WriteLine($"  {Gruppiert(client.Omemo.Fingerprint)}");
+
+                var bekannte = client.Omemo.KnownDevices();
+
+                if (bekannte.Count == 0)
+                {
+                    Console.WriteLine("Bekannte Geräte: noch keine.");
+                    return;
+                }
+
+                Console.WriteLine("Bekannte Geräte:");
+
+                foreach (var d in bekannte.OrderBy(d => d.BareJid).ThenBy(d => d.DeviceId))
+                    Console.WriteLine($"  {Zeichen(d.Trust)} {d.BareJid}/{d.DeviceId}\n" +
+                                      $"      {Gruppiert(d.Fingerprint)}");
+
+                Console.WriteLine("\n  ✓ bestätigt   ? unentschieden   ✗ abgelehnt");
+                Console.WriteLine("  Vergleiche den Fingerabdruck über einen anderen Weg, nicht hier.");
+
+                return;
+
+            }
+
+            case "vertrauen" or "ablehnen" when teile.Length >= 3:
+            {
+
+                if (!client.OmemoEnabled)
+                {
+                    Console.WriteLine("[!] Erst /omemo an.");
+                    return;
+                }
+
+                if (!UInt32.TryParse(teile[2], out var geraet))
+                {
+                    Console.WriteLine("[!] Die Gerätekennung ist eine Zahl.");
+                    return;
+                }
+
+                var entscheidung = befehl == "vertrauen" ? OmemoTrust.Trusted : OmemoTrust.Distrusted;
+
+                Console.WriteLine(client.Omemo!.SetTrust(teile[1], geraet, entscheidung)
+                                      ? $"[*] {teile[1]}/{geraet}: {entscheidung}"
+                                      : "[!] Dieses Gerät ist unbekannt - über einen Schlüssel, den " +
+                                        "man nie gesehen hat, lässt sich nicht entscheiden.");
+
+                return;
+
+            }
+
+            default:
+                Console.WriteLine("/omemo an                        OMEMO einschalten");
+                Console.WriteLine("/omemo an <jid> <text>           verschlüsselt senden");
+                Console.WriteLine("/omemo fingerabdruecke           eigenen und bekannte anzeigen");
+                Console.WriteLine("/omemo vertrauen <jid> <geraet>  Gerät bestätigen");
+                Console.WriteLine("/omemo ablehnen <jid> <geraet>   Gerät ablehnen");
+                return;
+
+        }
+
+    }
+
+    /// <summary>
+    /// Ein Fingerabdruck in Achtergruppen - so vergleicht ihn ein Mensch, ohne
+    /// die Stelle zu verlieren.
+    /// </summary>
+    private static String Gruppiert(String fingerprint)
+        => String.Join(" ", Enumerable.Range(0, fingerprint.Length / 8)
+                                      .Select(i => fingerprint.Substring(i * 8, 8)));
+
+    private static String Zeichen(OmemoTrust trust)
+        => trust switch {
+               OmemoTrust.Trusted     => "✓",
+               OmemoTrust.Distrusted  => "✗",
+               _                      => "?"
+           };
 
     /// <summary>
     /// XEP-0352: <c>/csi</c> zeigt den Zustand, <c>/csi aktiv|inaktiv</c>
@@ -1343,6 +1494,7 @@ Verbindung:
   /ping [jid]     Ping senden (XEP-0199)
   /sm [on|off]    Stream Management (XEP-0198, experimentell)
   /csi [aktiv|inaktiv]  Client State Indication (XEP-0352)
+  /omemo …        Ende-zu-Ende-Verschlüsselung (XEP-0384), /omemo für die Hilfe
   /keepalive [s]  Keepalive Status/Interval setzen
   /who            Status anzeigen
   /carbons        Message-Carbons-Status

@@ -1530,6 +1530,14 @@ public sealed class XMPPConnection : IAsyncDisposable
 
         }
 
+        // XEP-0384: verschlüsselt eingetroffen.
+        //
+        // Vor allem anderen, denn was hier steht, ist von aussen nicht zu
+        // sehen: Die Stanza hat keinen <body/>, und jede Auswertung danach
+        // hielte sie für leer.
+        if (element.Attr("from") is String von && TryProcessEncrypted(element, von))
+            return;
+
         // XEP-0060/XEP-0163: eine PubSub-Benachrichtigung.
         //
         // Sie kommt in der Praxis fast immer als <message type='headline'/> -
@@ -1549,6 +1557,29 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             return;
 
+        }
+
+        // XEP-0280 und XEP-0384 zusammen: Ein Carbon bringt die Nachricht
+        // eines anderen eigenen Geräts mit, und die kann verschlüsselt sein.
+        //
+        // Der eingepackten Nachricht gilt dabei alles, was der äusseren gälte -
+        // ausser dem Absender: Steht die eigene Adresse aussen, kommt die
+        // Nachricht vom eigenen Konto, und der wirkliche Absender steht innen.
+        //
+        // Ohne diesen Zweig sieht das eigene zweite Gerät nicht, was das erste
+        // geschrieben hat: Der Schlüsseleintrag ist da, die Nachricht kommt an -
+        // und niemand sieht sie an, weil sie im <forwarded/> steckt.
+        if (Omemo is not null &&
+            element.HasNamespace(CarbonManager.Namespace) &&
+            element.Descendants()
+                   .FirstOrDefault(e => e.Name.LocalName     == "forwarded" &&
+                                        e.Name.NamespaceName == "urn:xmpp:forward:0")
+                  ?.Elements()
+                   .FirstOrDefault(e => e.Name.LocalName == "message") is XElement eingepackt &&
+            (eingepackt.Attr("from") ?? eingepackt.Attr("to")) is String innererAbsender &&
+            TryProcessEncrypted(eingepackt, innererAbsender))
+        {
+            return;
         }
 
         // XEP-0280: Carbon Check
@@ -2487,6 +2518,129 @@ public sealed class XMPPConnection : IAsyncDisposable
                            eigenes);
 
         await PublishOmemoDeviceListAsync(liste.With(new OmemoDevice(eigenes)));
+
+    }
+
+    /// <summary>
+    /// XEP-0384: der OMEMO-Verwalter, sobald er eingeschaltet ist.
+    /// </summary>
+    public OmemoManager? Omemo { get; private set; }
+
+    /// <summary>
+    /// Eine verschlüsselt eingetroffene Nachricht - schon entschlüsselt.
+    /// </summary>
+    public event Action<XMPPMessage, OmemoDecrypted>? OnEncryptedMessage;
+
+    /// <summary>
+    /// XEP-0384: Schaltet OMEMO ein - Schlüsselmaterial aus dem Speicher,
+    /// Geräteliste und Bundle veröffentlicht.
+    /// </summary>
+    /// <remarks>
+    /// <b>Die Geräteliste wird ergänzt und nicht ersetzt.</b> Wer sie neu
+    /// schriebe, verdrängte damit jedes andere Gerät desselben Menschen - und
+    /// die bekämen von da an nichts mehr, ohne dass jemand etwas bemerkt.
+    /// </remarks>
+    public async Task<bool> EnableOmemoAsync(IOmemoStore store, CancellationToken ct = default)
+    {
+
+        Omemo = new OmemoManager(store,
+                                 BareJid,
+                                 jid => FetchOmemoDeviceListAsync(jid, ct),
+                                 (jid, device) => FetchOmemoBundleAsync(jid, device, ct),
+                                 _logger);
+
+        OmemoDeviceId = Omemo.Identity.DeviceId;
+
+        var vorhanden = await FetchOmemoDeviceListAsync(BareJid, ct)
+                            ?? new OmemoDeviceList([]);
+
+        var ergaenzt = vorhanden.With(new OmemoDevice(Omemo.Identity.DeviceId));
+
+        if (!await PublishOmemoDeviceListAsync(ergaenzt, ct))
+            return false;
+
+        return await PublishOmemoBundleAsync(Omemo.Identity.DeviceId, Omemo.Identity.Bundle(), ct);
+
+    }
+
+    /// <summary>
+    /// XEP-0384: Schickt eine verschlüsselte Nachricht.
+    /// </summary>
+    /// <returns>
+    /// Die übersprungenen Geräte - <b>leer heisst: alle lesen mit</b>.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Wenn OMEMO nicht eingeschaltet ist. <b>Hier wird geworfen und nicht
+    /// unverschlüsselt gesendet:</b> Wer verschlüsselt schreiben wollte und
+    /// unverschlüsselt sendet, hat den schlimmsten aller Fehler gemacht - und
+    /// zwar lautlos.
+    /// </exception>
+    public async Task<IReadOnlyList<OmemoSkippedDevice>> SendEncryptedMessageAsync(
+        string to, string body, CancellationToken ct = default)
+    {
+
+        if (Omemo is null)
+            throw new InvalidOperationException(
+                      "OMEMO ist nicht eingeschaltet. Diese Nachricht wird nicht unverschlüsselt " +
+                      "gesendet - das wäre der schlimmste aller Fehler, und lautlos.");
+
+        XNamespace client = "jabber:client";
+
+        var ergebnis = await Omemo.EncryptAsync([to], [new XElement(client + "body", body)]);
+
+        // Ein <store/> nach XEP-0334, damit die Ablage sie aufhebt: Von aussen
+        // sieht diese Nachricht wie eine ohne Inhalt aus, und ein Server, der
+        // nach dem <body/> entscheidet, würde sie wegwerfen.
+        var stanza = new XElement(client + "message",
+                                  new XAttribute("to",   JidUtilities.Bare(to)),
+                                  new XAttribute("type", "chat"),
+                                  new XAttribute("id",   GenerateMessageId()),
+                                  ergebnis.Element.ToXml(),
+                                  new XElement(XNamespace.Get("urn:xmpp:hints") + "store"));
+
+        await SendAsync(stanza.ToString(SaveOptions.DisableFormatting));
+
+        return ergebnis.Skipped;
+
+    }
+
+    /// <summary>
+    /// Nimmt eine verschlüsselte Nachricht entgegen.
+    /// </summary>
+    /// <returns>true, wenn sie verarbeitet wurde - dann geht sie nicht mehr den gewöhnlichen Weg.</returns>
+    private bool TryProcessEncrypted(XElement element, string from)
+    {
+
+        if (Omemo is null || !OmemoEncryptedElement.TryRead(element, out var verschluesselt))
+            return false;
+
+        _ = Task.Run(async () =>
+        {
+
+            var entschluesselt = await Omemo.DecryptAsync(verschluesselt!, from);
+
+            if (entschluesselt is null)
+                return;
+
+            var body = entschluesselt.Content
+                                     .FirstOrDefault(e => e.Name.LocalName == "body")
+                                    ?.Value;
+
+            if (body is null)
+                return;
+
+            OnEncryptedMessage?.Invoke(
+                new XMPPMessage(from,
+                                element.Attr("to") ?? FullJid,
+                                body,
+                                element.Attr("id"),
+                                DateTime.Now,
+                                MessageType.Chat),
+                entschluesselt);
+
+        });
+
+        return true;
 
     }
 

@@ -199,11 +199,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             alice.Decrypt(bob.Encrypt(Text("zwei"), Beigabe), Beigabe);
             bob.Decrypt(alice.Encrypt(Text("drei"), Beigabe), Beigabe);
 
-            speicher.SaveSession("bob@example.org", 1, bob.Export());
+            speicher.SaveSession("bob@example.org", 1, new OmemoSessionState(bob.Export(), Beigabe));
 
             // Bob startet neu.
             var bobNachher = DoubleRatchet.Import(
-                                 new OmemoFileStore(_datei).LoadSession("bob@example.org", 1)!);
+                                 new OmemoFileStore(_datei).LoadSession("bob@example.org", 1)!.Ratchet);
 
             Assert.Multiple(() =>
             {
@@ -250,10 +250,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(bob.SkippedKeys, Is.EqualTo(2));
 
-            speicher.SaveSession("bob@example.org", 1, bob.Export());
+            speicher.SaveSession("bob@example.org", 1, new OmemoSessionState(bob.Export(), Beigabe));
 
             var bobNachher = DoubleRatchet.Import(
-                                 new OmemoFileStore(_datei).LoadSession("bob@example.org", 1)!);
+                                 new OmemoFileStore(_datei).LoadSession("bob@example.org", 1)!.Ratchet);
 
             Assert.Multiple(() =>
             {
@@ -392,14 +392,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var speicher     = new OmemoFileStore(_datei);
 
             bob.Decrypt(alice.Encrypt(Text("eins"), Beigabe), Beigabe);
-            speicher.SaveSession("bob@example.org", 1, bob.Export());
+            speicher.SaveSession("bob@example.org", 1, new OmemoSessionState(bob.Export(), Beigabe));
 
             // Das Gespräch geht weiter, und der neue Stand wird abgelegt.
             bob.Decrypt(alice.Encrypt(Text("zwei"), Beigabe), Beigabe);
             bob.Decrypt(alice.Encrypt(Text("drei"), Beigabe), Beigabe);
-            speicher.SaveSession("bob@example.org", 1, bob.Export());
+            speicher.SaveSession("bob@example.org", 1, new OmemoSessionState(bob.Export(), Beigabe));
 
-            var geladen = new OmemoFileStore(_datei).LoadSession("bob@example.org", 1)!;
+            var geladen = new OmemoFileStore(_datei).LoadSession("bob@example.org", 1)!.Ratchet;
 
             Assert.Multiple(() =>
             {
@@ -575,7 +575,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var speicher = new OmemoFileStore(_datei);
 
             speicher.LoadOrCreateIdentity();
-            speicher.SaveSession("bob@example.org", 1, Paar().Bob.Export());
+            speicher.SaveSession("bob@example.org", 1, new OmemoSessionState(Paar().Bob.Export(), Beigabe));
 
             Assert.Multiple(() =>
             {

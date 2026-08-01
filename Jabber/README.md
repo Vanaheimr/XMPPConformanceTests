@@ -63,6 +63,8 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0308 | Last Message Correction | ✅ | Empfangen: `XMPPMessage.ReplacesId` nennt die abgelöste Nachricht, `IsCorrection` die Tatsache. Senden: `CorrectLastMessageAsync` berichtigt die letzte Nachricht **an denselben Empfänger** (Abschnitt 5) und wird selbst zur letzten, sodass sich eine Berichtigung berichtigen lässt. In der Konsole `/fix <text>`; angekündigt in disco#info (D60) |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
+| XEP-0384 | OMEMO Encryption | ✅ | Vollständig, `urn:xmpp:omemo:2` — siehe den Abschnitt „Ende-zu-Ende-Verschlüsselung" weiter unten. **Gegen keinen fremden OMEMO-Client geprüft** |
+| XEP-0420 | Stanza Content Encryption | ✅ | Die Hülle, die OMEMO verschlüsselt: `<content/>` mit dem Absender darin und einer Polsterung zufälliger Länge |
 | XEP-0352 | Client State Indication | ✅ | Beide Seiten. Der Server kündigt `<csi/>` nach der Anmeldung an (§4.1) und antwortet auf `<active/>`/`<inactive/>` nicht (§4.2). Zurückgehalten wird nur, was später noch wahr ist: Presence wartet und **die letzte je Full-JID löst die früheren ab** (§3), eine Nachricht mit Text, ein `iq`, ein Fehler und jede Nonza gehen sofort hinaus, ein Chat State (XEP-0085) wird fallengelassen — er wäre beim Nachliefern nicht verspätet, sondern falsch. Zurückgehaltenes geht **vor** der Stanza hinaus, die den Puffer leert (RFC 6120 §10.1), und beim Verbindungsende in den Puffer der unbestätigten Stanzas. Obergrenze `MaxHeldWhileInactive` (Vorgabe 100); beim Überlauf geht der Puffer hinaus, statt etwas wegzuwerfen. Nach einer Wiederaufnahme gilt wieder „aktiv" (§5.2) — der Client erklärt sich deshalb nach jedem Aufbau erneut. In der Konsole `/csi aktiv|inaktiv` (D61) |
 
 ## RFC-Konformität
@@ -876,26 +878,66 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   schickte der Server seinen Clients **gar keinen** Namensraum und reichte
   Fremdes unverändert als `jabber:server` durch.
 
+## Ende-zu-Ende-Verschlüsselung (OMEMO, XEP-0384)
+
+In der Konsole:
+
+```
+/omemo an                        einschalten
+/omemo an <jid> <text>           verschlüsselt senden
+/omemo fingerabdruecke           eigenen und bekannte anzeigen
+/omemo vertrauen <jid> <geraet>  Gerät bestätigen
+/omemo ablehnen <jid> <geraet>   Gerät ablehnen
+```
+
+Aufgebaut in sieben Etappen (D62–D68): Kryptobausteine gegen veröffentlichte
+Prüfvektoren, X3DH, Double Ratchet, Drahtformat samt SCE-Hülle, PEP-Verteilung,
+Sitzungsspeicher und die Verdrahtung.
+
+**Was dabei entschieden wurde, und warum:**
+
+- **Ein Gerät, für das es kein Bundle gibt, wird übersprungen — und genannt.**
+  Nicht zu senden machte einen Menschen durch ein einziges kaputtes Gerät
+  unerreichbar; unverschlüsselt zu senden wäre die schlimmste Antwort, weil
+  der Absender dann glaubt, verschlüsselt zu haben. `SendEncryptedMessageAsync`
+  gibt deshalb die übersprungenen Geräte samt Grund zurück, und die Konsole
+  zeigt sie an
+- **Ohne eingeschaltetes OMEMO wird geworfen**, nicht unverschlüsselt gesendet
+- **Blind Trust Before Verification** als Vorgabe (`TrustNewDevicesBlindly`).
+  Ein Verfahren, das vor der ersten Nachricht einen Fingerabdruckvergleich
+  verlangt, wird nicht benutzt — und unbenutzte Verschlüsselung schützt
+  niemanden. Wer einmal verglichen hat, merkt jeden späteren Wechsel
+- **Ein geänderter IdentityKey stoppt die Nachricht.** Neu aufgesetztes Gerät
+  oder Angreifer sind von aussen nicht zu unterscheiden; das ist keine
+  Entscheidung, die ein Programm treffen kann
+- Der Fingerabdruck wird in Achtergruppen angezeigt, damit ein Mensch beim
+  Vergleichen die Stelle nicht verliert
+
+### Die Grenzen, ausdrücklich
+
+- **Gegen keinen fremden OMEMO-Client geprüft.** Prosody und ejabberd *tragen*
+  OMEMO nur, sie sprechen es nicht; Conversations, Dino oder Gajim gibt es im
+  Testaufbau nicht. Geprüft ist die Übereinstimmung mit dem Text der
+  Spezifikation — gegen veröffentlichte Vektoren und mit wörtlich
+  nachgerechneten Vorschriften —, **nicht mit der Wirklichkeit.** Eine
+  einzelne falsch gelesene Zeile kann die Verständigung mit echten Clients
+  verhindern, ohne dass hier irgendetwas auffällt
+- **Der Sitzungsspeicher ist nicht verschlüsselt.** Er enthält den geheimen
+  IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer die Datei liest,
+  liest die Gespräche mit. Sie gehört an einen Ort, an den nur dieser Benutzer
+  kommt
+- **Die Punktarithmetik für XEdDSA ist nicht gegen Zeitmessung gehärtet.** Für
+  einen Client auf dem Gerät seines Benutzers ist das die richtige Reihenfolge
+  der Sorgen; für einen Server wäre es die falsche
+- **Kein MUC** (XEP-0045) und damit keine Gruppenverschlüsselung
+- Der Signed PreKey wird nicht selbsttätig gewechselt — `RotateSignedPreKey`
+  gibt es, ein Zeitplan dafür nicht
+
 ### Funktionsumfang
 - Kein Multi-User Chat (XEP-0045)
 - Kein Message Archive Management (XEP-0313)
-- **OMEMO (XEP-0384) ist angefangen, nicht fertig.** Etappen 1 und 2 von 7
-  stehen: die Kryptobausteine — X25519 (RFC 7748), XEdDSA-Signaturen,
-  HKDF-SHA-256, AES-256-CBC mit HMAC-SHA-256, die Ableitung aus Abschnitt 4.4,
-  alles gegen veröffentlichte Prüfvektoren (D62) — und **X3DH**: IdentityKey,
-  Signed PreKey samt Signatur und Wechsel, hundert PreKeys, das Bundle und die
-  vier Diffie-Hellman zum gemeinsamen Geheimnis (D63) — und der **Double
-  Ratchet** samt Zustellung ausser der Reihe, Nachrichten aus der vorigen
-  Kette und einer Obergrenze für übersprungene Schlüssel (D64) — und das
-  **Drahtformat**: die drei Protobuf-Nachrichten, das `<encrypted/>`-Element
-  und die SCE-Hülle nach XEP-0420 (D65) — und die **PEP-Verteilung** von
-  Geräteliste und Bundles, samt einer PEP-Teilmenge im Testserver (D66) — und
-  der **Sitzungsspeicher** samt Vertrauensentscheidung: IdentityKey, PreKeys
-  und jede laufende Ratsche überdauern einen Neustart, ein geänderter
-  IdentityKey wird gemeldet statt übernommen (D67). **Die Speicherdatei ist
-  nicht verschlüsselt** — wer sie liest, liest die Gespräche mit; sie gehört an
-  einen Ort, an den nur dieser Benutzer kommt. Es fehlt die Verdrahtung in
-  Client und Konsole; **verschlüsselt senden kann dieser Client noch nichts.** Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
+- **OMEMO (XEP-0384) ist fertig** — sieben Etappen, D62 bis D68. Siehe den
+  eigenen Abschnitt weiter unten Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
   prüfen liesse — geprüft ist die Übereinstimmung mit dem Text, nicht mit der
   Wirklichkeit
 - Kein HTTP File Upload (XEP-0363)

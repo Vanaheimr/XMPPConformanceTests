@@ -37,7 +37,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 public sealed class OmemoMemoryStore : IOmemoStore
 {
 
-    private readonly Dictionary<String, RatchetState>       _sessions  = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<String, OmemoSessionState>  _sessions  = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<String, OmemoDeviceRecord>  _devices   = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _lock = new();
 
@@ -56,12 +56,12 @@ public sealed class OmemoMemoryStore : IOmemoStore
         lock (_lock) _identity = state;
     }
 
-    public RatchetState? LoadSession(String bareJid, UInt32 deviceId)
+    public OmemoSessionState? LoadSession(String bareJid, UInt32 deviceId)
     {
         lock (_lock) return _sessions.GetValueOrDefault(Key(bareJid, deviceId));
     }
 
-    public void SaveSession(String bareJid, UInt32 deviceId, RatchetState state)
+    public void SaveSession(String bareJid, UInt32 deviceId, OmemoSessionState state)
     {
         lock (_lock) _sessions[Key(bareJid, deviceId)] = state;
     }
@@ -128,7 +128,7 @@ public sealed class OmemoFileStore : IOmemoStore
     {
         public String        BareJid   { get; set; } = "";
         public UInt32        DeviceId  { get; set; }
-        public RatchetState? State     { get; set; }
+        public OmemoSessionState? State     { get; set; }
     }
 
     #endregion
@@ -187,7 +187,7 @@ public sealed class OmemoFileStore : IOmemoStore
 
     }
 
-    public RatchetState? LoadSession(String bareJid, UInt32 deviceId)
+    public OmemoSessionState? LoadSession(String bareJid, UInt32 deviceId)
     {
 
         lock (_lock)
@@ -199,7 +199,7 @@ public sealed class OmemoFileStore : IOmemoStore
 
     }
 
-    public void SaveSession(String bareJid, UInt32 deviceId, RatchetState state)
+    public void SaveSession(String bareJid, UInt32 deviceId, OmemoSessionState state)
     {
 
         lock (_lock)

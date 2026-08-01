@@ -131,6 +131,12 @@ public sealed class XMPPClient : IAsyncDisposable
     /// <summary>Eine Chat-Nachricht wurde empfangen.</summary>
     public event Action<XMPPMessage>? OnMessage;
 
+    /// <summary>
+    /// XEP-0384: eine verschlüsselt eingetroffene Nachricht, schon
+    /// entschlüsselt - samt der Einstufung des Absendergeräts.
+    /// </summary>
+    public event Action<XMPPMessage, OmemoDecrypted>? OnEncryptedMessage;
+
     /// <summary>XEP-0280: Eine Nachricht wurde von/an ein anderes eigenes Gerät gespiegelt.</summary>
     public event Action<CarbonMessage>? OnCarbonMessage;
 
@@ -246,6 +252,24 @@ public sealed class XMPPClient : IAsyncDisposable
                 LastReceivedMessageId = nachricht.MessageId;
 
             OnMessage?.Invoke(nachricht);
+        };
+
+        // XEP-0384: Eine entschlüsselte Nachricht geht denselben Weg wie jede
+        // andere - und zusätzlich über ihr eigenes Ereignis, das die
+        // Einstufung des Absendergeräts mitbringt.
+        //
+        // Beides, weil beides gebraucht wird: Eine Oberfläche, die OMEMO nicht
+        // kennt, zeigt die Nachricht trotzdem an; eine, die es kennt, kann
+        // dazuschreiben, von welchem Gerät sie kam und ob es bestätigt ist.
+        _connection.OnEncryptedMessage += (nachricht, omemo) =>
+        {
+
+            if (!string.IsNullOrEmpty(nachricht.MessageId))
+                LastReceivedMessageId = nachricht.MessageId;
+
+            OnEncryptedMessage?.Invoke(nachricht, omemo);
+            OnMessage?.Invoke(nachricht);
+
         };
 
         _connection.OnCarbonMessage   += c            => OnCarbonMessage?.Invoke(c);
@@ -547,6 +571,33 @@ public sealed class XMPPClient : IAsyncDisposable
     /// </remarks>
     public Task CancelSubscriptionAsync(string jid)
         => _connection.CancelSubscriptionAsync(jid.Trim());
+
+    /// <summary>XEP-0384: der OMEMO-Verwalter, sobald er eingeschaltet ist.</summary>
+    public OmemoManager? Omemo => _connection.Omemo;
+
+    /// <summary>XEP-0384: Ist OMEMO eingeschaltet?</summary>
+    public bool OmemoEnabled => _connection.Omemo is not null;
+
+    /// <summary>
+    /// XEP-0384: Schaltet OMEMO ein.
+    /// </summary>
+    /// <param name="store">
+    /// Wohin Schlüssel und Sitzungen gehen. Ohne Angabe in den
+    /// Arbeitsspeicher - <b>dann hat dieses Gerät bei jedem Start einen neuen
+    /// Fingerabdruck</b>, und jeder Vergleich ist wertlos. Für einen Menschen
+    /// gehört hier ein <see cref="OmemoFileStore"/> hin.
+    /// </param>
+    public Task<bool> EnableOmemoAsync(IOmemoStore? store = null, CancellationToken ct = default)
+        => _connection.EnableOmemoAsync(store ?? new OmemoMemoryStore(), ct);
+
+    /// <summary>
+    /// XEP-0384: Schickt eine verschlüsselte Nachricht.
+    /// </summary>
+    /// <returns>Die Geräte, die nicht mitlesen können - leer heisst: alle.</returns>
+    public Task<IReadOnlyList<OmemoSkippedDevice>> SendEncryptedMessageAsync(string             to,
+                                                                            string             body,
+                                                                            CancellationToken  ct = default)
+        => _connection.SendEncryptedMessageAsync(to, body, ct);
 
     /// <summary>
     /// XEP-0352: Sieht gerade ein Mensch hin?

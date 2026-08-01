@@ -99,6 +99,26 @@ public sealed record OmemoIdentityState(UInt32                                  
 public sealed record OmemoStoredPreKey(UInt32 Id, Byte[] PrivateKey);
 
 /// <summary>
+/// Eine abgelegte Sitzung: die Ratsche und die Beigabe aus X3DH.
+/// </summary>
+/// <param name="Ratchet">Der Zustand der beiden Ratschen.</param>
+/// <param name="AssociatedData">
+/// <c>Encode(IK_A) ‖ Encode(IK_B)</c> - beide IdentityKeys, der Anrufende
+/// zuerst.
+/// </param>
+/// <remarks>
+/// <b>Die Beigabe gehört zur Sitzung und nicht zur Ratsche</b>, deshalb steht
+/// sie hier daneben und nicht im <see cref="RatchetState"/>: Die Ratsche
+/// bekommt sie bei jedem Aufruf gereicht und besitzt sie nicht.
+///
+/// Abgelegt werden muss sie trotzdem. Sie entsteht einmal beim
+/// Schlüsselaustausch und geht danach in jede Prüfsumme ein; ohne sie liesse
+/// sich eine wiederhergestellte Sitzung zwar fortsetzen, aber keine einzige
+/// Nachricht darin lesen - und der Grund stünde nirgends.
+/// </remarks>
+public sealed record OmemoSessionState(RatchetState Ratchet, Byte[] AssociatedData);
+
+/// <summary>
 /// Der Speicher, der einen Neustart überdauert.
 /// </summary>
 /// <remarks>
@@ -127,10 +147,10 @@ public interface IOmemoStore
     void SaveIdentity(OmemoIdentityState state);
 
     /// <summary>Eine abgelegte Sitzung, oder null.</summary>
-    RatchetState? LoadSession(String bareJid, UInt32 deviceId);
+    OmemoSessionState? LoadSession(String bareJid, UInt32 deviceId);
 
     /// <summary>Legt eine Sitzung ab und ersetzt eine vorhandene.</summary>
-    void SaveSession(String bareJid, UInt32 deviceId, RatchetState state);
+    void SaveSession(String bareJid, UInt32 deviceId, OmemoSessionState state);
 
     /// <summary>Alle Geräte, von denen dieses hier weiss.</summary>
     IReadOnlyList<OmemoDeviceRecord> KnownDevices();

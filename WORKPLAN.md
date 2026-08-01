@@ -5258,9 +5258,103 @@ mitändern muss.
 
 ---
 
+### D68. Die erste verschlüsselte Nachricht ✅ — OMEMO, Etappe 7 von 7
+
+Alles zusammengeführt: Alice schaltet ein, schreibt, Bob liest. Dazwischen
+liegen Schlüsselerzeugung, PEP-Veröffentlichung, Bundle-Abruf, X3DH, Ratchet,
+Protobuf, SCE und der Speicher — und der Test fasst keines davon einzeln an.
+
+**Der Test ist erst durch das etwas wert, was er ausschliesst:** Der Klartext
+darf in keiner Stanza vorkommen, die der Server gesehen hat. Dazu eine
+Gegenprobe, dass überhaupt eine OMEMO-Stanza über die Leitung ging — ohne sie
+bestünde er auch dann, wenn gar nichts gesendet würde.
+
+**Drei Entscheidungen beim Verdrahten:**
+
+- **Ein Gerät ohne abrufbares Bundle wird übersprungen und genannt.** Nicht zu
+  senden machte einen Menschen durch ein einziges kaputtes Gerät unerreichbar.
+  Unverschlüsselt zu senden wäre die schlimmste der drei Antworten: Der
+  Absender glaubt dann, verschlüsselt zu haben — und wer ein Bundle
+  unerreichbar macht, bekommt den Klartext.
+- **Ohne eingeschaltetes OMEMO wird geworfen.** Eine Ausnahme ist laut, eine
+  unverschlüsselt gesendete Nachricht ist es nicht.
+- **Blind Trust Before Verification als Vorgabe**, mit Begründung: Ein
+  Verfahren, das vor der ersten Nachricht einen Fingerabdruckvergleich
+  verlangt, wird nicht benutzt — und unbenutzte Verschlüsselung schützt
+  niemanden.
+
+## Der schwächste Mutationslauf der Reihe
+
+**Acht von vierzehn überlebten den ersten Durchgang** — mit Abstand das
+schlechteste Ergebnis dieser sieben Etappen. Der Grund ist lehrreich: Die
+Ende-zu-Ende-Tests sind **breit, aber stumpf**. Sie prüfen, dass es
+funktioniert, nicht warum. Ein Gespräch zwischen zwei Clients läuft auch dann
+durch, wenn die halbe Sorgfalt fehlt.
+
+Sechs der acht waren echte Lücken, und jede hat einen Test erzwungen:
+
+- **Zwei Nachrichten hintereinander ohne Antwort dazwischen.** Im
+  Wechselgespräch fällt ein fehlendes Ablegen der Sitzung nicht auf — das
+  Entschlüsseln der Antwort legt sie ohnehin ab. Erst zwei Nachrichten in Folge
+  zeigen, ob das *Senden* seinen Fortschritt behält.
+- **Das eigene zweite Gerät liest mit, das sendende nicht.** Beides hängt an
+  derselben Zeile, und die Mutationen sind in beide Richtungen durchgekommen.
+- **Der Absender steht in der Hülle** — und wird abgeglichen. Solange die
+  Auskunft nur mitgeführt und nicht bis zum Aufrufer gereicht wurde, war die
+  Prüfung nicht zu belegen.
+- Verbrauchter PreKey sofort im Speicher, geänderter IdentityKey stoppt die
+  Nachricht, und das Einschalten ergänzt die Geräteliste statt sie zu
+  überschreiben.
+
+**Zwei Funde, die kein Mutationslauf hervorgebracht hat, sondern die neuen
+Tests selbst:**
+
+- **Über Carbons eintreffende OMEMO-Nachrichten wurden nicht entschlüsselt.**
+  Genau so sieht ein zweites eigenes Gerät, was das erste geschrieben hat — der
+  Schlüsseleintrag war da, die Nachricht kam an, und niemand sah sie an, weil
+  sie im `<forwarded/>` steckt. Dieselbe Familie wie „nur direkte Kinder" aus
+  D59, D60 und D65, nur andersherum: Dort durfte man **nicht** hineinschauen,
+  hier **muss** man es.
+- Mein eigener Test griff die falsche Stanza: Die erste mit `urn:xmpp:omemo:2`
+  ist eine PEP-Veröffentlichung und keine Nachricht.
+
+**Ein Test musste einen Umweg nehmen, und der Grund gehört aufgeschrieben.**
+„Das Einschalten ergänzt die Geräteliste" lässt sich mit zwei echten Clients
+nicht prüfen: Verdrängt das zweite Gerät das erste, bemerkt das erste die
+PEP-Benachrichtigung und trägt sich sofort wieder ein (D66) — der Endzustand
+stimmt wieder, und der Test sieht nichts. Jetzt steht dort ein Eintrag für ein
+Gerät, **das es gar nicht gibt**: Es kann sich nicht wehren, und damit bleibt
+sichtbar, was das Einschalten tut.
+
+**Der letzte Überlebende verlangte, den Angriff wirklich zu bauen.** Alice
+schreibt an Bob und Mallory zugleich; Mallory reicht dieselbe
+`<encrypted/>`-Stanza unverändert an Bob weiter, unter ihrem eigenen Namen.
+Bobs Eintrag ist unangetastet, der Ratchet-Schritt geht auf, die Prüfsumme
+stimmt — **alles kryptographisch einwandfrei**. Nur steht innen „von Alice" und
+aussen „von Mallory". Genau dafür gibt es die Beigabe aus XEP-0420, und erst
+dieser Test belegt sie.
+
+14 Mutationen, alle erschlagen — sechs davon erst nach dem Nachschärfen.
+
+**Was diese Reihe nicht kann, steht jetzt im README:** Gegen keinen fremden
+OMEMO-Client geprüft; der Sitzungsspeicher unverschlüsselt; die Punktarithmetik
+nicht gegen Zeitmessung gehärtet; kein MUC und damit keine
+Gruppenverschlüsselung; kein Zeitplan für den Wechsel des Signed PreKey.
+
+---
+
 ## Später
 
 ### Testsammlung
+- **`AFailureWhileHandlingAFrame_IsReported` wackelt seit D68 unter Last.** Im
+  ersten vollen Lauf nach der OMEMO-Reihe lief seine Frist von zehn Sekunden
+  ab; allein und dreimal hintereinander besteht er, der zweite volle Lauf war
+  grün (947/7). Der wahrscheinliche Grund ist die Rechenlast der neuen Tests:
+  Jedes `OmemoIdentity.Create()` erzeugt hundertein Schlüsselpaare, und
+  `BothSignsOfTheScalar_Work` rechnet zweiunddreissig XEdDSA-Signaturen mit
+  `BigInteger`. **Festgehalten statt weggeklickt** — ein Test, der einmal
+  ohne erkennbaren Grund fällt, ist entweder zu knapp bemessen oder zeigt
+  etwas an; welches von beidem, ist hier noch nicht entschieden.
 - ~~**`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
   aufgefallen, ein Fehlschlag in einem Vollauf. Der Mitschnitt liegt vor:
 
