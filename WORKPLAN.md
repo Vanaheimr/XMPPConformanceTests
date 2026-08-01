@@ -5180,6 +5180,84 @@ gefangen, bevor irgendein Test lief: ein JID an der Stelle der Fehlerbedingung.
 
 ---
 
+### D67. Ein Lauf gegen eine rote Grundlinie ✅ — OMEMO, Etappe 6 von 7
+
+Der Sitzungsspeicher. **Ohne ihn ist jede Wiederverbindung ein
+Vertrauensbruch:** Ein neuer IdentityKey bedeutet einen neuen Fingerabdruck,
+und jeder Vergleich, den irgendein Mensch je angestellt hat, ist damit wertlos.
+Ein Client, der bei jedem Start neue Schlüssel erzeugt, sieht für seine
+Kontakte aus wie ein Angreifer — jedes Mal.
+
+Die Prüfung ist bei jedem Test dieselbe: **neu starten und weitermachen.** Ein
+Speicher, der ablegt und wieder herausgibt, ist noch keiner — er muss so viel
+ablegen, dass die Gegenstelle vom Neustart nichts merkt. Geprüft wird deshalb
+nicht, ob der Zustand gleich aussieht, sondern ob das Gespräch weitergeht.
+
+**Der abgelöste Signed PreKey wird jetzt aufgehoben** — genau einer. Das stand
+seit D63 aus, ausdrücklich aufgeschoben, weil es ohne Speicher eine Zusage
+gewesen wäre, die niemand hält. Jeder weitere aufgehobene Schlüssel nähme ein
+Stück von dem zurück, wofür es den Wechsel gibt.
+
+**Die Signatur wird mitgenommen und nicht neu gerechnet.** XEdDSA mischt Zufall
+in jede — die neue sähe anders aus als die veröffentlichte, und das Bundle im
+PEP-Knoten wäre mit dem Gerät uneins.
+
+**Ein geänderter IdentityKey wird gemeldet und nie stillschweigend
+übernommen.** Dafür gibt es zwei Erklärungen — neu aufgesetztes Gerät oder
+jemand dazwischen — und von aussen sind sie nicht zu unterscheiden. Der alte
+Vermerk bleibt samt Vertrauensentscheidung stehen; wer ihn überschriebe, machte
+aus einer bestätigten Identität eine unbestätigte, und die Warnung wäre nach
+dem ersten Ansehen fort.
+
+**Eine unlesbare Datei wirft, statt frisch zu starten.** Der bequeme Weg wäre
+hier der gefährliche: Aus einem behebbaren Lesefehler würde ein stiller Wechsel
+des eigenen Fingerabdrucks, und die alte Datei wäre beim ersten Ablegen
+überschrieben.
+
+## Der eigentliche Fund: ein Mutationslauf, der nichts gemessen hat
+
+**Der erste O6-Mutationslauf meldete zwanzig von zwanzig erschlagen — und war
+wertlos.** Die Änderung am Signed PreKey hatte einen bestehenden X3DH-Test
+gebrochen, der genau das Gegenteil festhielt („jeder ausser dem aktuellen wird
+abgewiesen"). Dieser Test lief im Mutationsfilter mit. **Damit meldete jeder
+Lauf „Fehler", ob die Mutation nun etwas erschlug oder nicht.**
+
+Aufgefallen ist es nur, weil eine einzelne Mutation mir zu bequem tot war — die
+Nebendatei beim Schreiben. Einzeln laufen lassen: sie überlebt. Und drei Läufe
+der *unveränderten* Grundlinie zeigten dann dreimal denselben Fehlschlag.
+
+Das ist die Falle aus D54 in neuer Gestalt. Damals mass ein grüner Lauf nichts,
+weil Tests sich selbst übersprangen; hier mass ein roter Lauf nichts, weil er
+schon vorher rot war. **Ein Mutationslauf ohne grüne Grundlinie kann nicht
+zwischen „meine Mutation wurde gefunden" und „hier war schon vorher etwas
+kaputt" unterscheiden.** Die Grundlinie gehört vor jeden Batch geprüft, nicht
+angenommen.
+
+Gegen die grüne Grundlinie neu gemessen: **20 Mutationen, 19 erschlagen.** Zwei
+der drei Überlebenden waren echte Lücken und haben je einen Test erzwungen —
+der abgelöste Signed PreKey überlebte den Neustart nicht, und eine zweimal
+abgelegte Sitzung wurde danebengelegt statt ersetzt. Der zweite Fall wäre der
+schlimmste Schaden gewesen, den dieser Speicher anrichten kann: Nach einem
+Neustart stünde die Ratsche auf einem alten Stand, und alles seitdem wäre für
+beide Seiten unlesbar, ohne erkennbaren Grund.
+
+**Der eine echte Überlebende, benannt statt weggeredet:** Das Schreiben über
+eine Nebendatei lässt sich durch ein direktes Schreiben ersetzen, ohne dass ein
+Test etwas sagt. Der Unterschied zeigt sich nur bei einem Absturz **mitten im
+Schreiben**, und den stellt diese Sammlung nicht her. Er ist damit nicht
+gleichwertig, sondern ungeprüft — und das ist ein Unterschied, der hier
+aufgeschrieben gehört.
+
+**Und eine Sache steht ausdrücklich da, statt durch ein beruhigendes Verfahren
+ersetzt zu werden:** Die Datei ist nicht verschlüsselt. Sie enthält den
+geheimen IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer sie liest,
+liest die Gespräche mit. Eine Verschlüsselung mit einem Schlüssel, der
+danebenläge, wäre keine — und einen, den ein Mensch eingibt, gibt es in dieser
+Anwendung nicht. Ein Test hält es fest, damit wer es ändert, die Bemerkung
+mitändern muss.
+
+---
+
 ## Später
 
 ### Testsammlung

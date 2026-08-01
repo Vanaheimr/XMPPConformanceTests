@@ -99,6 +99,36 @@ public sealed record RatchetHeader(Byte[] DhPublicKey,
 public sealed record RatchetMessage(RatchetHeader Header, Byte[] Ciphertext, Byte[] Mac);
 
 /// <summary>
+/// Ein beiseitegelegter Nachrichtenschlüssel, wie er einen Neustart
+/// überdauert.
+/// </summary>
+public sealed record SkippedMessageKey(String RatchetKey, UInt32 Number, Byte[] MessageKey);
+
+/// <summary>
+/// Der vollständige Zustand einer Ratchet-Sitzung.
+/// </summary>
+/// <remarks>
+/// <b>Vollständig heisst: was hier fehlt, ist nach einem Neustart verloren</b> -
+/// und zwar so, dass die Gegenstelle es nicht erfährt. Fehlte der eigene
+/// Ratchet-Schlüssel, liesse sich nichts mehr entschlüsseln, was noch
+/// unterwegs ist; fehlten die beiseitegelegten Schlüssel, wären es die
+/// überholten Nachrichten; fehlten die Zähler, stünde die Kette an falscher
+/// Stelle.
+///
+/// Der geheime Teil des Ratchet-Schlüssels ist dabei ein Schlüssel wie jeder
+/// andere: Wer die abgelegte Sitzung liest, liest das Gespräch mit.
+/// </remarks>
+public sealed record RatchetState(Byte[]?                            OwnRatchetPrivateKey,
+                                  Byte[]?                            RemoteRatchetKey,
+                                  Byte[]                             RootKey,
+                                  Byte[]?                            SendChain,
+                                  Byte[]?                            ReceiveChain,
+                                  UInt32                             SendCount,
+                                  UInt32                             ReceiveCount,
+                                  UInt32                             PreviousSendCount,
+                                  IReadOnlyList<SkippedMessageKey>   SkippedKeys);
+
+/// <summary>
 /// Der Double Ratchet nach XEP-0384, Abschnitt 4.3.
 /// </summary>
 /// <remarks>
@@ -236,6 +266,65 @@ public sealed class DoubleRatchet
            {
                _eigenerRatchet = ownRatchetKey
            };
+
+    #endregion
+
+    #region Export() / Import(state)
+
+    /// <summary>
+    /// Der Zustand dieser Sitzung, wie er abgelegt wird.
+    /// </summary>
+    public RatchetState Export()
+    {
+
+        lock (_lock)
+            return new RatchetState(_eigenerRatchet?.PrivateKey,
+                                    _fremderRatchet,
+                                    _wurzel,
+                                    _sendekette,
+                                    _empfangskette,
+                                    SendCount,
+                                    ReceiveCount,
+                                    PreviousSendCount,
+                                    [.. _uebersprungen.Select(e => new SkippedMessageKey(e.Key.Dh,
+                                                                                          e.Key.N,
+                                                                                          e.Value))]);
+
+    }
+
+    /// <summary>
+    /// Stellt eine abgelegte Sitzung wieder her.
+    /// </summary>
+    /// <remarks>
+    /// <b>Wiederhergestellt und nicht neu begonnen</b> - der Unterschied ist
+    /// die ganze Etappe. Eine neu begonnene Sitzung hätte einen anderen
+    /// Wurzelschlüssel, und die Gegenstelle könnte nichts mehr lesen, was von
+    /// hier kommt. Sie sähe dabei keinen Fehler, sondern nur Nachrichten, die
+    /// ihre Prüfsumme nicht bestehen - also etwas, das wie ein Angriff
+    /// aussieht.
+    /// </remarks>
+    public static DoubleRatchet Import(RatchetState state)
+    {
+
+        var ratchet = new DoubleRatchet(state.RootKey)
+        {
+            _eigenerRatchet    = state.OwnRatchetPrivateKey is not null
+                                     ? Curve25519.KeyPairFromPrivate(state.OwnRatchetPrivateKey)
+                                     : null,
+            _fremderRatchet    = state.RemoteRatchetKey,
+            _sendekette        = state.SendChain,
+            _empfangskette     = state.ReceiveChain,
+            SendCount          = state.SendCount,
+            ReceiveCount       = state.ReceiveCount,
+            PreviousSendCount  = state.PreviousSendCount
+        };
+
+        foreach (var k in state.SkippedKeys)
+            ratchet._uebersprungen[(k.RatchetKey, k.Number)] = k.MessageKey;
+
+        return ratchet;
+
+    }
 
     #endregion
 

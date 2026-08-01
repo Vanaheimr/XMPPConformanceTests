@@ -889,9 +889,13 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
   Kette und einer Obergrenze für übersprungene Schlüssel (D64) — und das
   **Drahtformat**: die drei Protobuf-Nachrichten, das `<encrypted/>`-Element
   und die SCE-Hülle nach XEP-0420 (D65) — und die **PEP-Verteilung** von
-  Geräteliste und Bundles, samt einer PEP-Teilmenge im Testserver (D66). Es
-  fehlen der Sitzungsspeicher und die Vertrauensentscheidung; **verschlüsselt
-  senden kann dieser Client noch nichts.** Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
+  Geräteliste und Bundles, samt einer PEP-Teilmenge im Testserver (D66) — und
+  der **Sitzungsspeicher** samt Vertrauensentscheidung: IdentityKey, PreKeys
+  und jede laufende Ratsche überdauern einen Neustart, ein geänderter
+  IdentityKey wird gemeldet statt übernommen (D67). **Die Speicherdatei ist
+  nicht verschlüsselt** — wer sie liest, liest die Gespräche mit; sie gehört an
+  einen Ort, an den nur dieser Benutzer kommt. Es fehlt die Verdrahtung in
+  Client und Konsole; **verschlüsselt senden kann dieser Client noch nichts.** Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
   prüfen liesse — geprüft ist die Übereinstimmung mit dem Text, nicht mit der
   Wirklichkeit
 - Kein HTTP File Upload (XEP-0363)

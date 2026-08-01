@@ -178,11 +178,15 @@ public static class X3DH
                                     UInt32?        preKeyId)
     {
 
-        if (signedPreKeyId != own.SignedPreKeyId)
-            throw new CryptographicException(
-                      $"Die Nachricht nennt den Signed PreKey {signedPreKeyId}, dieses Gerät hat " +
-                      $"gerade {own.SignedPreKeyId}. Der abgelöste wird noch nicht aufgehoben - " +
-                      "siehe die Etappe zum Sitzungsspeicher.");
+        // Der aktuelle oder der eine abgelöste - eine Nachricht, die vor dem
+        // Wechsel abgeschickt wurde, nennt den alten und ist trotzdem zu
+        // lesen. Alles darüber hinaus ist endgültig fort, und das ist Absicht.
+        var signedPreKey = own.SignedPreKeyFor(signedPreKeyId)
+                               ?? throw new CryptographicException(
+                                      $"Die Nachricht nennt den Signed PreKey {signedPreKeyId}; dieses " +
+                                      $"Gerät hat {own.SignedPreKeyId}" +
+                                      (own.PreviousSignedPreKeyId is UInt32 alt ? $" und {alt}" : "") +
+                                      ".");
 
         var preKey = preKeyId.HasValue ? own.TakePreKey(preKeyId.Value) : null;
 
@@ -196,9 +200,9 @@ public static class X3DH
         // Dieselben vier Werte, jeweils von der anderen Seite: Wo Alice ihren
         // geheimen Teil und Bobs öffentlichen nimmt, nimmt Bob seinen geheimen
         // und ihren öffentlichen.
-        var dh1 = Curve25519.Agree(own.SignedPreKey.PrivateKey,  ihrIk);
-        var dh2 = Curve25519.Agree(own.IdentityKey.PrivateKey,   theirEphemeralKey);
-        var dh3 = Curve25519.Agree(own.SignedPreKey.PrivateKey,  theirEphemeralKey);
+        var dh1 = Curve25519.Agree(signedPreKey.PrivateKey,       ihrIk);
+        var dh2 = Curve25519.Agree(own.IdentityKey.PrivateKey,    theirEphemeralKey);
+        var dh3 = Curve25519.Agree(signedPreKey.PrivateKey,       theirEphemeralKey);
         var dh4 = preKey is not null
                       ? Curve25519.Agree(preKey.PrivateKey,      theirEphemeralKey)
                       : [];

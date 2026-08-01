@@ -81,6 +81,27 @@ public sealed class OmemoIdentity
     /// <summary>Die Signatur des IdentityKey darüber.</summary>
     public Byte[] SignedPreKeySignature { get; private set; }
 
+    /// <summary>
+    /// Der abgelöste Signed PreKey, solange er noch gebraucht wird - oder
+    /// null.
+    /// </summary>
+    /// <remarks>
+    /// <b>In D63 ausdrücklich aufgeschoben, hier ist er.</b> Eine Nachricht,
+    /// die vor dem Wechsel abgeschickt wurde, nennt den alten Schlüssel; ohne
+    /// ihn wäre sie nicht zu lesen, und der Absender erführe nichts davon.
+    ///
+    /// Aufgehoben wird genau <b>einer</b>, und das ist die Abwägung: Jeder
+    /// aufgehobene alte Schlüssel nimmt ein Stück von dem zurück, wofür es den
+    /// Wechsel gibt - wer ihn stiehlt, öffnet damit die Sitzungen, die er
+    /// eröffnet hat. Einer deckt die Nachrichten ab, die während des Wechsels
+    /// unterwegs waren; zwei deckten nichts weiter ab, was nicht ohnehin
+    /// verloren wäre.
+    /// </remarks>
+    public Curve25519KeyPair? PreviousSignedPreKey { get; private set; }
+
+    /// <summary>Die Kennung des abgelösten Signed PreKey, oder null.</summary>
+    public UInt32? PreviousSignedPreKeyId { get; private set; }
+
     /// <summary>Wie viele PreKeys noch vorrätig sind.</summary>
     public Int32 AvailablePreKeys
     {
@@ -238,12 +259,10 @@ public sealed class OmemoIdentity
     /// Wechselt den Signed PreKey und unterschreibt den neuen.
     /// </summary>
     /// <remarks>
-    /// Der abgelöste wird hier <b>nicht</b> aufgehoben. Das gehört in die
-    /// Etappe, die Sitzungen speichert: Solange noch eine Nachricht unterwegs
-    /// sein kann, die den alten nennt, muss er greifbar bleiben - und danach
-    /// muss er verschwinden, sonst nimmt er die Eigenschaft zurück, für die es
-    /// den Wechsel gibt. Beides an einem Ort zu regeln, an dem es keinen
-    /// Speicher gibt, wäre eine Zusage, die niemand hält.
+    /// Der abgelöste rückt auf <see cref="PreviousSignedPreKey"/> - genau ein
+    /// Schlüssel weit. Was davor lag, ist damit endgültig fort, und das ist
+    /// der Sinn: Ein aufgehobener alter Schlüssel nimmt ein Stück von dem
+    /// zurück, wofür es den Wechsel überhaupt gibt.
     /// </remarks>
     public void RotateSignedPreKey()
     {
@@ -252,10 +271,86 @@ public sealed class OmemoIdentity
 
         lock (_lock)
         {
+
+            PreviousSignedPreKey    = SignedPreKey;
+            PreviousSignedPreKeyId  = SignedPreKeyId;
+
             SignedPreKeyId++;
             SignedPreKey           = neu;
             SignedPreKeySignature  = Curve25519.Sign(IdentityKey.PrivateKey, neu.PublicKey);
+
         }
+
+    }
+
+    /// <summary>
+    /// Der Signed PreKey zu dieser Kennung - der aktuelle oder der abgelöste.
+    /// </summary>
+    /// <returns>null, wenn die Kennung zu keinem von beiden gehört.</returns>
+    public Curve25519KeyPair? SignedPreKeyFor(UInt32 id)
+    {
+
+        lock (_lock)
+            return id == SignedPreKeyId          ? SignedPreKey
+                 : id == PreviousSignedPreKeyId  ? PreviousSignedPreKey
+                 : null;
+
+    }
+
+    #endregion
+
+    #region Export() / Import(state)
+
+    /// <summary>
+    /// Das eigene Schlüsselmaterial, wie es abgelegt wird.
+    /// </summary>
+    public OmemoIdentityState Export()
+    {
+
+        lock (_lock)
+            return new OmemoIdentityState(DeviceId,
+                                          IdentityKey.PrivateKey,
+                                          SignedPreKeyId,
+                                          SignedPreKey.PrivateKey,
+                                          SignedPreKeySignature,
+                                          PreviousSignedPreKeyId,
+                                          PreviousSignedPreKey?.PrivateKey,
+                                          [.. _preKeys.OrderBy(e => e.Key)
+                                                      .Select(e => new OmemoStoredPreKey(e.Key,
+                                                                                          e.Value.PrivateKey))]);
+
+    }
+
+    /// <summary>
+    /// Stellt abgelegtes Schlüsselmaterial wieder her.
+    /// </summary>
+    /// <remarks>
+    /// <b>Die Signatur wird mitgenommen und nicht neu gerechnet.</b> Sie
+    /// liesse sich aus dem IdentityKey jederzeit erneuern - aber XEdDSA
+    /// mischt Zufall in jede Signatur, die neue sähe also anders aus als die
+    /// veröffentlichte. Das Bundle im PEP-Knoten und das Gerät hier wären
+    /// danach uneins, und ein Absender, der beides vergleicht, hielte das für
+    /// einen Austausch.
+    /// </remarks>
+    public static OmemoIdentity Import(OmemoIdentityState state)
+    {
+
+        var eigen = new OmemoIdentity(state.DeviceId,
+                                      Curve25519.KeyPairFromPrivate(state.IdentityPrivateKey),
+                                      state.SignedPreKeyId,
+                                      Curve25519.KeyPairFromPrivate(state.SignedPreKeyPrivateKey),
+                                      state.SignedPreKeySignature)
+        {
+            PreviousSignedPreKeyId  = state.PreviousSignedPreKeyId,
+            PreviousSignedPreKey    = state.PreviousSignedPreKeyPrivateKey is not null
+                                          ? Curve25519.KeyPairFromPrivate(state.PreviousSignedPreKeyPrivateKey)
+                                          : null
+        };
+
+        foreach (var pk in state.PreKeys)
+            eigen._preKeys[pk.Id] = Curve25519.KeyPairFromPrivate(pk.PrivateKey);
+
+        return eigen;
 
     }
 

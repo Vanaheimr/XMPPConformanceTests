@@ -273,9 +273,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region AnUnknownSignedPreKey_IsRefused()
 
         /// <summary>
-        /// Nennt die Gegenstelle einen anderen Signed PreKey als den
-        /// aktuellen, wird abgewiesen statt geraten.
+        /// Nennt die Gegenstelle einen Signed PreKey, den es hier nie gab,
+        /// wird abgewiesen statt geraten.
         /// </summary>
+        /// <remarks>
+        /// <b>Dieser Test hat sich mit D67 geändert, und das gehört
+        /// vermerkt.</b> Bis dahin wurde jeder Signed PreKey ausser dem
+        /// aktuellen abgewiesen - auch der eben erst abgelöste, und damit jede
+        /// Nachricht, die während des Wechsels unterwegs war. Seit dem
+        /// Sitzungsspeicher wird genau <i>einer</i> aufgehoben; geprüft wird
+        /// das in <c>AMessageForTheRotatedSignedPreKey_StillArrives</c>.
+        ///
+        /// Hier bleibt die Frage, um die es diesem Test immer ging: Eine
+        /// Kennung, die zu <b>keinem</b> vorhandenen Schlüssel gehört, wird
+        /// abgewiesen und nicht durch den nächstbesten ersetzt.
+        /// </remarks>
         [Test]
         public void AnUnknownSignedPreKey_IsRefused()
         {
@@ -285,15 +297,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var beiAlice = X3DH.Initiate(alice, bob.Bundle());
 
-            bob.RotateSignedPreKey();
-
-            // Alice hat mit Signed PreKey 1 gerechnet; Bob steht inzwischen
-            // auf 2 und kann den alten nicht mehr.
             Assert.That(() => X3DH.Accept(bob, alice.PublicIdentityKey, beiAlice.EphemeralKey!,
-                                          1u,
+                                          99u,
                                           beiAlice.UsedPreKeyId),
                         Throws.TypeOf<CryptographicException>(),
-                        "Der gewechselte Signed PreKey wurde stillschweigend übergangen.");
+                        "Eine unbekannte Kennung wurde durch den nächstbesten Schlüssel ersetzt.");
 
         }
 
