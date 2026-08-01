@@ -53,6 +53,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Die Einstellungen je Knoten (XEP-0060, Abschnitt 8.2).
+        /// </summary>
+        /// <remarks>
+        /// Getrennt von den Einträgen, weil ein Knoten und sein Inhalt zwei
+        /// Dinge sind: Ein angelegter Knoten hat noch keine Einträge, und ein
+        /// Knoten ohne Ablage bekommt nie welche - beide gibt es trotzdem.
+        /// </remarks>
+        private readonly Dictionary<String, PubSubNodeConfiguration> _pepNodeConfigs =
+            new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Die Abonnements je Knoten, jedes mit seinem Abonnenten und seiner
         /// Kennung (XEP-0060, Abschnitt 6.1).
         /// </summary>
@@ -326,10 +337,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Legt einen Eintrag in einem PEP-Knoten ab und ersetzt einen
         /// gleichnamigen.
         /// </summary>
-        /// <param name="maxItems">
-        /// Wie viele Einträge der Knoten höchstens hält. Ist die Grenze
-        /// erreicht, weicht der älteste.
-        /// </param>
         /// <remarks>
         /// <b>Ersetzen und nicht danebenlegen</b>: Die Kennung <i>ist</i> die
         /// Aussage. Die Geräteliste steht unter <c>current</c>, ein Bundle
@@ -343,15 +350,27 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Nachricht ist einmalig und ihr Verlust endgültig; ein PEP-Eintrag
         /// ist der aktuelle Stand einer Sache, und der neueste ist der, auf
         /// den es ankommt.
+        ///
+        /// <b>Wie viele es sein dürfen und ob überhaupt abgelegt wird, sagt
+        /// der Knoten</b> (seit K7). Ein Knoten ohne Ablage meldet nur - wer
+        /// nicht zuhörte, hat es verpasst. Er entsteht trotzdem: Eine
+        /// Veröffentlichung legt ihn an, auch wenn nichts von ihr bleibt.
         /// </remarks>
         public void PublishPepItem(String  node,
                                    String  itemId,
-                                   String  payload,
-                                   Int32   maxItems = 256)
+                                   String  payload)
         {
 
             lock (_lock)
             {
+
+                if (!_pepNodeConfigs.TryGetValue(node, out var einstellung))
+                    _pepNodeConfigs[node] = einstellung = PubSubNodeConfiguration.Default;
+
+                if (!einstellung.PersistItems)
+                    return;
+
+                var maxItems = einstellung.MaxItems;
 
                 if (!_pepNodes.TryGetValue(node, out var eintraege))
                     _pepNodes[node] = eintraege = new Dictionary<String, String>(StringComparer.Ordinal);
@@ -401,6 +420,88 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public IReadOnlyCollection<String> PepNodes
         {
             get { lock (_lock) return [.. _pepNodes.Keys]; }
+        }
+
+        /// <summary>
+        /// Gibt es diesen Knoten?
+        /// </summary>
+        /// <remarks>
+        /// <b>Etwas anderes als „hat Einträge".</b> Ein angelegter Knoten
+        /// existiert, bevor irgendetwas darin steht, und ein Knoten ohne
+        /// Ablage bekommt nie welche - beide muss man abonnieren können, sonst
+        /// wäre das Anlegen folgenlos.
+        /// </remarks>
+        public Boolean PepNodeExists(String node)
+        {
+            lock (_lock)
+                return _pepNodeConfigs.ContainsKey(node) || _pepNodes.ContainsKey(node);
+        }
+
+        /// <summary>
+        /// Legt einen Knoten an (XEP-0060, Abschnitt 8.1).
+        /// </summary>
+        /// <returns>
+        /// false, wenn es ihn schon gibt - <c>&lt;conflict/&gt;</c>. Ein
+        /// zweites Anlegen stillschweigend gelten zu lassen hiesse, eine
+        /// bestehende Einstellung durch eine neue zu ersetzen, ohne dass
+        /// jemand danach gefragt hat.
+        /// </returns>
+        public Boolean CreatePepNode(String node, PubSubNodeConfiguration? configuration = null)
+        {
+
+            lock (_lock)
+            {
+
+                if (PepNodeExists(node))
+                    return false;
+
+                _pepNodeConfigs[node] = configuration ?? PubSubNodeConfiguration.Default;
+
+                return true;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Stellt einen bestehenden Knoten ein (XEP-0060, Abschnitt 8.2).
+        /// </summary>
+        /// <returns>false, wenn es den Knoten nicht gibt.</returns>
+        public Boolean ConfigurePepNode(String node, PubSubNodeConfiguration configuration)
+        {
+
+            lock (_lock)
+            {
+
+                if (!PepNodeExists(node))
+                    return false;
+
+                _pepNodeConfigs[node] = configuration;
+
+                // Eine kleinere Grenze gilt sofort und nicht erst beim nächsten
+                // Mal: Wer sie setzt, will nicht so viele aufbewahrt wissen -
+                // und der Bestand ist genau das, was aufbewahrt wird.
+                if (_pepNodes.TryGetValue(node, out var eintraege))
+                    while (eintraege.Count > configuration.MaxItems)
+                        eintraege.Remove(eintraege.Keys.First());
+
+                return true;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Die Einstellungen eines Knotens, oder null, wenn es ihn nicht gibt.
+        /// </summary>
+        public PubSubNodeConfiguration? PepNodeConfiguration(String node)
+        {
+            lock (_lock)
+                return _pepNodeConfigs.TryGetValue(node, out var einstellung)
+                           ? einstellung
+                           : _pepNodes.ContainsKey(node)
+                                 ? PubSubNodeConfiguration.Default
+                                 : null;
         }
 
         /// <summary>

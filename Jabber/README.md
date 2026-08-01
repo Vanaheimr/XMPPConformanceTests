@@ -640,6 +640,14 @@ miteinander sprechen:
   `SubID` (§12.20), und Abbestellen ohne `subid` wird bei mehreren abgewiesen.
   Ein ausdrückliches Abonnement verdrängt die Presence-Zustellung, damit die
   Zahl der Zustellungen nicht davon abhängt, wer nebenbei im Roster steht
+- XEP-0060 §8.1/§8.2 Knoten anlegen und konfigurieren: `<create/>` mit
+  optionalem Formular, `<configure/>` im `#owner`-Namensraum, und **nur der
+  Eigentümer**. Ein angelegter Knoten existiert, bevor etwas darin steht.
+  Wirksame Felder: `pubsub#max_items` (eine kleinere Grenze gilt sofort),
+  `pubsub#persist_items` (ein Knoten ohne Ablage meldet nur) und
+  `pubsub#access_model` — letzteres wird **gespeichert, aber noch nicht
+  durchgesetzt**. Angeboten werden nur `open` und `presence`; `authorize`,
+  `roster` und `whitelist` werden abgewiesen statt zu `open` verkürzt
 - XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
   **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
   ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die

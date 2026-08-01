@@ -225,6 +225,38 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         private static String DeliverField(String wert)
             => $"<field var='pubsub#deliver'><value>{wert}</value></field>";
 
+        private const String OwnerNamespace = "http://jabber.org/protocol/pubsub#owner";
+
+        /// <summary>Ein <c>&lt;configure/&gt;</c>-IQ im Eigentümer-Namensraum.</summary>
+        private String ConfigureIq(String   id,
+                                   String   art,
+                                   String?  formular = null,
+                                   String?  node     = null)
+
+            => $"<iq type='{art}' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<configure node='{node ?? Node}'" +
+               (formular is null ? "/>" : $">{formular}</configure>") +
+               "</pubsub></iq>";
+
+        /// <summary>Ein abgeschicktes Knotenformular.</summary>
+        private static String ConfigForm(String felder)
+            => "<x xmlns='jabber:x:data' type='submit'>" +
+               "<field var='FORM_TYPE' type='hidden'>" +
+               "<value>http://jabber.org/protocol/pubsub#node_config</value></field>" +
+               felder +
+               "</x>";
+
+        /// <summary>Der Wert eines Feldes im Knotenformular einer Antwort.</summary>
+        private static String? ConfigField(XElement antwort, String var)
+            => antwort.Child(OwnerNamespace, "pubsub")
+                     ?.Child(OwnerNamespace, "configure")
+                     ?.Child("jabber:x:data", "x")
+                     ?.Children("jabber:x:data", "field")
+                      .FirstOrDefault(f => f.Attr("var") == var)
+                     ?.Child("jabber:x:data", "value")
+                     ?.Value;
+
         /// <summary>Der Wert eines Formularfeldes in einer Antwort.</summary>
         private static String? FieldValue(XElement antwort, String var)
             => antwort.Child(PubSubNamespace, "pubsub")
@@ -848,6 +880,459 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                             "Zugestellt wird, solange niemand widerspricht.");
 
             });
+
+        }
+
+        #endregion
+
+        #region TheNodeConfigForm_OffersWhatTheServerCanDo()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.2: Das Angebot des Eigentümers.
+        /// </summary>
+        /// <remarks>
+        /// Drei Felder, und jedes tut etwas. Das XEP kennt zwei Dutzend
+        /// weitere; angeboten wird nur, was auch wirkt - an dieser Stelle
+        /// besonders, denn ein Eigentümer glaubt danach, etwas geregelt zu
+        /// haben.
+        /// </remarks>
+        [Test]
+        public async Task TheNodeConfigForm_OffersWhatTheServerCanDo()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var antwort = await AskAsync(bob, "cfg-1", ConfigureIq("cfg-1", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+                Assert.That(ConfigField(antwort, "FORM_TYPE"),
+                            Is.EqualTo("http://jabber.org/protocol/pubsub#node_config"));
+
+                Assert.That(ConfigField(antwort, "pubsub#access_model"),   Is.EqualTo("open"));
+                Assert.That(ConfigField(antwort, "pubsub#max_items"),      Is.EqualTo("256"));
+                Assert.That(ConfigField(antwort, "pubsub#persist_items"),  Is.EqualTo("1"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheConfiguration_IsReadBackAsItWasSet()
+
+        /// <summary>
+        /// Was gesetzt wurde, steht danach im Angebot.
+        /// </summary>
+        [Test]
+        public async Task TheConfiguration_IsReadBackAsItWasSet()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var gesetzt = await AskAsync(bob, "cfg-2",
+                                         ConfigureIq("cfg-2", "set",
+                                                     ConfigForm("<field var='pubsub#max_items'><value>5</value></field>" +
+                                                                "<field var='pubsub#access_model'><value>presence</value></field>")));
+
+            Assert.That(gesetzt.Attr("type"), Is.EqualTo("result"));
+
+            var gelesen = await AskAsync(bob, "cfg-3", ConfigureIq("cfg-3", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConfigField(gelesen, "pubsub#max_items"),     Is.EqualTo("5"));
+                Assert.That(ConfigField(gelesen, "pubsub#access_model"),  Is.EqualTo("presence"));
+                Assert.That(ConfigField(gelesen, "pubsub#persist_items"), Is.EqualTo("1"),
+                            "Was im Teilformular nicht stand, bleibt wie es war.");
+            });
+
+            // Und die Probe darauf: Ein zweites Teilformular darf den ersten
+            // Wert nicht auf die Vorgabe zurücksetzen. XEP-0060, Abschnitt
+            // 8.2.4 lässt Teilformulare ausdrücklich zu - wer die fehlenden
+            // Felder mit der Vorgabe füllt, ändert lautlos, wonach niemand
+            // gefragt hat.
+            await AskAsync(bob, "cfg-3b",
+                           ConfigureIq("cfg-3b", "set",
+                                       ConfigForm("<field var='pubsub#persist_items'><value>0</value></field>")));
+
+            var nochmal = await AskAsync(bob, "cfg-3c", ConfigureIq("cfg-3c", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConfigField(nochmal, "pubsub#persist_items"), Is.EqualTo("0"));
+                Assert.That(ConfigField(nochmal, "pubsub#max_items"),     Is.EqualTo("5"),
+                            "Der Stand von vorhin ist die Grundlage, nicht die Vorgabe.");
+            });
+
+        }
+
+        #endregion
+
+        #region AConfigurationThatIsNoConfiguration_IsRejected()
+
+        /// <summary>
+        /// Ein unbekanntes Feld, eine Zahl, die keine ist, und eine Grenze
+        /// unter eins.
+        /// </summary>
+        /// <remarks>
+        /// Dieselbe Strenge wie bei den Abonnement-Einstellungen: Was
+        /// hereinkommt, ist eine Anweisung, und eine übergangene Anweisung ist
+        /// schlimmer als eine abgewiesene. <c>max_items=0</c> ist dabei kein
+        /// Formfehler, sondern eine Falle - ein Knoten, der nichts behalten
+        /// darf, sähe aus wie einer, in den niemand schreibt.
+        /// </remarks>
+        [Test]
+        public async Task AConfigurationThatIsNoConfiguration_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            foreach (var (kennung, feld) in new[] {
+                         ("cfg-11", "<field var='pubsub#digest'><value>1</value></field>"),
+                         ("cfg-12", "<field var='pubsub#max_items'><value>viele</value></field>"),
+                         ("cfg-13", "<field var='pubsub#max_items'><value>0</value></field>")
+                     })
+            {
+
+                var antwort = await AskAsync(bob, kennung, ConfigureIq(kennung, "set", ConfigForm(feld)));
+
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"), feld);
+
+            }
+
+            var gelesen = await AskAsync(bob, "cfg-14", ConfigureIq("cfg-14", "get"));
+
+            Assert.That(ConfigField(gelesen, "pubsub#max_items"), Is.EqualTo("256"),
+                        "Keine der abgewiesenen Anfragen darf etwas geändert haben.");
+
+        }
+
+        #endregion
+
+        #region CreatingANodeInSomebodyElsesAccount_IsForbidden()
+
+        /// <summary>
+        /// Anlegen darf man nur bei sich.
+        /// </summary>
+        /// <remarks>
+        /// Sonst könnte jeder in fremden Konten Knoten anlegen - und wäre
+        /// deren Eigentümer nicht, aber ihr Urheber: Der Betroffene fände in
+        /// seiner Liste Knoten, die er nie angelegt hat, mit Einstellungen,
+        /// die er nicht gewählt hat.
+        /// </remarks>
+        [Test]
+        public async Task CreatingANodeInSomebodyElsesAccount_IsForbidden()
+        {
+
+            await ConnectClientAsync("bob");
+
+            var alice = await ConnectClientAsync("alice");
+
+            var antwort = await AskAsync(alice, "new-4",
+                                         PubSubBuilder.CreateNode($"bob@{Server.Domain}", "urn:example:fremd", "new-4"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+            });
+
+            Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.PepNodeExists("urn:example:fremd"),
+                        Is.False,
+                        "Ein abgewiesenes Anlegen darf nichts angelegt haben.");
+
+        }
+
+        #endregion
+
+        #region MaxItems_LimitsWhatTheNodeKeeps()
+
+        /// <summary>
+        /// <c>pubsub#max_items</c> - der älteste weicht.
+        /// </summary>
+        [Test]
+        public async Task MaxItems_LimitsWhatTheNodeKeeps()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-4",
+                           ConfigureIq("cfg-4", "set",
+                                       ConfigForm("<field var='pubsub#max_items'><value>2</value></field>")));
+
+            await AskAsync(bob, "pub-30", PublishIq("pub-30", Node, "30", "<w xmlns='urn:example:x'>a</w>"));
+            await AskAsync(bob, "pub-31", PublishIq("pub-31", Node, "31", "<w xmlns='urn:example:x'>b</w>"));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.That(konto.GetPepItems(Node).Select(e => e.ItemId),
+                        Is.EqualTo(new[] { "30", "31" }),
+                        "Der erste Eintrag hätte weichen müssen.");
+
+        }
+
+        #endregion
+
+        #region ASmallerLimit_TakesEffectAtOnce()
+
+        /// <summary>
+        /// Eine kleinere Grenze gilt sofort und nicht erst beim nächsten Mal.
+        /// </summary>
+        /// <remarks>
+        /// Wer sie setzt, will nicht so viele aufbewahrt wissen - und der
+        /// Bestand ist genau das, was aufbewahrt wird. Erst beim nächsten
+        /// Veröffentlichen aufzuräumen hiesse: Auf einem Knoten, in dem nie
+        /// wieder etwas erscheint, bleibt alles liegen.
+        /// </remarks>
+        [Test]
+        public async Task ASmallerLimit_TakesEffectAtOnce()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "pub-32", PublishIq("pub-32", Node, "32", "<w xmlns='urn:example:x'>b</w>"));
+            await AskAsync(bob, "pub-33", PublishIq("pub-33", Node, "33", "<w xmlns='urn:example:x'>c</w>"));
+
+            await AskAsync(bob, "cfg-5",
+                           ConfigureIq("cfg-5", "set",
+                                       ConfigForm("<field var='pubsub#max_items'><value>1</value></field>")));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.That(konto.GetPepItems(Node).Select(e => e.ItemId),
+                        Is.EqualTo(new[] { "33" }));
+
+        }
+
+        #endregion
+
+        #region WithoutPersistence_TheNotificationGoesOut_ButNothingIsKept()
+
+        /// <summary>
+        /// <c>pubsub#persist_items=0</c>: Der Knoten meldet, behält aber
+        /// nichts.
+        /// </summary>
+        /// <remarks>
+        /// Beide Hälften gehören in einen Test. Nur „nichts behalten" zu
+        /// prüfen bestünde auch gegen einen Server, der gar nichts mehr tut -
+        /// und dann wäre aus einem Knoten ohne Ablage einer ohne Wirkung
+        /// geworden.
+        /// </remarks>
+        [Test]
+        public async Task WithoutPersistence_TheNotificationGoesOut_ButNothingIsKept()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-30");
+
+            await AskAsync(bob, "cfg-6",
+                           ConfigureIq("cfg-6", "set",
+                                       ConfigForm("<field var='pubsub#persist_items'><value>0</value></field>")));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-34", PublishIq("pub-34", Node, "34", "<w xmlns='urn:example:x'>fluechtig</w>"));
+
+            await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung");
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.That(konto.GetPepItems(Node).Select(e => e.ItemId),
+                        Does.Not.Contain("34"),
+                        "Ein Knoten ohne Ablage behält nichts.");
+
+        }
+
+        #endregion
+
+        #region ACreatedNode_CanBeSubscribed_BeforeAnythingIsPublished()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.1: Ein angelegter Knoten existiert, bevor
+        /// etwas darin steht.
+        /// </summary>
+        /// <remarks>
+        /// Vorher hiess „es gibt den Knoten" dasselbe wie „es steht etwas
+        /// darin". Damit war das Anlegen folgenlos - und ein Knoten ohne
+        /// Ablage liesse sich überhaupt nie abonnieren.
+        /// </remarks>
+        [Test]
+        public async Task ACreatedNode_CanBeSubscribed_BeforeAnythingIsPublished()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            var angelegt = await AskAsync(bob, "new-1",
+                                          PubSubBuilder.CreateNode($"bob@{Server.Domain}", "urn:example:leer", "new-1"));
+
+            Assert.That(angelegt.Attr("type"), Is.EqualTo("result"));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-31",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", "urn:example:leer",
+                                                                alice.BareJid, "sub-31"));
+
+            Assert.That(zusage.Attr("type"), Is.EqualTo("result"),
+                        "Ein angelegter Knoten muss abonnierbar sein.");
+
+        }
+
+        #endregion
+
+        #region CreatingANodeTwice_IsRejected()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.1.3: Was es gibt, wird nicht noch einmal
+        /// angelegt.
+        /// </summary>
+        /// <remarks>
+        /// Stillschweigend gelten zu lassen hiesse, eine bestehende
+        /// Einstellung durch eine neue zu ersetzen, ohne dass jemand danach
+        /// gefragt hat - und die neue wäre die Vorgabe.
+        /// </remarks>
+        [Test]
+        public async Task CreatingANodeTwice_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var antwort = await AskAsync(bob, "new-2",
+                                         PubSubBuilder.CreateNode($"bob@{Server.Domain}", Node, "new-2"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort), Is.EqualTo("conflict"));
+            });
+
+        }
+
+        #endregion
+
+        #region CreatingWithAConfiguration_AppliesIt()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.1.3: Anlegen und einstellen in einem Zug.
+        /// </summary>
+        [Test]
+        public async Task CreatingWithAConfiguration_AppliesIt()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            await AskAsync(bob, "new-3",
+                           $"<iq type='set' id='new-3'><pubsub xmlns='{PubSubNamespace}'>" +
+                           "<create node='urn:example:knapp'/>" +
+                           "<configure>" +
+                           ConfigForm("<field var='pubsub#max_items'><value>1</value></field>") +
+                           "</configure></pubsub></iq>");
+
+            await AskAsync(bob, "pub-35", PublishIq("pub-35", "urn:example:knapp", "35", "<w xmlns='urn:example:x'>a</w>"));
+            await AskAsync(bob, "pub-36", PublishIq("pub-36", "urn:example:knapp", "36", "<w xmlns='urn:example:x'>b</w>"));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.That(konto.GetPepItems("urn:example:knapp").Select(e => e.ItemId),
+                        Is.EqualTo(new[] { "36" }),
+                        "Die mitgegebene Einstellung muss von Anfang an gelten.");
+
+        }
+
+        #endregion
+
+        #region ConfiguringSomebodyElsesNode_IsForbidden()
+
+        /// <summary>
+        /// Ein PEP-Knoten gehört einem Menschen, und einstellen darf ihn nur
+        /// der.
+        /// </summary>
+        /// <remarks>
+        /// Die vierte Stelle mit dieser Prüfung, und die weitreichendste: Wer
+        /// fremde Knoten einstellen könnte, könnte die Ablage abschalten und
+        /// damit fremde Bundles unerreichbar machen - lautlos, denn ein
+        /// Knoten, der nichts mehr behält, sieht aus wie einer, in den niemand
+        /// etwas geschrieben hat.
+        /// </remarks>
+        [Test]
+        public async Task ConfiguringSomebodyElsesNode_IsForbidden()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var antwort = await AskAsync(alice, "cfg-7",
+                                         ConfigureIq("cfg-7", "set",
+                                                     ConfigForm("<field var='pubsub#persist_items'><value>0</value></field>")));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+            });
+
+        }
+
+        #endregion
+
+        #region ConfiguringANodeThatDoesNotExist_IsRejected()
+
+        /// <summary>
+        /// Was es nicht gibt, lässt sich nicht einstellen.
+        /// </summary>
+        [Test]
+        public async Task ConfiguringANodeThatDoesNotExist_IsRejected()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            var antwort = await AskAsync(bob, "cfg-8",
+                                         ConfigureIq("cfg-8", "get", node: "urn:example:gibtesnicht"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort), Is.EqualTo("item-not-found"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnAccessModelNobodyOffered_IsRejected()
+
+        /// <summary>
+        /// <c>whitelist</c> steht nicht im Angebot - und wird nicht
+        /// stillschweigend zu <c>open</c>.
+        /// </summary>
+        /// <remarks>
+        /// <b>Der teuerste Ort für eine Zusage ohne Deckung.</b> Wer
+        /// <c>whitelist</c> einstellt und <c>open</c> bekommt, glaubt seine
+        /// Einträge geschützt und hat sie veröffentlicht.
+        /// </remarks>
+        [Test]
+        public async Task AnAccessModelNobodyOffered_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var antwort = await AskAsync(bob, "cfg-9",
+                                         ConfigureIq("cfg-9", "set",
+                                                     ConfigForm("<field var='pubsub#access_model'><value>whitelist</value></field>")));
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+
+            var gelesen = await AskAsync(bob, "cfg-10", ConfigureIq("cfg-10", "get"));
+
+            Assert.That(ConfigField(gelesen, "pubsub#access_model"), Is.EqualTo("open"),
+                        "Eine abgewiesene Einstellung darf nichts geändert haben.");
 
         }
 

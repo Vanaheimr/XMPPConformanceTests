@@ -1986,6 +1986,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private const String PubSubErrorNamespace = "http://jabber.org/protocol/pubsub#errors";
 
         /// <summary>
+        /// Der Namensraum der Eigentümer-Anfragen (XEP-0060, Abschnitt 8).
+        /// </summary>
+        /// <remarks>
+        /// Ein eigener Namensraum und kein eigenes Element: Wer einen Knoten
+        /// einstellt, tut etwas anderes als wer ihn benutzt, und das XEP
+        /// trennt beides schon an der Adresse.
+        /// </remarks>
+        private const String PubSubOwnerNamespace = "http://jabber.org/protocol/pubsub#owner";
+
+        private const String DataFormNamespace = DataForm.Namespace;
+
+        /// <summary>
         /// XEP-0163 Personal Eventing: Veröffentlichen, Abrufen, Abonnieren und
         /// Abbestellen der PEP-Knoten eines Kontos.
         /// </summary>
@@ -2027,8 +2039,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             }
 
             var pubsub = iq.Child(OmemoPep.PubSubNamespace, "pubsub");
+            var owner  = iq.Child(PubSubOwnerNamespace,     "pubsub");
 
-            if (pubsub is null || session.Account is null)
+            if (session.Account is null || (pubsub is null && owner is null))
                 return false;
 
             // Der Testschalter: angenommen und nicht beantwortet. Bewusst
@@ -2036,6 +2049,136 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // dann seinen gewohnten Weg gehen.
             if (!AnswerPepRequests)
                 return true;
+
+            #region Knoten einstellen (Eigentümer)
+
+            if (owner is not null)
+            {
+
+                if (type is not ("get" or "set") ||
+                    owner.Child(PubSubOwnerNamespace, "configure") is not { } konfiguration)
+                {
+                    return false;
+                }
+
+                // Ein PEP-Knoten gehört einem Menschen, und einstellen darf ihn
+                // nur der. Fremde Knoten sind hier nicht bloss unzugänglich -
+                // wer sie einstellen könnte, könnte etwa die Ablage abschalten
+                // und damit fremde Bundles unerreichbar machen, ohne dass
+                // irgendetwas nach einem Fehler aussieht.
+                if (to is not null &&
+                    !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+                    return true;
+                }
+
+                var node = konfiguration.Attr("node");
+
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                var bestand = session.Account.PepNodeConfiguration(node);
+
+                if (bestand is null)
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
+                    return true;
+                }
+
+                if (type == "get")
+                {
+
+                    await session.SendAsync(
+                        $"<iq type='result' id='{id}'>" +
+                        $"<pubsub xmlns='{PubSubOwnerNamespace}'>" +
+                        $"<configure node='{XmlEscaping.Escape(node)}'>" +
+                        bestand.ToForm().ToString(SaveOptions.DisableFormatting) +
+                        "</configure></pubsub></iq>");
+
+                    return true;
+
+                }
+
+                var formular = konfiguration.Child(DataFormNamespace, "x");
+
+                if (formular is null ||
+                    !PubSubNodeConfiguration.TryRead(formular, bestand, out var eingestellt))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                session.Account.ConfigurePepNode(node, eingestellt!);
+
+                await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                return true;
+
+            }
+
+            #endregion
+
+            if (pubsub is null)
+                return false;
+
+            #region Anlegen
+
+            if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "create") is { } create)
+            {
+
+                if (to is not null &&
+                    !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+                    return true;
+                }
+
+                var node = create.Attr("node");
+
+                // XEP-0060, Abschnitt 8.1.2 kennt Knoten ohne Namen, die der
+                // Dienst benennt. Hier nicht: Ein PEP-Knoten wird über seinen
+                // Namen gefunden, und einen erfundenen kennt niemand ausser
+                // dem, der ihn gerade bekommen hat.
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                var wunsch = PubSubNodeConfiguration.Default;
+
+                if (pubsub.Child(OmemoPep.PubSubNamespace, "configure")?.Child(DataFormNamespace, "x") is { } mitgegeben &&
+                    !PubSubNodeConfiguration.TryRead(mitgegeben, wunsch, out wunsch))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                // XEP-0060, Abschnitt 8.1.3: Was es gibt, wird nicht noch
+                // einmal angelegt. Stillschweigend gelten zu lassen hiesse,
+                // eine bestehende Einstellung durch eine neue zu ersetzen,
+                // ohne dass jemand danach gefragt hat.
+                if (!session.Account.CreatePepNode(node, wunsch))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "conflict"));
+                    return true;
+                }
+
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'>" +
+                    $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
+                    $"<create node='{XmlEscaping.Escape(node)}'/>" +
+                    "</pubsub></iq>");
+
+                return true;
+
+            }
+
+            #endregion
 
             #region Veröffentlichen
 
@@ -2165,7 +2308,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // XEP-0060, Abschnitt 6.1.3.12. Ein Konto, das es nicht gibt,
                 // ist auch hier nicht von einem zu unterscheiden, das nichts
                 // veröffentlicht hat - dieselbe Überlegung wie beim Abrufen.
-                if (konto is null || !konto.PepNodes.Contains(node))
+                // Es gibt ihn, sobald er angelegt ist - nicht erst, sobald
+                // etwas darin steht. Sonst wäre ein angelegter Knoten nicht zu
+                // abonnieren und das Anlegen folgenlos.
+                if (konto is null || !konto.PepNodeExists(node))
                 {
                     await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
                     return true;
@@ -2319,7 +2465,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 }
 
-                var formular = optionen.Child(PubSubSubscriptionOptions.DataFormNamespace, "x");
+                var formular = optionen.Child(DataFormNamespace, "x");
 
                 if (formular is null ||
                     !PubSubSubscriptionOptions.TryRead(formular, out var eingestellt))

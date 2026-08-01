@@ -5690,6 +5690,52 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D76. Ein Knoten, bevor etwas darin steht ✅ — Anlegen und Konfigurieren
+
+Bisher hiess „es gibt den Knoten" dasselbe wie „es steht etwas darin". Das
+klang harmlos und war es nicht: **Das Anlegen war folgenlos** — der Client
+konnte `<create/>` schicken und bekam `<service-unavailable/>` —, und ein
+Knoten ohne Ablage wäre überhaupt nie abonnierbar gewesen.
+
+Jetzt gibt es beides getrennt: die Einstellungen eines Knotens und seinen
+Inhalt. Ein angelegter Knoten existiert, bevor etwas darin steht.
+
+**Drei Felder, und jedes tut etwas** (XEP-0060 kennt zwei Dutzend):
+
+- `pubsub#max_items` — was der Knoten behält. Eine kleinere Grenze gilt
+  **sofort** und nicht erst beim nächsten Veröffentlichen: Wer sie setzt, will
+  nicht so viele aufbewahrt wissen, und auf einem Knoten, in dem nie wieder
+  etwas erscheint, bliebe sonst alles liegen.
+- `pubsub#persist_items` — behalten oder nur melden. Ein Knoten ohne Ablage
+  meldet weiterhin; wer nicht zuhörte, hat es verpasst.
+- `pubsub#access_model` — wer an die Einträge kommt. **Gespeichert, aber noch
+  nicht durchgesetzt**; das ist K8, und bis dahin steht es so im README.
+
+Angeboten wird nur, was wirkt. Bei einem Zugriffsmodell wäre eine Zusage ohne
+Deckung am teuersten: **Wer `whitelist` einstellt und `open` bekommt, glaubt
+seine Einträge geschützt und hat sie veröffentlicht.** Deshalb kennt dieser
+Server `open` und `presence` — und weist alles andere ab, statt es
+freundlich zu `open` zu verkürzen. Eine Mutation, die genau das tat, wurde
+erschlagen.
+
+Ein Teilformular ändert nur, was darin steht (Abschnitt 8.2.4). Die fehlenden
+Felder mit der Vorgabe zu füllen wäre die naheliegende Abkürzung und eine
+lautlose Änderung dessen, wonach niemand gefragt hat — auch dafür gab es eine
+Mutation.
+
+Und `max_items=0` ist kein Formfehler, sondern eine Falle: Ein Knoten, der
+nichts behalten darf, sähe aus wie einer, in den niemand schreibt.
+
+Nebenbei entstand ein kleiner gemeinsamer Baustein für XEP-0004
+(`DataForm`): Zwei Formulare bauen dieselben Felder und lesen denselben
+Wahrheitswert — zweimal dasselbe zu schreiben heisst, es einmal zu ändern und
+einmal zu vergessen. Ein Formularmodell ist es ausdrücklich nicht.
+
+Neununddreissig Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 1016
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
