@@ -35,7 +35,20 @@ public sealed class PubSubManager
     /// <summary>Der Namespace der PubSub-Benachrichtigungen.</summary>
     public const string EventNamespace = "http://jabber.org/protocol/pubsub#event";
 
-    private readonly HashSet<string> _subscribedNodes = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Die bestätigten Abonnements, nach dem Knoten.
+    /// </summary>
+    /// <remarks>
+    /// <b>Bestätigt heisst: Der Dienst hat zugesagt.</b> Bis D71 stand hier
+    /// eine blosse Namensmenge, und eingetragen wurde beim Absenden der
+    /// Anfrage - ein abgelehntes Abonnement stand danach als bestehendes da.
+    /// Was jetzt hier liegt, hat der Dienst gesagt und nicht dieser Client
+    /// vermutet: die Kennung, die er vergeben hat, und die Adresse, unter der
+    /// er es tat.
+    /// </remarks>
+    private readonly Dictionary<String, PubSubSubscription> _subscriptions =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly string _pubsubService;
     private readonly object _lock = new();
     private readonly ILogger _logger;
@@ -55,21 +68,22 @@ public sealed class PubSubManager
     /// </summary>
     public bool ProcessEvent(XElement stanza, string from, string expectedPubSubJid)
     {
-        var bareFrom = JidUtilities.Bare(from);
-        var expectedBare = JidUtilities.Bare(expectedPubSubJid);
-
-        // SPOOFING-SCHUTZ: Events dürfen nur vom PubSub-Service kommen
-        if (!string.Equals(bareFrom, expectedBare, StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogWarning("PubSub-Spoofing erkannt! Von: {From}, erwartet: {Expected}",
-                               from, expectedPubSubJid);
-            return false;
-        }
 
         var eventElement = stanza.Child(EventNamespace, "event");
 
         if (eventElement is null)
             return false;
+
+        // Der Knoten zuerst, denn die Absenderprüfung braucht ihn: Erlaubt ist
+        // nicht ein Absender, sondern ein Absender für einen bestimmten Knoten.
+        var nodeId = NodeOf(eventElement);
+
+        if (!IsAcceptableSource(from, nodeId, expectedPubSubJid))
+        {
+            _logger.LogWarning("PubSub-Spoofing erkannt! Von: {From}, Knoten: {Node}, erwartet: {Expected}",
+                               from, nodeId, expectedPubSubJid);
+            return false;
+        }
 
         // Items- oder Retract-Event: beide stecken in <items node='…'/>.
         var itemsElement = eventElement.Child(EventNamespace, "items");
@@ -77,7 +91,6 @@ public sealed class PubSubManager
         if (itemsElement is not null)
         {
 
-            var nodeId    = itemsElement.Attr("node") ?? "";
             var retracted = itemsElement.Children(EventNamespace, "retract").ToList();
 
             if (retracted.Count > 0)
@@ -122,15 +135,15 @@ public sealed class PubSubManager
 
         }
 
-        if (eventElement.Child(EventNamespace, "purge") is { } purge)
+        if (eventElement.Child(EventNamespace, "purge") is not null)
         {
-            OnEvent?.Invoke(new PubSubEvent(purge.Attr("node") ?? "", PubSubEventType.Purge));
+            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Purge));
             return true;
         }
 
-        if (eventElement.Child(EventNamespace, "delete") is { } delete)
+        if (eventElement.Child(EventNamespace, "delete") is not null)
         {
-            OnEvent?.Invoke(new PubSubEvent(delete.Attr("node") ?? "", PubSubEventType.Delete));
+            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Delete));
             return true;
         }
 
@@ -138,18 +151,72 @@ public sealed class PubSubManager
 
     }
 
-    public void AddSubscription(string nodeId)
+    /// <summary>
+    /// Der Knoten, um den es in einem Event geht - aus <c>items</c>,
+    /// <c>purge</c> oder <c>delete</c>, je nachdem, was dasteht.
+    /// </summary>
+    private static String NodeOf(XElement eventElement)
+        => eventElement.Elements()
+                       .FirstOrDefault(e => e.Name.NamespaceName == EventNamespace &&
+                                            e.Name.LocalName is "items" or "purge" or "delete")
+                      ?.Attr("node") ?? "";
+
+    /// <summary>
+    /// Darf von diesem Absender eine Meldung über diesen Knoten kommen?
+    /// </summary>
+    /// <remarks>
+    /// <b>Bis D71 war die Antwort allein der konfigurierte Dienst</b> -
+    /// richtig für einen PubSub-Service als eigene Komponente, falsch für PEP:
+    /// Dort kommt die Meldung vom Konto selbst (XEP-0163, Abschnitt 4.3), und
+    /// jede einzelne galt deshalb als Fälschung. Aufgefallen ist es nicht,
+    /// weil niemand ein Abonnement hatte, dessen Meldungen jemand erwartete -
+    /// OMEMO geht seinen eigenen Weg.
+    ///
+    /// Die zweite Erlaubnis ist deshalb <b>an den Knoten gebunden und nicht an
+    /// den Absender</b>: Wer bei Bob den Wetterknoten abonniert hat, hat damit
+    /// nicht erlaubt, dass Bob ihm Meldungen über jeden erdachten Knoten
+    /// schickt.
+    /// </remarks>
+    private Boolean IsAcceptableSource(String from, String nodeId, String expectedPubSubJid)
     {
-        lock (_lock) _subscribedNodes.Add(nodeId);
+
+        var bareFrom = JidUtilities.Bare(from);
+
+        if (String.Equals(bareFrom, JidUtilities.Bare(expectedPubSubJid),
+                          StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return SubscriptionOf(nodeId) is { } abo &&
+               String.Equals(bareFrom, JidUtilities.Bare(abo.ServiceJid),
+                             StringComparison.OrdinalIgnoreCase);
+
     }
 
-    public void RemoveSubscription(string nodeId)
+    /// <summary>
+    /// Trägt ein zugesagtes Abonnement ein.
+    /// </summary>
+    public void AddSubscription(PubSubSubscription subscription)
     {
-        lock (_lock) _subscribedNodes.Remove(nodeId);
+        lock (_lock) _subscriptions[subscription.NodeId] = subscription;
     }
 
-    public bool IsSubscribed(string nodeId)
+    public void RemoveSubscription(String nodeId)
     {
-        lock (_lock) return _subscribedNodes.Contains(nodeId);
+        lock (_lock) _subscriptions.Remove(nodeId);
+    }
+
+    public Boolean IsSubscribed(String nodeId)
+    {
+        lock (_lock) return _subscriptions.ContainsKey(nodeId);
+    }
+
+    /// <summary>
+    /// Das Abonnement dieses Knotens, oder null.
+    /// </summary>
+    public PubSubSubscription? SubscriptionOf(String nodeId)
+    {
+        lock (_lock) return _subscriptions.TryGetValue(nodeId, out var abo) ? abo : null;
     }
 }

@@ -933,12 +933,15 @@ class Program
         if (parts.Length == 0)
         {
             Console.WriteLine("PubSub-Befehle:");
-            Console.WriteLine("  /pubsub sub <node>           Node abonnieren");
-            Console.WriteLine("  /pubsub unsub <node>         Abo beenden");
+            Console.WriteLine("  /pubsub sub <node> [jid]     Node abonnieren");
+            Console.WriteLine("  /pubsub unsub <node> [jid]   Abo beenden");
             Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
             Console.WriteLine("  /pubsub create <node>        Node erstellen");
             Console.WriteLine("  /pubsub delete <node>        Node löschen");
+            Console.WriteLine();
+            Console.WriteLine("  Ohne <jid> geht die Anfrage an pubsub.<domain>. Ein PEP-Knoten");
+            Console.WriteLine("  gehört einem Konto - dann steht dort dessen Bare-JID.");
             return;
         }
 
@@ -956,14 +959,20 @@ class Program
 
         switch (subCmd)
         {
+            // Ein Ziel ist angebbar, weil ein PEP-Knoten einem Konto gehört und
+            // nicht der PubSub-Komponente der Domain.
             case "sub" or "subscribe":
-                await _client!.PubSubSubscribeAsync(nodeId);
-                Console.WriteLine($"📢 Abonniert: {nodeId}");
+                var abo = await _client!.PubSubSubscribeAsync(nodeId, parts.Length > 2 ? parts[2] : null);
+                Console.WriteLine(abo is not null
+                                      ? $"📢 Abonniert: {nodeId}" +
+                                        (abo.SubId is not null ? $" (subid {abo.SubId})" : "")
+                                      : $"⚠️ Nicht abonniert: {nodeId} - siehe Log");
                 break;
 
             case "unsub" or "unsubscribe":
-                await _client!.PubSubUnsubscribeAsync(nodeId);
-                Console.WriteLine($"🔕 Abo beendet: {nodeId}");
+                Console.WriteLine(await _client!.PubSubUnsubscribeAsync(nodeId, parts.Length > 2 ? parts[2] : null)
+                                      ? $"🔕 Abo beendet: {nodeId}"
+                                      : $"⚠️ Abo nicht beendet: {nodeId} - siehe Log");
                 break;
 
             case "pub" or "publish":
@@ -974,24 +983,36 @@ class Program
                 }
                 var itemId  = parts[2];
                 var payload = string.Join(' ', parts.Skip(3));
-                await _client!.PubSubPublishAsync(nodeId, itemId, $"<data>{XmlEscaping.Escape(payload)}</data>");
-                Console.WriteLine($"📤 Veröffentlicht: {nodeId}/{itemId}");
+                Console.WriteLine(await _client!.PubSubPublishAsync(nodeId, itemId, $"<data>{XmlEscaping.Escape(payload)}</data>")
+                                      ? $"📤 Veröffentlicht: {nodeId}/{itemId}"
+                                      : $"⚠️ Nicht veröffentlicht: {nodeId}/{itemId} - siehe Log");
                 break;
 
             case "get" or "items":
                 int? max = parts.Length > 2 && int.TryParse(parts[2], out var m) ? m : null;
-                await _client!.PubSubGetItemsAsync(nodeId, max);
-                Console.WriteLine($"📥 Items angefordert von: {nodeId}");
+                var eintraege = await _client!.PubSubGetItemsAsync(nodeId, max);
+
+                if (eintraege is null)
+                    Console.WriteLine($"⚠️ Nicht abgerufen: {nodeId} - siehe Log");
+
+                else
+                {
+                    Console.WriteLine($"📥 {eintraege.Count} Eintrag/Einträge aus {nodeId}:");
+                    foreach (var eintrag in eintraege)
+                        Console.WriteLine($"   {eintrag.Id}: {eintrag.Payload}");
+                }
                 break;
 
             case "create":
-                await _client!.PubSubCreateNodeAsync(nodeId);
-                Console.WriteLine($"➕ Node erstellt: {nodeId}");
+                Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId)
+                                      ? $"➕ Node erstellt: {nodeId}"
+                                      : $"⚠️ Node nicht erstellt: {nodeId} - siehe Log");
                 break;
 
             case "delete":
-                await _client!.PubSubDeleteNodeAsync(nodeId);
-                Console.WriteLine($"➖ Node gelöscht: {nodeId}");
+                Console.WriteLine(await _client!.PubSubDeleteNodeAsync(nodeId)
+                                      ? $"➖ Node gelöscht: {nodeId}"
+                                      : $"⚠️ Node nicht gelöscht: {nodeId} - siehe Log");
                 break;
 
             default:

@@ -36,12 +36,18 @@ public static class PubSubBuilder
     /// <summary>
     /// Unsubscribe from a node
     /// </summary>
-    public static string Unsubscribe(string pubsubJid, string nodeId, string myJid, string id = "pubsub-unsub")
+    /// <param name="subId">
+    /// Die Kennung des Abonnements aus der Zusage des Dienstes, oder null.
+    /// Vorgeschrieben, sobald ein JID mehrere Abonnements auf denselben Knoten
+    /// hält (XEP-0060, Abschnitt 6.2.3.1).
+    /// </param>
+    public static string Unsubscribe(string pubsubJid, string nodeId, string myJid, string id = "pubsub-unsub", string? subId = null)
     {
         return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
                $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
-               $"<unsubscribe node='{XmlEscaping.Escape(nodeId)}' jid='{XmlEscaping.Escape(myJid)}'/>" +
-               $"</pubsub></iq>";
+               $"<unsubscribe node='{XmlEscaping.Escape(nodeId)}' jid='{XmlEscaping.Escape(myJid)}'" +
+               (subId is not null ? $" subid='{XmlEscaping.Escape(subId)}'" : "") +
+               "/></pubsub></iq>";
     }
 
     /// <summary>

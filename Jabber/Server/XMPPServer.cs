@@ -310,6 +310,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean AnswerPings { get; set; } = true;
 
         /// <summary>
+        /// Beantwortet der Server PEP-Anfragen, oder schweigt er dazu?
+        /// </summary>
+        /// <remarks>
+        /// Wie <see cref="AnswerPings"/> für XEP-0199, und aus demselben Grund:
+        /// <b>Ein Client, der auf eine Antwort wartet, ist nur gegen einen
+        /// Server zu prüfen, der auch einmal keine gibt.</b> Fehlschlag und
+        /// Schweigen sind zwei verschiedene Fälle, und Schweigen ist der, den
+        /// man am ehesten falsch behandelt - es meldet sich nicht.
+        /// </remarks>
+        public Boolean AnswerPepRequests { get; set; } = true;
+
+        /// <summary>
         /// XEP-0198: Handelt der Server Stream Management aus? Auf false
         /// antwortet er auf <c>&lt;enable/&gt;</c> mit <c>&lt;failed/&gt;</c>.
         /// </summary>
@@ -2018,6 +2030,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             if (pubsub is null || session.Account is null)
                 return false;
+
+            // Der Testschalter: angenommen und nicht beantwortet. Bewusst
+            // hier und nicht vor der Erkennung - was kein PEP ist, soll auch
+            // dann seinen gewohnten Weg gehen.
+            if (!AnswerPepRequests)
+                return true;
 
             #region Veröffentlichen
 

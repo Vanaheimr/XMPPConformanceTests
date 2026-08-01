@@ -5452,6 +5452,68 @@ unentbehrlich macht, tritt hier nicht ein.
 
 ---
 
+### D71. Erst die Antwort, dann die Buchführung ✅ — die ausgehende Korrelation
+
+Der Punkt stand seit D38 unter „Optional", und der Fehler war die ganze Zeit
+derselbe: `PubSubSubscribeAsync` verschickte die Anfrage und trug das
+Abonnement **in derselben Zeile** ein. Ein abgelehntes stand danach als
+bestehendes da, und der Aufrufer erfuhr es nie.
+
+**Es ist dieselbe Sorte Fehler wie die fünf aus der OMEMO-Reihe, nur ohne
+Kryptographie: eine Behauptung über etwas, das niemand nachgesehen hat.** Sie
+fällt lange nicht auf, weil sie im guten Fall stimmt.
+
+Jetzt geht jede der sechs Anfragen über `SendIqAsync`, jede mit eigener
+Kennung — bis hierher trugen alle `subscribe` dieselbe feste `pubsub-sub`, was
+folgenlos war, solange niemand zuordnete, und beim ersten Zuordnen die zweite
+Anfrage mit der Antwort auf die erste versorgt hätte. Eingetragen wird nach dem
+`result`, gelöscht ebenfalls: **Wer den Eintrag vor der Antwort löscht, macht
+denselben Fehler andersherum** und verwirft die Meldungen eines Abonnements,
+das noch besteht.
+
+Vom Ergebnis bleibt, was nur der Dienst weiss: die `subid`. Sie geht beim
+Abbestellen mit — vorgeschrieben ist sie erst bei mehreren Abonnements auf
+denselben Knoten, aber sie benennt auch das eine eindeutig.
+
+`PubSubGetItemsAsync` hatte dieselbe Krankheit in ihrer klarsten Form: Sie
+verschickte die Anfrage und war fertig. Die Antwort kam an, gehörte niemandem
+und fiel aus dem Empfang heraus — **die Einträge, um die es ging, hat nie
+jemand gesehen.** Jetzt gibt sie sie zurück.
+
+## Ein Abonnement, das nichts einbrachte
+
+Dabei kam der Fund dieser Etappe heraus: **Der Spoofing-Schutz verwarf jede
+PEP-Meldung.** Er verglich den Absender mit dem PubSub-Dienst der Domain — eine
+PEP-Meldung kommt aber nach XEP-0163 vom Konto selbst. Aufgefallen ist es nie,
+weil bis zu diesem Punkt niemand ein Abonnement hatte, dessen Meldungen jemand
+erwartete; OMEMO geht seinen eigenen Weg.
+
+Ein bestätigtes Abonnement erlaubt jetzt zusätzlich den, bei dem es besteht —
+**und zwar für seinen Knoten, nicht überhaupt.** Wer bei Bob den Wetterknoten
+abonniert hat, hat nicht erlaubt, dass Bob Meldungen über jeden erdachten
+anderen schickt. Genau dafür ist die Adresse in der Buchführung die, an die
+*gefragt* wurde, und nicht das `from` der Antwort: Sonst könnte eine
+Gegenstelle sich selbst zur Quelle erklären.
+
+## Drei Mutationen, die einen Zufall aufdeckten
+
+Von fünfzehn Mutationen überlebten drei, und alle drei zeigten auf dieselbe
+Lücke: **Antworten, die ein wohlerzogener Server nicht gibt.** Ein `result`
+ohne Zusage, eine Zusage ohne Knoten, ein Zustand, den dieser Client nicht
+kennt. Gegen den eigenen Server kommt so etwas nie — die Ablehnung hing also
+nicht an einer Entscheidung, sondern daran, dass in einer Fehlerantwort
+zufällig keine Zusage steht.
+
+Prüfbar wurden sie über einen Testschalter: `AnswerPepRequests` lässt den
+Server schweigen, damit der Test selbst den Dienst spielen kann — wie
+`AnswerPings` für XEP-0199. Er trägt zugleich den Fall, den man am ehesten
+falsch behandelt, weil er sich nicht meldet: **Schweigen ist keine Zusage.**
+
+Siebzehn Tests, fünfzehn Mutationen, alle erschlagen. Voller Lauf: 977
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
@@ -5532,23 +5594,17 @@ Was hier steht, ist nicht falsch und nicht dringend: Es fehlt niemandem, solange
 niemand es benutzt. Ein Punkt wandert von hier nach „Später", sobald es einen
 Anwendungsfall gibt, an dem sich die Umsetzung prüfen lässt.
 
-- **XEP-0060 — Publish-Subscribe.** Eingehende Events werden geparst, gegen
-  Spoofing geprüft und ausgeliefert; das ist die Hälfte, die trägt. Die andere
-  ist ausgehend: `PubSubSubscribeAsync` verschickt die Anfrage und trägt das
-  Abonnement **sofort** ein, ohne auf die Antwort zu warten — ein abgelehntes
-  Abonnement steht danach als bestehendes in `_subscribedNodes`. Das Ereignis,
-  das den Ausgang melden würde, gab es sogar — `OnSubscriptionResult` war
-  deklariert und wurde an keiner Stelle ausgelöst; in D57 ist es gestrichen
-  worden, samt `Retract` und `DiscoverNodes`. **Das ändert an diesem Punkt
-  nichts**: Es fehlte ohnehin nicht die Meldung, sondern die Korrelation von
-  IQ-Ergebnis und Anfrage, und wer sie baut, deklariert das Ereignis in
-  derselben Stunde wieder. Ein nie ausgelöstes Ereignis ist keine halbe
-  Umsetzung, sondern eine Zusage ohne Deckung — und es war die einzige Warnung
-  im Bau. Das trifft nur,
-  wer PubSub tatsächlich benutzt — dieser Client tut es nirgends selbst, und die
-  betroffenen Member stehen deshalb schon unter „Ungenutzte API-Fläche" im
-  [README](Jabber/README.md). Solange kein Anwendungsfall dahintersteht, wäre
-  die Korrelation gegen einen ausgedachten Ablauf geprüft (siehe D38)
+- ~~**XEP-0060 — Publish-Subscribe.**~~ Erledigt in D70 und D71. Die Begründung,
+  warum der Punkt hier stand, war am Ende der Weg zur Umsetzung: Es gab keinen
+  Ablauf, an dem sich die Korrelation prüfen liess, weil der Testserver auf
+  jedes `subscribe` `<service-unavailable/>` sagte. Also erst der Server (D70),
+  dann der Client (D71) — und der eigentliche Fund lag dazwischen: Ein
+  bestätigtes Abonnement brachte gar nichts ein, weil der Spoofing-Schutz jede
+  PEP-Meldung verwarf.
+
+  **Was das über die Liste sagt:** „Kein Anwendungsfall" hiess hier nicht, dass
+  niemand es braucht, sondern dass keine Gegenstelle es beantworten konnte.
+  Das ist ein Grund zu warten, aber ein anderer als der, der hier stand
 
 - **TCP-Transport für den Client.** Dieser Client spricht XMPP über WebSocket
   (RFC 7395), und die Server, gegen die er läuft, bieten ihn an — Prosody,

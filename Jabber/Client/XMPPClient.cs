@@ -767,22 +767,26 @@ public sealed class XMPPClient : IAsyncDisposable
 
     #region PubSub (XEP-0060)
 
-    public Task PubSubSubscribeAsync(string nodeId, string? service = null)
+    /// <summary>
+    /// Abonniert einen Knoten. Das Ergebnis ist das, was der Dienst zugesagt
+    /// hat - oder null, wenn er es nicht getan hat.
+    /// </summary>
+    public Task<PubSubSubscription?> PubSubSubscribeAsync(String nodeId, String? service = null)
         => _connection.PubSubSubscribeAsync(nodeId, service);
 
-    public Task PubSubUnsubscribeAsync(string nodeId, string? service = null)
+    public Task<Boolean> PubSubUnsubscribeAsync(String nodeId, String? service = null)
         => _connection.PubSubUnsubscribeAsync(nodeId, service);
 
-    public Task PubSubPublishAsync(string nodeId, string itemId, string payload, string? service = null)
+    public Task<Boolean> PubSubPublishAsync(String nodeId, String itemId, String payload, String? service = null)
         => _connection.PubSubPublishAsync(nodeId, itemId, payload, service);
 
-    public Task PubSubCreateNodeAsync(string nodeId, string? service = null)
+    public Task<Boolean> PubSubCreateNodeAsync(String nodeId, String? service = null)
         => _connection.PubSubCreateNodeAsync(nodeId, service);
 
-    public Task PubSubDeleteNodeAsync(string nodeId, string? service = null)
+    public Task<Boolean> PubSubDeleteNodeAsync(String nodeId, String? service = null)
         => _connection.PubSubDeleteNodeAsync(nodeId, service);
 
-    public Task PubSubGetItemsAsync(string nodeId, int? maxItems = null, string? service = null)
+    public Task<IReadOnlyList<PubSubItem>?> PubSubGetItemsAsync(String nodeId, Int32? maxItems = null, String? service = null)
         => _connection.PubSubGetItemsAsync(nodeId, maxItems, service);
 
     #endregion

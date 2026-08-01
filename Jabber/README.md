@@ -50,7 +50,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 |-----|------|--------|-----------|
 | XEP-0013 | Flexible Offline Message Retrieval | ⛔ | Von der XSF als *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the protocol described herein is not recommended." Die Offline-Ablage bleibt beim automatischen Nachreichen nach RFC 6121 §8.5.2.2.1 und XEP-0160 — siehe [WORKPLAN.md](../WORKPLAN.md), D37 |
 | XEP-0030 | Service Discovery | ✅ | disco#info und disco#items, abgefragt und beantwortet. Das `node` der Anfrage wird nach §3.2 gespiegelt; beantwortet werden nur Nodes, die diese Entity bezeichnen — der Caps-Node mit und ohne aktuelles `#ver` (XEP-0115 §6.2). Jeder andere, auch ein veraltetes `ver`, bekommt `<item-not-found/>` mit der Anfrage zurück. disco#items antwortet aus `DiscoManager.LocalItems` (leer als Vorgabe: ein Client hat keine Untereinheiten); ein `node` ist dort ein Ast im Baum und wird abgewiesen. Der Testserver führt keine Nodes und weist jeden ab |
-| XEP-0060 | Publish-Subscribe | ⚠️ | Events werden geparst und als `iq set` bestätigt; ausgehend werden die IQ-Ergebnisse nicht korreliert — ein Abonnement gilt sofort als bestehend, auch wenn der Dienst es ablehnt, und `OnSubscriptionResult` wird nie ausgelöst. Steht unter „Optional", siehe [WORKPLAN.md](../WORKPLAN.md), D38 |
+| XEP-0060 | Publish-Subscribe | ⚠️ | Eingehende Events werden geparst und gegen Spoofing geprüft. Ausgehend wird jede Anfrage mit ihrer Antwort korreliert: Ein Abonnement gilt erst nach der Zusage des Dienstes, `pending` zählt nicht als Zusage, und die `subid` von dort geht beim Abbestellen mit. Nicht umgesetzt: Knotenkonfiguration, Sammelabfragen, mehrere Abonnements desselben JIDs auf einen Knoten. Siehe [WORKPLAN.md](../WORKPLAN.md), D70/D71 |
 | XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
 | XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
 | XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
@@ -268,13 +268,18 @@ Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
 ### PubSub (XEP-0060)
 ```
 /pubsub                        Unterbefehle anzeigen
-/pubsub sub <node>             Node abonnieren (Alias: subscribe)
-/pubsub unsub <node>           Abo beenden (Alias: unsubscribe)
+/pubsub sub <node> [jid]       Node abonnieren (Alias: subscribe)
+/pubsub unsub <node> [jid]     Abo beenden (Alias: unsubscribe)
 /pubsub pub <node> <id> <data> Item veröffentlichen (Alias: publish)
 /pubsub get <node> [max]       Items abrufen (Alias: items)
 /pubsub create <node>          Node erstellen
 /pubsub delete <node>          Node löschen
 ```
+
+Ohne `<jid>` geht die Anfrage an `pubsub.<domain>`; ein PEP-Knoten gehört einem
+Konto, dort steht dann dessen Bare-JID. **Jeder dieser Befehle meldet, was der
+Dienst geantwortet hat** — „Abonniert" heisst, dass er zugesagt hat, und nicht,
+dass gefragt wurde.
 
 ### Verbindung
 ```
@@ -351,7 +356,12 @@ verarbeitet:
 2. **Receipts (XEP-0184)** — müssen vom Bare-JID des ursprünglichen
    Empfängers stammen.
 3. **PubSub-Events (XEP-0060)** — müssen vom konfigurierten PubSub-Service
-   stammen.
+   stammen **oder von dem, bei dem dieser Knoten abonniert wurde**. Die zweite
+   Erlaubnis hängt am Knoten und nicht am Absender: Wer bei Bob den einen
+   Knoten abonniert hat, hat nicht erlaubt, dass Bob Meldungen über jeden
+   erdachten anderen schickt. Ohne sie kam gar keine PEP-Meldung durch — die
+   kommt nach XEP-0163 vom Konto selbst und galt deshalb jedes Mal als
+   Fälschung.
 4. **Roster-Pushes (RFC 6121 §2.1.6)** — müssen ohne `from` kommen oder vom
    eigenen Bare-JID. Sonst könnte jeder Absender Kontakte in den lokalen
    Roster einschleusen oder daraus löschen.

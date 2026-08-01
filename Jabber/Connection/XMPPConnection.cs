@@ -2929,37 +2929,232 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// </remarks>
     public async Task CancelSubscriptionAsync(string jid) => await SendAsync(RosterStanzaBuilder.Unsubscribe(jid));
 
-    // PubSub Operations
-    public async Task PubSubSubscribeAsync(string nodeId, string? service = null)
+    #region PubSub (XEP-0060) - ausgehend
+
+    /// <summary>
+    /// Die Kennung der nächsten PubSub-Anfrage.
+    /// </summary>
+    /// <remarks>
+    /// Eine je Anfrage, und deshalb ein Zähler. Bis D71 trugen alle
+    /// <c>subscribe</c> dieselbe feste Kennung <c>pubsub-sub</c> - solange
+    /// niemand die Antworten zuordnete, fiel das nicht auf; sobald jemand es
+    /// tut, bekäme die zweite Anfrage die Antwort auf die erste.
+    /// </remarks>
+    private Int32 _pubSubCounter;
+
+    private String NextPubSubId()
+        => $"pubsub-{Interlocked.Increment(ref _pubSubCounter)}";
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 6.1: Abonniert einen Knoten und <b>wartet die
+    /// Antwort ab</b>.
+    /// </summary>
+    /// <param name="service">
+    /// Der Dienst oder das Konto, bei dem abonniert wird; ohne Angabe der
+    /// PubSub-Dienst der eigenen Domain.
+    /// </param>
+    /// <returns>
+    /// Das zugesagte Abonnement, oder null - bei einer Absage, bei einer
+    /// Antwort ohne Zusage und bei Schweigen. Die drei Fälle stehen im Log
+    /// auseinander; für den Aufrufer sind sie dasselbe: <b>er ist nicht
+    /// abonniert.</b>
+    /// </returns>
+    /// <remarks>
+    /// <b>Ein <c>pending</c> wird nicht eingetragen.</b> Es sieht wie eine
+    /// Zusage aus - der Dienst hat die Anfrage angenommen -, heisst aber, dass
+    /// noch jemand darüber entscheidet (Abschnitt 6.1.4). Wer es als
+    /// Abonnement bucht, wartet auf Meldungen, die nicht kommen, und hält das
+    /// für einen Fehler anderswo.
+    /// </remarks>
+    public async Task<PubSubSubscription?> PubSubSubscribeAsync(String             nodeId,
+                                                                String?            service  = null,
+                                                                CancellationToken  ct       = default)
     {
-        await SendAsync(PubSubBuilder.Subscribe(service ?? PubSub!.PubSubService, nodeId, BareJid));
-        PubSub!.AddSubscription(nodeId);
+
+        var ziel     = service ?? PubSub!.PubSubService;
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id, PubSubBuilder.Subscribe(ziel, nodeId, BareJid, id), ct);
+
+        if (antwort is null)
+        {
+            _logger.LogWarning("PubSub: keine Antwort auf das Abonnieren von {Node} bei {Service}", nodeId, ziel);
+            return null;
+        }
+
+        if (antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: {Node} bei {Service} abgelehnt: {Reason}",
+                               nodeId, ziel, DescribeRejection(antwort));
+            return null;
+        }
+
+        if (!PubSubSubscription.TryRead(antwort, ziel, out var abo))
+        {
+            _logger.LogWarning("PubSub: die Antwort auf das Abonnieren von {Node} enthält keine Zusage", nodeId);
+            return null;
+        }
+
+        if (abo!.State != PubSubSubscriptionState.Subscribed)
+        {
+            _logger.LogInformation("PubSub: {Node} bei {Service} steht auf {State} - noch kein Abonnement",
+                                   nodeId, ziel, abo.State);
+            return null;
+        }
+
+        PubSub!.AddSubscription(abo);
+
+        return abo;
+
     }
 
-    public async Task PubSubUnsubscribeAsync(string nodeId, string? service = null)
+    /// <summary>
+    /// XEP-0060, Abschnitt 6.2: Beendet ein Abonnement.
+    /// </summary>
+    /// <remarks>
+    /// Die <c>subid</c> aus der Zusage geht mit, wenn es eine gibt. Sie ist
+    /// vorgeschrieben, sobald ein JID mehrere Abonnements auf denselben Knoten
+    /// hält (Abschnitt 6.2.3.1) - dieser Client hält nie mehrere, aber die
+    /// Kennung benennt auch das eine eindeutig, und ein Dienst darf sie
+    /// verlangen.
+    ///
+    /// Der Eintrag fällt erst nach dem <c>result</c>. Ihn vorher zu löschen
+    /// wäre derselbe Fehler wie vorher einzutragen, nur andersherum: Man
+    /// verlöre die Meldungen eines Abonnements, das noch besteht.
+    /// </remarks>
+    public async Task<Boolean> PubSubUnsubscribeAsync(String             nodeId,
+                                                      String?            service  = null,
+                                                      CancellationToken  ct       = default)
     {
-        await SendAsync(PubSubBuilder.Unsubscribe(service ?? PubSub!.PubSubService, nodeId, BareJid));
+
+        var abo      = PubSub!.SubscriptionOf(nodeId);
+        var ziel     = service ?? abo?.ServiceJid ?? PubSub!.PubSubService;
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id,
+                                         PubSubBuilder.Unsubscribe(ziel, nodeId, BareJid, id, abo?.SubId),
+                                         ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: {Node} bei {Service} nicht abbestellt: {Reason}",
+                               nodeId, ziel,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return false;
+        }
+
         PubSub!.RemoveSubscription(nodeId);
+
+        return true;
+
     }
 
-    public async Task PubSubPublishAsync(string nodeId, string itemId, string payload, string? service = null)
+    /// <summary>
+    /// XEP-0060, Abschnitt 7.1: Veröffentlicht einen Eintrag.
+    /// </summary>
+    public async Task<Boolean> PubSubPublishAsync(String             nodeId,
+                                                  String             itemId,
+                                                  String             payload,
+                                                  String?            service  = null,
+                                                  CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.Publish(service ?? PubSub!.PubSubService,
+                                                          nodeId, itemId, payload, NextPubSubId()),
+                                    "Veröffentlichen", nodeId, ct);
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.1: Legt einen Knoten an.
+    /// </summary>
+    public async Task<Boolean> PubSubCreateNodeAsync(String             nodeId,
+                                                     String?            service  = null,
+                                                     CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.CreateNode(service ?? PubSub!.PubSubService,
+                                                             nodeId, NextPubSubId()),
+                                    "Anlegen", nodeId, ct);
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.4: Löscht einen Knoten.
+    /// </summary>
+    public async Task<Boolean> PubSubDeleteNodeAsync(String             nodeId,
+                                                     String?            service  = null,
+                                                     CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.DeleteNode(service ?? PubSub!.PubSubService,
+                                                             nodeId, NextPubSubId()),
+                                    "Löschen", nodeId, ct);
+
+    /// <summary>
+    /// Schickt eine PubSub-Anfrage und meldet, ob der Dienst zugestimmt hat.
+    /// </summary>
+    /// <remarks>
+    /// Die Kennung steht schon im fertigen XML - deshalb wird sie hier wieder
+    /// herausgelesen statt neu vergeben. Zwei Stellen, die sich eine Kennung
+    /// ausdenken, denken sich irgendwann zwei verschiedene aus.
+    /// </remarks>
+    private async Task<Boolean> PubSubRequestAsync(String             iq,
+                                                   String             was,
+                                                   String             nodeId,
+                                                   CancellationToken  ct)
     {
-        await SendAsync(PubSubBuilder.Publish(service ?? PubSub!.PubSubService, nodeId, itemId, payload));
+
+        var id       = XElement.Parse(iq).Attr("id")!;
+        var antwort  = await SendIqAsync(id, iq, ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: {Was} in {Node} gescheitert: {Reason}",
+                               was, nodeId,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return false;
+        }
+
+        return true;
+
     }
 
-    public async Task PubSubCreateNodeAsync(string nodeId, string? service = null)
-    {
-        await SendAsync(PubSubBuilder.CreateNode(service ?? PubSub!.PubSubService, nodeId));
-    }
+    #endregion
 
-    public async Task PubSubDeleteNodeAsync(string nodeId, string? service = null)
+    /// <summary>
+    /// XEP-0060, Abschnitt 6.5: Holt die Einträge eines Knotens.
+    /// </summary>
+    /// <returns>
+    /// Die Einträge, oder null bei Absage und Schweigen. Eine leere Liste ist
+    /// etwas anderes: Der Knoten war erreichbar und hatte nichts.
+    /// </returns>
+    /// <remarks>
+    /// Bis D71 verschickte diese Methode die Anfrage und war fertig. Die
+    /// Antwort kam an, wurde keinem Wartenden zugeordnet und fiel aus dem
+    /// Empfang heraus - die Einträge, um die es ging, hat nie jemand gesehen.
+    /// </remarks>
+    public async Task<IReadOnlyList<PubSubItem>?> PubSubGetItemsAsync(String             nodeId,
+                                                                      Int32?             maxItems  = null,
+                                                                      String?            service   = null,
+                                                                      CancellationToken  ct        = default)
     {
-        await SendAsync(PubSubBuilder.DeleteNode(service ?? PubSub!.PubSubService, nodeId));
-    }
 
-    public async Task PubSubGetItemsAsync(string nodeId, int? maxItems = null, string? service = null)
-    {
-        await SendAsync(PubSubBuilder.GetItems(service ?? PubSub!.PubSubService, nodeId, maxItems));
+        var ziel     = service ?? PubSub!.PubSubService;
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id, PubSubBuilder.GetItems(ziel, nodeId, maxItems, id), ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: {Node} bei {Service} nicht abgerufen: {Reason}",
+                               nodeId, ziel,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return null;
+        }
+
+        var items = antwort.Child(PubSubSubscription.Namespace, "pubsub")
+                          ?.Child(PubSubSubscription.Namespace, "items");
+
+        if (items is null)
+            return null;
+
+        return [.. items.Children(PubSubSubscription.Namespace, "item")
+                        .Where (item => item.Attr("id") is not null)
+                        .Select(item => new PubSubItem(item.Attr("id")!,
+                                                       items.Attr("node") ?? nodeId,
+                                                       String.Concat(item.Nodes())))];
+
     }
 
     // ===== HELPERS =====
