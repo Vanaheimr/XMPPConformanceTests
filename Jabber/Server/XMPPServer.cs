@@ -2050,7 +2050,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (!AnswerPepRequests)
                 return true;
 
-            #region Knoten einstellen (Eigentümer)
+            #region Eigentümer-Anweisungen (XEP-0060, Abschnitt 8)
 
             if (owner is not null)
             {
@@ -2058,28 +2058,52 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (type is not ("get" or "set"))
                     return false;
 
+                // Drei Anweisungen und ein gemeinsamer Vorspann: Wem gehört der
+                // Knoten, und gibt es ihn überhaupt.
+                //
+                // Er stand einmal bei jeder einzeln - dieselbe Entscheidung an
+                // mehreren Stellen, und jede hätte die anderen still überholen
+                // können. Wer eine davon lockert, lockert sie hier für alle
+                // sichtbar oder gar nicht.
+                var anweisung = owner.Child(PubSubOwnerNamespace, "affiliations")  ??
+                                owner.Child(PubSubOwnerNamespace, "subscriptions") ??
+                                owner.Child(PubSubOwnerNamespace, "configure");
+
+                if (anweisung is null)
+                    return false;
+
+                // Ein PEP-Knoten gehört einem Menschen, und über ihn bestimmt
+                // nur der. Fremde Knoten sind hier nicht bloss unzugänglich -
+                // wer sie einstellen könnte, könnte etwa die Ablage abschalten
+                // und damit fremde Bundles unerreichbar machen, ohne dass
+                // irgendetwas nach einem Fehler aussieht.
+                if (to is not null &&
+                    !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+                    return true;
+                }
+
+                var node = anweisung.Attr("node");
+
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                var bestand = session.Account.PepNodeConfiguration(node);
+
+                if (bestand is null)
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
+                    return true;
+                }
+
                 #region Rollen verwalten (XEP-0060, Abschnitt 8.9)
 
-                if (owner.Child(PubSubOwnerNamespace, "affiliations") is { } rollen)
+                if (anweisung.Name.LocalName == "affiliations")
                 {
-
-                    if (to is not null &&
-                        !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
-                    {
-                        await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
-                        return true;
-                    }
-
-                    var wessen = rollen.Attr("node");
-
-                    if (String.IsNullOrEmpty(wessen) || !session.Account.PepNodeExists(wessen))
-                    {
-                        await session.SendAsync(
-                            String.IsNullOrEmpty(wessen)
-                                ? BadRequestIq(id)
-                                : StanzaErrorIq(id, "item-not-found"));
-                        return true;
-                    }
 
                     if (type == "get")
                     {
@@ -2087,8 +2111,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                         await session.SendAsync(
                             $"<iq type='result' id='{id}'>" +
                             $"<pubsub xmlns='{PubSubOwnerNamespace}'>" +
-                            $"<affiliations node='{XmlEscaping.Escape(wessen)}'>" +
-                            String.Concat(session.Account.PepAffiliations(wessen).Select(r =>
+                            $"<affiliations node='{XmlEscaping.Escape(node)}'>" +
+                            String.Concat(session.Account.PepAffiliations(node).Select(r =>
                                 $"<affiliation jid='{XmlEscaping.Escape(r.Jid)}'" +
                                 $" affiliation='{PubSubAffiliations.NameOf(r.Affiliation)}'/>")) +
                             "</affiliations></pubsub></iq>");
@@ -2097,7 +2121,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     }
 
-                    foreach (var eintrag in rollen.Children(PubSubOwnerNamespace, "affiliation"))
+                    foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "affiliation"))
                     {
 
                         // Erst alles prüfen, dann alles ausführen: Eine
@@ -2123,10 +2147,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     }
 
-                    foreach (var eintrag in rollen.Children(PubSubOwnerNamespace, "affiliation"))
+                    foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "affiliation"))
                     {
                         PubSubAffiliations.TryRead(eintrag.Attr("affiliation"), out var rolle);
-                        session.Account.SetPepAffiliation(wessen, BareOf(eintrag.Attr("jid")!)!, rolle);
+                        session.Account.SetPepAffiliation(node, BareOf(eintrag.Attr("jid")!)!, rolle);
                     }
 
                     await session.SendAsync($"<iq type='result' id='{id}'/>");
@@ -2137,36 +2161,118 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 #endregion
 
-                if (owner.Child(PubSubOwnerNamespace, "configure") is not { } konfiguration)
-                    return false;
+                #region Abonnenten verwalten (XEP-0060, Abschnitt 8.8)
 
-                // Ein PEP-Knoten gehört einem Menschen, und einstellen darf ihn
-                // nur der. Fremde Knoten sind hier nicht bloss unzugänglich -
-                // wer sie einstellen könnte, könnte etwa die Ablage abschalten
-                // und damit fremde Bundles unerreichbar machen, ohne dass
-                // irgendetwas nach einem Fehler aussieht.
-                if (to is not null &&
-                    !String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                if (anweisung.Name.LocalName == "subscriptions")
                 {
-                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+
+                    var abonnenten = session.Account.PepSubscriptions(node);
+
+                    // XEP-0060, Abschnitt 8.8.1: Wer an diesem Knoten hängt.
+                    //
+                    // <b>Das Gegenteil von Abschnitt 5.6, und mit Absicht.</b>
+                    // Dort werden fremde Abonnements verschwiegen, weil sie
+                    // eine Auskunft über Menschen wären - wer sich wofür
+                    // interessiert, über alle Knoten hinweg. Hier ist die Frage
+                    // eine andere: nicht „wo ist dieser Mensch überall", sondern
+                    // „wer hängt an meinem Knoten". Diese Liste ist eine
+                    // Auskunft über den Knoten, und der Eigentümer ist der, von
+                    // dem die Empfänger ihre Daten bekommen. Ihm die Empfänger
+                    // vorzuenthalten hiesse, ihn für eine Verteilung
+                    // verantwortlich zu machen, die er nicht sehen darf.
+                    if (type == "get")
+                    {
+
+                        // Der Zustand steht fest da: Dieser Server kennt keine
+                        // Genehmigung, also ist jedes eingetragene Abonnement
+                        // ein abonniertes. Käme `authorize` dazu, wäre dies
+                        // eine der Stellen, die einen echten Zustand brauchen.
+                        await session.SendAsync(
+                            $"<iq type='result' id='{id}'>" +
+                            $"<pubsub xmlns='{PubSubOwnerNamespace}'>" +
+                            $"<subscriptions node='{XmlEscaping.Escape(node)}'>" +
+                            String.Concat(abonnenten.Select(a =>
+                                $"<subscription jid='{XmlEscaping.Escape(a.Jid)}'" +
+                                $" subid='{a.SubId}'" +
+                                " subscription='subscribed'/>")) +
+                            "</subscriptions></pubsub></iq>");
+
+                        return true;
+
+                    }
+
+                    // Erst alles prüfen, dann alles ausführen - wie bei den
+                    // Rollen und aus demselben Grund.
+                    foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "subscription"))
+                    {
+
+                        if (eintrag.Attr("jid") is not String wer ||
+                            !PubSubSubscription.TryReadState(eintrag.Attr("subscription"), out var zustand))
+                        {
+                            await session.SendAsync(BadRequestIq(id));
+                            return true;
+                        }
+
+                        var gemeint = eintrag.Attr("subid");
+
+                        var vorhanden = abonnenten.Any(
+                                            a => String.Equals(a.Jid, BareOf(wer), StringComparison.OrdinalIgnoreCase) &&
+                                                 (gemeint is null || String.Equals(a.SubId, gemeint, StringComparison.Ordinal)));
+
+                        // XEP-0060, Abschnitt 8.8.2 lässt den Eigentümer auch
+                        // anmelden. <b>Dieser Server nur abmelden.</b> Jemanden
+                        // einzutragen, der nicht gefragt hat, ist genau das,
+                        // was Abschnitt 6.1.3.1 auf der anderen Seite
+                        // verhindert; dass es der eigene Knoten ist, ändert
+                        // nichts für den, dessen Postfach sich füllt. Ohne
+                        // Genehmigungsverfahren gäbe es dazu auch nichts, was
+                        // vorher eine Frage gewesen wäre.
+                        if (zustand != PubSubSubscriptionState.None)
+                        {
+
+                            // Den bestehenden Zustand noch einmal zu nennen ist
+                            // keine Anweisung, sondern eine Bestätigung. Eine
+                            // Liste, die sich nicht unverändert zurückschicken
+                            // lässt, wäre kein Zustand, sondern ein Formular.
+                            if (zustand == PubSubSubscriptionState.Subscribed && vorhanden)
+                                continue;
+
+                            await session.SendAsync(StanzaErrorIq(id, "not-allowed", "cancel"));
+                            return true;
+
+                        }
+
+                        // Was niemand findet, wird auch nicht beendet.
+                        // Stillschweigend zuzustimmen hiesse, den Erfolg einer
+                        // Anweisung zu melden, die ins Leere ging - ein
+                        // Tippfehler im JID, und der Eigentümer hielte jemanden
+                        // für entfernt, der weiter alles bekommt.
+                        if (!vorhanden)
+                        {
+                            await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
+                            return true;
+                        }
+
+                    }
+
+                    foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "subscription"))
+                    {
+                        PubSubSubscription.TryReadState(eintrag.Attr("subscription"), out var zustand);
+                        if (zustand == PubSubSubscriptionState.None)
+                            session.Account.RemovePepSubscriptions(node,
+                                                                   BareOf(eintrag.Attr("jid")!),
+                                                                   eintrag.Attr("subid"));
+                    }
+
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+
                     return true;
+
                 }
 
-                var node = konfiguration.Attr("node");
+                #endregion
 
-                if (String.IsNullOrEmpty(node))
-                {
-                    await session.SendAsync(BadRequestIq(id));
-                    return true;
-                }
-
-                var bestand = session.Account.PepNodeConfiguration(node);
-
-                if (bestand is null)
-                {
-                    await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
-                    return true;
-                }
+                #region Knoten einstellen (XEP-0060, Abschnitt 8.2)
 
                 if (type == "get")
                 {
@@ -2182,7 +2288,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 }
 
-                var formular = konfiguration.Child(DataFormNamespace, "x");
+                var formular = anweisung.Child(DataFormNamespace, "x");
 
                 if (formular is null ||
                     !PubSubNodeConfiguration.TryRead(formular, bestand, out var eingestellt))
@@ -2196,6 +2302,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 await session.SendAsync($"<iq type='result' id='{id}'/>");
 
                 return true;
+
+                #endregion
 
             }
 

@@ -110,4 +110,23 @@ public sealed record PubSubSubscription(String                      NodeId,
                _               => PubSubSubscriptionState.None
            };
 
+    /// <summary>
+    /// Derselbe Name, streng gelesen: false, wenn es kein Zustandsname ist.
+    /// </summary>
+    /// <remarks>
+    /// <b>Dieselbe Unterscheidung wie bei den Formularen.</b> Eine Antwort wird
+    /// nachsichtig gelesen - was dieser Client nicht kennt, gilt als „nicht
+    /// abonniert", und das ist die sichere Annahme. Eine <i>Anweisung</i> wird
+    /// streng gelesen: Dort ist <c>none</c> das Beenden eines Abonnements, und
+    /// ein Tippfehler dürfte nicht dasselbe bewirken.
+    /// </remarks>
+    public static Boolean TryReadState(String? name, out PubSubSubscriptionState state)
+    {
+
+        state = StateOf(name);
+
+        return name is "none" or "subscribed" or "pending" or "unconfigured";
+
+    }
+
 }

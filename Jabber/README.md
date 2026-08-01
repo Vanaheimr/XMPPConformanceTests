@@ -677,6 +677,20 @@ miteinander sprechen:
   Knoten, mit Kennung und Zustand, auf Wunsch auf einen Knoten eingeschränkt.
   **Nur die eigenen** — wer fremde aufzählen dürfte, erführe, wer sich wofür
   interessiert. Keine Abonnements sind eine leere Liste und kein Fehler
+- XEP-0060 §8.8 Die Abonnenten eines Knotens — **die Gegenrichtung zu §5.6 und
+  mit Absicht:** Dort werden fremde Abonnements verschwiegen, weil sie eine
+  Auskunft über Menschen wären; hier lautet die Frage nicht „wo hängt dieser
+  Mensch überall", sondern „wer hängt an meinem Knoten", und die beantwortet
+  der Server dem Eigentümer. Jeder Eintrag nennt seine Kennung, derselbe JID
+  also mehrfach — ohne sie liesse sich keines seiner Abonnements von dem
+  anderen unterscheiden. Entfernt wird mit `subscription='none'`: mit `subid`
+  genau eines, ohne `subid` alle dieses JIDs, denn der Eigentümer meint den
+  Menschen und nicht die Buchführung. Was niemand findet, wird nicht entfernt,
+  sondern abgewiesen. **Anmelden kann der Eigentümer nicht** — das ist genau
+  das, was §6.1.3.1 auf der anderen Seite verhindert, und der eigene Knoten
+  ändert nichts für den, dessen Postfach sich füllt. Ein `subscribed` für ein
+  bestehendes Abonnement ist trotzdem gültig: Eine Liste, die sich nicht
+  unverändert zurückschicken lässt, wäre kein Zustand
 - XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
   **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
   ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die

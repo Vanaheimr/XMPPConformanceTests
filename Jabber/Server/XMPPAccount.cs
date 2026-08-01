@@ -634,6 +634,54 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// Beendet Abonnements auf Anweisung des Eigentümers (XEP-0060,
+        /// Abschnitt 8.8.2).
+        /// </summary>
+        /// <param name="subId">
+        /// Ein bestimmtes Abonnement, oder null für alle dieses JIDs an diesem
+        /// Knoten.
+        /// </param>
+        /// <returns>
+        /// Die beendeten Abonnements - eine leere Liste, wenn es keines gab.
+        /// Nicht die Zahl: Wer den Abonnenten benachrichtigen will, muss
+        /// wissen, welche Kennung erloschen ist.
+        /// </returns>
+        /// <remarks>
+        /// <b>Ohne Kennung gehen alle, und das ist kein Widerspruch zu
+        /// Abschnitt 6.2.3.1.</b> Dort muss der Abonnent sagen, welches seiner
+        /// Abonnements er meint, weil die anderen seine bleiben sollen. Hier
+        /// meint der Eigentümer den Menschen und nicht die Buchführung: Eines
+        /// stehen zu lassen hiesse, die Anweisung zur Hälfte auszuführen - und
+        /// der Betroffene bekäme weiter alles.
+        /// </remarks>
+        public IReadOnlyList<PepSubscription> RemovePepSubscriptions(String   node,
+                                                                    String   subscriberBareJid,
+                                                                    String?  subId = null)
+        {
+
+            lock (_lock)
+            {
+
+                if (!_pepSubscriptions.TryGetValue(node, out var abonnements))
+                    return [];
+
+                var betroffen = abonnements.FindAll(
+                                    a => String.Equals(a.Jid, subscriberBareJid, StringComparison.OrdinalIgnoreCase) &&
+                                         (subId is null || String.Equals(a.SubId, subId, StringComparison.Ordinal)));
+
+                foreach (var eines in betroffen)
+                    abonnements.Remove(eines);
+
+                if (abonnements.Count == 0)
+                    _pepSubscriptions.Remove(node);
+
+                return betroffen;
+
+            }
+
+        }
+
+        /// <summary>
         /// Stellt ein Abonnement ein (XEP-0060, Abschnitt 6.3).
         /// </summary>
         public PepSubscriptionResult SetPepSubscriptionOptions(String                     node,

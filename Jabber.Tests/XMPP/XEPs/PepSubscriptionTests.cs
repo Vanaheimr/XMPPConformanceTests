@@ -232,13 +232,32 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                "<subscriptions" + (node is null ? "" : $" node='{node}'") + "/>" +
                "</pubsub></iq>";
 
-        /// <summary>Die Einträge einer Sammelabfrage.</summary>
-        private static List<XElement> SubscriptionsIn(XElement antwort)
-            => [.. antwort.Child(PubSubNamespace, "pubsub")
-                         ?.Child(PubSubNamespace, "subscriptions")
-                         ?.Children(PubSubNamespace, "subscription") ?? []];
+        /// <summary>Die Einträge einer Abonnementliste.</summary>
+        private static List<XElement> SubscriptionsIn(XElement antwort, String? ns = null)
+            => [.. antwort.Child(ns ?? PubSubNamespace, "pubsub")
+                         ?.Child(ns ?? PubSubNamespace, "subscriptions")
+                         ?.Children(ns ?? PubSubNamespace, "subscription") ?? []];
 
         private const String OwnerNamespace = "http://jabber.org/protocol/pubsub#owner";
+
+        /// <summary>
+        /// Die Abonnenten-Anfrage des Eigentümers (XEP-0060, Abschnitt 8.8).
+        /// </summary>
+        private String NodeSubscriptionsIq(String   id,
+                                           String   art,
+                                           String?  inhalt = null,
+                                           String?  node   = null)
+
+            => $"<iq type='{art}' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<subscriptions node='{node ?? Node}'" +
+               (inhalt is null ? "/>" : $">{inhalt}</subscriptions>") +
+               "</pubsub></iq>";
+
+        /// <summary>Ein Eintrag in einer Abonnenten-Anweisung.</summary>
+        private static String SubscriberEntry(String jid, String zustand, String? subId = null)
+            => $"<subscription jid='{jid}' subscription='{zustand}'" +
+               (subId is null ? "" : $" subid='{subId}'") + "/>";
 
         /// <summary>Ein <c>&lt;configure/&gt;</c>-IQ im Eigentümer-Namensraum.</summary>
         private String ConfigureIq(String   id,
@@ -2989,6 +3008,559 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung an den Kontakt");
 
             Assert.That(SubIdsIn(ereignisse), Is.Empty);
+
+        }
+
+        #endregion
+
+
+        #region TheSubscriberList_NamesEverybodyWithHisSubId()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.8.1: Wer am Knoten hängt - mit Kennung, und
+        /// derselbe JID mehrfach, wenn er mehrfach abonniert hat.
+        /// </summary>
+        /// <remarks>
+        /// Die Kennung ist hier keine Zierde. Ohne sie stünde Alice zweimal
+        /// gleich da, und der Eigentümer könnte das eine ihrer Abonnements
+        /// nicht von dem anderen unterscheiden - also auch keines davon
+        /// einzeln beenden.
+        /// </remarks>
+        [Test]
+        public async Task TheSubscriberList_NamesEverybodyWithHisSubId()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            var erste  = await SubscribeAsync(alice, "abo-1");
+            var zweite = await SubscribeAsync(alice, "abo-2");
+            var dritte = await SubscribeAsync(carol, "abo-3");
+
+            var liste = await AskAsync(bob, "subm-1", NodeSubscriptionsIq("subm-1", "get"));
+
+            var eintraege = SubscriptionsIn(liste, OwnerNamespace);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(eintraege.Select(e => (e.Attr("jid"), e.Attr("subid"))),
+                            Is.EquivalentTo(new[] {
+                                ($"alice@{Server.Domain}", erste),
+                                ($"alice@{Server.Domain}", zweite),
+                                ($"carol@{Server.Domain}", dritte)
+                            }));
+
+                Assert.That(eintraege.Select(e => e.Attr("subscription")).Distinct(),
+                            Is.EqualTo(new[] { "subscribed" }),
+                            "Ohne Genehmigungsverfahren ist jedes eingetragene Abonnement ein abonniertes.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheSubscriberList_IsOnlyForTheOwner()
+
+        /// <summary>
+        /// Die Liste sagt, wer sich für Bobs Knoten interessiert - und das geht
+        /// niemanden ausser Bob etwas an.
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Unterschied zu Abschnitt 5.6.</b> Dort verschweigt der Server
+        /// fremde Abonnements, weil sie eine Auskunft über Menschen wären. Hier
+        /// gibt er sie heraus, weil die Frage eine andere ist: nicht „wo hängt
+        /// dieser Mensch überall", sondern „wer hängt an meinem Knoten". Wer
+        /// veröffentlicht, muss wissen dürfen, wohin es geht.
+        /// </remarks>
+        [Test]
+        public async Task TheSubscriberList_IsOnlyForTheOwner()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-4");
+
+            var antwort = await AskAsync(alice, "subm-2", NodeSubscriptionsIq("subm-2", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort), Is.EqualTo("forbidden"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheSubscriberList_OfANodeThatIsNotThere_IsRejected()
+
+        /// <summary>
+        /// Ein Knoten, den es nicht gibt, hat keine leere Abonnentenliste - er
+        /// hat gar keine.
+        /// </summary>
+        [Test]
+        public async Task TheSubscriberList_OfANodeThatIsNotThere_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var erfunden = await AskAsync(bob, "subm-3",
+                                          NodeSubscriptionsIq("subm-3", "get", node: "urn:example:nichts"));
+
+            var ohne     = await AskAsync(bob, "subm-4",
+                                          $"<iq type='get' to='bob@{Server.Domain}' id='subm-4'>" +
+                                          $"<pubsub xmlns='{OwnerNamespace}'><subscriptions/></pubsub></iq>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(erfunden), Is.EqualTo("item-not-found"));
+                Assert.That(ConditionOf(ohne),     Is.EqualTo("bad-request"),
+                            "Ohne Knotennamen ist die Frage unvollständig und nicht unbeantwortbar.");
+            });
+
+        }
+
+        #endregion
+
+        #region TheOwner_RemovesASubscriber_AndTheEventsStop()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.8.2: <c>subscription='none'</c> beendet das
+        /// Abonnement, ohne dass der Abonnent gefragt worden wäre.
+        /// </summary>
+        /// <remarks>
+        /// Anders als der Ausschluss über <c>outcast</c>: Der sperrt auf Dauer,
+        /// dies nimmt nur weg, was gerade besteht. Alice darf danach wieder
+        /// abonnieren - der Eigentümer hat sie entfernt, nicht ausgeschlossen.
+        /// </remarks>
+        [Test]
+        public async Task TheOwner_RemovesASubscriber_AndTheEventsStop()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-5");
+
+            var entfernt = await AskAsync(bob, "subm-5",
+                                          NodeSubscriptionsIq("subm-5", "set",
+                                                              SubscriberEntry(alice.BareJid, "none")));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-9",
+                           PublishIq("pub-9", Node, "9", "<wetter xmlns='urn:example:x'>Frost</wetter>"));
+
+            await WaitAgainst(() => Count(ereignisse) > 0,
+                              "eine Benachrichtigung an den entfernten Abonnenten");
+
+            var liste = await AskAsync(bob, "subm-6", NodeSubscriptionsIq("subm-6", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(entfernt.Attr("type"),                     Is.EqualTo("result"));
+                Assert.That(SubscriptionsIn(liste, OwnerNamespace),    Is.Empty);
+            });
+
+            var wieder = await SubscribeAsync(alice, "abo-6");
+
+            Assert.That(wieder, Is.Not.Empty,
+                        "Entfernt ist nicht ausgeschlossen: Alice darf wieder abonnieren.");
+
+        }
+
+        #endregion
+
+        #region WithoutASubId_TheWholeSubscriberGoes()
+
+        /// <summary>
+        /// Ohne Kennung meint der Eigentümer den Menschen und nicht eines
+        /// seiner Abonnements.
+        /// </summary>
+        /// <remarks>
+        /// <b>Und das ist kein Widerspruch zu Abschnitt 6.2.3.1.</b> Dort muss
+        /// der Abonnent sagen, welches er meint, weil die anderen seine bleiben
+        /// sollen. Hier eines stehen zu lassen hiesse, die Anweisung zur Hälfte
+        /// auszuführen - der Entfernte bekäme weiter alles.
+        /// </remarks>
+        [Test]
+        public async Task WithoutASubId_TheWholeSubscriberGoes()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-7");
+            await SubscribeAsync(alice, "abo-8");
+
+            await AskAsync(bob, "subm-7",
+                           NodeSubscriptionsIq("subm-7", "set",
+                                               SubscriberEntry(alice.BareJid, "none")));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-10",
+                           PublishIq("pub-10", Node, "10", "<wetter xmlns='urn:example:x'>Hagel</wetter>"));
+
+            await WaitAgainst(() => Count(ereignisse) > 0,
+                              "eine Benachrichtigung an das übriggebliebene Abonnement");
+
+            var liste = await AskAsync(bob, "subm-8", NodeSubscriptionsIq("subm-8", "get"));
+
+            Assert.That(SubscriptionsIn(liste, OwnerNamespace), Is.Empty);
+
+        }
+
+        #endregion
+
+        #region RemovingOne_LeavesTheOthers()
+
+        /// <summary>
+        /// Wer einen entfernt, entfernt einen - und nicht den Knoten leer.
+        /// </summary>
+        /// <remarks>
+        /// Die Selbstverständlichkeit, die man prüfen muss: Der Eigentümer
+        /// merkt einen zu viel entfernten Abonnenten nicht. Der Betroffene
+        /// merkt es und weiss nicht, warum.
+        /// </remarks>
+        [Test]
+        public async Task RemovingOne_LeavesTheOthers()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await SubscribeAsync(alice, "abo-17");
+
+            var seines = await SubscribeAsync(carol, "abo-18");
+
+            await AskAsync(bob, "subm-21",
+                           NodeSubscriptionsIq("subm-21", "set",
+                                               SubscriberEntry(alice.BareJid, "none")));
+
+            var beiCarol = CollectEvents(carol);
+
+            await AskAsync(bob, "pub-14",
+                           PublishIq("pub-14", Node, "14", "<wetter xmlns='urn:example:x'>Wind</wetter>"));
+
+            await WaitFor(() => Count(beiCarol) > 0, "die Benachrichtigung an den anderen Abonnenten");
+
+            var liste = await AskAsync(bob, "subm-22", NodeSubscriptionsIq("subm-22", "get"));
+
+            Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => (e.Attr("jid"), e.Attr("subid"))),
+                        Is.EqualTo(new[] { ($"carol@{Server.Domain}", seines) }));
+
+        }
+
+        #endregion
+
+        #region WithASubId_OnlyThatOneGoes()
+
+        /// <summary>
+        /// Mit Kennung geht genau eines - das andere liefert weiter.
+        /// </summary>
+        [Test]
+        public async Task WithASubId_OnlyThatOneGoes()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste  = await SubscribeAsync(alice, "abo-9");
+            var zweite = await SubscribeAsync(alice, "abo-10");
+
+            await AskAsync(bob, "subm-9",
+                           NodeSubscriptionsIq("subm-9", "set",
+                                               SubscriberEntry(alice.BareJid, "none", erste)));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-11",
+                           PublishIq("pub-11", Node, "11", "<wetter xmlns='urn:example:x'>Nebel</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung an das zweite Abonnement");
+
+            var liste = await AskAsync(bob, "subm-10", NodeSubscriptionsIq("subm-10", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(SubIdsIn(ereignisse), Is.EqualTo(new[] { zweite }),
+                            "Es liefert das Abonnement, das geblieben ist.");
+
+                Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subid")),
+                            Is.EqualTo(new[] { zweite }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region RemovingSomebodyWhoIsNotThere_IsRejected()
+
+        /// <summary>
+        /// Was niemand findet, wird auch nicht beendet.
+        /// </summary>
+        /// <remarks>
+        /// Stillschweigend zuzustimmen hiesse, den Erfolg einer Anweisung zu
+        /// melden, die ins Leere ging. Ein Tippfehler im JID, und der
+        /// Eigentümer hielte jemanden für entfernt, der weiter alles bekommt -
+        /// dieselbe Verwechslung wie überall in dieser Reihe, nur diesmal von
+        /// der bequemen Seite aus.
+        /// </remarks>
+        [Test]
+        public async Task RemovingSomebodyWhoIsNotThere_IsRejected()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-11");
+
+            var fremd = await AskAsync(bob, "subm-11",
+                                       NodeSubscriptionsIq("subm-11", "set",
+                                                           SubscriberEntry($"carol@{Server.Domain}", "none")));
+
+            var falsch = await AskAsync(bob, "subm-12",
+                                        NodeSubscriptionsIq("subm-12", "set",
+                                                            SubscriberEntry(alice.BareJid, "none", "gibtesnicht")));
+
+            var liste = await AskAsync(bob, "subm-13", NodeSubscriptionsIq("subm-13", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(fremd),  Is.EqualTo("item-not-found"),
+                            "Carol hat nie abonniert.");
+
+                Assert.That(ConditionOf(falsch), Is.EqualTo("item-not-found"),
+                            "Und diese Kennung gehört zu keinem Abonnement.");
+
+                Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subid")),
+                            Is.EqualTo(new[] { subId }),
+                            "Alices Abonnement steht unangetastet da.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheOwner_CannotEnrolSomebody()
+
+        /// <summary>
+        /// Der Eigentümer darf wegnehmen und nicht hergeben.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0060, Abschnitt 8.8.2 lässt ihn auch anmelden; dieser Server
+        /// nicht. Jemanden einzutragen, der nicht gefragt hat, ist genau das,
+        /// was Abschnitt 6.1.3.1 auf der anderen Seite verhindert - und dass es
+        /// der eigene Knoten ist, ändert nichts für den, dessen Postfach sich
+        /// füllt.
+        /// </remarks>
+        [Test]
+        public async Task TheOwner_CannotEnrolSomebody()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var abgewiesen = await AskAsync(bob, "subm-14",
+                                            NodeSubscriptionsIq("subm-14", "set",
+                                                                SubscriberEntry(alice.BareJid, "subscribed")));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-12",
+                           PublishIq("pub-12", Node, "12", "<wetter xmlns='urn:example:x'>Sturm</wetter>"));
+
+            await WaitAgainst(() => Count(ereignisse) > 0,
+                              "eine Benachrichtigung an einen ungefragt Angemeldeten");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(abgewiesen), Is.EqualTo("not-allowed"));
+                Assert.That(ErrorTypeOf(abgewiesen), Is.EqualTo("cancel"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheListCanBeSentBackUnchanged()
+
+        /// <summary>
+        /// Was der Server als Zustand herausgibt, nimmt er auch wieder an.
+        /// </summary>
+        /// <remarks>
+        /// Eine Liste, die sich nicht unverändert zurückschicken lässt, wäre
+        /// kein Zustand, sondern ein Formular. <c>subscribed</c> für ein
+        /// bestehendes Abonnement ist keine Anweisung, sondern eine Bestätigung
+        /// - und ändert entsprechend nichts.
+        /// </remarks>
+        [Test]
+        public async Task TheListCanBeSentBackUnchanged()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-12");
+
+            var zurueck = await AskAsync(bob, "subm-15",
+                                         NodeSubscriptionsIq("subm-15", "set",
+                                                             SubscriberEntry(alice.BareJid, "subscribed", subId)));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-13",
+                           PublishIq("pub-13", Node, "13", "<wetter xmlns='urn:example:x'>Tau</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0,
+                          "die Benachrichtigung an das bestätigte Abonnement");
+
+            Assert.That(zurueck.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region AnUnknownState_IsRejectedAndChangesNothing()
+
+        /// <summary>
+        /// Eine Anweisung wird streng gelesen: Was kein Zustandsname ist,
+        /// bewirkt nichts.
+        /// </summary>
+        /// <remarks>
+        /// Die Antwort eines Dienstes wird nachsichtig gelesen - Unbekanntes
+        /// gilt dort als „nicht abonniert", die sichere Annahme. Hier gerade
+        /// nicht: Wäre Unbekanntes auch hier ein <c>none</c>, beendete ein
+        /// Tippfehler ein Abonnement.
+        /// </remarks>
+        [Test]
+        public async Task AnUnknownState_IsRejectedAndChangesNothing()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-13");
+
+            var unsinn = await AskAsync(bob, "subm-16",
+                                        NodeSubscriptionsIq("subm-16", "set",
+                                                            SubscriberEntry(alice.BareJid, "nonw")));
+
+            var schwebend = await AskAsync(bob, "subm-17",
+                                           NodeSubscriptionsIq("subm-17", "set",
+                                                               SubscriberEntry(alice.BareJid, "pending", subId)));
+
+            var liste = await AskAsync(bob, "subm-18", NodeSubscriptionsIq("subm-18", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(unsinn),    Is.EqualTo("bad-request"),
+                            "Kein Zustandsname - und beinahe einer.");
+
+                Assert.That(ConditionOf(schwebend), Is.EqualTo("not-allowed"),
+                            "Ein Zustandsname, aber keiner, den dieser Server herstellen kann.");
+
+                Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subid")),
+                            Is.EqualTo(new[] { subId }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region HalfAnInstruction_IsNoInstruction()
+
+        /// <summary>
+        /// Erst alles prüfen, dann alles ausführen: Ein fehlerhafter Eintrag
+        /// verwirft auch die gültigen davor.
+        /// </summary>
+        /// <remarks>
+        /// Eine Anweisung, die zur Hälfte gilt, wäre schlimmer als eine, die
+        /// ganz abgewiesen wird - der Absender wüsste nicht, welche Hälfte.
+        /// </remarks>
+        [Test]
+        public async Task HalfAnInstruction_IsNoInstruction()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            var ihres  = await SubscribeAsync(alice, "abo-14");
+            var seines = await SubscribeAsync(carol, "abo-15");
+
+            var abgewiesen = await AskAsync(bob, "subm-19",
+                                            NodeSubscriptionsIq("subm-19", "set",
+                                                                SubscriberEntry(alice.BareJid, "none") +
+                                                                SubscriberEntry(carol.BareJid, "vielleicht")));
+
+            var liste = await AskAsync(bob, "subm-20", NodeSubscriptionsIq("subm-20", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(abgewiesen), Is.EqualTo("bad-request"));
+
+                Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subid")),
+                            Is.EquivalentTo(new[] { ihres, seines }),
+                            "Auch Alices Abonnement steht noch da - geprüft wurde vor dem ersten Schritt.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheAccountApi_RemovesNothingFromANodeThatIsNotThere()
+
+        /// <summary>
+        /// Auch unterhalb des Protokolls: Was nicht da ist, wird nicht
+        /// entfernt, und die Antwort sagt es.
+        /// </summary>
+        /// <remarks>
+        /// Die Rückgabe ist die Liste der beendeten Abonnements und nicht ihre
+        /// Zahl: Wer den Abonnenten benachrichtigen will, muss wissen, welche
+        /// Kennung erloschen ist.
+        /// </remarks>
+        [Test]
+        public async Task TheAccountApi_RemovesNothingFromANodeThatIsNotThere()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            await SubscribeAsync(alice, "abo-16");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(konto.RemovePepSubscriptions("urn:example:nichts", alice.BareJid),
+                            Is.Empty);
+
+                Assert.That(konto.RemovePepSubscriptions(Node, $"carol@{Server.Domain}"),
+                            Is.Empty);
+
+                Assert.That(konto.RemovePepSubscriptions(Node, alice.BareJid).Select(a => a.Jid),
+                            Is.EqualTo(new[] { alice.BareJid }));
+
+                Assert.That(konto.PepSubscriptions(Node), Is.Empty);
+
+            });
 
         }
 

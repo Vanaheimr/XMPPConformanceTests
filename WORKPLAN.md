@@ -6015,6 +6015,62 @@ Rostergruppen als Zugriffsregel bräuchte.
 
 ---
 
+### D84. Wer an meinem Knoten hängt ✅ — die Abonnenten-Sicht des Eigentümers
+
+In D79 stand über die Sammelabfrage: „Wer fremde aufzählen dürfte, erführe, wer
+sich wofür interessiert — eine Auskunft über Menschen, nicht über Knoten."
+Jetzt tut der Server genau das, und es ist kein Rückzieher, sondern eine andere
+Frage. **Abschnitt 5.6 fragt „wo hängt dieser Mensch überall", Abschnitt 8.8
+fragt „wer hängt an meinem Knoten".** Das erste ist ein Interessenprofil und
+geht über alle Knoten eines Dienstes; das zweite ist eine Auskunft über einen
+Knoten — und wer sie nicht bekommt, ist derjenige, von dem alle Empfänger ihre
+Daten haben. Ihm die Empfängerliste vorzuenthalten hiesse, ihn für eine
+Verteilung verantwortlich zu machen, die er nicht sehen darf.
+
+**Die Kennung ist hier keine Zierde.** Seit D72 kann derselbe JID mehrfach
+abonniert sein; ohne `subid` stünde er zweimal gleich da, und der Eigentümer
+könnte keines seiner Abonnements von dem anderen unterscheiden — also auch
+keines einzeln beenden.
+
+Drei Entscheidungen:
+
+- **Der Eigentümer darf wegnehmen, nicht hergeben.** Abschnitt 8.8.2 lässt ihn
+  auch anmelden; dieser Server nicht. Jemanden einzutragen, der nicht gefragt
+  hat, ist genau das, was Abschnitt 6.1.3.1 auf der anderen Seite verhindert,
+  und dass es der eigene Knoten ist, ändert nichts für den, dessen Postfach
+  sich füllt. Ohne Genehmigungsvorgang gäbe es dazu auch nichts, was vorher
+  eine Frage gewesen wäre.
+- **Ohne Kennung gehen alle** — kein Widerspruch zu Abschnitt 6.2.3.1. Dort
+  muss der *Abonnent* sagen, welches er meint, weil die anderen seine bleiben
+  sollen. Hier meint der *Eigentümer* den Menschen und nicht die Buchführung:
+  Eines stehen zu lassen hiesse, die Anweisung zur Hälfte auszuführen, und der
+  Entfernte bekäme weiter alles.
+- **Was niemand findet, wird nicht beendet, sondern abgewiesen.** Ein `none`
+  für einen, der gar nicht abonniert hat, stillschweigend gelten zu lassen wäre
+  wieder die Meldung über etwas, das niemand nachgesehen hat — ein Tippfehler
+  im JID, und der Eigentümer hielte jemanden für entfernt, der weiter alles
+  bekommt.
+
+Ein `subscribed` für ein *bestehendes* Abonnement gilt trotzdem: Es ist keine
+Anweisung, sondern eine Bestätigung. **Eine Liste, die sich nicht unverändert
+zurückschicken lässt, wäre kein Zustand, sondern ein Formular.**
+
+Und die Lehre aus D83 diesmal vorher gezogen statt hinterher: Der
+Eigentümer-Block prüfte Besitz und Knoten an **jeder** Anweisung einzeln — mit
+den Abonnenten wäre es die dritte Kopie derselben Entscheidung geworden. Jetzt
+steht der Vorspann einmal davor, und wer ihn lockert, lockert ihn für alle
+sichtbar oder gar nicht.
+
+**Was hier noch fehlt:** Der Entfernte erfährt nichts davon. Er wartet auf
+Meldungen, die nicht mehr kommen — und das ist genau der Zustand, den
+`PubSubSubscriptionState` seit D71 als den schlimmeren beschreibt. Abschnitt
+8.8.4 sieht dafür eine Nachricht vor; sie ist D85.
+
+Einundachtzig Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 1074
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
