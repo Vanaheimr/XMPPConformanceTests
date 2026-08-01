@@ -645,9 +645,20 @@ miteinander sprechen:
   Eigentümer**. Ein angelegter Knoten existiert, bevor etwas darin steht.
   Wirksame Felder: `pubsub#max_items` (eine kleinere Grenze gilt sofort),
   `pubsub#persist_items` (ein Knoten ohne Ablage meldet nur) und
-  `pubsub#access_model` — letzteres wird **gespeichert, aber noch nicht
-  durchgesetzt**. Angeboten werden nur `open` und `presence`; `authorize`,
-  `roster` und `whitelist` werden abgewiesen statt zu `open` verkürzt
+  `pubsub#access_model`. Angeboten werden nur `open` und `presence`;
+  `authorize`, `roster` und `whitelist` werden abgewiesen statt zu `open`
+  verkürzt
+- Das Zugriffsmodell wird durchgesetzt: `presence` sperrt beim Abrufen und beim
+  Abonnieren aus, wer die Presence des Eigentümers nicht sehen darf
+  (`<not-authorized/>` mit `<presence-subscription-required/>`); der Eigentümer
+  kommt immer an seinen Knoten. **Es verrät dabei, dass es den Knoten gibt** —
+  so sieht es XEP-0060 §6.5.3 vor, und für einen Knoten, dessen blosse Existenz
+  ein Geheimnis wäre, ist `presence` das falsche Mittel
+- XEP-0060 §7.1.5 `<publish-options/>`: Die Bedingungen einer Veröffentlichung
+  werden geprüft — der Knoten entsteht passend oder die Veröffentlichung wird
+  mit `<conflict/>` und `<precondition-not-met/>` abgewiesen. Damit hat die
+  Bedingung Wirkung, die OMEMO seit jeher mitschickt (XEP-0384 §5.2: ein Bundle
+  muss offen abrufbar sein)
 - XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
   **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
   ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die

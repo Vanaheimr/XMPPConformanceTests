@@ -5736,6 +5736,47 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D77. Eine Bedingung, die seit D66 niemand gelesen hat ✅ — Zugriffsmodell und publish-options
+
+Zwei Dinge, die zusammengehören: Das Zugriffsmodell aus D76 war **gespeichert
+und wirkungslos** — genau die Sorte Zusage, gegen die diese ganze Reihe
+argumentiert. Und die Bedingungen, die OMEMO seit D66 mit jeder Veröffentlichung
+mitschickt, hat **nie jemand angesehen**.
+
+Das zweite ist der stillere Fehler. Der Client verlangte einen offenen Knoten
+für sein Bundle, bekam ein `result` und durfte annehmen, es sei abrufbar. Ein
+`result` auf eine Anfrage mit Bedingungen heisst „Bedingungen erfüllt" — es gab
+sie nur nie. XEP-0384, Abschnitt 5.2 verlangt das offene Modell aus einem
+konkreten Grund: **Wer verschlüsselt schreiben will, muss das Bundle lesen
+können, und das ist im Zweifel jemand, der in keinem Roster steht.**
+
+Jetzt wirkt beides. `presence` sperrt aus, wer die Presence des Eigentümers
+nicht sehen darf — beim Abrufen wie beim Abonnieren, mit
+`<not-authorized/>` und `<presence-subscription-required/>`. Der Eigentümer
+kommt immer an seinen Knoten; er ist bei sich selbst kein Presence-Abonnent,
+und ein Modell, das ihn aussperrt, hätte den Namen nicht verdient.
+
+**Bedingung und Einstellung sind nicht dasselbe**, und der Unterschied liegt in
+einem `null`: Es heisst „danach wird nicht gefragt" und nicht „Vorgabe". Wer
+beides verwechselt, weist eine Veröffentlichung ab, weil der Knoten in einem
+Punkt von der Vorgabe abweicht, über den der Absender nie etwas gesagt hat. Das
+war die einzige überlebende Mutation, und der nachgezogene Test prüft genau
+diesen Satz.
+
+Eine unerfüllte Bedingung hält die Veröffentlichung **ganz** auf: Ein Dienst,
+der die Bedingung abwiese und den Eintrag trotzdem ablegte, hätte das Gegenteil
+dessen getan, wofür es Bedingungen gibt.
+
+Ehrlich dazugesagt: Das Modell verrät, dass es den Knoten gibt — wer keinen
+Zugriff hat, bekommt `<not-authorized/>` und nicht `<item-not-found/>`. So sieht
+es das XEP vor, und es bleibt eine Auskunft: Für einen Knoten, dessen blosse
+Existenz ein Geheimnis wäre, ist `presence` das falsche Mittel.
+
+Achtundvierzig Tests, elf Mutationen, alle erschlagen. Voller Lauf: 1025
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

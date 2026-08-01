@@ -2205,6 +2205,36 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     return true;
                 }
 
+                // XEP-0060, Abschnitt 7.1.5: Bedingungen an den Knoten.
+                //
+                // OMEMO schickt sie seit D66 mit - und bis K8 hat sie niemand
+                // gelesen. Das war die stillste Art, eine Zusage zu geben: Der
+                // Client verlangte einen offenen Knoten, bekam ein 'result'
+                // und durfte annehmen, sein Bundle sei abrufbar.
+                if (pubsub.Child(OmemoPep.PubSubNamespace, "publish-options")?.Child(DataFormNamespace, "x") is { } bedingungen)
+                {
+
+                    if (!PubSubPublishOptions.TryRead(bedingungen, out var verlangt))
+                    {
+                        await session.SendAsync(BadRequestIq(id));
+                        return true;
+                    }
+
+                    var bestand = session.Account.PepNodeConfiguration(node);
+
+                    if (bestand is null)
+                        session.Account.CreatePepNode(node, verlangt!.ApplyTo(PubSubNodeConfiguration.Default));
+
+                    else if (!verlangt!.AreMetBy(bestand))
+                    {
+                        await session.SendAsync(
+                            StanzaErrorIq(id, "conflict", "cancel",
+                                          applicationError: $"<precondition-not-met xmlns='{PubSubErrorNamespace}'/>"));
+                        return true;
+                    }
+
+                }
+
                 var itemId  = item.Attr("id") ?? Guid.NewGuid().ToString("N")[..8];
                 var inhalt  = item.Elements().FirstOrDefault()?.ToString(SaveOptions.DisableFormatting) ?? "";
 
@@ -2247,6 +2277,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // sich über PEP herausfinden, welche Konten es auf diesem
                 // Server gibt - dieselbe Überlegung wie bei der Anmeldung
                 // (RFC 6120, Abschnitt 13.11, siehe D50).
+                if (konto is not null &&
+                    konto.PepNodeExists(node) &&
+                    !MayAccessPepNode(konto, node, session.BareJid!))
+                {
+                    await session.SendAsync(NotAuthorizedForPepNodeIq(id));
+                    return true;
+                }
+
                 var gesuchte  = items.Elements().FirstOrDefault(e => e.Name.LocalName == "item")?.Attr("id");
                 var eintraege = konto?.GetPepItems(node, gesuchte) ?? [];
 
@@ -2314,6 +2352,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (konto is null || !konto.PepNodeExists(node))
                 {
                     await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
+                    return true;
+                }
+
+                // XEP-0060, Abschnitt 6.1.3.4
+                if (!MayAccessPepNode(konto, node, session.BareJid!))
+                {
+                    await session.SendAsync(NotAuthorizedForPepNodeIq(id));
                     return true;
                 }
 
@@ -2491,6 +2536,37 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             return false;
 
         }
+
+        /// <summary>
+        /// Darf dieser JID an die Einträge des Knotens (XEP-0060,
+        /// Abschnitt 4.5)?
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Eigentümer immer.</b> Er ist bei sich selbst kein
+        /// Presence-Abonnent, und ein Modell, das ihn aus seinem eigenen
+        /// Knoten aussperrt, hätte den Namen nicht verdient.
+        ///
+        /// Das Modell verrät nebenbei, dass es den Knoten gibt: Wer keinen
+        /// Zugriff hat, bekommt <c>&lt;not-authorized/&gt;</c> und nicht
+        /// <c>&lt;item-not-found/&gt;</c>. Das ist so vorgesehen (Abschnitt
+        /// 6.5.3) und trotzdem eine Auskunft - für einen Knoten, dessen blosse
+        /// Existenz ein Geheimnis wäre, ist <c>presence</c> das falsche
+        /// Mittel.
+        /// </remarks>
+        private static Boolean MayAccessPepNode(XMPPAccount account, String node, String requesterBareJid)
+
+            => account.PepNodeConfiguration(node)?.AccessModel != PubSubAccessModel.Presence ||
+               String.Equals(account.BareJid, requesterBareJid, StringComparison.OrdinalIgnoreCase) ||
+               account.IsPresenceSubscriber(requesterBareJid);
+
+        /// <summary>
+        /// XEP-0060, Abschnitte 6.1.3.4 und 6.5.3: Der Knoten steht nur denen
+        /// offen, die die Presence seines Eigentümers sehen dürfen.
+        /// </summary>
+        private String NotAuthorizedForPepNodeIq(String? id)
+
+            => StanzaErrorIq(id, "not-authorized", "auth",
+                             applicationError: $"<presence-subscription-required xmlns='{PubSubErrorNamespace}'/>");
 
         /// <summary>
         /// Die Ablehnungen, die für Abbestellen und Einstellen dieselben sind

@@ -247,6 +247,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                felder +
                "</x>";
 
+        /// <summary>Ein Bedingungsformular für eine Veröffentlichung.</summary>
+        private static String PublishOptionsForm(String felder)
+            => "<x xmlns='jabber:x:data' type='submit'>" +
+               "<field var='FORM_TYPE' type='hidden'>" +
+               "<value>http://jabber.org/protocol/pubsub#publish-options</value></field>" +
+               felder +
+               "</x>";
+
         /// <summary>Der Wert eines Feldes im Knotenformular einer Antwort.</summary>
         private static String? ConfigField(XElement antwort, String var)
             => antwort.Child(OwnerNamespace, "pubsub")
@@ -1333,6 +1341,348 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.That(ConfigField(gelesen, "pubsub#access_model"), Is.EqualTo("open"),
                         "Eine abgewiesene Einstellung darf nichts geändert haben.");
+
+        }
+
+        #endregion
+
+        #region WithPresenceAccess_AStranger_GetsNothingAndCannotSubscribe()
+
+        /// <summary>
+        /// XEP-0060, Abschnitte 6.5.3 und 6.1.3.4: <c>presence</c> heisst,
+        /// dass nur an den Knoten kommt, wer die Presence des Eigentümers
+        /// sehen darf.
+        /// </summary>
+        /// <remarks>
+        /// Bis K8 war das Zugriffsmodell gespeichert und wirkungslos - genau
+        /// die Sorte Zusage, gegen die diese Reihe sonst argumentiert. Ein
+        /// Eigentümer, der <c>presence</c> einstellt und <c>open</c> bekommt,
+        /// glaubt seine Einträge geschützt und hat sie veröffentlicht.
+        /// </remarks>
+        [Test]
+        public async Task WithPresenceAccess_AStranger_GetsNothingAndCannotSubscribe()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-20",
+                           ConfigureIq("cfg-20", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>presence</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var abgerufen = await AskAsync(alice, "get-20",
+                                           $"<iq type='get' to='bob@{Server.Domain}' id='get-20'>" +
+                                           $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            var abonniert = await AskAsync(alice, "sub-40",
+                                           PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                   alice.BareJid, "sub-40"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(abgerufen.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(abgerufen),       Is.EqualTo("not-authorized"));
+                Assert.That(ErrorTypeOf(abgerufen),       Is.EqualTo("auth"));
+                Assert.That(PubSubConditionOf(abgerufen), Is.EqualTo("presence-subscription-required"));
+
+                Assert.That(abonniert.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(abonniert),       Is.EqualTo("not-authorized"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region WithPresenceAccess_AContactStillGetsIn()
+
+        /// <summary>
+        /// Die Gegenprobe: Wer die Presence sehen darf, kommt an den Knoten.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie bestünde der vorige Test auch gegen einen Server, der bei
+        /// <c>presence</c> einfach jeden abweist - und aus einem
+        /// Zugriffsmodell wäre ein Schloss ohne Schlüssel geworden.
+        /// </remarks>
+        [Test]
+        public async Task WithPresenceAccess_AContactStillGetsIn()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-21",
+                           ConfigureIq("cfg-21", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>presence</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var abgerufen = await AskAsync(alice, "get-21",
+                                           $"<iq type='get' to='bob@{Server.Domain}' id='get-21'>" +
+                                           $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            Assert.That(abgerufen.Attr("type"), Is.EqualTo("result"));
+
+            var abonniert = await AskAsync(alice, "sub-41",
+                                           PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                   alice.BareJid, "sub-41"));
+
+            Assert.That(abonniert.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region TheOwner_ReachesHisOwnNode()
+
+        /// <summary>
+        /// Der Eigentümer kommt an seinen Knoten, auch bei
+        /// <c>presence</c>.
+        /// </summary>
+        /// <remarks>
+        /// Er ist bei sich selbst kein Presence-Abonnent. Ein Modell, das ihn
+        /// aus seinem eigenen Knoten aussperrt, hätte den Namen nicht
+        /// verdient - und der Fehler fiele erst auf, wenn ein Client seine
+        /// eigene Geräteliste nicht mehr lesen kann.
+        /// </remarks>
+        [Test]
+        public async Task TheOwner_ReachesHisOwnNode()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-22",
+                           ConfigureIq("cfg-22", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>presence</value></field>")));
+
+            var antwort = await AskAsync(bob, "get-22",
+                                         $"<iq type='get' id='get-22'>" +
+                                         $"<pubsub xmlns='{PubSubNamespace}'><items node='{Node}'/></pubsub></iq>");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region PublishOptions_CreateTheNodeAsDemanded()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 7.1.5: Der Knoten entsteht mit den verlangten
+        /// Eigenschaften.
+        /// </summary>
+        [Test]
+        public async Task PublishOptions_CreateTheNodeAsDemanded()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            await AskAsync(bob, "pub-40",
+                           $"<iq type='set' id='pub-40'><pubsub xmlns='{PubSubNamespace}'>" +
+                           "<publish node='urn:example:eng'><item id='40'>" +
+                           "<w xmlns='urn:example:x'>a</w></item></publish>" +
+                           "<publish-options>" +
+                           PublishOptionsForm("<field var='pubsub#access_model'><value>presence</value></field>") +
+                           "</publish-options></pubsub></iq>");
+
+            var gelesen = await AskAsync(bob, "cfg-23",
+                                         ConfigureIq("cfg-23", "get", node: "urn:example:eng"));
+
+            Assert.That(ConfigField(gelesen, "pubsub#access_model"), Is.EqualTo("presence"));
+
+        }
+
+        #endregion
+
+        #region PublishOptions_ThatTheNodeDoesNotMeet_StopThePublication()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 7.1.5: Passt der Knoten nicht, wird nicht
+        /// veröffentlicht.
+        /// </summary>
+        /// <remarks>
+        /// <b>Und nicht veröffentlicht heisst: gar nicht.</b> Ein Dienst, der
+        /// die Bedingung abwiese und den Eintrag trotzdem ablegte, hätte das
+        /// Gegenteil dessen getan, wofür es Bedingungen gibt - der Absender
+        /// nähme an, sein Eintrag liege nicht dort, wo er nun doch liegt.
+        /// </remarks>
+        [Test]
+        public async Task PublishOptions_ThatTheNodeDoesNotMeet_StopThePublication()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-24",
+                           ConfigureIq("cfg-24", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>presence</value></field>")));
+
+            var antwort = await AskAsync(bob, "pub-41",
+                                         $"<iq type='set' id='pub-41'><pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='41'>" +
+                                         "<w xmlns='urn:example:x'>b</w></item></publish>" +
+                                         "<publish-options>" +
+                                         PublishOptionsForm("<field var='pubsub#access_model'><value>open</value></field>") +
+                                         "</publish-options></pubsub></iq>");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort),       Is.EqualTo("conflict"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("precondition-not-met"));
+            });
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(konto.GetPepItems(Node).Select(e => e.ItemId), Does.Not.Contain("41"),
+                            "Eine abgewiesene Veröffentlichung darf nichts abgelegt haben.");
+
+                Assert.That(konto.PepNodeConfiguration(Node)!.AccessModel,
+                            Is.EqualTo(PubSubAccessModel.Presence),
+                            "Und sie darf den Knoten nicht umgestellt haben.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region PublishOptions_ThatFit_GoThrough()
+
+        /// <summary>
+        /// Die Gegenprobe: Passende Bedingungen halten nichts auf.
+        /// </summary>
+        [Test]
+        public async Task PublishOptions_ThatFit_GoThrough()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var antwort = await AskAsync(bob, "pub-42",
+                                         $"<iq type='set' id='pub-42'><pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='42'>" +
+                                         "<w xmlns='urn:example:x'>c</w></item></publish>" +
+                                         "<publish-options>" +
+                                         PublishOptionsForm("<field var='pubsub#access_model'><value>open</value></field>") +
+                                         "</publish-options></pubsub></iq>");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+            Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node).Select(e => e.ItemId),
+                        Does.Contain("42"));
+
+        }
+
+        #endregion
+
+        #region AConditionNobodyNamed_IsNoCondition()
+
+        /// <summary>
+        /// Was im Bedingungsformular nicht steht, wird nicht verlangt.
+        /// </summary>
+        /// <remarks>
+        /// Der Unterschied zwischen einer Bedingung und einer Einstellung, und
+        /// er liegt genau in diesem <c>null</c>: Es heisst „danach wird nicht
+        /// gefragt" und nicht „Vorgabe". Wer beides verwechselt, weist eine
+        /// Veröffentlichung ab, weil der Knoten in einem Punkt von der Vorgabe
+        /// abweicht, über den der Absender nie etwas gesagt hat.
+        /// </remarks>
+        [Test]
+        public async Task AConditionNobodyNamed_IsNoCondition()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-25",
+                           ConfigureIq("cfg-25", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>presence</value></field>")));
+
+            var antwort = await AskAsync(bob, "pub-44",
+                                         $"<iq type='set' id='pub-44'><pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='44'>" +
+                                         "<w xmlns='urn:example:x'>e</w></item></publish>" +
+                                         "<publish-options>" +
+                                         PublishOptionsForm("<field var='pubsub#max_items'><value>256</value></field>") +
+                                         "</publish-options></pubsub></iq>");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"),
+                        "Über das Zugriffsmodell hat hier niemand etwas verlangt.");
+
+            Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node).Select(e => e.ItemId),
+                        Does.Contain("44"));
+
+        }
+
+        #endregion
+
+        #region TheOmemoBundleNode_IsOpen_BecauseOmemoDemandsIt()
+
+        /// <summary>
+        /// Und damit hat die Bedingung, die OMEMO seit D66 mitschickt, zum
+        /// ersten Mal eine Wirkung.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0384, Abschnitt 5.2 verlangt ein offenes Zugriffsmodell: Wer
+        /// verschlüsselt schreiben will, muss das Bundle lesen können, und das
+        /// ist im Zweifel jemand, der noch in keinem Roster steht. Bis K8 hat
+        /// diese Bedingung niemand gelesen - der Client verlangte einen
+        /// offenen Knoten, bekam ein <c>result</c> und durfte annehmen, sein
+        /// Bundle sei abrufbar.
+        /// </remarks>
+        [Test]
+        public async Task TheOmemoBundleNode_IsOpen_BecauseOmemoDemandsIt()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            await AskAsync(bob, "omemo-1",
+                           OmemoPep.PublishIq("omemo-1",
+                                              OmemoPep.BundlesNode,
+                                              "31415",
+                                              XElement.Parse("<bundle xmlns='urn:xmpp:omemo:2'/>")));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.That(konto.PepNodeConfiguration(OmemoPep.BundlesNode)!.AccessModel,
+                        Is.EqualTo(PubSubAccessModel.Open));
+
+        }
+
+        #endregion
+
+        #region APublishOptionNobodyOffered_IsRejected()
+
+        /// <summary>
+        /// Eine Bedingung, über die dieser Dienst nichts zusagen kann, wird
+        /// abgewiesen.
+        /// </summary>
+        /// <remarks>
+        /// Gerade hier wäre Nachsicht falsch: <b>Eine Bedingung, die
+        /// übergangen wird, ist eine, die der Absender für erfüllt hält.</b>
+        /// </remarks>
+        [Test]
+        public async Task APublishOptionNobodyOffered_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var antwort = await AskAsync(bob, "pub-43",
+                                         $"<iq type='set' id='pub-43'><pubsub xmlns='{PubSubNamespace}'>" +
+                                         $"<publish node='{Node}'><item id='43'>" +
+                                         "<w xmlns='urn:example:x'>d</w></item></publish>" +
+                                         "<publish-options>" +
+                                         PublishOptionsForm("<field var='pubsub#roster_groups_allowed'><value>freunde</value></field>") +
+                                         "</publish-options></pubsub></iq>");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
+
+            Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node).Select(e => e.ItemId),
+                        Does.Not.Contain("43"));
 
         }
 
