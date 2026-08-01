@@ -1968,8 +1968,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// XEP-0163 Personal Eventing: Veröffentlichen und Abrufen der
-        /// PEP-Knoten eines Kontos.
+        /// Der Namensraum der PubSub-eigenen Fehlerzustände (XEP-0060,
+        /// Abschnitt 6.1.3).
+        /// </summary>
+        private const String PubSubErrorNamespace = "http://jabber.org/protocol/pubsub#errors";
+
+        /// <summary>
+        /// XEP-0163 Personal Eventing: Veröffentlichen, Abrufen, Abonnieren und
+        /// Abbestellen der PEP-Knoten eines Kontos.
         /// </summary>
         /// <returns>
         /// false, wenn dieses IQ nichts mit PEP zu tun hat - dann nimmt es der
@@ -1977,17 +1983,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </returns>
         /// <remarks>
         /// <b>Eine Teilmenge, und das gehört gesagt.</b> Es gibt keine
-        /// Knotenkonfiguration, keine Zugriffsmodelle, keine Abonnements und
-        /// keine gefilterten Benachrichtigungen über XEP-0115. Der Knoten ist
-        /// offen, wer fragt, bekommt - für einen Testserver ist das die
-        /// richtige Menge, für einen echten wäre es zu wenig: Dort entscheidet
-        /// das Zugriffsmodell, wer ein Bundle sehen darf, und über die
-        /// Merkmalsankündigung, wer eine Benachrichtigung überhaupt will.
+        /// Knotenkonfiguration, keine Zugriffsmodelle und keine gefilterten
+        /// Benachrichtigungen über XEP-0115. Der Knoten ist offen, wer fragt,
+        /// bekommt - für einen Testserver ist das die richtige Menge, für einen
+        /// echten wäre es zu wenig: Dort entscheidet das Zugriffsmodell, wer
+        /// ein Bundle sehen darf, und über die Merkmalsankündigung, wer eine
+        /// Benachrichtigung überhaupt will.
         ///
-        /// Benachrichtigt werden dieselben, die auch Presence bekommen -
-        /// Kontakte mit <c>from</c> oder <c>both</c> und die eigenen weiteren
-        /// Resourcen. Das ist bei PEP die übliche Regel und hier ohnehin die
-        /// einzige, die dieser Server kennt.
+        /// Benachrichtigt werden die, die auch Presence bekommen - Kontakte mit
+        /// <c>from</c> oder <c>both</c> und die eigenen weiteren Resourcen -,
+        /// und dazu die ausdrücklichen Abonnenten. Ein Abonnement je Knoten und
+        /// JID; mehrere gleichzeitige, für die es die <c>subid</c> eigentlich
+        /// gibt, kennt dieser Server nicht.
         /// </remarks>
         private async Task<Boolean> HandlePepAsync(XMPPSession  session,
                                                    String       frame,
@@ -2103,6 +2110,120 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             #endregion
 
+            #region Abonnieren
+
+            if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "subscribe") is { } subscribe)
+            {
+
+                var node = subscribe.Attr("node");
+
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                // XEP-0060, Abschnitt 6.1.3.1: Der angegebene JID muss der des
+                // Absenders sein.
+                //
+                // Ohne diese Prüfung könnte jeder jeden anmelden, und der
+                // Angemeldete bekäme von da an Veröffentlichungen, die er nie
+                // verlangt hat - von einem Knoten, dessen Namen er nicht kennt.
+                // Abbestellen könnte er sie nur, wenn er darauf käme, wonach er
+                // suchen muss.
+                if (subscribe.Attr("jid") is not String wer ||
+                    !String.Equals(BareOf(wer), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(
+                        StanzaErrorIq(id, "bad-request", "modify",
+                                      applicationError: $"<invalid-jid xmlns='{PubSubErrorNamespace}'/>"));
+                    return true;
+                }
+
+                var konto = to is null
+                                ? session.Account
+                                : GetAccount(BareOf(to));
+
+                // XEP-0060, Abschnitt 6.1.3.12. Ein Konto, das es nicht gibt,
+                // ist auch hier nicht von einem zu unterscheiden, das nichts
+                // veröffentlicht hat - dieselbe Überlegung wie beim Abrufen.
+                if (konto is null || !konto.PepNodes.Contains(node))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
+                    return true;
+                }
+
+                var subId = konto.AddPepSubscription(node, session.BareJid!);
+
+                await session.SendAsync(
+                    $"<iq type='result' id='{id}'" +
+                    (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + ">" +
+                    $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
+                    $"<subscription node='{XmlEscaping.Escape(node)}'" +
+                    $" jid='{XmlEscaping.Escape(session.BareJid!)}'" +
+                    $" subid='{subId}' subscription='subscribed'/>" +
+                    "</pubsub></iq>");
+
+                return true;
+
+            }
+
+            #endregion
+
+            #region Abbestellen
+
+            if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "unsubscribe") is { } unsubscribe)
+            {
+
+                var node = unsubscribe.Attr("node");
+
+                if (String.IsNullOrEmpty(node))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                if (unsubscribe.Attr("jid") is not String wer ||
+                    !String.Equals(BareOf(wer), session.BareJid, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.SendAsync(
+                        StanzaErrorIq(id, "bad-request", "modify",
+                                      applicationError: $"<invalid-jid xmlns='{PubSubErrorNamespace}'/>"));
+                    return true;
+                }
+
+                var konto = to is null
+                                ? session.Account
+                                : GetAccount(BareOf(to));
+
+                var ergebnis = konto?.RemovePepSubscription(node,
+                                                            session.BareJid!,
+                                                            unsubscribe.Attr("subid"))
+                                   ?? PepUnsubscribeResult.NotSubscribed;
+
+                await session.SendAsync(ergebnis switch {
+
+                    // XEP-0060, Abschnitt 6.2.3.2
+                    PepUnsubscribeResult.NotSubscribed
+                        => StanzaErrorIq(id, "unexpected-request", "cancel",
+                                         applicationError: $"<not-subscribed xmlns='{PubSubErrorNamespace}'/>"),
+
+                    // XEP-0060, Abschnitt 6.2.3.1
+                    PepUnsubscribeResult.WrongSubId
+                        => StanzaErrorIq(id, "not-acceptable", "modify",
+                                         applicationError: $"<invalid-subid xmlns='{PubSubErrorNamespace}'/>"),
+
+                    _   => $"<iq type='result' id='{id}'" +
+                           (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + "/>"
+
+                });
+
+                return true;
+
+            }
+
+            #endregion
+
             return false;
 
         }
@@ -2118,6 +2239,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// aus der eigenen Geräteliste verschwunden ist. Erfährt er von der
         /// Änderung nichts, kann er das nicht - und ist von da an für alle
         /// unerreichbar, ohne dass irgendetwas nach einem Fehler aussieht.
+        ///
+        /// <b>Dazu die ausdrücklichen Abonnenten (XEP-0060, Abschnitt 6.1).</b>
+        /// Ohne sie hiesse „abonnieren" nichts anderes als „im Roster stehen",
+        /// und die Zusage aus <see cref="HandlePepAsync"/> wäre eine ohne
+        /// Deckung. Beide Wege führen zu <i>einer</i> Liste und nicht zu zwei
+        /// Zustellungen: Wer über beide in Frage kommt, ist trotzdem ein
+        /// Empfänger.
         /// </remarks>
         private async Task NotifyPepAsync(XMPPSession session, String node, String itemId, String payload)
         {
@@ -2131,7 +2259,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                            $"<item id='{XmlEscaping.Escape(itemId)}'>{payload}</item>" +
                            "</items></event></message>";
 
-            foreach (var ziel in PresenceTargetsOf(session))
+            var ziele = new HashSet<XMPPSession>(PresenceTargetsOf(session));
+
+            foreach (var abonnent in session.Account?.PepSubscribers(node) ?? [])
+                foreach (var s in SessionsOf(abonnent))
+                    if (s != session && s.FullJid is not null)
+                        ziele.Add(s);
+
+            foreach (var ziel in ziele)
                 await ziel.SendAsync(StampTo(ereignis, ziel.FullJid!));
 
         }
@@ -4299,11 +4434,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Abschnitt 8.3.1). Ohne sie weiss ein Frager, der mehrere gleichartige
         /// Anfragen offen hat, nur <i>dass</i> eine gescheitert ist.
         /// </param>
+        /// <param name="applicationError">
+        /// Der anwendungseigene Fehlerzustand als fertiges XML, oder null (RFC
+        /// 6120, Abschnitt 8.3.2). Die Bedingungen der RFC sind grob: Zwei
+        /// Ablehnungen aus ganz verschiedenen Gründen tragen dieselbe, und erst
+        /// dieses zweite Element sagt, welcher es war.
+        /// </param>
         internal String StanzaErrorIq(String?  id,
                                       String   condition,
-                                      String   errorType  = "cancel",
-                                      String?  text       = null,
-                                      String?  payload    = null)
+                                      String   errorType         = "cancel",
+                                      String?  text              = null,
+                                      String?  payload           = null,
+                                      String?  applicationError  = null)
 
             => $"<iq type='error' id='{id}' from='{Domain}'>" +
                (payload ?? "") +
@@ -4312,6 +4454,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                (text is not null
                     ? $"<text xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'>{text}</text>"
                     : "") +
+               (applicationError ?? "") +
                "</error></iq>";
 
         private static String CarbonEnvelope(String kind, String ownBareJid, String targetFullJid, String inner)

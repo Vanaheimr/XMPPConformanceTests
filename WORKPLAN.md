@@ -5407,6 +5407,51 @@ Verbindung erst recht nicht.
 
 ---
 
+### D70. Eine Zusage, die etwas bewirkt ✅ — der Server lernt Abonnements
+
+Der Anlass ist die Frage nach der ausgehenden Korrelation (Punkt unter
+„Optional", seit D38). Bevor ein Client lernen kann, Antworten auszuwerten,
+muss es Antworten geben, die etwas sagen: **Dieser Server sagte auf jedes
+`subscribe` `<service-unavailable/>`** — er kannte die Anfrage nicht. Wer nur
+Absagen kennt, kann nicht zeigen, dass er eine Zusage richtig liest.
+
+Also erst der Server. XEP-0060, Abschnitte 6.1 und 6.2: `<subscribe/>` und
+`<unsubscribe/>` mit `subid`, den drei Ablehnungen des XEP —
+`<item-not-found/>` für einen Knoten, den es nicht gibt, `<invalid-jid/>`, wenn
+jemand einen anderen anmelden will, `<not-subscribed/>` und `<invalid-subid/>`
+beim Abbestellen.
+
+**Und mit Wirkung, nicht bloss mit Antwort.** Ein Abonnement, das nirgends
+wirkt, wäre genau die Zusage ohne Deckung, für die in D57 ein nie ausgelöstes
+Ereignis gestrichen wurde. Bisher bekam eine PEP-Benachrichtigung, wer ohnehin
+Presence bekam — damit war „abonnieren" nur ein anderes Wort für „im Roster
+stehen", und für einen fremden Knoten gab es überhaupt keinen Weg. Jetzt gehen
+die Meldungen an **eine** Liste aus beiden Quellen; wer über beide in Frage
+kommt, bekommt sie trotzdem einmal.
+
+Die schärfste der neuen Prüfungen ist die auf den `jid`, und zwar in beide
+Richtungen: Ein fremdes Abonnement **anzulegen** ist lästig — jemand bekäme
+Meldungen, die er nie bestellt hat, von einem Knoten, dessen Namen er nicht
+kennt. Ein fremdes zu **beenden** ist ein Entzug: Der Betroffene bekäme nichts
+mehr und merkte es nicht, denn Ausbleiben sieht aus wie Ruhe.
+
+Genau diese zweite Prüfung war zuerst ungeprüft: **eine von vierzehn Mutationen
+überlebte**, die weggenommene JID-Prüfung beim Abbestellen. Der nachgezogene
+Test prüft beides — die Absage *und* dass Carols Abonnement danach noch trägt.
+Nur die Absage zu prüfen liesse eine Umsetzung durch, die erst abmeldet und
+sich dann beschwert.
+
+Zwölf Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 962 bestanden,
+7 übersprungen.
+
+**Was der Server weiterhin nicht kann** und was damit auch der Client nie zu
+sehen bekommt: mehrere gleichzeitige Abonnements desselben JIDs auf denselben
+Knoten — dafür gibt es die `subid` überhaupt. Sie wird trotzdem vergeben und
+geprüft, denn sie benennt ein Abonnement eindeutig; nur der Fall, der sie
+unentbehrlich macht, tritt hier nicht ein.
+
+---
+
 ## Später
 
 ### Testsammlung

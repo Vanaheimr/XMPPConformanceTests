@@ -611,6 +611,14 @@ miteinander sprechen:
   der Client** — sonst wäre ein OMEMO-Bundle nur abrufbar, solange sein
   Besitzer online ist. Was fehlt: Knotenkonfiguration, Zugriffsmodelle,
   gefilterte Benachrichtigungen über XEP-0115
+- XEP-0060 §6.1/§6.2 Abonnements auf PEP-Knoten: `<subscribe/>` und
+  `<unsubscribe/>` mit `subid`, samt der Ablehnungen des XEP —
+  `<item-not-found/>`, `<invalid-jid/>`, `<not-subscribed/>`,
+  `<invalid-subid/>`. **Ein Abonnent bekommt die Benachrichtigungen auch ohne
+  Presence-Berechtigung**; wer über beide Wege in Frage kommt, bekommt sie
+  trotzdem nur einmal. Den `jid` darf nur setzen, wem er gehört — sonst könnte
+  jeder jeden anmelden oder, schlimmer, abmelden. Nicht umgesetzt: mehrere
+  gleichzeitige Abonnements desselben JIDs auf denselben Knoten
 - XEP-0352 Client State Indication: Erklärt sich ein Client für inaktiv, hält
   der Server zurück, was warten kann — Presence (nur die letzte je Full-JID),
   Empfangsbestätigungen, Marker. Ein Chat State wird fallengelassen statt

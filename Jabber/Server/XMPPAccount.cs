@@ -52,6 +52,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly Dictionary<String, Dictionary<String, String>> _pepNodes =
             new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Die Abonnenten je Knoten, mit der Kennung ihres Abonnements
+        /// (XEP-0060, Abschnitt 6.1).
+        /// </summary>
+        /// <remarks>
+        /// Ebenfalls am Konto und nicht an der Sitzung: Ein Abonnement gilt
+        /// über die Anwesenheit beider Seiten hinaus. Wer abonniert hat und
+        /// dann geht, hat es beim Wiederkommen noch - alles andere wäre kein
+        /// Abonnement, sondern eine Anwesenheitsliste.
+        ///
+        /// Der Knoten wird nach <see cref="StringComparer.Ordinal"/>
+        /// unterschieden wie in <see cref="_pepNodes"/>, der Abonnent nach
+        /// <see cref="StringComparer.OrdinalIgnoreCase"/> wie jeder JID.
+        /// </remarks>
+        private readonly Dictionary<String, Dictionary<String, String>> _pepSubscriptions =
+            new(StringComparer.Ordinal);
+
         #endregion
 
         #region Properties
@@ -381,6 +398,95 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public IReadOnlyCollection<String> PepNodes
         {
             get { lock (_lock) return [.. _pepNodes.Keys]; }
+        }
+
+        /// <summary>
+        /// Trägt einen Abonnenten in einen Knoten ein und gibt die Kennung des
+        /// Abonnements zurück (XEP-0060, Abschnitt 6.1).
+        /// </summary>
+        /// <remarks>
+        /// <b>Ein Abonnement je Knoten und Abonnent, und ein zweites
+        /// <c>subscribe</c> gibt dieselbe Kennung zurück.</b> XEP-0060 erlaubt
+        /// einem JID durchaus mehrere Abonnements auf denselben Knoten - dafür
+        /// gibt es die <c>subid</c> überhaupt. Sie sind hier nicht umgesetzt,
+        /// und das ist eine bewusste Grenze: Zwei Abonnements bringen zwei
+        /// Zustellungen derselben Sache an denselben Empfänger, was erst mit
+        /// unterschiedlichen Konfigurationen je Abonnement einen Sinn ergibt -
+        /// und die kennt dieser Server nicht.
+        ///
+        /// Die Kennung wird trotzdem vergeben, denn sie ist keine Zierde: Der
+        /// Abonnent kann sie nicht erraten, und wer sie mitschickt, benennt
+        /// genau dieses Abonnement statt irgendeines.
+        /// </remarks>
+        public String AddPepSubscription(String node, String subscriberBareJid)
+        {
+
+            lock (_lock)
+            {
+
+                if (!_pepSubscriptions.TryGetValue(node, out var abonnenten))
+                    _pepSubscriptions[node] = abonnenten = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+
+                if (abonnenten.TryGetValue(subscriberBareJid, out var bestehende))
+                    return bestehende;
+
+                var subId = Guid.NewGuid().ToString("N")[..12];
+
+                abonnenten[subscriberBareJid] = subId;
+
+                return subId;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Beendet ein Abonnement (XEP-0060, Abschnitt 6.2).
+        /// </summary>
+        /// <param name="subId">
+        /// Die Kennung aus der Zusage, oder null. Ist sie angegeben, muss sie
+        /// passen - sonst bliebe unklar, welches Abonnement gemeint war.
+        /// </param>
+        public PepUnsubscribeResult RemovePepSubscription(String   node,
+                                                          String   subscriberBareJid,
+                                                          String?  subId = null)
+        {
+
+            lock (_lock)
+            {
+
+                if (!_pepSubscriptions.TryGetValue(node, out var abonnenten) ||
+                    !abonnenten.TryGetValue(subscriberBareJid, out var bestehende))
+                {
+                    return PepUnsubscribeResult.NotSubscribed;
+                }
+
+                if (subId is not null &&
+                    !String.Equals(subId, bestehende, StringComparison.Ordinal))
+                {
+                    return PepUnsubscribeResult.WrongSubId;
+                }
+
+                abonnenten.Remove(subscriberBareJid);
+
+                if (abonnenten.Count == 0)
+                    _pepSubscriptions.Remove(node);
+
+                return PepUnsubscribeResult.Removed;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Die Bare-JIDs, die diesen Knoten abonniert haben.
+        /// </summary>
+        public IReadOnlyList<String> PepSubscribers(String node)
+        {
+            lock (_lock)
+                return _pepSubscriptions.TryGetValue(node, out var abonnenten)
+                           ? [.. abonnenten.Keys]
+                           : [];
         }
 
         #endregion
