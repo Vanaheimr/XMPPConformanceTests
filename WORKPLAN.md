@@ -4753,6 +4753,97 @@ Nachricht erscheint, und schickt dann lieber keine.
 
 ---
 
+### D61. Wenn niemand hinsieht ✅ — XEP-0352
+
+Das Protokoll ist an einem Nachmittag gelesen: zwei Nonzas, `<active/>` und
+`<inactive/>`, angekündigt in den Features nach der Anmeldung (Abschnitt 4.1),
+und **keine Antwort darauf** (Abschnitt 4.2) — eine Bestätigung weckte das
+Gerät genau in dem Augenblick, in dem es sich schlafen legt.
+
+Die Arbeit steckt woanders. **Was zurückgehalten werden darf, entscheidet der
+Server**; das XEP nennt in Abschnitt 3 nur Beispiele. Meine Leitlinie:
+*zurückgehalten wird nur, was später noch wahr ist.*
+
+- **Presence wartet**, und die letzte je Full-JID löst die früheren ab
+  („push the latest presence from each contact"). Je Full-JID und nicht je
+  Mensch: Zwei Geräte sind zwei Anwesenheiten, und die eine darf die andere
+  nicht verdrängen — sonst verschwände Bobs Telefon aus der Liste, weil sein
+  Rechner sich abgemeldet hat.
+- **Ein Chat State wird fallengelassen**, nicht aufgehoben. Das ist der einzige
+  Punkt, an dem etwas verloren geht, und er ist der wichtigste: Ein „schreibt
+  gerade" von vorhin ist beim Nachliefern keine verspätete Auskunft mehr,
+  sondern eine falsche.
+- **Text, `iq`, Fehler und jede Nonza gehen sofort hinaus.** XEP-0352 ist eine
+  Sparmassnahme für den Akku und keine Ruhefunktion für den Menschen davor. Ein
+  `iq` ist ausserdem eine Frage mit Frist — wer es zurückhält, beantwortet es
+  nach Ablauf, und die Antwort käme zu einer Frage, die niemand mehr stellt.
+- Eine Kontaktanfrage ist eine Presence und trotzdem keine
+  Anwesenheitsmeldung: Sie wartet auf die Entscheidung eines Menschen
+  (RFC 6121, Abschnitt 3.1.3) und geht sofort hinaus.
+
+**Zwei Feinheiten, die sich erst beim Bauen zeigen:**
+
+- **Zurückgehaltenes geht vor der Stanza hinaus, die den Puffer leert.** Ohne
+  diese Regel überholte Bobs Nachricht seine eigene Presence, und RFC 6120,
+  Abschnitt 10.1 verlangt zwischen zwei Entitäten ausdrücklich die
+  Reihenfolge. Alice sähe sonst erst „Bob schreibt: bin unterwegs" und danach,
+  dass Bob online gegangen ist.
+- **Eine Nonza leert den Puffer nicht.** Ein `<r/>` des Servers (XEP-0198)
+  fragt nach dem Empfangszähler und trägt keine Reihenfolge; leerte es den
+  Puffer, wäre jede Zählnachfrage ein Weckruf durch die Hintertür. Die Zählung
+  bleibt dabei stimmig, weil Zurückgehaltenes nicht gesendet und damit auch
+  nicht gezählt ist.
+
+**Der Puffer hat eine Obergrenze** (`MaxHeldWhileInactive`, Vorgabe 100). Ein
+Client, der sich für inaktiv erklärt und dann nicht mehr wiederkommt, nötigte
+dem Server sonst mit einem einzigen `<inactive/>` unbegrenzt Speicher ab. Beim
+Überlauf geht der ganze Puffer hinaus, statt etwas wegzuwerfen: Der Client
+bekommt dann Verkehr, den er gerade nicht wollte — die freundlichere der beiden
+Möglichkeiten.
+
+**Und am Ende der Verbindung bleibt nichts liegen.** Was zurückgehalten wurde,
+hat den Client nie erreicht und wäre auch nicht im Puffer der unbestätigten
+Stanzas gelandet — eine Wiederaufnahme fände es nicht, und niemand erführe
+davon, denn eine nie gesendete Stanza fehlt auch keiner Zählung. Der Abschied
+leert den Puffer deshalb zuerst; bei einem aufgehobenen Stream geht er damit
+seinen gewohnten Weg.
+
+**Abschnitt 5.2 nimmt einem die Frage nach der Wiederaufnahme ab:** „stream
+resumption does not affect the current CSI state, which always defaults to
+'active' for new and resumed streams." Der Server übernimmt den Zustand also
+bewusst *nicht* — und der Client erklärt sich nach jedem Aufbau erneut für
+inaktiv, denn das Gerät liegt in derselben Tasche wie vorher. Ohne diese
+Wiederholung wäre jede Störung ein stilles Ende der Sparmassnahme, und niemand
+bemerkte es: Es funktioniert ja alles weiter.
+
+Ohne Ankündigung schickt der Client nichts, und ohne eigene Ankündigung
+gehorcht der Server nicht. Der zweite Fall ist der gefährlichere: Ein Server,
+der schweigt und trotzdem zurückhält, liesse den Client seine Kontakte für
+still halten. Vor der Anmeldung gilt es ebenfalls nicht — sonst hätte ein
+Unangemeldeter einen Zustand an einer Sitzung, die noch niemandem gehört.
+
+Zu Abschnitt 6 (Security Considerations, „servers MUST NOT reveal the clients
+active/inactive state to other entities on the network") war nichts zu tun und
+das ist der Punkt: Der Zustand ändert nichts an der Presence und verlässt die
+Sitzung nirgends — es gibt kein automatisches „abwesend", das ihn den Kontakten
+vorführte.
+
+**21 Mutationen, alle erschlagen** — Kontaktanfrage wartet, Text zählt nicht,
+leeres `<body/>` gilt als Text, alle Kinder statt nur der Erweiterungen,
+Nachricht ohne Erweiterung verfällt, Ablösung je Mensch statt je Gerät, keine
+Ablösung, `iq` zurückgehalten, gar nichts zurückgehalten, Puffer nicht
+mitgenommen, Puffer auch von Nonzas geleert, `<active/>` liefert nichts nach,
+keine Obergrenze, Chat State aufgehoben statt fallengelassen, Puffer bleibt am
+Verbindungsende liegen, Feature nicht angekündigt, Server gehorcht ohne
+Ankündigung, Unangemeldeter darf setzen, Client schickt ohne Ankündigung,
+Client wiederholt sich nach dem Wiederaufbau nicht, Client merkt sich seinen
+Zustand nicht.
+
+In der Konsole: `/csi` zeigt den Zustand, `/csi inaktiv` und `/csi aktiv`
+melden ihn.
+
+---
+
 ## Später
 
 ### Testsammlung

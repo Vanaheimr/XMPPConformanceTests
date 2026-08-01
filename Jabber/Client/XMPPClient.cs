@@ -549,6 +549,29 @@ public sealed class XMPPClient : IAsyncDisposable
         => _connection.CancelSubscriptionAsync(jid.Trim());
 
     /// <summary>
+    /// XEP-0352: Sieht gerade ein Mensch hin?
+    /// </summary>
+    public bool IsActive => _connection.ClientIsActive;
+
+    /// <summary>
+    /// XEP-0352: Hat der Server Client State Indication angekündigt?
+    /// </summary>
+    public bool SupportsClientStateIndication => _connection.SupportsClientStateIndication;
+
+    /// <summary>
+    /// XEP-0352: Meldet dem Server, ob gerade ein Mensch hinsieht - inaktiv
+    /// heisst, dass er zurückhalten darf, was warten kann.
+    /// </summary>
+    /// <returns>false, wenn der Server die Erweiterung nicht angekündigt hat.</returns>
+    /// <remarks>
+    /// Was zurückgehalten wird, entscheidet der Server. Nachrichten mit Text
+    /// gehören ausdrücklich nicht dazu - dies ist eine Sparmassnahme für den
+    /// Akku und keine Ruhefunktion für den Menschen davor.
+    /// </remarks>
+    public Task<bool> SetActiveAsync(bool active)
+        => _connection.SetClientStateAsync(active);
+
+    /// <summary>
     /// Nimmt eine Kontaktanfrage an: bestätigt die Subscription, stellt eine
     /// Gegenanfrage für beidseitige Sichtbarkeit und räumt die Warteliste auf.
     /// </summary>

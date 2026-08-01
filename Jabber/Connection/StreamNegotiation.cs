@@ -163,6 +163,19 @@ internal static class StreamNegotiation
         => features.Child(StreamManagementManager.Namespace, "sm") is not null;
 
     /// <summary>
+    /// Bietet der Server XEP-0352 Client State Indication an?
+    /// </summary>
+    /// <remarks>
+    /// Ohne diese Ankündigung darf der Client kein <c>&lt;inactive/&gt;</c>
+    /// schicken. Der Grund ist nicht Höflichkeit: Ein Server, der die
+    /// Erweiterung nicht kennt, sieht ein unbekanntes Element auf Stream-Ebene
+    /// - und RFC 6120, Abschnitt 4.9.3.24 lässt ihm dafür einen
+    /// Stream-Fehler. Aus einer Sparmassnahme würde ein Verbindungsabbruch.
+    /// </remarks>
+    public static bool OffersClientStateIndication(XElement features)
+        => features.Child(ClientStateIndication.Namespace, "csi") is not null;
+
+    /// <summary>
     /// Bietet der Server Roster-Versionierung an (RFC 6121, Abschnitt 2.6.1)?
     /// </summary>
     /// <remarks>

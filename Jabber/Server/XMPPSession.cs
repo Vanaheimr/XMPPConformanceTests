@@ -44,6 +44,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private readonly Lock _lock = new();
 
         /// <summary>
+        /// XEP-0352, Abschnitt 3: was zurückgehalten wird, solange der Client
+        /// sich für inaktiv erklärt hat - mit dem Schlüssel, unter dem eine
+        /// spätere Stanza es ablöst.
+        /// </summary>
+        private readonly List<(String? Key, String Xml)> _zurueckgehalten = [];
+
+        /// <summary>
         /// XEP-0198, Abschnitt 5: was an den Client ging und noch nicht
         /// bestätigt ist. Nach einer Wiederaufnahme geht genau das nach.
         /// </summary>
@@ -80,6 +87,56 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
         /// <summary>XEP-0280: Hat der Client Carbons für diese Resource aktiviert?</summary>
         public Boolean CarbonsEnabled { get; internal set; }
+
+        /// <summary>
+        /// XEP-0352: Sieht gerade ein Mensch hin?
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 5: „The server MUST assume all clients to be in the
+        /// 'active' state until the client indicates otherwise." Deshalb true
+        /// und nicht etwa „unbekannt": Ein Client, der XEP-0352 nicht kennt,
+        /// bekommt genau das, was er ohne diese Erweiterung bekäme.
+        /// </remarks>
+        public Boolean ClientIsActive { get; private set; } = true;
+
+        /// <summary>
+        /// XEP-0352: Wie viele Stanzas gerade zurückgehalten werden.
+        /// </summary>
+        public Int32 HeldWhileInactive
+        {
+            get { lock (_lock) return _zurueckgehalten.Count; }
+        }
+
+        /// <summary>
+        /// Die zurückgehaltenen Stanzas in Sendereihenfolge.
+        /// </summary>
+        public IReadOnlyList<String> HeldStanzas
+        {
+            get { lock (_lock) return [.. _zurueckgehalten.Select(e => e.Xml)]; }
+        }
+
+        /// <summary>
+        /// XEP-0352, Abschnitt 3: Wie viele Stanzas fallengelassen wurden, weil
+        /// sie beim Nachliefern nicht mehr wahr gewesen wären.
+        /// </summary>
+        public Int32 DiscardedWhileInactive { get; private set; }
+
+        /// <summary>
+        /// XEP-0352: Wie viele Stanzas höchstens zurückgehalten werden, bevor
+        /// der Puffer von sich aus hinausgeht.
+        /// </summary>
+        /// <remarks>
+        /// Ein Client, der sich für inaktiv erklärt und dann nicht mehr
+        /// wiederkommt, hinterliesse sonst einen Puffer, der bis zum
+        /// Verbindungsende wächst - und ein Server, dem man mit einem einzigen
+        /// <c>&lt;inactive/&gt;</c> unbegrenzt Speicher abnötigen kann, hat
+        /// eine Sparmassnahme gegen sich selbst gerichtet.
+        ///
+        /// Beim Überlauf geht der ganze Puffer hinaus und nichts wird
+        /// weggeworfen: Der Client bekommt dann Verkehr, den er gerade nicht
+        /// wollte - das ist die freundlichere der beiden Möglichkeiten.
+        /// </remarks>
+        public Int32 MaxHeldWhileInactive { get; set; } = 100;
 
         /// <summary>
         /// Die zuletzt gesendete ungerichtete Presence dieser Resource, bereits
@@ -527,6 +584,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 IsAvailable                = vorher.IsAvailable;
                 LastPresence               = vorher.LastPresence;
 
+                // Was hier bewusst *nicht* steht: ClientIsActive. XEP-0352,
+                // Abschnitt 5.2 sagt es ausdrücklich - „stream resumption does
+                // not affect the current CSI state, which always defaults to
+                // 'active' for new and resumed streams". Der Client erklärt
+                // sich nach der Wiederaufnahme erneut für inaktiv, wenn er es
+                // noch ist. Übernähme diese Zeile den alten Zustand, hielte
+                // der Server einen zurückgekehrten Client für schlafend, und
+                // der wartete auf Verkehr, den er nie angefordert hat.
+
             }
 
             vorher.EndResumption();
@@ -715,57 +781,62 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             try
             {
 
-                if (_connection.IsClosed)
+                // XEP-0352: Erst entscheiden, ob das hier überhaupt jetzt
+                // hinausgeht - unter derselben Sperre, die auch schreibt.
+                // Sonst könnte zwischen der Entscheidung und dem Schreiben ein
+                // <active/> den Puffer leeren, und diese Stanza fiele dahinter
+                // in einen Puffer, aus dem niemand mehr liest.
+                if (!ClientIsActive && !_connection.IsClosed && IsStanza(xml))
                 {
 
-                    // XEP-0198, Abschnitt 5: einem aufgehobenen Stream geht
-                    // trotzdem etwas zu - er wartet ja gerade auf seinen
-                    // Rückkehrer, und dann bekommt er es nachgeliefert.
-                    //
-                    // Ohne das wäre die Wiederaufnahme fast wertlos: gerettet
-                    // würde nur, was in der letzten Zehntelsekunde vor dem
-                    // Abriss unterwegs war. Alles, was während der Störung
-                    // ankommt - und das ist der Fall, um den es geht -, wäre
-                    // verworfen, ohne dass Absender oder Empfänger davon
-                    // erführen.
-                    if (ResumptionId is not null && IsStanza(xml))
-                        lock (_lock)
-                        {
-                            StanzasSentToClient++;
-                            _unackedToClient.Enqueue((StanzasSentToClient, xml));
-                        }
-
-                    return;
-
-                }
-
-                var status = await _server.SendTextMessage(_connection, xml);
-
-                // Nur ein tatsächlich abgeschickter Frame zählt - sonst meldete
-                // der Server dem Client ein h, das dieser nie erreichen kann.
-                if (status != SentStatus.Success)
-                    return;
-
-                lock (_lock)
-                {
-
-                    _sent.Add(xml);
-
-                    // XEP-0198: erst nach dem erfolgreichen Senden zählen.
-                    if (StreamManagementEnabled && IsStanza(xml))
+                    switch (ClientStateIndication.HandlingOf(xml))
                     {
 
-                        StanzasSentToClient++;
+                        case ClientStateHandling.Discarded:
+                            lock (_lock)
+                                DiscardedWhileInactive++;
+                            return;
 
-                        // Und aufheben, solange der Client sie nicht bestätigt
-                        // hat - nur mit zugesagter Wiederaufnahme, sonst wäre
-                        // es ein Puffer, aus dem nie jemand liest.
-                        if (ResumptionId is not null)
-                            _unackedToClient.Enqueue((StanzasSentToClient, xml));
+                        case ClientStateHandling.Queued:
+
+                            Boolean voll;
+
+                            lock (_lock)
+                            {
+
+                                var key = ClientStateIndication.SupersedeKey(xml);
+
+                                if (key is not null)
+                                    _zurueckgehalten.RemoveAll(e => e.Key == key);
+
+                                _zurueckgehalten.Add((key, xml));
+
+                                voll = _zurueckgehalten.Count > MaxHeldWhileInactive;
+
+                            }
+
+                            if (voll)
+                                await FlushHeldLockedAsync();
+
+                            return;
 
                     }
 
                 }
+
+                // Zurückgehaltenes geht vor allem her, was jetzt hinausgeht -
+                // sonst überholte eine wichtige Nachricht die Presence
+                // desselben Absenders, und RFC 6120, Abschnitt 10.1 verlangt
+                // ausdrücklich die Reihenfolge („in-order delivery") zwischen
+                // zwei Entitäten.
+                //
+                // Nur vor Stanzas: Eine Nonza trägt keine Reihenfolge, und ein
+                // <r/> des Servers dürfte den Puffer nicht leeren - das wäre
+                // ein Weckruf durch die Hintertür.
+                if (IsStanza(xml))
+                    await FlushHeldLockedAsync();
+
+                await WriteLockedAsync(xml);
 
             }
             catch (Exception)
@@ -775,6 +846,158 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             finally
             {
                 _sendLock.Release();
+            }
+
+        }
+
+        /// <summary>
+        /// XEP-0352: Übernimmt den vom Client gemeldeten Zustand und liefert
+        /// beim <c>&lt;active/&gt;</c> nach, was zurückgehalten wurde.
+        /// </summary>
+        /// <remarks>
+        /// Abschnitt 5.1 verlangt, dass alles, was ein CSI-Nonza auslöst, vor
+        /// der nächsten Anfrage desselben Clients geschieht. Deshalb hier und
+        /// nicht nebenher: Der Aufrufer wartet auf diesen Task, und der
+        /// nächste Rahmen des Clients wird erst danach behandelt.
+        /// </remarks>
+        internal async Task SetClientStateAsync(Boolean active)
+        {
+
+            await _sendLock.WaitAsync();
+
+            try
+            {
+
+                lock (_lock)
+                    ClientIsActive = active;
+
+                if (active)
+                    await FlushHeldLockedAsync();
+
+            }
+            catch (Exception)
+            {
+                // Verbindung wurde zwischenzeitlich abgerissen
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+
+        }
+
+        /// <summary>
+        /// XEP-0352: Gibt den Puffer heraus, ohne den Zustand zu ändern.
+        /// </summary>
+        /// <remarks>
+        /// Für das Ende der Verbindung: Was hier noch liegt, hat den Client nie
+        /// erreicht und ist auch nicht in den Puffer der unbestätigten Stanzas
+        /// gelangt - eine Wiederaufnahme fände es nicht. Ohne diesen Aufruf
+        /// wäre die Sparmassnahme bei jedem Abriss ein Verlust.
+        /// </remarks>
+        internal async Task FlushHeldAsync()
+        {
+
+            await _sendLock.WaitAsync();
+
+            try
+            {
+                await FlushHeldLockedAsync();
+            }
+            catch (Exception)
+            {
+                // Verbindung wurde zwischenzeitlich abgerissen
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+
+        }
+
+        /// <summary>
+        /// Schreibt den Puffer leer. Nur mit gehaltenem <c>_sendLock</c>
+        /// aufzurufen.
+        /// </summary>
+        private async Task FlushHeldLockedAsync()
+        {
+
+            List<String> offen;
+
+            lock (_lock)
+            {
+
+                if (_zurueckgehalten.Count == 0)
+                    return;
+
+                offen = [.. _zurueckgehalten.Select(e => e.Xml)];
+                _zurueckgehalten.Clear();
+
+            }
+
+            foreach (var stanza in offen)
+                await WriteLockedAsync(stanza);
+
+        }
+
+        /// <summary>
+        /// Schreibt einen Rahmen auf die Leitung, zählt ihn und hebt ihn auf,
+        /// solange er unbestätigt ist. Nur mit gehaltenem <c>_sendLock</c>
+        /// aufzurufen.
+        /// </summary>
+        private async Task WriteLockedAsync(String xml)
+        {
+
+            if (_connection.IsClosed)
+            {
+
+                // XEP-0198, Abschnitt 5: einem aufgehobenen Stream geht
+                // trotzdem etwas zu - er wartet ja gerade auf seinen
+                // Rückkehrer, und dann bekommt er es nachgeliefert.
+                //
+                // Ohne das wäre die Wiederaufnahme fast wertlos: gerettet
+                // würde nur, was in der letzten Zehntelsekunde vor dem
+                // Abriss unterwegs war. Alles, was während der Störung
+                // ankommt - und das ist der Fall, um den es geht -, wäre
+                // verworfen, ohne dass Absender oder Empfänger davon
+                // erführen.
+                if (ResumptionId is not null && IsStanza(xml))
+                    lock (_lock)
+                    {
+                        StanzasSentToClient++;
+                        _unackedToClient.Enqueue((StanzasSentToClient, xml));
+                    }
+
+                return;
+
+            }
+
+            var status = await _server.SendTextMessage(_connection, xml);
+
+            // Nur ein tatsächlich abgeschickter Frame zählt - sonst meldete
+            // der Server dem Client ein h, das dieser nie erreichen kann.
+            if (status != SentStatus.Success)
+                return;
+
+            lock (_lock)
+            {
+
+                _sent.Add(xml);
+
+                // XEP-0198: erst nach dem erfolgreichen Senden zählen.
+                if (StreamManagementEnabled && IsStanza(xml))
+                {
+
+                    StanzasSentToClient++;
+
+                    // Und aufheben, solange der Client sie nicht bestätigt
+                    // hat - nur mit zugesagter Wiederaufnahme, sonst wäre
+                    // es ein Puffer, aus dem nie jemand liest.
+                    if (ResumptionId is not null)
+                        _unackedToClient.Enqueue((StanzasSentToClient, xml));
+
+                }
+
             }
 
         }

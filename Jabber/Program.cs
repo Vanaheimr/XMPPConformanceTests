@@ -484,6 +484,10 @@ class Program
                 await ProcessStreamManagementCommandAsync(args);
                 break;
 
+            case "/csi":
+                await ProcessClientStateCommandAsync(args);
+                break;
+
             case "/keepalive":
                 ProcessKeepaliveCommand(args);
                 break;
@@ -653,6 +657,47 @@ class Program
         Console.WriteLine(marked == null
                               ? "[!] Keine Message-ID angegeben und keine letzte Nachricht bekannt"
                               : $"[+] {ChatMarkers.GetSymbol(markerType.Value)} Marker gesendet");
+
+    }
+
+    /// <summary>
+    /// XEP-0352: <c>/csi</c> zeigt den Zustand, <c>/csi aktiv|inaktiv</c>
+    /// meldet ihn dem Server.
+    /// </summary>
+    private static async Task ProcessClientStateCommandAsync(string args)
+    {
+
+        var client = _client!;
+
+        var gewuenscht = args.Trim().ToLowerInvariant() switch {
+                             "inaktiv" or "inactive" or "off"  => (bool?) false,
+                             "aktiv"   or "active"   or "on"   => true,
+                             _                                 => null
+                         };
+
+        if (gewuenscht is null)
+        {
+
+            Console.WriteLine("Client State Indication (XEP-0352):");
+            Console.WriteLine($"  Vom Server angekündigt: {(client.SupportsClientStateIndication ? "ja" : "nein")}");
+            Console.WriteLine($"  Zustand: {(client.IsActive ? "aktiv" : "inaktiv")}");
+
+            if (args.Trim().Length > 0)
+                Console.WriteLine("  Verwendung: /csi [aktiv|inaktiv]");
+
+            return;
+
+        }
+
+        if (!await client.SetActiveAsync(gewuenscht.Value))
+        {
+            Console.WriteLine("[!] Der Server bietet keine Client State Indication an.");
+            return;
+        }
+
+        Console.WriteLine(gewuenscht.Value
+                              ? "[*] Aktiv - der Server schickt wieder alles."
+                              : "[*] Inaktiv - der Server hält zurück, was warten kann.");
 
     }
 
@@ -1297,6 +1342,7 @@ PubSub (XEP-0060):
 Verbindung:
   /ping [jid]     Ping senden (XEP-0199)
   /sm [on|off]    Stream Management (XEP-0198, experimentell)
+  /csi [aktiv|inaktiv]  Client State Indication (XEP-0352)
   /keepalive [s]  Keepalive Status/Interval setzen
   /who            Status anzeigen
   /carbons        Message-Carbons-Status

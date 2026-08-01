@@ -319,6 +319,25 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         public Boolean AnswerAckRequests { get; set; } = true;
 
         /// <summary>
+        /// XEP-0352: Kündigt der Server Client State Indication an?
+        /// </summary>
+        /// <remarks>
+        /// Auf false verschwindet nicht nur die Ankündigung, sondern auch die
+        /// Behandlung: Ein <c>&lt;inactive/&gt;</c> gilt dann wie jedes andere
+        /// unangekündigte Element. Ein Server, der die Erweiterung
+        /// verschweigt und trotzdem danach handelt, wäre der schlimmere Fall -
+        /// der Client hielte seine Kontakte für still, während der Server sie
+        /// zurückhält.
+        /// </remarks>
+        public Boolean OfferClientStateIndication { get; set; } = true;
+
+        /// <summary>
+        /// XEP-0352: Wie viele Stanzas eine Sitzung höchstens zurückhält,
+        /// bevor der Puffer von sich aus hinausgeht.
+        /// </summary>
+        public Int32 MaxHeldWhileInactive { get; set; } = 100;
+
+        /// <summary>
         /// Verwirft eingehende Stanzas des Clients, ohne sie zu zählen oder
         /// weiterzureichen.
         /// </summary>
@@ -874,7 +893,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 var session = new XMPPSession(_webSocketServer,
                                               connection,
-                                              Interlocked.Increment(ref _connectionCounter));
+                                              Interlocked.Increment(ref _connectionCounter))
+                {
+                    MaxHeldWhileInactive = MaxHeldWhileInactive
+                };
 
                 _sessions.Add(session);
 
@@ -1041,6 +1063,17 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// </remarks>
         private async Task AnnounceUnavailableAsync(XMPPSession session)
         {
+
+            // XEP-0352: Was zurückgehalten wurde, geht jetzt seinen gewohnten
+            // Weg - bei einem aufgehobenen Stream in den Puffer der
+            // unbestätigten Stanzas, sonst ins Leere.
+            //
+            // Vor allem anderen, und das ist der Grund: Ab hier kommt nichts
+            // mehr an dieser Sitzung vorbei. Bliebe der Puffer stehen, hätte
+            // die Sparmassnahme aus jedem Abriss einen Verlust gemacht - der
+            // Rückkehrer bekäme alles nachgeliefert ausser dem, was der Server
+            // für ihn beiseitegelegt hatte.
+            await session.FlushHeldAsync();
 
             // XEP-0198, Abschnitt 5: einem Stream, dem die Wiederaufnahme
             // zugesagt ist, wird die Abmeldung erst einmal erspart. Sonst
@@ -1312,6 +1345,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 return;
             }
 
+            // XEP-0352: <active/> und <inactive/>.
+            if (frame.Contains(ClientStateIndication.Namespace, StringComparison.Ordinal) &&
+                await HandleClientStateAsync(session, frame))
+            {
+                return;
+            }
+
             // RFC 7395, Abschnitt 3.6: der Client verabschiedet sich.
             //
             // Damit ist der Stream zu Ende, und nicht abgerissen - eine
@@ -1444,6 +1484,48 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             // auch <enabled/>, <resumed/> und <failed/>, die es zwar gibt, die
             // aber der Server an den Client schickt und nicht umgekehrt.
             // Bekannt heisst nicht "bekannt in dieser Richtung".
+            return false;
+
+        }
+
+        /// <summary>
+        /// XEP-0352: <c>&lt;active/&gt;</c> und <c>&lt;inactive/&gt;</c> - der
+        /// Client sagt, ob ein Mensch hinsieht.
+        /// </summary>
+        /// <returns>
+        /// false, wenn das Element in diesem Namensraum nicht vorgesehen ist
+        /// oder der Server die Erweiterung gar nicht angeboten hat - dann
+        /// behandelt es der Aufrufer wie jedes andere unbekannte.
+        /// </returns>
+        /// <remarks>
+        /// Ohne Anmeldung nicht: Die Ankündigung steht in den Features nach
+        /// dem SASL-Austausch (Abschnitt 4.1), und was noch nicht angekündigt
+        /// war, gilt auch noch nicht. Sonst hätte ein Unangemeldeter einen
+        /// Zustand an einer Sitzung, die noch niemandem gehört.
+        ///
+        /// Geantwortet wird nicht - Abschnitt 4.2: „There is no reply from the
+        /// server to either of these elements." Ein <c>&lt;active/&gt;</c>,
+        /// das eine Bestätigung nach sich zöge, weckte das Gerät genau in dem
+        /// Augenblick, in dem es sich schlafen legt.
+        /// </remarks>
+        private async Task<Boolean> HandleClientStateAsync(XMPPSession session, String frame)
+        {
+
+            if (!OfferClientStateIndication || session.Account is null)
+                return false;
+
+            if (StanzaElement.Is(frame, "active"))
+            {
+                await session.SetClientStateAsync(true);
+                return true;
+            }
+
+            if (StanzaElement.Is(frame, "inactive"))
+            {
+                await session.SetClientStateAsync(false);
+                return true;
+            }
+
             return false;
 
         }
@@ -1582,6 +1664,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     // „unverändert" heisst oder „leerer Roster".
                     (OfferRosterVersioning
                          ? "<ver xmlns='urn:xmpp:features:rosterver'/>"
+                         : "") +
+
+                    // XEP-0352, Abschnitt 4.1: „If the server supports CSI, it
+                    // advertises it in the stream features after the client
+                    // has authenticated." Deshalb nur hier und nicht in den
+                    // ersten Features - vor der Anmeldung gibt es niemanden,
+                    // dessen Zustand zu schonen wäre.
+                    (OfferClientStateIndication
+                         ? ClientStateIndication.FeatureXml
                          : "") +
                     "</stream:features>");
 

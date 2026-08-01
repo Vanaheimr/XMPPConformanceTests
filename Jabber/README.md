@@ -63,6 +63,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0308 | Last Message Correction | ✅ | Empfangen: `XMPPMessage.ReplacesId` nennt die abgelöste Nachricht, `IsCorrection` die Tatsache. Senden: `CorrectLastMessageAsync` berichtigt die letzte Nachricht **an denselben Empfänger** (Abschnitt 5) und wird selbst zur letzten, sodass sich eine Berichtigung berichtigen lässt. In der Konsole `/fix <text>`; angekündigt in disco#info (D60) |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
+| XEP-0352 | Client State Indication | ✅ | Beide Seiten. Der Server kündigt `<csi/>` nach der Anmeldung an (§4.1) und antwortet auf `<active/>`/`<inactive/>` nicht (§4.2). Zurückgehalten wird nur, was später noch wahr ist: Presence wartet und **die letzte je Full-JID löst die früheren ab** (§3), eine Nachricht mit Text, ein `iq`, ein Fehler und jede Nonza gehen sofort hinaus, ein Chat State (XEP-0085) wird fallengelassen — er wäre beim Nachliefern nicht verspätet, sondern falsch. Zurückgehaltenes geht **vor** der Stanza hinaus, die den Puffer leert (RFC 6120 §10.1), und beim Verbindungsende in den Puffer der unbestätigten Stanzas. Obergrenze `MaxHeldWhileInactive` (Vorgabe 100); beim Überlauf geht der Puffer hinaus, statt etwas wegzuwerfen. Nach einer Wiederaufnahme gilt wieder „aktiv" (§5.2) — der Client erklärt sich deshalb nach jedem Aufbau erneut. In der Konsole `/csi aktiv|inaktiv` (D61) |
 
 ## RFC-Konformität
 
@@ -278,6 +279,7 @@ Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
 /ping [jid]               Ping senden und RTT messen (XEP-0199)
 /keepalive [on|off|sek]   Keepalive-Status anzeigen/ändern
 /sm [on|off]              Stream-Management-Status anzeigen/ändern
+/csi [aktiv|inaktiv]      Client State Indication (XEP-0352)
 /who                      Eigenen Verbindungsstatus anzeigen
 /carbons                  Carbon-Status anzeigen
 /reconnect                Neu verbinden
@@ -601,6 +603,12 @@ miteinander sprechen:
   aus; `ask='subscribe'` hält eine offene Anfrage fest
 - XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
 - serverseitiger Roster mit Roster-Push
+- XEP-0352 Client State Indication: Erklärt sich ein Client für inaktiv, hält
+  der Server zurück, was warten kann — Presence (nur die letzte je Full-JID),
+  Empfangsbestätigungen, Marker. Ein Chat State wird fallengelassen statt
+  aufgehoben, denn ein „schreibt gerade" von vorhin ist beim Nachliefern keine
+  verspätete Auskunft mehr, sondern eine falsche. Nachrichten mit Text, `iq`,
+  Fehler und Nonzas gehen unverändert sofort hinaus
 - XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
   Zählung — der Server benutzt bewusst nicht dieselbe Hilfsfunktion wie der
   Client, sonst prüften die Tests beide Seiten mit derselben Logik
@@ -867,7 +875,8 @@ Was davon in welcher Reihenfolge angegangen wird, steht im
 - Kein Message Archive Management (XEP-0313)
 - Keine Ende-zu-Ende-Verschlüsselung (OMEMO, XEP-0384)
 - Kein HTTP File Upload (XEP-0363)
-- Keine Client State Indication (XEP-0352)
+- ~~Keine Client State Indication (XEP-0352)~~ Umgesetzt in D61, auf beiden
+  Seiten — siehe die Tabelle oben
 - Kein Flexible Offline Message Retrieval (XEP-0013) — die Ablage kommt beim
   Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln
   abholen. Bewusst so: Die XSF führt XEP-0013 als *Deprecated* (siehe D37)

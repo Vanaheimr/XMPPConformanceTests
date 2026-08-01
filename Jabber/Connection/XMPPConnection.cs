@@ -270,6 +270,24 @@ public sealed class XMPPConnection : IAsyncDisposable
     public AltConnectionsResolver? EndpointDiscovery { get; set; }
     public List<string> ServerFeatures { get; } = [];
 
+    /// <summary>
+    /// XEP-0352: Hat der Server Client State Indication angekündigt?
+    /// </summary>
+    public bool SupportsClientStateIndication { get; private set; }
+
+    /// <summary>
+    /// XEP-0352: Sieht gerade ein Mensch hin? Vorgabe true - ein Stream
+    /// beginnt immer aktiv (Abschnitt 4.2).
+    /// </summary>
+    /// <remarks>
+    /// Der Wert überdauert einen Verbindungsabriss, der Zustand auf dem Server
+    /// nicht: Nach Abschnitt 5.2 fängt auch ein wiederaufgenommener Stream
+    /// wieder aktiv an. Deshalb erklärt sich der Client nach jedem Aufbau
+    /// erneut für inaktiv, solange er es ist - das Telefon liegt ja immer noch
+    /// in derselben Tasche.
+    /// </remarks>
+    public bool ClientIsActive { get; private set; } = true;
+
     // Core Managers
     public Roster Roster { get; } = new();
     public ReceiptTracker Receipts { get; }
@@ -666,6 +684,8 @@ public sealed class XMPPConnection : IAsyncDisposable
             ServerFeatures.Clear();
             ServerFeatures.AddRange(StreamNegotiation.FeatureNamespaces(features));
 
+            SupportsClientStateIndication = StreamNegotiation.OffersClientStateIndication(features);
+
             // XEP-0198, Abschnitt 5: der Versuch, an den früheren Stream
             // anzuknüpfen, gehört genau hierhin - nach der Anmeldung, vor dem
             // Binding. Gelingt er, gibt es keine neue Resource: die alte
@@ -736,6 +756,15 @@ public sealed class XMPPConnection : IAsyncDisposable
 
             else
                 await ResendUnackedAsync();
+
+            // XEP-0352, Abschnitt 5.2: „stream resumption does not affect the
+            // current CSI state, which always defaults to 'active' for new and
+            // resumed streams". Der Server hat den Zustand also vergessen, das
+            // Gerät liegt aber immer noch in der Tasche - deshalb hier und
+            // ausserhalb des Zweigs darüber: Es gilt für den neu gebundenen
+            // wie für den wiederaufgenommenen Stream.
+            if (!ClientIsActive && SupportsClientStateIndication)
+                await SendAsync(ClientStateIndication.InactiveXml);
 
             SetState(ConnectionState.Connected);
             _reconnectAttempts = 0;
@@ -2255,6 +2284,41 @@ public sealed class XMPPConnection : IAsyncDisposable
         }
         else
             _logger.LogWarning("Message Carbons nicht verfügbar: {Reason}", DescribeRejection(response));
+
+    }
+
+    /// <summary>
+    /// XEP-0352: Sagt dem Server, ob gerade ein Mensch hinsieht.
+    /// </summary>
+    /// <param name="active">
+    /// false, wenn das Gerät in der Tasche liegt - der Server hält dann
+    /// zurück, was warten kann.
+    /// </param>
+    /// <returns>
+    /// false, wenn der Server die Erweiterung nicht angekündigt hat. Dann
+    /// bleibt es beim aktiven Zustand, und zwar auf beiden Seiten: Ein
+    /// Client, der seinen Wunsch trotzdem vermerkte, hielte den Server für
+    /// sparsam, während dieser weiterhin alles schickt.
+    /// </returns>
+    public async Task<bool> SetClientStateAsync(bool active)
+    {
+
+        if (!SupportsClientStateIndication)
+        {
+            _logger.LogWarning("XEP-0352: Der Server bietet keine Client State Indication an.");
+            return false;
+        }
+
+        await SendAsync(active
+                            ? ClientStateIndication.ActiveXml
+                            : ClientStateIndication.InactiveXml);
+
+        // Erst nach dem erfolgreichen Senden. Wirft das Senden, ist der
+        // Zustand auf dem Server unverändert, und die beiden Seiten wären
+        // sich sonst uneinig darüber, was gerade zurückgehalten wird.
+        ClientIsActive = active;
+
+        return true;
 
     }
 
