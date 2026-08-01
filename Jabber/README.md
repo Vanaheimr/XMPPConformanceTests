@@ -63,7 +63,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 | XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
 | XEP-0308 | Last Message Correction | ✅ | Empfangen: `XMPPMessage.ReplacesId` nennt die abgelöste Nachricht, `IsCorrection` die Tatsache. Senden: `CorrectLastMessageAsync` berichtigt die letzte Nachricht **an denselben Empfänger** (Abschnitt 5) und wird selbst zur letzten, sodass sich eine Berichtigung berichtigen lässt. In der Konsole `/fix <text>`; angekündigt in disco#info (D60) |
 | XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
-| XEP-0384 | OMEMO Encryption | ✅ | Vollständig, `urn:xmpp:omemo:2` — siehe den Abschnitt „Ende-zu-Ende-Verschlüsselung" weiter unten. **Gegen keinen fremden OMEMO-Client geprüft** |
+| XEP-0384 | OMEMO Encryption | ✅ | Vollständig, `urn:xmpp:omemo:2` — siehe den Abschnitt „Ende-zu-Ende-Verschlüsselung" weiter unten. Gegen die Referenzimplementierung python-omemo geprüft, in beide Richtungen (D69) |
 | XEP-0420 | Stanza Content Encryption | ✅ | Die Hülle, die OMEMO verschlüsselt: `<content/>` mit dem Absender darin und einer Polsterung zufälliger Länge |
 | XEP-0352 | Client State Indication | ✅ | Beide Seiten. Der Server kündigt `<csi/>` nach der Anmeldung an (§4.1) und antwortet auf `<active/>`/`<inactive/>` nicht (§4.2). Zurückgehalten wird nur, was später noch wahr ist: Presence wartet und **die letzte je Full-JID löst die früheren ab** (§3), eine Nachricht mit Text, ein `iq`, ein Fehler und jede Nonza gehen sofort hinaus, ein Chat State (XEP-0085) wird fallengelassen — er wäre beim Nachliefern nicht verspätet, sondern falsch. Zurückgehaltenes geht **vor** der Stanza hinaus, die den Puffer leert (RFC 6120 §10.1), und beim Verbindungsende in den Puffer der unbestätigten Stanzas. Obergrenze `MaxHeldWhileInactive` (Vorgabe 100); beim Überlauf geht der Puffer hinaus, statt etwas wegzuwerfen. Nach einer Wiederaufnahme gilt wieder „aktiv" (§5.2) — der Client erklärt sich deshalb nach jedem Aufbau erneut. In der Konsole `/csi aktiv|inaktiv` (D61) |
 
@@ -915,13 +915,16 @@ Sitzungsspeicher und die Verdrahtung.
 
 ### Die Grenzen, ausdrücklich
 
-- **Gegen keinen fremden OMEMO-Client geprüft.** Prosody und ejabberd *tragen*
-  OMEMO nur, sie sprechen es nicht; Conversations, Dino oder Gajim gibt es im
-  Testaufbau nicht. Geprüft ist die Übereinstimmung mit dem Text der
-  Spezifikation — gegen veröffentlichte Vektoren und mit wörtlich
-  nachgerechneten Vorschriften —, **nicht mit der Wirklichkeit.** Eine
-  einzelne falsch gelesene Zeile kann die Verständigung mit echten Clients
-  verhindern, ohne dass hier irgendetwas auffällt
+- **Gegen die Referenzimplementierung geprüft, nicht gegen einen echten
+  Client.** Seit D69 läuft python-omemo (Syndace) als Gegenstelle mit — dieselbe
+  Fassung `urn:xmpp:omemo:2` — und zwar in beide Richtungen: Sie nimmt unser
+  Bundle an (und prüft dabei unsere Signatur), wir lesen ihre Nachrichten, sie
+  liest unsere. Damit sind Bundle-Format, X3DH, Ratchet-Anfang und Drahtformat
+  **gegen fremden Code** belegt. Nicht belegt bleiben die SCE-Hülle, das
+  `<encrypted/>`-Element, die PEP-Knoten und der Verlauf eines Gesprächs über
+  mehrere Nachrichten — und ein echter Client über eine echte Verbindung
+  ohnehin nicht: Conversations, Dino und Gajim sprechen überwiegend noch OMEMO
+  0.3.0. Siehe [Jabber.Tests/XMPP/XEPs/Orakel](../Jabber.Tests/XMPP/XEPs/Orakel/README.md)
 - **Der Sitzungsspeicher ist nicht verschlüsselt.** Er enthält den geheimen
   IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer die Datei liest,
   liest die Gespräche mit. Sie gehört an einen Ort, an den nur dieser Benutzer

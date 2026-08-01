@@ -88,8 +88,37 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             var gemeldet = new ConcurrentQueue<(String Frame, Exception Error)>();
             Server.OnInternalError += (session, frame, e) => gemeldet.Enqueue((frame, e));
 
-            // Erst jetzt, sonst käme der Client nicht einmal durch die
-            // Aufbauphase.
+            // Warten, bis der Client wirklich still ist - nicht nur, bis
+            // ConnectAsync zurückkommt.
+            //
+            // Das ist die Korrektur aus D69, und sie hat eine Vorgeschichte:
+            // Nach dem Aufbau ist noch etwas unterwegs - die erste Presence,
+            // die Antwort auf den Roster-Abruf. Fällt der Schalter unten,
+            // während davon noch etwas beim Server ankommt, scheitert *dieser*
+            // Rahmen zuerst, der Server beendet den Stream mit
+            // <internal-server-error/> (RFC 6120, Abschnitt 4.9.1.1), und die
+            // Nachricht mit der gesuchten Kennung wird nie verschickt. Der
+            // Test wartet dann zehn Sekunden auf eine Meldung, die es nicht
+            // mehr geben kann.
+            //
+            // Das war immer schon ein Wettlauf; sichtbar wurde er erst, als
+            // die OMEMO-Tests die Maschine genug beschäftigten. Zwei von vier
+            // vollen Läufen fielen darüber - **ein Test, der die Hälfte der
+            // Zeit fällt, misst nichts mehr**.
+            var sitzung = Server.SessionOf(alice.FullJid)!;
+
+            var ruhe = 0;
+            var stand = -1;
+
+            await WaitFor(() =>
+            {
+                var jetzt = sitzung.Received.Count;
+                ruhe  = jetzt == stand ? ruhe + 1 : 0;
+                stand = jetzt;
+                return ruhe >= 3;
+            },
+            "einen Client, von dem nichts mehr nachkommt");
+
             Server.FailFrameHandling = true;
 
             await alice.SendRawAsync("<message to='bob@localhost' id='ausloeser'><body>Hallo</body></message>");

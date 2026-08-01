@@ -5343,18 +5343,87 @@ Gruppenverschlüsselung; kein Zeitplan für den Wechsel des Signed PreKey.
 
 ---
 
+### D69. Eine Gegenstelle, die niemand hier geschrieben hat ✅ — OMEMO gegen die Referenz
+
+Sieben Etappen lang stand dieselbe Grenze im README: **gegen keinen fremden
+Client geprüft.** Und siebenmal war der Befund derselbe — der Info-String
+(D62), die Beigabe (D63), die Wurzelkette (D64), die Einbettung des
+Geheimtexts (D65), die Eintragskennung (D66). **Jedes Mal hätten sich zwei
+Clients dieses Hauses bestens verstanden und kein einziger fremder.**
+
+Der Grund ist keine Nachlässigkeit, sondern eine Eigenschaft der Anordnung:
+**Sind beide Seiten derselbe Code, kommen sie auch dann überein, wenn beide
+gleich falsch rechnen.** Ein Test kann das grundsätzlich nicht unterscheiden.
+
+Jetzt gibt es die Gegenstelle: **python-omemo (Syndace)**, die
+Referenzimplementierung für `urn:xmpp:omemo:2` — dieselbe Fassung, die wir
+sprechen. Und zwar in beide Richtungen:
+
+- **Sie nimmt unser Bundle an.** Dabei prüft sie unsere Signatur über den
+  Signed PreKey mit ihrer eigenen Vorstellung davon, worüber sie geht. **Damit
+  ist die ungeprüfte Annahme aus D63 entschieden** — in Montgomery-Form
+  unterschrieben, und die Lesart stimmt.
+- **Wir lesen, was sie schreibt.** In einem Zug geprüft: Bundle-Kodierung,
+  Reihenfolge der vier Diffie-Hellman, Info-String von X3DH, `0xFF`-Vorspann,
+  Beigabe aus beiden IdentityKeys, Ratchet-Anfang, Info-Strings von
+  Wurzelkette und Nachrichtenschlüssel, die Konstanten `0x01`/`0x02`,
+  Protobuf-Feldnummern, Einbettung des Geheimtexts, Kürzung des HMAC,
+  Ableitung der Nutzlast.
+- **Sie liest, was wir schreiben.** Die Richtung, die darüber entscheidet, ob
+  uns jemand lesen kann — und die man am ehesten vergisst, weil ihr Ausbleiben
+  wie Schweigen aussieht: Wer nie eine Antwort bekommt, weiss nicht, ob niemand
+  schreiben wollte oder niemand lesen konnte.
+
+**Jeder einzelne Punkt dieser Liste war zuvor eine überlebende Mutation oder
+ein Fund beim Lesen.** Drei Tests hätten alle fünf gefunden.
+
+## Ohne etwas am System zu verändern
+
+`sudo` verlangt ein Passwort, und das gebe ich nicht ein. Also anders: Wheels
+sind Zip-Dateien. Elf Pakete geholt und entpackt, `PYTHONPATH` davor — **kein
+pip, kein venv, kein sudo.** Für einen Testaufbau ist das sogar besser als eine
+Installation: reproduzierbar, und es bleibt nichts zurück. Das Skript liegt bei
+(`Orakel/hole_orakel.py`).
+
+Zwei Stolpersteine unterwegs, beide festgehalten: **`cffi` gehört dazu**, auch
+wenn es nicht danach aussieht — ohne es findet XEdDSA seine native Bibliothek
+nicht und fällt auf eine Variante zurück, die einen Browser erwartet. Und
+**pydantic pinnt `pydantic-core` exakt**; wer von jedem Paket das neueste
+nimmt, bekommt zwei, die nicht zueinander passen. Das ist die Arbeit, die pip
+sonst macht.
+
+Die Tests **überspringen sich selbst**, wenn das Orakel nicht da ist — wie die
+gegen Prosody und ejabberd. Ein Lauf ohne WSL soll nicht rot sein, nur weniger
+aussagen.
+
+## Was auch jetzt nicht geprüft ist
+
+Und das gehört genauso deutlich hin wie das Ergebnis: Die **SCE-Hülle** bleibt
+aussen vor — python-omemo überlässt sie der Anwendung, und eine Hülle, die ich
+im Orakel selbst baute, wäre keine fremde Prüfung, sondern dieselbe Annahme
+zweimal. Ebenso wenig geprüft: das `<encrypted/>`-Element, die PEP-Knoten, ein
+Gespräch über mehrere Nachrichten — und ein echter Client über eine echte
+Verbindung erst recht nicht.
+
+---
+
 ## Später
 
 ### Testsammlung
-- **`AFailureWhileHandlingAFrame_IsReported` wackelt seit D68 unter Last.** Im
-  ersten vollen Lauf nach der OMEMO-Reihe lief seine Frist von zehn Sekunden
-  ab; allein und dreimal hintereinander besteht er, der zweite volle Lauf war
-  grün (947/7). Der wahrscheinliche Grund ist die Rechenlast der neuen Tests:
-  Jedes `OmemoIdentity.Create()` erzeugt hundertein Schlüsselpaare, und
-  `BothSignsOfTheScalar_Work` rechnet zweiunddreissig XEdDSA-Signaturen mit
-  `BigInteger`. **Festgehalten statt weggeklickt** — ein Test, der einmal
-  ohne erkennbaren Grund fällt, ist entweder zu knapp bemessen oder zeigt
-  etwas an; welches von beidem, ist hier noch nicht entschieden.
+- ~~**`AFailureWhileHandlingAFrame_IsReported` wackelt seit D68 unter Last.**~~
+  Behoben in D69, und der Grund war kein Zeitproblem, sondern ein Wettlauf:
+  Nach dem Verbindungsaufbau ist noch etwas unterwegs — die erste Presence,
+  die Antwort auf den Roster-Abruf. Fiel der Testschalter, während davon noch
+  etwas beim Server ankam, scheiterte *jener* Rahmen zuerst, der Server
+  beendete den Stream, und die Nachricht mit der gesuchten Kennung ging nie
+  hinaus. Der Test wartete dann zehn Sekunden auf eine Meldung, die es nicht
+  mehr geben konnte.
+  **Der Wettlauf war immer da; sichtbar wurde er erst, als die OMEMO-Tests die
+  Maschine genug beschäftigten** — zwei von vier vollen Läufen fielen darüber.
+  Jetzt wartet der Test, bis vom Client nichts mehr nachkommt, statt bis
+  `ConnectAsync` zurückkehrt. **Ein Test, der die Hälfte der Zeit fällt, misst
+  nichts mehr** — und die erste Vermutung („zu knapp bemessen") war falsch: Es
+  half kein Warten, weil die Meldung nicht spät kam, sondern gar nicht.
 - ~~**`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
   aufgefallen, ein Fehlschlag in einem Vollauf. Der Mitschnitt liegt vor:
 
