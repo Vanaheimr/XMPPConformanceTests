@@ -52,6 +52,24 @@ public sealed record RatchetHeader(Byte[] DhPublicKey,
     /// der Kodierung statt am Inhalt.
     /// </remarks>
     public Byte[] Encode()
+        => Encode(null);
+
+    /// <summary>
+    /// Der Kopf als <c>OMEMOMessage.proto</c>, wahlweise mit Geheimtext.
+    /// </summary>
+    /// <remarks>
+    /// <b>Genau diese Bytes prüft der HMAC</b> - „the HMAC is computed over
+    /// <c>ad ‖ OMEMOMessage.proto</c> (after ciphertext is added to the
+    /// proto)". Der Geheimtext steht darin also als Feld 4 <b>mit Kennung und
+    /// Längenangabe</b> und nicht einfach hinten angehängt.
+    ///
+    /// Der Unterschied sind drei Byte, und er ist in D64 durchgerutscht: Dort
+    /// wurde der Geheimtext roh angehängt. Beide Seiten taten dasselbe, alle
+    /// Tests blieben grün - und gegen einen fremden Client hätte keine einzige
+    /// Prüfsumme gestimmt. Dieselbe Familie von Fehlern wie der Info-String in
+    /// D62, die Beigabe in D63 und die Wurzelkette in D64.
+    /// </remarks>
+    public Byte[] Encode(Byte[]? ciphertext)
     {
 
         var bytes = new List<Byte>();
@@ -60,14 +78,25 @@ public sealed record RatchetHeader(Byte[] DhPublicKey,
         Protobuf.WriteUInt32 (bytes, 2, PreviousChainLength);
         Protobuf.WriteBytes  (bytes, 3, DhPublicKey);
 
+        if (ciphertext is not null)
+            Protobuf.WriteBytes(bytes, 4, ciphertext);
+
         return [.. bytes];
 
     }
 
 }
 
-/// <summary>Eine verschlüsselte Ratchet-Nachricht: Kopf und Geheimtext.</summary>
-public sealed record RatchetMessage(RatchetHeader Header, Byte[] Ciphertext);
+/// <summary>
+/// Eine verschlüsselte Ratchet-Nachricht: Kopf, Geheimtext und der auf 16 Byte
+/// gekürzte HMAC.
+/// </summary>
+/// <remarks>
+/// Die drei Teile stehen getrennt, weil sie auf der Leitung getrennt stehen:
+/// Kopf und Geheimtext bilden zusammen die <c>OMEMOMessage</c>, der HMAC
+/// umschliesst sie als <c>OMEMOAuthenticatedMessage</c>.
+/// </remarks>
+public sealed record RatchetMessage(RatchetHeader Header, Byte[] Ciphertext, Byte[] Mac);
 
 /// <summary>
 /// Der Double Ratchet nach XEP-0384, Abschnitt 4.3.
@@ -241,9 +270,9 @@ public sealed class DoubleRatchet
 
             SendCount++;
 
-            return new RatchetMessage(kopf,
-                                      Seal(nachrichtenschluessel, plaintext,
-                                           [.. associatedData, .. kopf.Encode()]));
+            var (geheim, mac) = Seal(nachrichtenschluessel, plaintext, associatedData, kopf);
+
+            return new RatchetMessage(kopf, geheim, mac);
 
         }
 
@@ -276,8 +305,6 @@ public sealed class DoubleRatchet
         lock (_lock)
         {
 
-            var beigabe = (Byte[]) [.. associatedData, .. message.Header.Encode()];
-
             // 1. Ein beiseitegelegter Schlüssel?
             var schluessel = (message.Header.DhPublicKey, message.Header.MessageNumber);
             var kennung    = (Convert.ToHexString(schluessel.DhPublicKey), schluessel.MessageNumber);
@@ -285,7 +312,7 @@ public sealed class DoubleRatchet
             if (_uebersprungen.TryGetValue(kennung, out var beiseite))
             {
 
-                var klartext = Open(beiseite, message.Ciphertext, beigabe);
+                var klartext = Open(beiseite, message, associatedData);
 
                 // Erst nach der erfolgreichen Prüfung entfernen. Wirft das
                 // Entschlüsseln, war es nicht die erwartete Nachricht - und
@@ -313,7 +340,7 @@ public sealed class DoubleRatchet
 
             ReceiveCount++;
 
-            return Open(mk, message.Ciphertext, beigabe);
+            return Open(mk, message, associatedData);
 
         }
 
@@ -481,7 +508,10 @@ public sealed class DoubleRatchet
     /// Nachricht steht. Ohne sie liesse sich eine gültige Nachricht in eine
     /// andere Sitzung oder an eine andere Stelle der Kette verschieben.
     /// </remarks>
-    private static Byte[] Seal(Byte[] messageKey, Byte[] plaintext, Byte[] associatedData)
+    private static (Byte[] Ciphertext, Byte[] Mac) Seal(Byte[]         messageKey,
+                                                        Byte[]         plaintext,
+                                                        Byte[]         associatedData,
+                                                        RatchetHeader  header)
     {
 
         var (key, authKey, iv) = Material(messageKey);
@@ -491,29 +521,19 @@ public sealed class DoubleRatchet
 
         var geheim = aes.EncryptCbc(plaintext, iv, PaddingMode.PKCS7);
 
-        Byte[] gepruefet = [.. associatedData, .. geheim];
-
-        return [.. geheim, .. HMACSHA256.HashData(authKey, gepruefet)[..16]];
+        return (geheim, Mac(authKey, associatedData, header, geheim));
 
     }
 
     /// <summary>Prüft den HMAC und entschlüsselt.</summary>
-    private static Byte[] Open(Byte[] messageKey, Byte[] sealed_, Byte[] associatedData)
+    private static Byte[] Open(Byte[] messageKey, RatchetMessage message, Byte[] associatedData)
     {
-
-        if (sealed_.Length < 16)
-            throw new CryptographicException("Die Nachricht ist kürzer als ihr eigener HMAC.");
-
-        var geheim  = sealed_[..^16];
-        var mac     = sealed_[^16..];
 
         var (key, authKey, iv) = Material(messageKey);
 
-        Byte[] gepruefet = [.. associatedData, .. geheim];
-
         if (!CryptographicOperations.FixedTimeEquals(
-                 HMACSHA256.HashData(authKey, gepruefet)[..16],
-                 mac))
+                 Mac(authKey, associatedData, message.Header, message.Ciphertext),
+                 message.Mac))
             throw new CryptographicException(
                       "Der HMAC der Ratchet-Nachricht stimmt nicht - sie wurde verändert, gehört " +
                       "zu einer anderen Sitzung oder steht an einer anderen Stelle der Kette.");
@@ -521,7 +541,27 @@ public sealed class DoubleRatchet
         using var aes = Aes.Create();
         aes.Key = key;
 
-        return aes.DecryptCbc(geheim, iv, PaddingMode.PKCS7);
+        return aes.DecryptCbc(message.Ciphertext, iv, PaddingMode.PKCS7);
+
+    }
+
+    /// <summary>
+    /// Der gekürzte HMAC über <c>ad ‖ OMEMOMessage.proto</c> - mit Geheimtext
+    /// <b>im</b> Protobuf und nicht dahinter.
+    /// </summary>
+    /// <remarks>
+    /// Die Beigabe enthält damit alles, was diese Nachricht ausmacht: die
+    /// beiden IdentityKeys aus X3DH, die Stelle in der Kette und den
+    /// Geheimtext selbst. Ohne den Kopf liesse sich eine gültige Nachricht an
+    /// eine andere Stelle der Kette verschieben, ohne die IdentityKeys in eine
+    /// fremde Sitzung.
+    /// </remarks>
+    internal static Byte[] Mac(Byte[] authKey, Byte[] associatedData, RatchetHeader header, Byte[] ciphertext)
+    {
+
+        Byte[] gepruefet = [.. associatedData, .. header.Encode(ciphertext)];
+
+        return HMACSHA256.HashData(authKey, gepruefet)[..16];
 
     }
 

@@ -5059,6 +5059,69 @@ nachgebessert waren, und eine dadurch, dass sie den Prozess umbringt.
 
 ---
 
+### D65. Drei Byte, die niemand gesehen hätte ✅ — OMEMO, Etappe 4 von 7
+
+Das Drahtformat: die drei Protobuf-Nachrichten, das
+`<encrypted/>`-Element und die SCE-Hülle aus XEP-0420.
+
+**Der wichtigste Fund kam diesmal beim Lesen, nicht durch eine Mutation.**
+Abschnitt 4.3 sagt, der HMAC laufe über `ad ‖ OMEMOMessage.proto` — „after
+ciphertext is added to the proto". In D64 hing der Geheimtext **roh hinter dem
+Kopf**; verlangt ist er als Feld 4 *innerhalb* der kodierten Nachricht. Der
+Unterschied sind drei Byte, Feldkennung `22` und Längenangabe, und **beide
+Seiten dieses Hauses hätten ihn nie bemerkt.** Gegen einen fremden Client hätte
+keine einzige Prüfsumme gestimmt.
+
+Damit ist es zum vierten Mal dieselbe Familie: D62 der Info-String, D63 die
+Beigabe, D64 die Wurzelkette, jetzt die Einbettung. **Alle vier haben
+gemeinsam, dass die eigenen Tests sie nicht finden konnten** — nicht weil sie
+schlecht waren, sondern weil ein Test zwischen „richtig" und „auf beiden
+Seiten gleich falsch" grundsätzlich nicht unterscheidet, solange beide Seiten
+derselbe Code sind.
+
+**Drei Entscheidungen im Format:**
+
+- **Der HMAC steht ausserhalb der Nachricht.** Stünde er darin, prüfte er sich
+  selbst mit; deshalb die Hülle `OMEMOAuthenticatedMessage` — innen die
+  Nachricht, aussen ihre Beglaubigung.
+- **`kex='false'` wird nicht geschrieben.** Abschnitt 4.5 gibt dem Attribut
+  diesen Vorgabewert, und ein ausgeschriebener Vorgabewert reist bei jeder
+  Nachricht an jedes Gerät mit, ohne je etwas zu bedeuten.
+- **Der Schlüssel wird über JID *und* Gerätekennung gesucht.** Die Kennung ist
+  eine Zufallszahl je Gerät; zwei Konten können dieselbe tragen. Wer nur nach
+  ihr suchte, nähme unter Umständen den Eintrag eines fremden Kontos und
+  scheiterte an einer Entschlüsselung, deren Grund er nicht sieht.
+
+Bei der SCE-Hülle ist die Begründung wichtiger als der Code. **Verschlüsselt
+wird nicht der Text, sondern eine ganze Stanza-Hülle.** Wer nur den `<body/>`
+verschlüsselt, lässt Chat States, Empfangsbestätigungen und Korrekturvermerke
+im Klartext stehen — der Inhalt wäre geschützt, das Gespräch nicht. Der
+Absender steht **innerhalb** der Hülle, weil er aussen von jedem änderbar ist;
+ohne diesen Abgleich liesse sich ein Geheimtext abfangen und unter fremdem
+Namen weiterreichen. Und das `<rpad/>` ist keine Zierde: Ohne es verrät die
+Länge des Geheimtextes die Länge der Nachricht, und bei „ja" und „nein" ist das
+der ganze Inhalt.
+
+19 Mutationen, alle erschlagen — **die beiden Überlebenden des ersten Laufs
+waren wieder Fehler in meinen Tests**, und beide von der stillen Sorte:
+
+- Die Prüfung der MAC-Länge liess sich entfernen, ohne dass etwas geschah: Mein
+  Testfall packte zufällige Bytes als innere Nachricht ein, und die scheiterten
+  schon beim Protobuf-Lesen. **Der Test bestand also aus dem falschen Grund.**
+  Jetzt steht dort eine sonst einwandfreie Nachricht — und eine Gegenprobe, die
+  fehlschlägt, wenn der Fall gar nicht mehr durchkommt.
+- Die Suche nach `kex='false'` im ausgegebenen XML konnte **nie** zutreffen:
+  `XElement.ToString` schreibt Attribute mit doppelten Anführungszeichen. Der
+  Test bestand immer, auch als die Mutation den Vorgabewert ausschrieb. Gefragt
+  wird jetzt das Attribut selbst.
+
+Beide sind dieselbe Lehre wie in D64: **Ein Test, der eine Zeichenfolge im
+Ausgabetext sucht oder einen Fehlerfall über einen anderen Fehler herstellt,
+prüft nicht, was sein Name behauptet.** Gefunden hat es die Mutation, nicht das
+Lesen.
+
+---
+
 ## Später
 
 ### Testsammlung
