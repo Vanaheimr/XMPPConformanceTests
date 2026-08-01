@@ -624,11 +624,17 @@ miteinander sprechen:
 - XEP-0060 §6.1/§6.2 Abonnements auf PEP-Knoten: `<subscribe/>` und
   `<unsubscribe/>` mit `subid`, samt der Ablehnungen des XEP —
   `<item-not-found/>`, `<invalid-jid/>`, `<not-subscribed/>`,
-  `<invalid-subid/>`. **Ein Abonnent bekommt die Benachrichtigungen auch ohne
-  Presence-Berechtigung**; wer über beide Wege in Frage kommt, bekommt sie
-  trotzdem nur einmal. Den `jid` darf nur setzen, wem er gehört — sonst könnte
-  jeder jeden anmelden oder, schlimmer, abmelden. Nicht umgesetzt: mehrere
-  gleichzeitige Abonnements desselben JIDs auf denselben Knoten
+  `<invalid-subid/>`, `<subid-required/>`. **Ein Abonnent bekommt die
+  Benachrichtigungen auch ohne Presence-Berechtigung.** Den `jid` darf nur
+  setzen, wem er gehört — sonst könnte jeder jeden anmelden oder, schlimmer,
+  abmelden
+- Mehrere Abonnements desselben JIDs auf denselben Knoten: Jedes `subscribe`
+  legt eines an, zugestellt wird **je Abonnement** mit der SHIM-Kopfzeile
+  `SubID` (§12.20), und Abbestellen ohne `subid` wird bei mehreren abgewiesen.
+  Ein ausdrückliches Abonnement verdrängt die Presence-Zustellung, damit die
+  Zahl der Zustellungen nicht davon abhängt, wer nebenbei im Roster steht.
+  Nicht umgesetzt: die Konfiguration je Abonnement (§6.3) — ohne sie bringt ein
+  zweites Abonnement nichts ein als eine zweite Zustellung
 - XEP-0352 Client State Indication: Erklärt sich ein Client für inaktiv, hält
   der Server zurück, was warten kann — Presence (nur die letzte je Full-JID),
   Empfangsbestätigungen, Marker. Ein Chat State wird fallengelassen statt

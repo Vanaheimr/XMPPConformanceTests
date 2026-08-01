@@ -2231,6 +2231,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                         => StanzaErrorIq(id, "not-acceptable", "modify",
                                          applicationError: $"<invalid-subid xmlns='{PubSubErrorNamespace}'/>"),
 
+                    // XEP-0060, Abschnitt 6.2.3.1: mehrere, und keines benannt
+                    PepUnsubscribeResult.SubIdRequired
+                        => StanzaErrorIq(id, "bad-request", "modify",
+                                         applicationError: $"<subid-required xmlns='{PubSubErrorNamespace}'/>"),
+
                     _   => $"<iq type='result' id='{id}'" +
                            (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + "/>"
 
@@ -2261,9 +2266,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// <b>Dazu die ausdrücklichen Abonnenten (XEP-0060, Abschnitt 6.1).</b>
         /// Ohne sie hiesse „abonnieren" nichts anderes als „im Roster stehen",
         /// und die Zusage aus <see cref="HandlePepAsync"/> wäre eine ohne
-        /// Deckung. Beide Wege führen zu <i>einer</i> Liste und nicht zu zwei
-        /// Zustellungen: Wer über beide in Frage kommt, ist trotzdem ein
-        /// Empfänger.
+        /// Deckung.
+        ///
+        /// <b>Ausdrücklich schlägt beiläufig.</b> Wer den Knoten abonniert hat,
+        /// bekommt die Meldung <i>je Abonnement</i> und nicht zusätzlich über
+        /// die Presence - sonst hinge die Zahl der Zustellungen daran, ob
+        /// jemand nebenbei auch noch im Roster steht. Wer kein Abonnement hat,
+        /// bekommt sie wie bisher einmal über die Presence.
+        ///
+        /// Die Kennung steht nur dort, wo es eine gibt: in der SHIM-Kopfzeile
+        /// der abonnierten Zustellung (Abschnitt 12.20). Eine erfundene wäre
+        /// schlimmer als keine - der Empfänger könnte danach abbestellen
+        /// wollen, was nie bestellt wurde.
         /// </remarks>
         private async Task NotifyPepAsync(XMPPSession session, String node, String itemId, String payload)
         {
@@ -2271,21 +2285,32 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (!RouteStanzas || session.FullJid is null)
                 return;
 
-            var ereignis = $"<message from='{session.BareJid}' type='headline'>" +
-                           "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
-                           $"<items node='{XmlEscaping.Escape(node)}'>" +
-                           $"<item id='{XmlEscaping.Escape(itemId)}'>{payload}</item>" +
-                           "</items></event></message>";
+            String Ereignis(String? subId)
+                => $"<message from='{session.BareJid}' type='headline'>" +
+                   "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                   $"<items node='{XmlEscaping.Escape(node)}'>" +
+                   $"<item id='{XmlEscaping.Escape(itemId)}'>{payload}</item>" +
+                   "</items></event>" +
+                   (subId is not null
+                        ? "<headers xmlns='http://jabber.org/protocol/shim'>" +
+                          $"<header name='SubID'>{XmlEscaping.Escape(subId)}</header>" +
+                          "</headers>"
+                        : "") +
+                   "</message>";
 
-            var ziele = new HashSet<XMPPSession>(PresenceTargetsOf(session));
+            var abonnements = session.Account?.PepSubscriptions(node) ?? [];
 
-            foreach (var abonnent in session.Account?.PepSubscribers(node) ?? [])
-                foreach (var s in SessionsOf(abonnent))
-                    if (s != session && s.FullJid is not null)
-                        ziele.Add(s);
+            var ausdruecklich = new HashSet<String>(abonnements.Select(a => a.Jid),
+                                                    StringComparer.OrdinalIgnoreCase);
 
-            foreach (var ziel in ziele)
-                await ziel.SendAsync(StampTo(ereignis, ziel.FullJid!));
+            foreach (var ziel in PresenceTargetsOf(session))
+                if (!ausdruecklich.Contains(ziel.BareJid ?? ""))
+                    await ziel.SendAsync(StampTo(Ereignis(null), ziel.FullJid!));
+
+            foreach (var (jid, subId) in abonnements)
+                foreach (var ziel in SessionsOf(jid))
+                    if (ziel != session && ziel.FullJid is not null)
+                        await ziel.SendAsync(StampTo(Ereignis(subId), ziel.FullJid));
 
         }
 

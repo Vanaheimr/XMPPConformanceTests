@@ -44,7 +44,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Die mitgeschickte <c>subid</c> gehört nicht zu diesem Abonnement -
         /// <c>&lt;not-acceptable/&gt;</c> mit <c>&lt;invalid-subid/&gt;</c>.
         /// </summary>
-        WrongSubId
+        WrongSubId,
+
+        /// <summary>
+        /// Es gibt mehrere, und keine Kennung sagt, welches gemeint ist -
+        /// <c>&lt;bad-request/&gt;</c> mit <c>&lt;subid-required/&gt;</c>
+        /// (XEP-0060, Abschnitt 6.2.3.1).
+        /// </summary>
+        /// <remarks>
+        /// Sich eines auszusuchen wäre die bequeme Antwort und die falsche:
+        /// Der Dienst beendete vielleicht das andere und bestätigte dem
+        /// Absender, es sei seines gewesen.
+        /// </remarks>
+        SubIdRequired
 
     }
 

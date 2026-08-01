@@ -162,6 +162,43 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                      ?.Child(PubSubNamespace, "subscription");
 
         /// <summary>
+        /// Abonniert und gibt die Kennung aus der Zusage zurück.
+        /// </summary>
+        private async Task<String> SubscribeAsync(XMPPClient client, String id)
+        {
+
+            var zusage = await AskAsync(client, id,
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                client.BareJid, id));
+
+            Assert.That(zusage.Attr("type"), Is.EqualTo("result"), $"Zusage auf '{id}'");
+
+            var subId = SubscriptionOf(zusage)?.Attr("subid");
+
+            Assert.That(subId, Is.Not.Null.And.Not.Empty, $"subid in der Zusage auf '{id}'");
+
+            return subId!;
+
+        }
+
+        /// <summary>
+        /// Die Abonnementkennungen aus den SHIM-Kopfzeilen der gesammelten
+        /// Benachrichtigungen (XEP-0060, Abschnitt 12.20).
+        /// </summary>
+        private static List<String> SubIdsIn(List<String> ereignisse)
+        {
+            lock (ereignisse)
+                return [.. ereignisse
+                           .Select(e => XElement.Parse(e)
+                                                .Child("http://jabber.org/protocol/shim", "headers")
+                                               ?.Children("http://jabber.org/protocol/shim", "header")
+                                                .FirstOrDefault(h => h.Attr("name") == "SubID")
+                                               ?.Value)
+                           .Where (s => s is not null)
+                           .Select(s => s!)];
+        }
+
+        /// <summary>
         /// Bob veröffentlicht - den Knoten gibt es danach.
         /// </summary>
         private async Task<XMPPClient> PublishingBobAsync(String itemId = "1", String inhalt = "sonnig")
@@ -608,40 +645,162 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region SubscribingTwice_KeepsOneSubscription()
+        #region SubscribingTwice_YieldsTwoSubscriptions()
 
         /// <summary>
-        /// Ein zweites <c>subscribe</c> auf denselben Knoten gibt dieselbe
-        /// Kennung zurück und verdoppelt die Zustellung nicht.
+        /// XEP-0060, Abschnitt 6.1: Ein zweites <c>subscribe</c> ist ein
+        /// zweites Abonnement, mit eigener Kennung und eigener Zustellung.
         /// </summary>
+        /// <remarks>
+        /// <b>Bis K3 stand hier das Gegenteil</b> - ein zweites <c>subscribe</c>
+        /// gab dieselbe Kennung zurück, und die Zustellung blieb einfach. Das
+        /// war nicht falsch (ein Dienst darf so verfahren), aber es machte die
+        /// <c>subid</c> zur Zierde: Wo es nie zwei gibt, benennt sie nichts,
+        /// was man nicht auch am Knoten erkennt.
+        ///
+        /// Der Fall ist nicht ausgedacht. Er entsteht von selbst, wenn ein
+        /// Client neu startet und wieder abonniert, ohne seine alte Kennung zu
+        /// kennen - danach hat der Dienst zwei, und von da an ist jedes
+        /// Abbestellen ohne Kennung zweideutig.
+        /// </remarks>
         [Test]
-        public async Task SubscribingTwice_KeepsOneSubscription()
+        public async Task SubscribingTwice_YieldsTwoSubscriptions()
         {
 
             var bob   = await PublishingBobAsync();
             var alice = await ConnectClientAsync("alice");
 
-            var erste  = await AskAsync(alice, "sub-10a",
-                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
-                                                                alice.BareJid, "sub-10a"));
+            var erste  = await SubscribeAsync(alice, "sub-10a");
+            var zweite = await SubscribeAsync(alice, "sub-10b");
 
-            var zweite = await AskAsync(alice, "sub-10b",
-                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
-                                                                alice.BareJid, "sub-10b"));
-
-            Assert.That(SubscriptionOf(zweite)?.Attr("subid"),
-                        Is.EqualTo(SubscriptionOf(erste)?.Attr("subid")),
-                        "Zweimal dasselbe Abonnement ist ein Abonnement.");
+            Assert.That(zweite, Is.Not.EqualTo(erste),
+                        "Zwei Abonnements, die dieselbe Kennung tragen, sind nicht zu unterscheiden.");
 
             var ereignisse = CollectEvents(alice);
 
             await AskAsync(bob, "pub-5",
                            PublishIq("pub-5", Node, "5", "<wetter xmlns='urn:example:x'>Hagel</wetter>"));
 
-            await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung");
+            await WaitFor(() => Count(ereignisse) > 1, "beide Benachrichtigungen");
+
+            Assert.That(SubIdsIn(ereignisse), Is.EquivalentTo(new[] { erste, zweite }),
+                        "Jede Zustellung gehört zu genau einem Abonnement und sagt zu welchem.");
+
+        }
+
+        #endregion
+
+        #region WithTwoSubscriptions_UnsubscribingWithoutASubId_IsRejected()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 6.2.3.1: Wer mehrere hat, muss sagen, welches.
+        /// </summary>
+        /// <remarks>
+        /// Der Grund ist derselbe wie bei der falschen Kennung, nur eine Stufe
+        /// früher: Ein Dienst, der sich eines aussuchte, beendete vielleicht
+        /// das falsche - und bestätigte dem Absender, es sei das gemeinte
+        /// gewesen.
+        /// </remarks>
+        [Test]
+        public async Task WithTwoSubscriptions_UnsubscribingWithoutASubId_IsRejected()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "sub-12a");
+            await SubscribeAsync(alice, "sub-12b");
+
+            var antwort = await AskAsync(alice, "unsub-12",
+                                         PubSubBuilder.Unsubscribe($"bob@{Server.Domain}",
+                                                                   Node,
+                                                                   alice.BareJid,
+                                                                   "unsub-12"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(antwort.Attr("type"),       Is.EqualTo("error"));
+                Assert.That(ConditionOf(antwort),       Is.EqualTo("bad-request"));
+                Assert.That(ErrorTypeOf(antwort),       Is.EqualTo("modify"));
+                Assert.That(PubSubConditionOf(antwort), Is.EqualTo("subid-required"));
+            });
+
+        }
+
+        #endregion
+
+        #region WithTwoSubscriptions_TheSubIdEndsExactlyOne()
+
+        /// <summary>
+        /// Und mit Kennung endet genau das benannte.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenprobe zum vorigen Test, und die eigentliche Zusicherung:
+        /// Ein Abbestellen, das beide beendete, wäre ebenso eindeutig wie
+        /// falsch.
+        /// </remarks>
+        [Test]
+        public async Task WithTwoSubscriptions_TheSubIdEndsExactlyOne()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste  = await SubscribeAsync(alice, "sub-13a");
+            var zweite = await SubscribeAsync(alice, "sub-13b");
+
+            var antwort = await AskAsync(alice, "unsub-13",
+                                         PubSubBuilder.Unsubscribe($"bob@{Server.Domain}", Node,
+                                                                   alice.BareJid, "unsub-13", erste));
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-7",
+                           PublishIq("pub-7", Node, "7", "<wetter xmlns='urn:example:x'>Graupel</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0, "die verbliebene Benachrichtigung");
 
             await WaitAgainst(() => Count(ereignisse) > 1,
-                              "eine zweite Benachrichtigung");
+                              "eine Benachrichtigung für das beendete Abonnement");
+
+            Assert.That(SubIdsIn(ereignisse), Is.EqualTo(new[] { zweite }),
+                        "Es blieb nicht das übrig, das bleiben sollte.");
+
+        }
+
+        #endregion
+
+        #region APresenceDrivenNotification_CarriesNoSubId()
+
+        /// <summary>
+        /// Wer nur über Presence benachrichtigt wird, bekommt keine Kennung -
+        /// es gibt keine.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0060, Abschnitt 12.20 verlangt die Kennung, <i>wenn</i> es
+        /// mehrere Abonnements gibt. Eine erfundene mitzuschicken wäre
+        /// schlimmer als keine: Der Empfänger könnte danach abbestellen wollen,
+        /// was nie bestellt wurde.
+        /// </remarks>
+        [Test]
+        public async Task APresenceDrivenNotification_CarriesNoSubId()
+        {
+
+            MakeContacts("alice", "bob");
+
+            var bob        = await PublishingBobAsync();
+            var alice      = await ConnectClientAsync("alice");
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-8",
+                           PublishIq("pub-8", Node, "8", "<wetter xmlns='urn:example:x'>Dunst</wetter>"));
+
+            await WaitFor(() => Count(ereignisse) > 0, "die Benachrichtigung an den Kontakt");
+
+            Assert.That(SubIdsIn(ereignisse), Is.Empty);
 
         }
 

@@ -53,8 +53,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             new(StringComparer.Ordinal);
 
         /// <summary>
-        /// Die Abonnenten je Knoten, mit der Kennung ihres Abonnements
-        /// (XEP-0060, Abschnitt 6.1).
+        /// Die Abonnements je Knoten, jedes mit seinem Abonnenten und seiner
+        /// Kennung (XEP-0060, Abschnitt 6.1).
         /// </summary>
         /// <remarks>
         /// Ebenfalls am Konto und nicht an der Sitzung: Ein Abonnement gilt
@@ -62,11 +62,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// dann geht, hat es beim Wiederkommen noch - alles andere wäre kein
         /// Abonnement, sondern eine Anwesenheitsliste.
         ///
-        /// Der Knoten wird nach <see cref="StringComparer.Ordinal"/>
-        /// unterschieden wie in <see cref="_pepNodes"/>, der Abonnent nach
-        /// <see cref="StringComparer.OrdinalIgnoreCase"/> wie jeder JID.
+        /// <b>Eine Liste und keine Abbildung nach JID</b>: Derselbe JID darf
+        /// mehrere Abonnements auf denselben Knoten halten, und eine Abbildung
+        /// könnte das zweite nur verschlucken. Der Knoten wird nach
+        /// <see cref="StringComparer.Ordinal"/> unterschieden wie in
+        /// <see cref="_pepNodes"/>, der Abonnent beim Vergleichen ohne Rücksicht
+        /// auf Gross- und Kleinschreibung wie jeder JID.
         /// </remarks>
-        private readonly Dictionary<String, Dictionary<String, String>> _pepSubscriptions =
+        private readonly Dictionary<String, List<(String Jid, String SubId)>> _pepSubscriptions =
             new(StringComparer.Ordinal);
 
         #endregion
@@ -401,22 +404,24 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// Trägt einen Abonnenten in einen Knoten ein und gibt die Kennung des
-        /// Abonnements zurück (XEP-0060, Abschnitt 6.1).
+        /// Legt ein Abonnement an und gibt seine Kennung zurück (XEP-0060,
+        /// Abschnitt 6.1).
         /// </summary>
         /// <remarks>
-        /// <b>Ein Abonnement je Knoten und Abonnent, und ein zweites
-        /// <c>subscribe</c> gibt dieselbe Kennung zurück.</b> XEP-0060 erlaubt
-        /// einem JID durchaus mehrere Abonnements auf denselben Knoten - dafür
-        /// gibt es die <c>subid</c> überhaupt. Sie sind hier nicht umgesetzt,
-        /// und das ist eine bewusste Grenze: Zwei Abonnements bringen zwei
-        /// Zustellungen derselben Sache an denselben Empfänger, was erst mit
-        /// unterschiedlichen Konfigurationen je Abonnement einen Sinn ergibt -
-        /// und die kennt dieser Server nicht.
+        /// <b>Jedes <c>subscribe</c> ist ein eigenes Abonnement</b>, auch das
+        /// zweite desselben JIDs auf denselben Knoten. XEP-0060 sieht das
+        /// ausdrücklich vor - dafür gibt es die <c>subid</c> überhaupt.
         ///
-        /// Die Kennung wird trotzdem vergeben, denn sie ist keine Zierde: Der
-        /// Abonnent kann sie nicht erraten, und wer sie mitschickt, benennt
-        /// genau dieses Abonnement statt irgendeines.
+        /// Der Fall ist nicht ausgedacht: Er entsteht von selbst, wenn ein
+        /// Client neu startet und wieder abonniert, ohne seine alte Kennung zu
+        /// kennen. Von da an ist jedes Abbestellen ohne Kennung zweideutig,
+        /// und genau das muss der Dienst dann auch sagen.
+        ///
+        /// <b>Was hier fehlt</b>, ist der Grund, aus dem sich zwei
+        /// Abonnements sonst unterscheiden: die Konfiguration je Abonnement
+        /// (Abschnitt 6.3). Ohne sie bringt ein zweites nichts ein als eine
+        /// zweite Zustellung - der Server muss trotzdem richtig antworten,
+        /// wenn es eines gibt.
         /// </remarks>
         public String AddPepSubscription(String node, String subscriberBareJid)
         {
@@ -424,15 +429,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             lock (_lock)
             {
 
-                if (!_pepSubscriptions.TryGetValue(node, out var abonnenten))
-                    _pepSubscriptions[node] = abonnenten = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
-
-                if (abonnenten.TryGetValue(subscriberBareJid, out var bestehende))
-                    return bestehende;
+                if (!_pepSubscriptions.TryGetValue(node, out var abonnements))
+                    _pepSubscriptions[node] = abonnements = [];
 
                 var subId = Guid.NewGuid().ToString("N")[..12];
 
-                abonnenten[subscriberBareJid] = subId;
+                abonnements.Add((subscriberBareJid, subId));
 
                 return subId;
 
@@ -444,8 +446,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Beendet ein Abonnement (XEP-0060, Abschnitt 6.2).
         /// </summary>
         /// <param name="subId">
-        /// Die Kennung aus der Zusage, oder null. Ist sie angegeben, muss sie
-        /// passen - sonst bliebe unklar, welches Abonnement gemeint war.
+        /// Die Kennung aus der Zusage, oder null. Sie darf fehlen, solange es
+        /// nur ein Abonnement gibt (Abschnitt 6.2.3.1); gibt es mehrere, ist
+        /// sie die einzige Auskunft darüber, welches gemeint ist.
         /// </param>
         public PepUnsubscribeResult RemovePepSubscription(String   node,
                                                           String   subscriberBareJid,
@@ -455,21 +458,28 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             lock (_lock)
             {
 
-                if (!_pepSubscriptions.TryGetValue(node, out var abonnenten) ||
-                    !abonnenten.TryGetValue(subscriberBareJid, out var bestehende))
-                {
+                if (!_pepSubscriptions.TryGetValue(node, out var abonnements))
                     return PepUnsubscribeResult.NotSubscribed;
-                }
 
-                if (subId is not null &&
-                    !String.Equals(subId, bestehende, StringComparison.Ordinal))
-                {
+                var seine = abonnements.FindAll(
+                                a => String.Equals(a.Jid, subscriberBareJid, StringComparison.OrdinalIgnoreCase));
+
+                if (seine.Count == 0)
+                    return PepUnsubscribeResult.NotSubscribed;
+
+                if (subId is null && seine.Count > 1)
+                    return PepUnsubscribeResult.SubIdRequired;
+
+                var gemeint = subId is null
+                                  ? seine[0]
+                                  : seine.Find(a => String.Equals(a.SubId, subId, StringComparison.Ordinal));
+
+                if (gemeint.SubId is null)
                     return PepUnsubscribeResult.WrongSubId;
-                }
 
-                abonnenten.Remove(subscriberBareJid);
+                abonnements.Remove(gemeint);
 
-                if (abonnenten.Count == 0)
+                if (abonnements.Count == 0)
                     _pepSubscriptions.Remove(node);
 
                 return PepUnsubscribeResult.Removed;
@@ -479,13 +489,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// Die Bare-JIDs, die diesen Knoten abonniert haben.
+        /// Die Abonnements dieses Knotens - je Eintrag ein Bare-JID und die
+        /// Kennung seines Abonnements.
         /// </summary>
-        public IReadOnlyList<String> PepSubscribers(String node)
+        /// <remarks>
+        /// Derselbe JID kann mehrfach vorkommen. Wer die Empfänger will und
+        /// nicht die Abonnements, muss also selbst zusammenfassen - und wer
+        /// zustellt, gerade nicht: Jedes Abonnement ist eine eigene Zusage.
+        /// </remarks>
+        public IReadOnlyList<(String Jid, String SubId)> PepSubscriptions(String node)
         {
             lock (_lock)
-                return _pepSubscriptions.TryGetValue(node, out var abonnenten)
-                           ? [.. abonnenten.Keys]
+                return _pepSubscriptions.TryGetValue(node, out var abonnements)
+                           ? [.. abonnements]
                            : [];
         }
 

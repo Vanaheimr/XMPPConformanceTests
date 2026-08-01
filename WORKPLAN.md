@@ -5514,6 +5514,51 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D72. Wofür es die subid gibt ✅ — mehrere Abonnements auf denselben Knoten
+
+Am Ende von D71 stand die Grenze im README: mehrere gleichzeitige Abonnements
+desselben JIDs auf denselben Knoten — **der Fall, für den es die `subid`
+überhaupt gibt** — sind nicht umgesetzt. Bis dahin gab ein zweites `subscribe`
+dieselbe Kennung zurück, und damit war die Kennung Zierde: Wo es nie zwei gibt,
+benennt sie nichts, was der Knoten nicht auch benennt.
+
+**Der Fall ist nicht ausgedacht.** Er entsteht von selbst, wenn ein Client neu
+startet und wieder abonniert, ohne seine alte Kennung zu kennen. Danach hat der
+Dienst zwei, und von da an ist jedes Abbestellen ohne Kennung zweideutig — der
+Client aus D71 kann genau dort landen.
+
+Jetzt ist jedes `subscribe` ein eigenes Abonnement mit eigener Kennung. Daraus
+folgt dreierlei, und jedes davon ist eine Entscheidung, die auch anders hätte
+ausfallen können:
+
+- **Abbestellen ohne Kennung wird bei mehreren abgewiesen** —
+  `<bad-request/>` mit `<subid-required/>` (Abschnitt 6.2.3.1). Sich eines
+  auszusuchen wäre die bequeme Antwort und die falsche: Der Dienst beendete
+  vielleicht das andere und bestätigte dem Absender, es sei seines gewesen.
+- **Zugestellt wird je Abonnement**, nicht je Abonnent, und jede Zustellung
+  nennt ihr Abonnement in der SHIM-Kopfzeile `SubID` (Abschnitt 12.20).
+- **Ausdrücklich schlägt beiläufig.** Wer den Knoten abonniert hat, bekommt die
+  Meldung nicht zusätzlich über die Presence — sonst hinge die Zahl der
+  Zustellungen daran, ob jemand nebenbei auch noch im Roster steht. Und die
+  Presence-Zustellung trägt keine Kennung, denn es gibt keine: eine erfundene
+  wäre schlimmer als keine, der Empfänger könnte danach abbestellen wollen, was
+  nie bestellt wurde.
+
+Ein Test der vorigen Etappe behauptete das Gegenteil (`SubscribingTwice_KeepsOneSubscription`)
+und ist ersetzt. Das war nicht falsch gewesen — ein Dienst darf so verfahren —,
+aber es war die Fassung ohne die Sache.
+
+**Was weiterhin fehlt**, und es ist der Grund, aus dem sich zwei Abonnements
+sonst überhaupt unterscheiden: die Konfiguration je Abonnement (Abschnitt 6.3).
+Ohne sie bringt ein zweites nichts ein als eine zweite Zustellung. Der Server
+muss trotzdem richtig antworten, wenn es eines gibt — das ist der ganze Punkt
+dieser Etappe.
+
+Fünfzehn Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 980 bestanden,
+7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
