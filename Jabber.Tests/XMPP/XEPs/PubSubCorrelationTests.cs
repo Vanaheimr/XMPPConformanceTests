@@ -735,6 +735,297 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheSubscriptions_AreFetchedAndTaken()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 5.6: Was der Dienst aufzählt, steht danach in
+        /// der Buchführung.
+        /// </summary>
+        [Test]
+        public async Task TheSubscriptions_AreFetchedAndTaken()
+        {
+
+            await PublishingBobAsync();
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var geholt = await alice.PubSubGetSubscriptionsAsync(BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(geholt, Is.Not.Null);
+
+                Assert.That(geholt!.Select(a => a.SubId),
+                            Is.EquivalentTo(new[] { erste!.SubId, zweite!.SubId }));
+
+                Assert.That(geholt!.Select(a => a.NodeId).Distinct(), Is.EqualTo(new[] { Node }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AfterAReconnect_TheSubIdsComeBackFromTheService()
+
+        /// <summary>
+        /// <b>Die Klemme, in die dieser Client bei jedem Abriss läuft - und
+        /// der Weg heraus.</b>
+        /// </summary>
+        /// <remarks>
+        /// Der <c>PubSubManager</c> wird bei jedem Verbindungsaufbau neu
+        /// erzeugt; nur das Stream Management überlebt einen Reconnect. Die
+        /// Abonnements bestehen beim Dienst weiter - danach kennt der Client
+        /// also keine einzige Kennung mehr, und seit K3 weist der Dienst ein
+        /// Abbestellen ohne Kennung ab, sobald es mehrere gibt.
+        ///
+        /// Der Test prüft deshalb beides: dass die Buchführung nach dem Abriss
+        /// wirklich leer ist - sonst prüfte er nichts - und dass sie sich
+        /// füllen lässt, bis das Abbestellen wieder geht.
+        /// </remarks>
+        [Test]
+        public async Task AfterAReconnect_TheSubIdsComeBackFromTheService()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice", reconnectDelay: TimeSpan.FromMilliseconds(200));
+
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var vorher = Server.ConnectionCount;
+
+            Server.KillSessionsOf(alice.BareJid);
+
+            await WaitFor(() => Server.ConnectionCount > vorher && alice.IsConnected,
+                          "den Wiederaufbau der Verbindung",
+                          TimeSpan.FromSeconds(20));
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node), Is.Empty,
+                        "Die Buchführung überlebt den Abriss nicht - sonst prüft dieser Test nichts.");
+
+            var geholt = await alice.PubSubGetSubscriptionsAsync(BobsJid);
+
+            Assert.That(geholt, Has.Count.EqualTo(2));
+
+            var wieder = alice.Connection.PubSub!.SubscriptionsOf(Node);
+
+            Assert.That(wieder, Has.Count.EqualTo(2),
+                        "Und nach dem Abholen weiss er wieder von beiden.");
+
+            Assert.That(await alice.PubSubUnsubscribeAsync(Node, BobsJid, wieder[0].SubId), Is.True,
+                        "Mit der wiedergefundenen Kennung muss sich abbestellen lassen.");
+
+        }
+
+        #endregion
+
+        #region TheServiceAnswer_ReplacesWhatWeThoughtWeKnew()
+
+        /// <summary>
+        /// Die Aufzählung ist vollständig - was darin fehlt, gibt es nicht
+        /// mehr.
+        /// </summary>
+        /// <remarks>
+        /// Zusammenzuführen hiesse, eine Erinnerung neben eine Auskunft zu
+        /// stellen und beide für wahr zu halten: Der Client bestellte
+        /// anschliessend mit einer Kennung ab, die niemand mehr kennt, und
+        /// hielte die Absage für einen Fehler des Dienstes.
+        /// </remarks>
+        [Test]
+        public async Task TheServiceAnswer_ReplacesWhatWeThoughtWeKnew()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(abo, Is.Not.Null);
+
+            // Beim Dienst beendet, ohne dass dieser Client es erfährt - so wie
+            // es ein zweites Gerät desselben Kontos täte.
+            Server.GetAccount(BobsJid)!.RemovePepSubscription(Node, alice.BareJid, abo!.SubId);
+
+            var geholt = await alice.PubSubGetSubscriptionsAsync(BobsJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(geholt, Is.Empty);
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.False,
+                            "Was der Dienst nicht mehr kennt, darf hier nicht stehenbleiben.");
+            });
+
+        }
+
+        #endregion
+
+        #region AResultWithoutAList_ClearsNothing()
+
+        /// <summary>
+        /// Ein <c>result</c> ohne Aufzählung ist keine leere Aufzählung.
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Unterschied kostet hier die ganze Buchführung.</b> Eine
+        /// leere Aufzählung heisst „du hast keine" und leert sie zu Recht;
+        /// eine fehlende heisst „darüber steht hier nichts". Beides
+        /// gleichzusetzen hiesse, auf eine Antwort hin zu vergessen, was der
+        /// Dienst gar nicht bestritten hat - und die Kennungen wären weg,
+        /// obwohl die Abonnements bestehen.
+        /// </remarks>
+        [Test]
+        public async Task AResultWithoutAList_ClearsNothing()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await alice.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null);
+
+            PlayTheService("<subscriptions", "<iq type='result' id='{id}'/>");
+
+            var geholt = await alice.PubSubGetSubscriptionsAsync(BobsJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(geholt, Is.Null);
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.True,
+                            "Eine Antwort, die nichts sagt, darf nichts löschen.");
+            });
+
+        }
+
+        #endregion
+
+        #region TheFetch_TakesOnlyWhatIsActuallySubscribed()
+
+        /// <summary>
+        /// In einer Aufzählung kann auch stehen, was <i>kein</i> Abonnement
+        /// ist.
+        /// </summary>
+        /// <remarks>
+        /// XEP-0060, Abschnitt 5.6 zählt jeden Zustand auf - auch
+        /// <c>pending</c> und <c>none</c>. Der eigene Server sagt immer
+        /// <c>subscribed</c>; ein fremder mit Genehmigungsvorgang tut es
+        /// nicht, und dann stünde ein beantragtes Abonnement in der
+        /// Buchführung als bestehendes. Derselbe Fehler wie in D71, nur über
+        /// die Sammelabfrage hereingetragen.
+        /// </remarks>
+        [Test]
+        public async Task TheFetch_TakesOnlyWhatIsActuallySubscribed()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            PlayTheService("<subscriptions",
+                           "<iq type='result' id='{id}'>" +
+                           "<pubsub xmlns='http://jabber.org/protocol/pubsub'><subscriptions>" +
+                           $"<subscription node='{Node}' jid='alice@{Server.Domain}' subid='ja' subscription='subscribed'/>" +
+                           "<subscription node='urn:example:beantragt' jid='alice@" + Server.Domain +
+                           "' subid='vielleicht' subscription='pending'/>" +
+                           "</subscriptions></pubsub></iq>");
+
+            var geholt = await alice.PubSubGetSubscriptionsAsync(BobsJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(geholt!.Select(a => a.NodeId), Is.EqualTo(new[] { Node }));
+                Assert.That(alice.Connection.PubSub!.IsSubscribed("urn:example:beantragt"), Is.False,
+                            "Ein beantragtes Abonnement ist keines.");
+            });
+
+        }
+
+        #endregion
+
+        #region TheFetch_LeavesOtherServicesAlone()
+
+        /// <summary>
+        /// Ein Dienst spricht für sich - nicht für die anderen.
+        /// </summary>
+        /// <remarks>
+        /// Die Aufzählung ist vollständig <i>für ihren Dienst</i>. Sie auf die
+        /// ganze Buchführung anzuwenden hiesse, aus dem Schweigen des einen
+        /// auf das Ende der Abonnements beim anderen zu schliessen.
+        /// </remarks>
+        [Test]
+        public async Task TheFetch_LeavesOtherServicesAlone()
+        {
+
+            await PublishingBobAsync();
+
+            var carol = await ConnectClientAsync("carol");
+
+            Assert.That(await carol.PubSubPublishAsync(Node, "1", Payload("bei Carol"), carol.BareJid), Is.True);
+
+            var alice = await ConnectClientAsync("alice");
+
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+            await alice.PubSubSubscribeAsync(Node, carol.BareJid);
+
+            // Beim einen Dienst gibt es nichts mehr - beim anderen schon.
+            Server.GetAccount(BobsJid)!.RemovePepSubscription(
+                Node, alice.BareJid,
+                alice.Connection.PubSub!.SubscriptionsOf(Node)
+                     .First(a => a.ServiceJid == BobsJid).SubId);
+
+            await alice.PubSubGetSubscriptionsAsync(BobsJid);
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.ServiceJid),
+                        Is.EqualTo(new[] { carol.BareJid }),
+                        "Carols Abonnement stand nicht zur Debatte.");
+
+        }
+
+        #endregion
+
+        #region AScopedFetch_LeavesTheOtherNodesAlone()
+
+        /// <summary>
+        /// Eine Abfrage für einen Knoten sagt nichts über die übrigen.
+        /// </summary>
+        /// <remarks>
+        /// Sie als vollständig zu behandeln wäre die naheliegende Abkürzung
+        /// und ein Verlust: Der Client vergässe Abonnements, nach denen er nur
+        /// gerade nicht gefragt hat.
+        /// </remarks>
+        [Test]
+        public async Task AScopedFetch_LeavesTheOtherNodesAlone()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            Assert.That(await bob.PubSubCreateNodeAsync("urn:example:zweiter", service: bob.BareJid), Is.True);
+
+            var alice = await ConnectClientAsync("alice");
+
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+            await alice.PubSubSubscribeAsync("urn:example:zweiter", BobsJid);
+
+            var geholt = await alice.PubSubGetSubscriptionsAsync(BobsJid, "urn:example:zweiter");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(geholt!.Select(a => a.NodeId), Is.EqualTo(new[] { "urn:example:zweiter" }));
+
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.True,
+                            "Der andere Knoten war nicht Gegenstand der Frage.");
+
+            });
+
+        }
+
+        #endregion
+
         #region CreatingANode_WithItsConfiguration_IsConfirmed()
 
         /// <summary>

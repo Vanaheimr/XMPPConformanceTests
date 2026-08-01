@@ -5843,6 +5843,51 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D80. Zurück zu den Kennungen ✅ — die Sammelabfrage auf der Clientseite
+
+Die Gegenseite zu D79, und mit ihr ist die Klemme aus D72 auflösbar: Der Client
+holt seine Abonnements beim Dienst und weiss danach wieder, was er hält. **Ein
+Test spannt den ganzen Bogen** — zwei Abonnements anlegen, die Verbindung
+abreissen lassen, prüfen dass die Buchführung wirklich leer ist (sonst prüfte er
+nichts), abholen, und mit der wiedergefundenen Kennung abbestellen.
+
+Drei Unterscheidungen, jede von einer überlebenden Mutation erzwungen:
+
+- **Eine leere Aufzählung ist etwas anderes als eine fehlende.** Leer heisst „du
+  hast keine" und leert die Buchführung zu Recht; fehlend heisst „darüber steht
+  hier nichts". Beides gleichzusetzen kostet die ganze Buchführung — die
+  Kennungen wären weg, obwohl die Abonnements bestehen.
+- **Eine Aufzählung gilt für ihren Dienst**, nicht für alle. Aus dem Schweigen
+  des einen auf das Ende der Abonnements beim anderen zu schliessen wäre ein
+  Verlust ohne Anlass. Ebenso bei der Einschränkung auf einen Knoten: Wonach
+  nicht gefragt wurde, bleibt stehen.
+- **Was aufgezählt wird, ist nicht immer ein Abonnement.** Abschnitt 5.6 nennt
+  jeden Zustand, auch `pending`. Der eigene Server sagt immer `subscribed`; ein
+  fremder mit Genehmigungsvorgang tut es nicht — und dann stünde ein
+  beantragtes Abonnement als bestehendes da. Derselbe Fehler wie in D71, nur
+  über die Sammelabfrage hereingetragen.
+
+**Von selbst geschieht nichts.** Ein Client, der bei jedem Verbindungsaufbau
+ungefragt einen PubSub-Dienst anspräche, schickte eine Anfrage für ein Merkmal,
+das die meisten nie benutzen — und gegen eine Adresse, die es womöglich gar
+nicht gibt. Die Konsole hat dafür zwei Befehle statt eines: `abos` zeigt, was
+dieser Client zu wissen glaubt, `sync` fragt den Dienst. Das sind zwei
+verschiedene Fragen, und diese Reihe hat sich neun Etappen lang daran
+abgearbeitet, sie auseinanderzuhalten.
+
+Einundvierzig Tests, neun Mutationen, alle erschlagen. Voller Lauf: 1042
+bestanden, 7 übersprungen.
+
+**Was von den Sammelabfragen bleibt**: `<affiliations/>` (Abschnitt 5.7) und die
+Eigentümer-Sicht auf die Abonnenten eines Knotens (Abschnitt 8.8). Das erste
+wäre heute fast leer — dieser Server kennt keine Affiliations, ein PEP-Knoten
+gehört seinem Konto und alle anderen haben nichts. Es lohnt sich erst, wenn
+`publisher`, `member` und `outcast` beim Veröffentlichen und Abonnieren
+tatsächlich etwas entscheiden; vorher stellte man eine Rolle ein, die niemand
+prüft.
+
+---
+
 ## Später
 
 ### Testsammlung

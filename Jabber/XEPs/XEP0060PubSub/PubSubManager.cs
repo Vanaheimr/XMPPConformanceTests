@@ -315,4 +315,42 @@ public sealed class PubSubManager
     {
         get { lock (_lock) return [.. _subscriptions.Values.SelectMany(a => a)]; }
     }
+
+    /// <summary>
+    /// Übernimmt, was ein Dienst über die eigenen Abonnements gesagt hat.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ersetzen und nicht ergänzen.</b> Die Antwort ist vollständig für
+    /// diesen Dienst; was hier noch von ihm steht und dort nicht mehr
+    /// vorkommt, gibt es nicht mehr. Zusammenzuführen hiesse, eine
+    /// Erinnerung neben eine Auskunft zu stellen und beide für wahr zu
+    /// halten - und beim nächsten Abbestellen eine Kennung zu schicken, die
+    /// niemand mehr kennt.
+    ///
+    /// <b>Was der Dienst nicht nennt, wird nicht angetastet</b>: Abonnements
+    /// bei anderen Diensten gehen ihn nichts an.
+    /// </remarks>
+    public void ReplaceSubscriptionsOf(String serviceJid, IEnumerable<PubSubSubscription> subscriptions)
+    {
+        lock (_lock)
+        {
+
+            foreach (var knoten in _subscriptions.Keys.ToList())
+            {
+
+                _subscriptions[knoten].RemoveAll(
+                    a => String.Equals(JidUtilities.Bare(a.ServiceJid),
+                                       JidUtilities.Bare(serviceJid),
+                                       StringComparison.OrdinalIgnoreCase));
+
+                if (_subscriptions[knoten].Count == 0)
+                    _subscriptions.Remove(knoten);
+
+            }
+
+            foreach (var abo in subscriptions)
+                AddSubscription(abo);
+
+        }
+    }
 }

@@ -51,6 +51,21 @@ public static class PubSubBuilder
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 5.6: Die eigenen Abonnements abfragen.
+    /// </summary>
+    /// <param name="nodeId">
+    /// Auf welchen Knoten eingeschränkt, oder null für alle.
+    /// </param>
+    public static string GetSubscriptions(string pubsubJid, string id = "pubsub-subs", string? nodeId = null)
+    {
+        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
+               "<subscriptions" +
+               (nodeId is not null ? $" node='{XmlEscaping.Escape(nodeId)}'" : "") +
+               "/></pubsub></iq>";
+    }
+
+    /// <summary>
     /// XEP-0060, Abschnitt 6.3.1: Die Einstellungen eines Abonnements abfragen.
     /// </summary>
     public static string GetOptions(string pubsubJid, string nodeId, string myJid, string id = "pubsub-opts", string? subId = null)

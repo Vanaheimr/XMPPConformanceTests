@@ -3058,6 +3058,77 @@ public sealed class XMPPConnection : IAsyncDisposable
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 5.6: Holt die eigenen Abonnements beim Dienst und
+    /// übernimmt sie in die Buchführung.
+    /// </summary>
+    /// <returns>
+    /// Was der Dienst sagt, oder null bei Absage und Schweigen. <b>Eine leere
+    /// Liste ist etwas anderes als null</b>: Sie heisst „keine", und die
+    /// Buchführung wird entsprechend geleert.
+    /// </returns>
+    /// <remarks>
+    /// <b>Der Weg aus der Klemme nach einem Verbindungsabriss.</b> Die
+    /// Buchführung dieses Clients steht im Arbeitsspeicher und wird bei jedem
+    /// Verbindungsaufbau neu erzeugt; die Abonnements bestehen beim Dienst
+    /// weiter. Ohne diese Anfrage kennt der Client danach keine einzige
+    /// Kennung mehr - und kann bei mehreren Abonnements auf denselben Knoten
+    /// keines davon beenden.
+    ///
+    /// Sie geschieht <b>nicht von selbst</b>: Ein Client, der bei jedem
+    /// Verbindungsaufbau ungefragt einen PubSub-Dienst anspräche, schickte
+    /// eine Anfrage für ein Merkmal, das die meisten nie benutzen - und gegen
+    /// eine Adresse, die es womöglich gar nicht gibt.
+    /// </remarks>
+    public async Task<IReadOnlyList<PubSubSubscription>?> PubSubGetSubscriptionsAsync(String?            service  = null,
+                                                                                      String?            nodeId   = null,
+                                                                                      CancellationToken  ct       = default)
+    {
+
+        var ziel     = service ?? PubSub!.PubSubService;
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id, PubSubBuilder.GetSubscriptions(ziel, id, nodeId), ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: die Abonnements bei {Service} nicht gelesen: {Reason}",
+                               ziel,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return null;
+        }
+
+        var liste = antwort.Child(PubSubSubscription.Namespace, "pubsub")
+                          ?.Child(PubSubSubscription.Namespace, "subscriptions");
+
+        if (liste is null)
+        {
+            _logger.LogWarning("PubSub: die Antwort von {Service} enthält keine Aufzählung", ziel);
+            return null;
+        }
+
+        var gelesen = liste.Children(PubSubSubscription.Namespace, "subscription")
+                           .Where (e => e.Attr("node") is not null)
+                           .Select(e => new PubSubSubscription(e.Attr("node")!,
+                                                               ziel,
+                                                               e.Attr("subid"),
+                                                               PubSubSubscription.StateOf(e.Attr("subscription"))))
+                           .Where (a => a.State == PubSubSubscriptionState.Subscribed)
+                           .ToList();
+
+        // Nur eine Einschränkung auf einen Knoten sagt nichts über die
+        // übrigen: Was der Dienst nicht aufzählen sollte, darf hier nicht als
+        // beendet gelten.
+        if (nodeId is null)
+            PubSub!.ReplaceSubscriptionsOf(ziel, gelesen);
+
+        else
+            foreach (var abo in gelesen)
+                PubSub!.AddSubscription(abo);
+
+        return gelesen;
+
+    }
+
+    /// <summary>
     /// XEP-0060, Abschnitt 6.3.1: Holt die Einstellungen eines Abonnements.
     /// </summary>
     /// <returns>

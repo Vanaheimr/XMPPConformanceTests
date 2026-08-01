@@ -782,6 +782,13 @@ public sealed class XMPPClient : IAsyncDisposable
         => _connection.PubSubUnsubscribeAsync(nodeId, service, subId);
 
     /// <summary>
+    /// Holt die eigenen Abonnements beim Dienst und übernimmt sie - der Weg
+    /// zurück zu den Kennungen nach einem Verbindungsabriss.
+    /// </summary>
+    public Task<IReadOnlyList<PubSubSubscription>?> PubSubGetSubscriptionsAsync(String? service = null, String? nodeId = null)
+        => _connection.PubSubGetSubscriptionsAsync(service, nodeId);
+
+    /// <summary>
     /// Liest die Einstellungen eines Abonnements beim Dienst nach.
     /// </summary>
     public Task<PubSubSubscriptionOptions?> PubSubGetOptionsAsync(String nodeId, String? service = null, String? subId = null)

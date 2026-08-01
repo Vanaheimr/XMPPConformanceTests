@@ -271,6 +271,7 @@ Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
 /pubsub sub <node> [jid]       Node abonnieren (Alias: subscribe)
 /pubsub unsub <node> [jid] [subid]  Abo beenden (Alias: unsubscribe)
 /pubsub abos                   Eigene Abonnements samt subid (Alias: subs)
+/pubsub sync [jid]             Abonnements beim Dienst holen und übernehmen
 /pubsub opts <node> [subid]    Einstellungen des Abonnements (Alias: options)
 /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus
 /pubsub pub <node> <id> <data> Item veröffentlichen (Alias: publish)

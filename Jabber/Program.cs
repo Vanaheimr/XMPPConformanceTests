@@ -935,7 +935,8 @@ class Program
             Console.WriteLine("PubSub-Befehle:");
             Console.WriteLine("  /pubsub sub <node> [jid]     Node abonnieren");
             Console.WriteLine("  /pubsub unsub <node> [jid] [subid]  Abo beenden");
-            Console.WriteLine("  /pubsub abos                 Eigene Abonnements samt subid");
+            Console.WriteLine("  /pubsub abos                 Eigene Abonnements samt subid (was wir wissen)");
+            Console.WriteLine("  /pubsub sync [jid]           Abonnements beim Dienst holen (was er sagt)");
             Console.WriteLine("  /pubsub opts <node> [subid]  Einstellungen des Abonnements");
             Console.WriteLine("  /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus");
             Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
@@ -1005,6 +1006,25 @@ class Program
                                                                        subId: parts.Length > 3 ? parts[3] : null)
                                       ? $"⚙️ {nodeId}: Zustellung {(an ? "an" : "aus")}"
                                       : $"⚠️ Einstellung nicht gesetzt: {nodeId} - siehe Log");
+                break;
+
+            // Zwei verschiedene Fragen, deshalb zwei Befehle: 'abos' zeigt,
+            // was dieser Client zu wissen glaubt, 'sync' fragt den Dienst.
+            // Nach einem Verbindungsabriss ist das erste leer und das zweite
+            // der einzige Weg zurück zu den Kennungen.
+            case "sync":
+                var geholt = await _client!.PubSubGetSubscriptionsAsync(parts.Length > 1 ? parts[1] : null);
+
+                if (geholt is null)
+                    Console.WriteLine("⚠️ Abonnements nicht geholt - siehe Log");
+
+                else
+                {
+                    Console.WriteLine($"🔄 {geholt.Count} Abonnement(e) übernommen:");
+                    foreach (var eintrag in geholt)
+                        Console.WriteLine($"   {eintrag.NodeId}" +
+                                          (eintrag.SubId is not null ? $" (subid {eintrag.SubId})" : ""));
+                }
                 break;
 
             // Bei mehreren Abonnements auf denselben Knoten ist die Kennung das
