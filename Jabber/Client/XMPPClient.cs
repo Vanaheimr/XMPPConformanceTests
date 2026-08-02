@@ -793,6 +793,17 @@ public sealed class XMPPClient : IAsyncDisposable
     public Task<Boolean> PubSubSetAffiliationAsync(String nodeId, String jid, PubSubAffiliation affiliation, String? service = null)
         => _connection.PubSubSetAffiliationAsync(nodeId, jid, affiliation, service);
 
+    /// <summary>Wer hängt an meinem Knoten? (XEP-0060, Abschnitt 8.8.1)</summary>
+    public Task<IReadOnlyList<(String Jid, String? SubId, PubSubSubscriptionState State)>?> PubSubGetNodeSubscribersAsync(String nodeId, String? service = null)
+        => _connection.PubSubGetNodeSubscribersAsync(nodeId, service);
+
+    /// <summary>
+    /// Beendet ein fremdes Abonnement am eigenen Knoten (XEP-0060, Abschnitt
+    /// 8.8.2) - ohne <paramref name="subId"/> alle dieses JIDs.
+    /// </summary>
+    public Task<Boolean> PubSubRemoveSubscriberAsync(String nodeId, String jid, String? subId = null, String? service = null)
+        => _connection.PubSubRemoveSubscriberAsync(nodeId, jid, subId, service);
+
     /// <summary>
     /// Holt die eigenen Abonnements beim Dienst und übernimmt sie - der Weg
     /// zurück zu den Kennungen nach einem Verbindungsabriss.

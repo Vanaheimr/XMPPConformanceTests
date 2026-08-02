@@ -26,5 +26,18 @@ public enum PubSubEventType
     Retract,    // Items gelöscht
     Purge,      // Node geleert
     Delete,     // Node gelöscht
-    Configuration // Node-Config geändert
+    Configuration, // Node-Config geändert
+
+    /// <summary>
+    /// Ein Abonnement wurde beendet, ohne dass dieser Client danach gefragt
+    /// hätte (XEP-0060, Abschnitt 8.8.4).
+    /// </summary>
+    /// <remarks>
+    /// <b>Beendet und nicht „geändert".</b> Die andere Richtung - eine Zusage
+    /// per Meldung - trägt dieser Client nicht ein: Eine Zusage kommt auf eine
+    /// Anfrage. Wer sie ungefragt annähme, liesse sich von einem Dienst
+    /// anmelden, und genau das weist der Server dieses Projekts auf der
+    /// anderen Seite ab.
+    /// </remarks>
+    SubscriptionEnded
 }

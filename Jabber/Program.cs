@@ -946,6 +946,8 @@ class Program
             Console.WriteLine("  /pubsub access <node> <open|presence|whitelist>  Zugriff umstellen");
             Console.WriteLine("  /pubsub rollen <node>        Wer ist was an diesem Knoten");
             Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
+            Console.WriteLine("  /pubsub abonnenten <node>    Wer hängt an diesem Knoten (Alias: subscribers)");
+            Console.WriteLine("  /pubsub raus <node> <jid> [subid]  Abonnent entfernen (Alias: kick)");
             Console.WriteLine("  /pubsub delete <node>        Node löschen");
             Console.WriteLine();
             Console.WriteLine("  Ohne <jid> geht die Anfrage an pubsub.<domain>. Ein PEP-Knoten");
@@ -959,7 +961,8 @@ class Program
         string[] nodeCommands = ["sub", "subscribe", "unsub", "unsubscribe",
                                  "pub", "publish", "get", "items", "create", "delete",
                                  "opts", "options", "deliver", "cfg", "nodecfg", "access",
-                                 "rollen", "affiliations", "rolle"];
+                                 "rollen", "affiliations", "rolle",
+                                 "abonnenten", "subscribers", "raus", "kick"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1112,6 +1115,39 @@ class Program
                 Console.WriteLine(await _client!.PubSubSetAffiliationAsync(nodeId, parts[2], gewuenschte)
                                       ? $"👤 {parts[2]} ist jetzt {parts[3].ToLower()} an {nodeId}"
                                       : $"⚠️ Rolle nicht gesetzt: {nodeId} - siehe Log");
+                break;
+
+            // Die Gegenrichtung zu 'abos': Dort steht, wo dieser Client hängt -
+            // hier, wer an einem eigenen Knoten hängt.
+            case "abonnenten" or "subscribers":
+                var dran = await _client!.PubSubGetNodeSubscribersAsync(nodeId);
+
+                if (dran is null)
+                    Console.WriteLine($"⚠️ Abonnenten nicht gelesen: {nodeId} - siehe Log");
+
+                else if (dran.Count == 0)
+                    Console.WriteLine($"Niemand abonniert {nodeId}.");
+
+                else
+                    foreach (var (wer, kennung, zustand) in dran)
+                        Console.WriteLine($"   {wer}" +
+                                          (kennung is not null ? $" (subid {kennung})" : "") +
+                                          $": {zustand.ToString().ToLower()}");
+                break;
+
+            case "raus" or "kick":
+                if (parts.Length < 3)
+                {
+                    Console.WriteLine("Syntax: /pubsub raus <node> <jid> [subid]");
+                    return;
+                }
+
+                var welche = parts.Length > 3 ? parts[3] : null;
+
+                Console.WriteLine(await _client!.PubSubRemoveSubscriberAsync(nodeId, parts[2], welche)
+                                      ? $"🚪 {parts[2]} abonniert {nodeId} nicht mehr" +
+                                        (welche is not null ? $" (subid {welche})" : " (alle Abonnements)")
+                                      : $"⚠️ Abonnent nicht entfernt: {nodeId} - siehe Log");
                 break;
 
             case "cfg" or "nodecfg":
@@ -1472,6 +1508,13 @@ class Program
 
             case PubSubEventType.Delete:
                 Console.WriteLine($"❌ PubSub [{evt.NodeId}]: Node gelöscht");
+                break;
+
+            // Ungefragt beendet - und deshalb die einzige Meldung hier, die
+            // von etwas handelt, das dieser Client nicht ausgelöst hat.
+            case PubSubEventType.SubscriptionEnded:
+                Console.WriteLine($"🚪 PubSub [{evt.NodeId}]: Abonnement beendet" +
+                                  (evt.SubId is not null ? $" (subid {evt.SubId})" : ""));
                 break;
         }
 

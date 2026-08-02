@@ -1630,6 +1630,339 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region TheSubscriberList_NamesJidAndSubId()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.8.1: Der Eigentümer liest, wer an seinem
+        /// Knoten hängt.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenrichtung zu Abschnitt 5.6 und im Aufbau kaum davon zu
+        /// unterscheiden: Dieselbe Aufzählung, derselbe Elementname, und der
+        /// Eintrag nennt einmal einen Knoten und einmal einen JID. Zu
+        /// unterscheiden sind die beiden allein am Namensraum.
+        /// </remarks>
+        [Test]
+        public async Task TheSubscriberList_NamesJidAndSubId()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            var liste = await bob.PubSubGetNodeSubscribersAsync(Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(liste, Is.Not.Null);
+
+                Assert.That(liste!.Select(e => (e.Jid, e.SubId)),
+                            Is.EquivalentTo(new[] {
+                                (alice.BareJid, erste!.SubId),
+                                (alice.BareJid, zweite!.SubId)
+                            }));
+
+                Assert.That(liste!.Select(e => e.State).Distinct(),
+                            Is.EqualTo(new[] { PubSubSubscriptionState.Subscribed }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AForeignNodesSubscribers_StayHidden()
+
+        /// <summary>
+        /// Wer an Bobs Knoten hängt, sagt der Dienst nur Bob.
+        /// </summary>
+        [Test]
+        public async Task AForeignNodesSubscribers_StayHidden()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await alice.PubSubGetNodeSubscribersAsync(Node, BobsJid), Is.Null,
+                        "Eine Absage ist keine leere Liste.");
+
+        }
+
+        #endregion
+
+        #region AnUnreadableEntry_InvalidatesTheWholeSubscriberList()
+
+        /// <summary>
+        /// Ein Eintrag mit einem unbekannten Zustand lässt die ganze Liste
+        /// scheitern.
+        /// </summary>
+        /// <remarks>
+        /// <b>Hier wird streng gelesen, anders als in der eigenen Zusage.</b>
+        /// Dort ist ein unbekannter Name als „nicht abonniert" die vorsichtige
+        /// Annahme - wer sich zu Unrecht für nicht abonniert hält, fragt noch
+        /// einmal. Hier wäre dieselbe Nachsicht das Gegenteil von vorsichtig:
+        /// Der Eigentümer hielte einen Abonnenten für abwesend, den der Dienst
+        /// führt, und entfernte womöglich einen anderen an seiner Stelle.
+        /// </remarks>
+        [Test]
+        public async Task AnUnreadableEntry_InvalidatesTheWholeSubscriberList()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            PlayTheService("<subscriptions",
+                           "<iq type='result' id='{id}'>" +
+                           "<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
+                           $"<subscriptions node='{Node}'>" +
+                           $"<subscription jid='alice@{Server.Domain}' subid='a1' subscription='subscribed'/>" +
+                           $"<subscription jid='carol@{Server.Domain}' subid='c1' subscription='beinahe'/>" +
+                           "</subscriptions></pubsub></iq>");
+
+            Assert.That(await bob.PubSubGetNodeSubscribersAsync(Node, BobsJid), Is.Null,
+                        "Eine Liste, aus der Zeilen verschwinden, ist schlimmer als keine.");
+
+        }
+
+        #endregion
+
+        #region AnErrorCarryingASubscriberList_IsStillARejection()
+
+        /// <summary>
+        /// Ein <c>type='error'</c> bleibt eine Absage, auch wenn eine
+        /// vollständige Liste darin steht.
+        /// </summary>
+        /// <remarks>
+        /// Ohne die Prüfung auf den Typ hinge die Ablehnung daran, dass in
+        /// einer Fehlerantwort zufällig keine Liste steht. Der Client zeigte
+        /// sonst eine Abonnentenliste an, die er nicht einsehen darf — und der
+        /// Fragende erführe daraus, wer an einem fremden Knoten hängt.
+        /// </remarks>
+        [Test]
+        public async Task AnErrorCarryingASubscriberList_IsStillARejection()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            PlayTheService("<subscriptions",
+                           "<iq type='error' id='{id}'>" +
+                           "<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
+                           $"<subscriptions node='{Node}'>" +
+                           $"<subscription jid='alice@{Server.Domain}' subid='a1' subscription='subscribed'/>" +
+                           "</subscriptions></pubsub>" +
+                           "<error type='auth'>" +
+                           "<forbidden xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" +
+                           "</error></iq>");
+
+            Assert.That(await bob.PubSubGetNodeSubscribersAsync(Node, BobsJid), Is.Null);
+
+        }
+
+        #endregion
+
+        #region ASubscriberIsRemoved_AndBothSidesAgree()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.8.2/8.8.4: Der Eigentümer entfernt, und der
+        /// Entfernte erfährt es — beide Buchführungen stimmen danach wieder.
+        /// </summary>
+        /// <remarks>
+        /// Der Teil, der ohne die Meldung fehlte: Alices Client hielte das
+        /// Abonnement weiter für bestehend und wartete auf Meldungen, die nicht
+        /// mehr kommen.
+        /// </remarks>
+        [Test]
+        public async Task ASubscriberIsRemoved_AndBothSidesAgree()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var abo = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            var entfernt = await bob.PubSubRemoveSubscriberAsync(Node, alice.BareJid, service: BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Abmeldung bei der Entfernten");
+
+            var liste = await bob.PubSubGetNodeSubscribersAsync(Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(entfernt,          Is.True);
+                Assert.That(liste,             Is.Not.Null.And.Empty);
+
+                Assert.That(gemeldet!.Type,    Is.EqualTo(PubSubEventType.SubscriptionEnded));
+                Assert.That(gemeldet!.NodeId,  Is.EqualTo(Node));
+                Assert.That(gemeldet!.SubId,   Is.EqualTo(abo!.SubId));
+
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.False,
+                            "Was beendet ist, darf nicht als bestehend dastehen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region RemovingOneSubscription_LeavesTheOther()
+
+        /// <summary>
+        /// Mit Kennung entfernt der Eigentümer genau ein Abonnement.
+        /// </summary>
+        /// <remarks>
+        /// Ohne sie meint er den Menschen, mit ihr eines seiner Abonnements —
+        /// und die Kennung muss den ganzen Weg mitgehen, sonst geht mehr
+        /// verloren, als angewiesen war.
+        /// </remarks>
+        [Test]
+        public async Task RemovingOneSubscription_LeavesTheOther()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste  = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var zweite = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            var entfernt = await bob.PubSubRemoveSubscriberAsync(Node, alice.BareJid,
+                                                                 erste!.SubId, BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Abmeldung des einen Abonnements");
+
+            var liste = await bob.PubSubGetNodeSubscribersAsync(Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(entfernt,        Is.True);
+                Assert.That(gemeldet!.SubId, Is.EqualTo(erste!.SubId));
+
+                Assert.That(liste!.Select(e => e.SubId),
+                            Is.EqualTo(new[] { zweite!.SubId }));
+
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.SubId),
+                            Is.EqualTo(new[] { zweite!.SubId }),
+                            "Und auch bei Alice bleibt das andere stehen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARemovalTheServiceRefuses_IsReported()
+
+        /// <summary>
+        /// Wer nicht abonniert hat, kann nicht entfernt werden — und der
+        /// Aufrufer erfährt es.
+        /// </summary>
+        [Test]
+        public async Task ARemovalTheServiceRefuses_IsReported()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            Assert.That(await bob.PubSubRemoveSubscriberAsync(Node, $"carol@{Server.Domain}", service: BobsJid),
+                        Is.False);
+
+        }
+
+        #endregion
+
+        #region AnEndingWithoutASubId_EndsAllOfThatNode()
+
+        /// <summary>
+        /// Eine Abmeldung ohne Kennung beendet alle Abonnements dieses Knotens.
+        /// </summary>
+        /// <remarks>
+        /// Ein Dienst nennt die Kennung, wenn er mehrere führt (Abschnitt
+        /// 12.19). Nennt er keine und der Client führt trotzdem mehrere, ist
+        /// eines stehen zu lassen die schlechtere Wahl: Der Client wartete
+        /// weiter auf Meldungen, die nicht mehr kommen. Der Testserver nennt
+        /// sie immer — dieser Weg führt nur über eine fremde Gegenstelle.
+        /// </remarks>
+        [Test]
+        public async Task AnEndingWithoutASubId_EndsAllOfThatNode()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await alice.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null);
+            Assert.That(await alice.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            await Server.SessionOf(alice.FullJid)!.SendAsync(
+                $"<message from='{BobsJid}' type='headline' to='{alice.FullJid}'>" +
+                "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                $"<subscription node='{Node}' jid='{alice.BareJid}' subscription='none'/>" +
+                "</event></message>");
+
+            await WaitFor(() => gemeldet is not null, "die Abmeldung ohne Kennung");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(gemeldet!.SubId, Is.Null);
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node), Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region APromiseByMessage_IsNotRecorded()
+
+        /// <summary>
+        /// Die andere Richtung wird nicht angenommen: Eine Zusage kommt auf
+        /// eine Anfrage.
+        /// </summary>
+        /// <remarks>
+        /// Wer sie ungefragt annähme, liesse sich von einem Dienst anmelden —
+        /// und genau das weist der Server dieses Projekts auf der anderen Seite
+        /// ab (Abschnitt 8.8.2: der Eigentümer darf wegnehmen, nicht hergeben).
+        /// </remarks>
+        [Test]
+        public async Task APromiseByMessage_IsNotRecorded()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            await Server.SessionOf(alice.FullJid)!.SendAsync(
+                $"<message from='{BobsJid}' type='headline' to='{alice.FullJid}'>" +
+                "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                $"<subscription node='{Node}' jid='{alice.BareJid}'" +
+                " subid='ungefragt' subscription='subscribed'/>" +
+                "</event></message>");
+
+            await WaitAgainst(() => gemeldet is not null, "eine ungefragte Zusage");
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.SubId),
+                        Is.EqualTo(new[] { abo!.SubId }),
+                        "Es bleibt bei dem einen, das erfragt wurde.");
+
+        }
+
+        #endregion
+
     }
 
 }

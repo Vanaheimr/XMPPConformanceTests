@@ -98,6 +98,46 @@ public static class PubSubBuilder
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 8.8.1: Die Abonnenten eines eigenen Knotens
+    /// abfragen.
+    /// </summary>
+    /// <remarks>
+    /// Sieht aus wie die Sammelabfrage aus Abschnitt 5.6 und fragt das
+    /// Gegenteil: nicht „wo hänge ich überall", sondern „wer hängt an meinem
+    /// Knoten". Zu unterscheiden sind die beiden allein am Namensraum.
+    /// </remarks>
+    public static string GetNodeSubscriptions(string pubsubJid, string nodeId, string id = "pubsub-nodesubs")
+    {
+        return $"<iq type='get' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<subscriptions node='{XmlEscaping.Escape(nodeId)}'/>" +
+               "</pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.8.2: Ein Abonnement des eigenen Knotens beenden.
+    /// </summary>
+    /// <param name="subId">
+    /// Ein bestimmtes Abonnement, oder null für alle dieses JIDs an diesem
+    /// Knoten.
+    /// </param>
+    /// <remarks>
+    /// <b>Nur beenden und nicht anmelden</b>, obwohl derselbe Abschnitt auch
+    /// das zulässt. Ein Client, der einen anderen ungefragt anmelden kann,
+    /// braucht dafür keinen Namen in dieser Datei: Wer das will, sagt, was er
+    /// tut. Und der Testserver dieses Projekts weist es ohnehin ab.
+    /// </remarks>
+    public static string RemoveSubscriber(string pubsubJid, string nodeId, string id, string jid, string? subId = null)
+    {
+        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<subscriptions node='{XmlEscaping.Escape(nodeId)}'>" +
+               $"<subscription jid='{XmlEscaping.Escape(jid)}' subscription='none'" +
+               (subId is not null ? $" subid='{XmlEscaping.Escape(subId)}'" : "") +
+               "/></subscriptions></pubsub></iq>";
+    }
+
+    /// <summary>
     /// XEP-0060, Abschnitt 6.3.1: Die Einstellungen eines Abonnements abfragen.
     /// </summary>
     public static string GetOptions(string pubsubJid, string nodeId, string myJid, string id = "pubsub-opts", string? subId = null)

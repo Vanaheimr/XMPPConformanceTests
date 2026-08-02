@@ -3174,6 +3174,93 @@ public sealed class XMPPConnection : IAsyncDisposable
                                     "Rolle setzen", nodeId, ct);
 
     /// <summary>
+    /// XEP-0060, Abschnitt 8.8.1: Holt als Eigentümer die Abonnenten eines
+    /// Knotens.
+    /// </summary>
+    /// <returns>
+    /// Je Eintrag der JID, die Kennung und der Zustand, oder null bei Absage
+    /// und Schweigen - <b>etwa, weil der Knoten einem anderen gehört</b>. Das
+    /// ist keine leere Liste: „Ich weiss es nicht" und „da ist niemand" sind
+    /// zwei Antworten.
+    /// </returns>
+    /// <remarks>
+    /// <b>Der Zustand wird hier streng gelesen, anders als in der eigenen
+    /// Zusage.</b> Dort ist ein unbekannter Name als „nicht abonniert" die
+    /// vorsichtige Annahme: Wer sich zu Unrecht für nicht abonniert hält,
+    /// fragt noch einmal. Hier wäre dieselbe Nachsicht das Gegenteil von
+    /// vorsichtig - der Eigentümer hielte einen Abonnenten für abwesend, den
+    /// der Dienst führt, und entfernte womöglich einen anderen an seiner
+    /// Stelle. Ein unlesbarer Eintrag lässt deshalb die ganze Liste
+    /// scheitern, wie bei den Rollen.
+    /// </remarks>
+    public async Task<IReadOnlyList<(String Jid, String? SubId, PubSubSubscriptionState State)>?>
+        PubSubGetNodeSubscribersAsync(String             nodeId,
+                                      String?            service  = null,
+                                      CancellationToken  ct       = default)
+    {
+
+        var ziel     = service ?? PubSub!.PubSubService;
+        var id       = NextPubSubId();
+        var antwort  = await SendIqAsync(id, PubSubBuilder.GetNodeSubscriptions(ziel, nodeId, id), ct);
+
+        if (antwort is null || antwort.Attr("type") != "result")
+        {
+            _logger.LogWarning("PubSub: die Abonnenten von {Node} nicht gelesen: {Reason}",
+                               nodeId,
+                               antwort is null ? "keine Antwort" : DescribeRejection(antwort));
+            return null;
+        }
+
+        var liste = antwort.Child(PubSubBuilder.OwnerNamespace, "pubsub")
+                          ?.Child(PubSubBuilder.OwnerNamespace, "subscriptions");
+
+        if (liste is null)
+        {
+            _logger.LogWarning("PubSub: die Antwort zu {Node} enthält keine Abonnentenliste", nodeId);
+            return null;
+        }
+
+        var gelesen = new List<(String, String?, PubSubSubscriptionState)>();
+
+        foreach (var eintrag in liste.Children(PubSubBuilder.OwnerNamespace, "subscription"))
+        {
+
+            if (eintrag.Attr("jid") is not String wer ||
+                !PubSubSubscription.TryReadState(eintrag.Attr("subscription"), out var zustand))
+            {
+                _logger.LogWarning("PubSub: unlesbarer Eintrag in der Abonnentenliste: {Eintrag}", eintrag);
+                return null;
+            }
+
+            // Die Kennung darf fehlen - ein Dienst muss keine vergeben, solange
+            // es nur eine gibt (Abschnitt 12.19).
+            gelesen.Add((wer, eintrag.Attr("subid"), zustand));
+
+        }
+
+        return gelesen;
+
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.8.2: Beendet als Eigentümer ein Abonnement an
+    /// einem eigenen Knoten.
+    /// </summary>
+    /// <param name="subId">
+    /// Ein bestimmtes Abonnement, oder null für alle dieses JIDs an diesem
+    /// Knoten.
+    /// </param>
+    public async Task<Boolean> PubSubRemoveSubscriberAsync(String             nodeId,
+                                                           String             jid,
+                                                           String?            subId    = null,
+                                                           String?            service  = null,
+                                                           CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.RemoveSubscriber(service ?? PubSub!.PubSubService,
+                                                                    nodeId, NextPubSubId(), jid, subId),
+                                    "Abonnent entfernen", nodeId, ct);
+
+    /// <summary>
     /// Liest eine Rollenliste - beide sehen gleich aus, nur der Namensraum und
     /// das kennzeichnende Attribut unterscheiden sich.
     /// </summary>

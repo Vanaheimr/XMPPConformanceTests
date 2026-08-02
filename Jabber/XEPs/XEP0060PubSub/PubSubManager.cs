@@ -155,18 +155,58 @@ public sealed class PubSubManager
             return true;
         }
 
+        // XEP-0060, Abschnitt 8.8.4: Der Dienst sagt, dass ein Abonnement
+        // beendet ist.
+        //
+        // Die Kennung steht hier im Element und nicht in der SHIM-Kopfzeile:
+        // Diese Meldung gehört zu keiner Zustellung, sie handelt von dem
+        // Abonnement selbst.
+        if (eventElement.Child(EventNamespace, "subscription") is { } abmeldung)
+        {
+
+            // Nur das Ende wird angenommen. Eine Zusage kommt auf eine Anfrage
+            // und wird dort eingetragen - wer sie hier annähme, liesse sich von
+            // einem Dienst ungefragt anmelden.
+            if (PubSubSubscription.StateOf(abmeldung.Attr("subscription")) != PubSubSubscriptionState.None)
+            {
+                _logger.LogInformation("PubSub: Abonnementmeldung zu {Node} ohne Ende - nicht ausgewertet", nodeId);
+                return false;
+            }
+
+            var beendet = abmeldung.Attr("subid");
+
+            // Ohne Kennung sind alle Abonnements dieses Knotens gemeint: Der
+            // Dienst nennt sie, wenn er mehrere führt (Abschnitt 12.19), und
+            // eines davon stehen zu lassen hiesse, weiter auf Meldungen zu
+            // warten, die nicht mehr kommen.
+            RemoveSubscription(nodeId, beendet);
+
+            OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.SubscriptionEnded, beendet));
+
+            return true;
+
+        }
+
         return false;
 
     }
 
     /// <summary>
     /// Der Knoten, um den es in einem Event geht - aus <c>items</c>,
-    /// <c>purge</c> oder <c>delete</c>, je nachdem, was dasteht.
+    /// <c>purge</c>, <c>delete</c> oder <c>subscription</c>, je nachdem, was
+    /// dasteht.
     /// </summary>
+    /// <remarks>
+    /// Jede Art von Meldung muss hier stehen, und nicht nur, damit sie
+    /// ankommt: An diesem Knoten hängt die Absenderprüfung. Eine Meldung,
+    /// deren Knoten hier leer bleibt, gilt als Meldung über den Knoten "" -
+    /// den niemand abonniert hat, und die Prüfung liesse sie nur durch, wenn
+    /// sie ohnehin vom eingestellten Dienst käme.
+    /// </remarks>
     private static String NodeOf(XElement eventElement)
         => eventElement.Elements()
                        .FirstOrDefault(e => e.Name.NamespaceName == EventNamespace &&
-                                            e.Name.LocalName is "items" or "purge" or "delete")
+                                            e.Name.LocalName is "items" or "purge" or "delete" or "subscription")
                       ?.Attr("node") ?? "";
 
     /// <summary>Der Namensraum der SHIM-Kopfzeilen (XEP-0131).</summary>

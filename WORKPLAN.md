@@ -6111,6 +6111,50 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D86. Zwei Aufzählungen, die sich zum Verwechseln ähneln ✅ — die Clientseite
+
+Die Clientseite von D84/D85. `<subscriptions/>` heisst beides: „wo hänge ich
+überall" (Abschnitt 5.6) und „wer hängt an meinem Knoten" (8.8.1). Gleicher
+Elementname, gleicher Aufbau, und der Eintrag nennt einmal einen Knoten und
+einmal einen JID — **zu unterscheiden sind sie allein am Namensraum.** Drei
+Mutationen haben genau diese Verwechslung geprüft; es ist dieselbe Falle wie
+bei den Rollen in D83, nur mit einem Elementnamen, den man leichter für
+denselben hält.
+
+**Der Zustand wird hier streng gelesen, und in der eigenen Zusage nicht.** Das
+sieht nach einer Unstimmigkeit aus und ist der Punkt: Dort ist ein unbekannter
+Name als „nicht abonniert" die vorsichtige Annahme — wer sich zu Unrecht für
+nicht abonniert hält, fragt noch einmal. Hier wäre dieselbe Nachsicht das
+Gegenteil von vorsichtig: Der Eigentümer hielte einen Abonnenten für abwesend,
+den der Dienst führt, und entfernte womöglich einen anderen an seiner Stelle.
+Ein unlesbarer Eintrag lässt darum die ganze Liste scheitern.
+
+**Der Client kann entfernen und nicht anmelden**, obwohl Abschnitt 8.8.2 beides
+zulässt — dieselbe Entscheidung wie im Server, und aus demselben Grund. Ein
+Client, der einen anderen ungefragt anmelden kann, braucht dafür keinen Namen
+in `PubSubBuilder`: Wer das will, schreibt es hin und sagt, was er tut.
+
+Dazu die Gegenprobe im Eingang: Eine `<subscription/>`-Meldung mit
+`subscription='subscribed'` wird **nicht** eingetragen. Eine Zusage kommt auf
+eine Anfrage; wer sie ungefragt annähme, liesse sich von einem Dienst anmelden.
+Damit weisen beide Seiten dasselbe ab.
+
+Der Knoten einer Abmeldung musste in `NodeOf` aufgenommen werden, und nicht nur
+damit sie ankommt: **An diesem Knoten hängt die Absenderprüfung.** Eine Meldung,
+deren Knoten dort leer bleibt, gilt als Meldung über den Knoten `""` — den
+niemand abonniert hat. Die Mutation, die den Eintrag wieder herausnimmt, wird
+deshalb nicht vom Auswerten erschlagen, sondern vom Spoofing-Schutz.
+
+Zweiundfünfzig Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 1091
+bestanden, 7 übersprungen.
+
+Damit ist Abschnitt 8.8 fertig (D84–D86) und von XEP-0060 bleibt: das Löschen
+und Leeren von Knoten, `<retract/>` sowie die Zugriffsmodelle `authorize` und
+`roster` — für die es einen Genehmigungsvorgang und Rostergruppen als
+Zugriffsregel bräuchte.
+
+---
+
 ## Später
 
 ### Testsammlung
