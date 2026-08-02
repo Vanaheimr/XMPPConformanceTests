@@ -6535,6 +6535,45 @@ Knotenverwaltung, Rücknahme und Genehmigung.
 
 ---
 
+### D95. Zwei Fragen, ein Merkmal ✅ — `authorize` auf der Clientseite
+
+Die Clientseite von D93/D94, und ihr Kern ist eine Zeile, die seit D71 richtig
+aussah: **Ein `pending` wurde verworfen.** Der Aufrufer bekam `null` — dieselbe
+Antwort wie auf eine Absage.
+
+Das war die richtige Antwort auf „bin ich abonniert" und die falsche auf **„was
+habe ich beantragt"**. Zwei Fragen hingen an einem Merkmal. Und die zweite ist
+nicht nebensächlich: **Die Kennung des Antrags kommt vom Dienst.** Ohne sie kann
+der Client die Zusage, die später als Meldung eintrifft, keiner eigenen Frage
+zuordnen — dazwischen liegt ein Mensch, der sie beantwortet, und deshalb kommt
+sie nicht als Antwort auf das IQ.
+
+Eingetragen wird das `pending` jetzt also, aber als das, was es ist:
+`IsSubscribed` zählt Zugesagtes und nicht Eingetragenes. Die Verwechslung, vor
+der D71 warnte, bleibt ausgeschlossen — nur an einer anderen Stelle.
+
+**Die Regel aus D86 gilt weiter, und sie wird genauer.** Dort hiess es: Eine
+Zusage kommt auf eine Anfrage, wer sie ungefragt annimmt, lässt sich von einem
+Dienst anmelden. Richtig — nur gibt es jetzt einen Fall, in dem sie verlangt
+war, und den erkennt dieser Client an seinem **offenen Antrag**: Zusagen ohne
+einen solchen werden weiterhin abgewiesen.
+
+Auf der anderen Seite legt der Client dem Eigentümer den Antrag vor und
+beantwortet ihn — **angezeigt und nicht beantwortet**: Wer zusagt, ist ein
+Mensch. Ein Client, der von sich aus antwortete, entschiede über fremden Zugang
+nach einer Regel, die niemand gesehen hat.
+
+Eine Mutation hat überlebt und wieder auf den Test gezeigt: „zugesagt wird auch,
+was schon zugesagt ist" ging durch, weil die unverlangte Zusage im Test eine
+**fremde Kennung** trug — abgewiesen wurde sie daran und nicht an der Regel. Der
+Test schickt jetzt beides: die erfundene Kennung und die richtige. **Zugesagt
+ist zugesagt** — eine zweite Zusage ist keine Änderung und meldet sich nicht.
+
+Dreiundsechzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1141
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

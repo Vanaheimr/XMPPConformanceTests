@@ -136,6 +136,7 @@ class Program
         client.OnReceiptReceived   += HandleReceipt;
         client.OnPresenceChanged   += HandlePresence;
         client.OnPubSubEvent       += HandlePubSubEvent;
+        client.OnPubSubSubscriptionRequest += HandlePubSubRequest;
         client.OnError             += HandleError;
         client.OnRawXml            += HandleRawXml;
 
@@ -945,6 +946,7 @@ class Program
             Console.WriteLine("  /pubsub cfg <node>           Knoteneinstellungen");
             Console.WriteLine("  /pubsub access <node> <open|presence|whitelist|roster>  Zugriff umstellen");
             Console.WriteLine("  /pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (leer: alle)");
+            Console.WriteLine("  /pubsub antrag <node> <jid> <ja|nein>  Abonnementantrag beantworten");
             Console.WriteLine("  /pubsub rollen <node>        Wer ist was an diesem Knoten");
             Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
             Console.WriteLine("  /pubsub abonnenten <node>    Wer hängt an diesem Knoten (Alias: subscribers)");
@@ -967,7 +969,7 @@ class Program
                                  "rollen", "affiliations", "rolle",
                                  "abonnenten", "subscribers", "raus", "kick",
                                  "purge", "leeren", "retract", "zurueck",
-                                 "gruppen", "rostergroups"];
+                                 "gruppen", "rostergroups", "antrag", "authorize"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1050,7 +1052,13 @@ class Program
                 else
                     foreach (var eintrag in abos)
                         Console.WriteLine($"   {eintrag.NodeId} bei {eintrag.ServiceJid}" +
-                                          (eintrag.SubId is not null ? $" (subid {eintrag.SubId})" : ""));
+                                          (eintrag.SubId is not null ? $" (subid {eintrag.SubId})" : "") +
+                                          // Ein beantragtes steht mit dabei und sagt, was es ist:
+                                          // Ohne den Zustand sähe es aus wie ein zugesagtes, und
+                                          // die ausbleibenden Meldungen sähen aus wie ein Fehler.
+                                          (eintrag.State != PubSubSubscriptionState.Subscribed
+                                               ? $" - {eintrag.State.ToString().ToLower()}"
+                                               : ""));
                 break;
 
             case "pub" or "publish":
@@ -1215,6 +1223,44 @@ class Program
                 Console.WriteLine(await _client!.PubSubDeleteNodeAsync(nodeId)
                                       ? $"➖ Node gelöscht: {nodeId}"
                                       : $"⚠️ Node nicht gelöscht: {nodeId} - siehe Log");
+                break;
+
+            // XEP-0060, Abschnitt 8.6.2: den offenen Antrag beantworten.
+            case "antrag" or "authorize":
+                if (parts.Length < 4 || parts[3].ToLower() is not ("ja" or "nein"))
+                {
+                    Console.WriteLine("Syntax: /pubsub antrag <node> <jid> <ja|nein>");
+
+                    lock (_offeneAntraege)
+                        foreach (var offen in _offeneAntraege)
+                            Console.WriteLine($"   offen: {offen.SubscriberJid} für {offen.NodeId}");
+
+                    return;
+                }
+
+                PubSubSubscribeAuthorization? gesucht;
+
+                lock (_offeneAntraege)
+                    gesucht = _offeneAntraege.FirstOrDefault(
+                                  a => a.NodeId == nodeId &&
+                                       a.SubscriberJid.Equals(parts[2], StringComparison.OrdinalIgnoreCase));
+
+                if (gesucht is null)
+                {
+                    Console.WriteLine($"Kein offener Antrag von {parts[2]} für {nodeId}.");
+                    return;
+                }
+
+                var ja = parts[3].ToLower() == "ja";
+
+                await _client!.PubSubAnswerSubscriptionRequestAsync(gesucht, ja, _client.BareJid);
+
+                lock (_offeneAntraege)
+                    _offeneAntraege.Remove(gesucht);
+
+                Console.WriteLine(ja
+                                      ? $"✅ {gesucht.SubscriberJid} abonniert {nodeId}"
+                                      : $"🚪 {gesucht.SubscriberJid} bleibt draussen");
                 break;
 
             // Ein einzelner Eintrag statt aller: 'retract' nimmt einen zurück,
@@ -1562,11 +1608,44 @@ class Program
                 Console.WriteLine($"🚪 PubSub [{evt.NodeId}]: Abonnement beendet" +
                                   (evt.SubId is not null ? $" (subid {evt.SubId})" : ""));
                 break;
+
+            // Die späte Antwort auf eine eigene Frage.
+            case PubSubEventType.SubscriptionApproved:
+                Console.WriteLine($"✅ PubSub [{evt.NodeId}]: Abonnement zugesagt" +
+                                  (evt.SubId is not null ? $" (subid {evt.SubId})" : ""));
+                break;
         }
 
         Console.ResetColor();
 
     }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.6.1: Jemand fragt nach einem Abonnement.
+    /// </summary>
+    /// <remarks>
+    /// Angezeigt und nicht beantwortet: Wer zusagt, ist ein Mensch. Der offene
+    /// Antrag steht danach in <see cref="_offeneAntraege"/> und wartet auf
+    /// <c>/pubsub antrag</c>.
+    /// </remarks>
+    private static void HandlePubSubRequest(PubSubSubscribeAuthorization antrag)
+    {
+
+        lock (_offeneAntraege)
+            _offeneAntraege.Add(antrag);
+
+        using var sperre = Ausgabe();
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"🔔 {antrag.SubscriberJid} möchte {antrag.NodeId} abonnieren" +
+                          (antrag.SubId is not null ? $" (subid {antrag.SubId})" : ""));
+        Console.WriteLine($"   /pubsub antrag {antrag.NodeId} {antrag.SubscriberJid} <ja|nein>");
+        Console.ResetColor();
+
+    }
+
+    /// <summary>Die Anträge, die noch niemand beantwortet hat.</summary>
+    private static readonly List<PubSubSubscribeAuthorization> _offeneAntraege = [];
 
     private static void HandlePresence(string from, string type)
     {

@@ -178,12 +178,35 @@ public sealed class PubSubManager
         if (eventElement.Child(EventNamespace, "subscription") is { } abmeldung)
         {
 
-            // Nur das Ende wird angenommen. Eine Zusage kommt auf eine Anfrage
-            // und wird dort eingetragen - wer sie hier annähme, liesse sich von
-            // einem Dienst ungefragt anmelden.
-            if (PubSubSubscription.StateOf(abmeldung.Attr("subscription")) != PubSubSubscriptionState.None)
+            var gemeldet = PubSubSubscription.StateOf(abmeldung.Attr("subscription"));
+
+            // XEP-0060, Abschnitt 8.6: die Zusage auf einen eigenen Antrag.
+            //
+            // <b>Und nur darauf.</b> In D86 stand hier, eine Zusage komme auf
+            // eine Anfrage und werde dort eingetragen - richtig, solange es
+            // keinen Genehmigungsvorgang gab. Jetzt gibt es einen, und die
+            // Zusage trifft später ein als die Frage. Angenommen wird sie
+            // trotzdem nur, wenn dieser Client einen offenen Antrag dazu hat:
+            // Sonst liesse er sich von einem Dienst ungefragt anmelden.
+            if (gemeldet == PubSubSubscriptionState.Subscribed)
             {
-                _logger.LogInformation("PubSub: Abonnementmeldung zu {Node} ohne Ende - nicht ausgewertet", nodeId);
+
+                if (!ApproveSubscription(nodeId, abmeldung.Attr("subid"), from))
+                {
+                    _logger.LogInformation("PubSub: Zusage zu {Node} ohne offenen Antrag - nicht eingetragen", nodeId);
+                    return false;
+                }
+
+                OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.SubscriptionApproved,
+                                                abmeldung.Attr("subid")));
+
+                return true;
+
+            }
+
+            if (gemeldet != PubSubSubscriptionState.None)
+            {
+                _logger.LogInformation("PubSub: Abonnementmeldung zu {Node} ohne Ausgang - nicht ausgewertet", nodeId);
                 return false;
             }
 
@@ -356,9 +379,57 @@ public sealed class PubSubManager
         }
     }
 
+    /// <summary>
+    /// Gibt es auf diesen Knoten ein <b>zugesagtes</b> Abonnement?
+    /// </summary>
+    /// <remarks>
+    /// <b>Zugesagt und nicht bloss eingetragen.</b> Seit D95 steht auch ein
+    /// beantragtes in der Buchführung - sonst wüsste dieser Client nach einem
+    /// <c>pending</c> nicht einmal, wonach er gefragt hat. Damit wird aus „ist
+    /// etwas eingetragen" und „bin ich abonniert" zweierlei, und die Frage,
+    /// die hier steht, ist die zweite.
+    /// </remarks>
     public Boolean IsSubscribed(String nodeId)
     {
-        lock (_lock) return _subscriptions.ContainsKey(nodeId);
+        lock (_lock)
+            return _subscriptions.TryGetValue(nodeId, out var abos) &&
+                   abos.Any(a => a.State == PubSubSubscriptionState.Subscribed);
+    }
+
+    /// <summary>
+    /// Trägt die Zusage auf einen beantragten Abonnementantrag ein (XEP-0060,
+    /// Abschnitt 8.6).
+    /// </summary>
+    /// <param name="subId">
+    /// Die Kennung aus der Meldung, oder null - dann sind alle beantragten
+    /// Abonnements dieses Knotens bei diesem Dienst gemeint.
+    /// </param>
+    /// <returns>
+    /// false, wenn es dazu keinen offenen Antrag gab. <b>Dann ist die Meldung
+    /// keine Antwort auf eine Frage dieses Clients</b>, und angenommen wird
+    /// sie nicht: Wer sie annähme, liesse sich von einem Dienst ungefragt
+    /// anmelden.
+    /// </returns>
+    public Boolean ApproveSubscription(String nodeId, String? subId, String serviceJid)
+    {
+        lock (_lock)
+        {
+
+            if (!_subscriptions.TryGetValue(nodeId, out var abos))
+                return false;
+
+            var offen = abos.FindAll(a => a.State == PubSubSubscriptionState.Pending &&
+                                          (subId is null || String.Equals(a.SubId, subId, StringComparison.Ordinal)) &&
+                                          String.Equals(JidUtilities.Bare(a.ServiceJid),
+                                                        JidUtilities.Bare(serviceJid),
+                                                        StringComparison.OrdinalIgnoreCase));
+
+            foreach (var eines in offen)
+                abos[abos.IndexOf(eines)] = eines with { State = PubSubSubscriptionState.Subscribed };
+
+            return offen.Count > 0;
+
+        }
     }
 
     /// <summary>

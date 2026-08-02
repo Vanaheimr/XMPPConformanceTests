@@ -326,6 +326,19 @@ public sealed class XMPPConnection : IAsyncDisposable
     public event Action<string, string>? OnReceiptReceived;
     public event Action<CarbonMessage>? OnCarbonMessage;
     public event Action<PubSubEvent>? OnPubSubEvent;
+
+    /// <summary>
+    /// Jemand beantragt ein Abonnement an einem eigenen Knoten (XEP-0060,
+    /// Abschnitt 8.6.1).
+    /// </summary>
+    /// <remarks>
+    /// <b>Ein Ereignis und keine Rückfrage.</b> Beantwortet wird der Antrag
+    /// mit <see cref="PubSubAnswerSubscriptionRequestAsync"/>, und zwar von
+    /// dem, der die Meldung sieht - ein Client, der von sich aus zusagte,
+    /// entschiede über fremden Zugang nach einer Regel, die niemand gesehen
+    /// hat.
+    /// </remarks>
+    public event Action<PubSubSubscribeAuthorization>? OnPubSubSubscriptionRequest;
     public event Action<string>? OnRawXml;
     public event Action<string>? OnError;
     public event Action<string>? OnSpoofingAttempt;
@@ -1554,6 +1567,25 @@ public sealed class XMPPConnection : IAsyncDisposable
             PubSub?.ProcessEvent(element, from, PubSub.PubSubService);
 
             _ = ProcessPepEventAsync(element, from);
+
+            return;
+
+        }
+
+        // XEP-0060, Abschnitt 8.6.1: Ein Antrag auf ein Abonnement an einem
+        // eigenen Knoten.
+        //
+        // <b>Nur weitergereicht und nicht beantwortet.</b> Wer zusagt, ist ein
+        // Mensch; dieser Client zeigt ihm die Frage und wartet. Ein Client, der
+        // von sich aus antwortete, entschiede über fremden Zugang nach einer
+        // Regel, die niemand gesehen hat.
+        if (element.Child(DataForm.Namespace, "x") is { } formular &&
+            PubSubSubscribeAuthorization.TryReadRequest(formular, out var antrag))
+        {
+
+            _logger.LogInformation("PubSub: {Wer} beantragt {Node}", antrag!.SubscriberJid, antrag.NodeId);
+
+            OnPubSubSubscriptionRequest?.Invoke(antrag);
 
             return;
 
@@ -2954,17 +2986,21 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// PubSub-Dienst der eigenen Domain.
     /// </param>
     /// <returns>
-    /// Das zugesagte Abonnement, oder null - bei einer Absage, bei einer
-    /// Antwort ohne Zusage und bei Schweigen. Die drei Fälle stehen im Log
-    /// auseinander; für den Aufrufer sind sie dasselbe: <b>er ist nicht
-    /// abonniert.</b>
+    /// Was der Dienst gesagt hat - <b>samt seinem Zustand</b> -, oder null bei
+    /// einer Absage, bei einer Antwort ohne Zusage und bei Schweigen.
     /// </returns>
     /// <remarks>
-    /// <b>Ein <c>pending</c> wird nicht eingetragen.</b> Es sieht wie eine
-    /// Zusage aus - der Dienst hat die Anfrage angenommen -, heisst aber, dass
-    /// noch jemand darüber entscheidet (Abschnitt 6.1.4). Wer es als
-    /// Abonnement bucht, wartet auf Meldungen, die nicht kommen, und hält das
-    /// für einen Fehler anderswo.
+    /// <b>Ein <c>pending</c> ist keine Zusage, aber eine Auskunft.</b> Bis D95
+    /// wurde es verworfen und der Aufrufer bekam <c>null</c> - dieselbe
+    /// Antwort wie auf eine Absage. Das war richtig auf die Frage „bin ich
+    /// abonniert" und falsch auf die Frage „was habe ich beantragt": Die
+    /// Kennung des Antrags kommt vom Dienst, und ohne sie kann dieser Client
+    /// die spätere Zusage keiner eigenen Frage zuordnen.
+    ///
+    /// Eingetragen wird es deshalb, aber als das, was es ist.
+    /// <see cref="PubSubManager.IsSubscribed"/> zählt nur Zugesagtes - wer ein
+    /// <c>pending</c> als Abonnement buchte, wartete auf Meldungen, über die
+    /// noch gar nicht entschieden ist.
     /// </remarks>
     public async Task<PubSubSubscription?> PubSubSubscribeAsync(String             nodeId,
                                                                 String?            service  = null,
@@ -2994,12 +3030,19 @@ public sealed class XMPPConnection : IAsyncDisposable
             return null;
         }
 
-        if (abo!.State != PubSubSubscriptionState.Subscribed)
+        // Nur was der Dienst kennt: Ein Zustand, den dieser Client nicht lesen
+        // konnte, ist bei PubSubSubscription.StateOf zu None geworden - und
+        // ein Abonnement, das keines ist, gehört nicht in die Buchführung.
+        if (abo!.State is not (PubSubSubscriptionState.Subscribed or PubSubSubscriptionState.Pending))
         {
-            _logger.LogInformation("PubSub: {Node} bei {Service} steht auf {State} - noch kein Abonnement",
+            _logger.LogInformation("PubSub: {Node} bei {Service} steht auf {State} - kein Abonnement",
                                    nodeId, ziel, abo.State);
             return null;
         }
+
+        if (abo.State == PubSubSubscriptionState.Pending)
+            _logger.LogInformation("PubSub: {Node} bei {Service} ist beantragt und noch nicht zugesagt",
+                                   nodeId, ziel);
 
         PubSub!.AddSubscription(abo);
 
@@ -3526,6 +3569,35 @@ public sealed class XMPPConnection : IAsyncDisposable
                                                                 configuration.ToSubmit()
                                                                              .ToString(SaveOptions.DisableFormatting)),
                                     "Einstellen", nodeId, ct);
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.6.2: Beantwortet einen Antrag auf ein Abonnement.
+    /// </summary>
+    /// <param name="request">Der Antrag, wie er vorgelegt wurde.</param>
+    /// <param name="allow">Zusagen oder ablehnen.</param>
+    /// <remarks>
+    /// <b>Der Antrag geht zurück, wie er kam</b> - mit Knoten, Antragsteller
+    /// und Kennung. Sie erfunden oder weggelassen zu bekommen wäre für den
+    /// Dienst nicht zu unterscheiden von der Antwort auf einen anderen Antrag;
+    /// derselbe JID darf mehrfach fragen.
+    ///
+    /// Ohne Antwort des Dienstes: Eine Nachricht wird nicht beantwortet. Ob es
+    /// gewirkt hat, sagt die Abonnentenliste - oder die Meldung, die beim
+    /// Antragsteller ankommt.
+    /// </remarks>
+    public async Task PubSubAnswerSubscriptionRequestAsync(PubSubSubscribeAuthorization  request,
+                                                           Boolean                       allow,
+                                                           String?                       service  = null)
+    {
+
+        var ziel = service ?? PubSub!.PubSubService;
+
+        await SendAsync($"<message to='{XmlEscaping.Escape(ziel)}'>" +
+                        (request with { Allow = allow }).ToSubmit()
+                                                        .ToString(SaveOptions.DisableFormatting) +
+                        "</message>");
+
+    }
 
     /// <summary>
     /// XEP-0060, Abschnitt 7.2: Nimmt einen einzelnen Eintrag zurück.

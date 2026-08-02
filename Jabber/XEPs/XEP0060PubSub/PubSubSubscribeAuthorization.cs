@@ -106,11 +106,29 @@ public sealed record PubSubSubscribeAuthorization(String   NodeId,
     /// nicht mit einer erfundenen antworten müssen.
     /// </remarks>
     public static Boolean TryRead(XElement x, out PubSubSubscribeAuthorization? authorization)
+        => TryRead(x, "submit", allowRequired: true, out authorization);
+
+    /// <summary>
+    /// Liest den vorgelegten Antrag (<c>type='form'</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Ohne <c>pubsub#allow</c>, und das ist der Unterschied.</b> Im
+    /// vorgelegten Formular ist das Feld die Frage; in der abgeschickten
+    /// Antwort ist es die Antwort. Ein Antrag ohne Vorbelegung ist deshalb
+    /// vollständig, eine Antwort ohne Entscheidung nicht.
+    /// </remarks>
+    public static Boolean TryReadRequest(XElement x, out PubSubSubscribeAuthorization? request)
+        => TryRead(x, "form", allowRequired: false, out request);
+
+    private static Boolean TryRead(XElement                          x,
+                                   String                            art,
+                                   Boolean                           allowRequired,
+                                   out PubSubSubscribeAuthorization?  authorization)
     {
 
         authorization = null;
 
-        if (!DataForm.Is(x, "submit"))
+        if (!DataForm.Is(x, art))
             return false;
 
         String?   node        = null;
@@ -156,12 +174,12 @@ public sealed record PubSubSubscribeAuthorization(String   NodeId,
         if (!richtigeArt ||
             String.IsNullOrEmpty(node) ||
             String.IsNullOrEmpty(wer)  ||
-            zusagen is null)
+            (allowRequired && zusagen is null))
         {
             return false;
         }
 
-        authorization = new PubSubSubscribeAuthorization(node, wer, kennung, zusagen.Value);
+        authorization = new PubSubSubscribeAuthorization(node, wer, kennung, zusagen ?? false);
 
         return true;
 

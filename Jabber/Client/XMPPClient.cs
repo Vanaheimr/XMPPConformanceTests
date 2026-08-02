@@ -155,6 +155,13 @@ public sealed class XMPPClient : IAsyncDisposable
     /// <summary>XEP-0060: PubSub-Event vom Service.</summary>
     public event Action<PubSubEvent>? OnPubSubEvent;
 
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.6.1: Jemand beantragt ein Abonnement an einem
+    /// eigenen Knoten - beantwortet wird das mit
+    /// <see cref="PubSubAnswerSubscriptionRequestAsync"/>.
+    /// </summary>
+    public event Action<PubSubSubscribeAuthorization>? OnPubSubSubscriptionRequest;
+
     /// <summary>Eine neue Kontaktanfrage; sie liegt danach in <see cref="PendingSubscriptions"/>.</summary>
     public event Action<string, string>? OnSubscriptionRequest; // from, status
 
@@ -278,6 +285,8 @@ public sealed class XMPPClient : IAsyncDisposable
         _connection.OnReceiptReceived += (from, id)   => OnReceiptReceived?.Invoke(from, id);
         _connection.OnPresence        += (from, type) => OnPresenceChanged?.Invoke(from, type);
         _connection.OnPubSubEvent     += e            => OnPubSubEvent?.Invoke(e);
+        _connection.OnPubSubSubscriptionRequest
+                                      += a            => OnPubSubSubscriptionRequest?.Invoke(a);
         _connection.OnCapsDiscovered  += (from, info) => OnCapsDiscovered?.Invoke(from, info);
         _connection.OnStateChanged    += (o, n)       => OnStateChanged?.Invoke(o, n);
         _connection.OnRawXml          += xml          => OnRawXml?.Invoke(xml);
@@ -792,6 +801,13 @@ public sealed class XMPPClient : IAsyncDisposable
     /// <summary>Vergibt oder nimmt eine Rolle (XEP-0060, Abschnitt 8.9.2).</summary>
     public Task<Boolean> PubSubSetAffiliationAsync(String nodeId, String jid, PubSubAffiliation affiliation, String? service = null)
         => _connection.PubSubSetAffiliationAsync(nodeId, jid, affiliation, service);
+
+    /// <summary>
+    /// Beantwortet einen Antrag auf ein Abonnement (XEP-0060,
+    /// Abschnitt 8.6.2).
+    /// </summary>
+    public Task PubSubAnswerSubscriptionRequestAsync(PubSubSubscribeAuthorization request, Boolean allow, String? service = null)
+        => _connection.PubSubAnswerSubscriptionRequestAsync(request, allow, service);
 
     /// <summary>Wer hängt an meinem Knoten? (XEP-0060, Abschnitt 8.8.1)</summary>
     public Task<IReadOnlyList<(String Jid, String? SubId, PubSubSubscriptionState State)>?> PubSubGetNodeSubscribersAsync(String nodeId, String? service = null)

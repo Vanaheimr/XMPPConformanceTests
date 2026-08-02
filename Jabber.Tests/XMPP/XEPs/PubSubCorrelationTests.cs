@@ -207,21 +207,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
-        #region APendingSubscription_IsNotRecorded()
+        #region APendingSubscription_IsRecordedButIsNoSubscription()
 
         /// <summary>
         /// XEP-0060, Abschnitt 6.1.4: <c>pending</c> heisst, dass noch jemand
-        /// entscheidet - es ist kein Abonnement.
+        /// entscheidet - es ist kein Abonnement, aber eine Auskunft.
         /// </summary>
         /// <remarks>
-        /// Der eigene Server sagt das nie; er kennt keine Genehmigungen. Ein
-        /// fremder tut es, sobald ein Knoten die Zustimmung seines Besitzers
-        /// verlangt - und dann ist die Verwechslung teuer: Der Client hielte
-        /// sich für abonniert und wartete auf Meldungen, über die noch gar
-        /// nicht entschieden ist.
+        /// <b>Bis D95 wurde es verworfen</b>, und der Aufrufer bekam
+        /// <c>null</c> - dieselbe Antwort wie auf eine Absage. Das war richtig
+        /// auf die Frage „bin ich abonniert" und falsch auf die Frage „was habe
+        /// ich beantragt": Die Kennung des Antrags kommt vom Dienst, und ohne
+        /// sie kann dieser Client die spätere Zusage keiner eigenen Frage
+        /// zuordnen.
+        ///
+        /// Die Verwechslung, vor der der Test seit D71 steht, bleibt
+        /// ausgeschlossen - nur an einer anderen Stelle: <c>IsSubscribed</c>
+        /// zählt Zugesagtes und nicht Eingetragenes.
         /// </remarks>
         [Test]
-        public async Task APendingSubscription_IsNotRecorded()
+        public async Task APendingSubscription_IsRecordedButIsNoSubscription()
         {
 
             var alice = await ConnectClientAsync("alice");
@@ -232,8 +237,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.Multiple(() =>
             {
-                Assert.That(abo, Is.Null, "Ein pending ist keine Zusage.");
-                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.False);
+
+                Assert.That(abo,        Is.Not.Null);
+                Assert.That(abo!.State, Is.EqualTo(PubSubSubscriptionState.Pending),
+                            "Was der Dienst gesagt hat, steht in der Antwort.");
+                Assert.That(abo!.SubId, Is.Not.Null.And.Not.Empty,
+                            "Und die Kennung des Antrags ist das, was ohne sie verloren ginge.");
+
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.False,
+                            "Ein pending ist trotzdem keine Zusage.");
+
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node), Has.Count.EqualTo(1),
+                            "Eingetragen ist es als das, was es ist.");
+
             });
 
         }
@@ -2046,6 +2062,189 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
             Assert.That((await bob.PubSubGetItemsAsync(Node, service: BobsJid))?.Select(i => i.Id),
                         Is.EqualTo(new[] { "1" }),
                         "Der Eintrag steht unangetastet da.");
+
+        }
+
+        #endregion
+
+        #region TheWholeApproval_RunsThroughBothClients()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.6: Der ganze Vorgang über beide Clients -
+        /// fragen, vorgelegt bekommen, zusagen, zugestellt bekommen.
+        /// </summary>
+        /// <remarks>
+        /// <b>Die Zusage kommt später als die Frage</b>, und dazwischen liegt
+        /// ein Mensch. Deshalb kommt sie als Meldung und nicht als Antwort auf
+        /// das IQ - und deshalb muss der Antragsteller seinen eigenen Antrag
+        /// eingetragen haben, um sie zuordnen zu können.
+        /// </remarks>
+        [Test]
+        public async Task TheWholeApproval_RunsThroughBothClients()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            Assert.That(await bob.PubSubConfigureNodeAsync(Node,
+                                                           new PubSubNodeConfiguration(PubSubAccessModel.Authorize),
+                                                           BobsJid),
+                        Is.True);
+
+            PubSubSubscribeAuthorization? antrag = null;
+            bob.OnPubSubSubscriptionRequest += a => antrag = a;
+
+            var alice = await ConnectClientAsync("alice");
+
+            // Alle sammeln statt den letzten merken: Nach der Zusage kommt die
+            // erste Zustellung, und die überschriebe ihn.
+            var ereignisse = new List<PubSubEvent>();
+            alice.OnPubSubEvent += ereignisse.Add;
+
+            var beantragt = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            await WaitFor(() => antrag is not null, "den Antrag beim Eigentümer");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(beantragt!.State, Is.EqualTo(PubSubSubscriptionState.Pending));
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.False,
+                            "Vor der Zusage ist es kein Abonnement.");
+
+                Assert.That(antrag!.NodeId,        Is.EqualTo(Node));
+                Assert.That(antrag!.SubscriberJid, Is.EqualTo(alice.BareJid));
+                Assert.That(antrag!.SubId,         Is.EqualTo(beantragt!.SubId));
+
+            });
+
+            await bob.PubSubAnswerSubscriptionRequestAsync(antrag!, allow: true, BobsJid);
+
+            await WaitFor(() => ereignisse.Any(e => e.Type == PubSubEventType.SubscriptionApproved),
+                          "die Zusage bei der Antragstellerin");
+
+            Assert.That(await bob.PubSubPublishAsync(Node, "2", Payload("endlich"), BobsJid), Is.True);
+
+            await WaitFor(() => ereignisse.Any(e => e.Type == PubSubEventType.Items),
+                          "die erste Zustellung nach der Zusage");
+
+            var zusage = ereignisse.First(e => e.Type == PubSubEventType.SubscriptionApproved);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zusage.NodeId, Is.EqualTo(Node));
+                Assert.That(zusage.SubId,  Is.EqualTo(beantragt!.SubId));
+
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.True,
+                            "Nach der Zusage ist es eines.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ADeniedRequest_LeavesNothingBehind()
+
+        /// <summary>
+        /// Ein „nein" streicht den Antrag auch beim Antragsteller.
+        /// </summary>
+        /// <remarks>
+        /// Er bekommt dieselbe Meldung wie ein Entfernter - und das ist
+        /// richtig: Für ihn ist der Ausgang derselbe, nur der Weg dorthin war
+        /// ein anderer.
+        /// </remarks>
+        [Test]
+        public async Task ADeniedRequest_LeavesNothingBehind()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            Assert.That(await bob.PubSubConfigureNodeAsync(Node,
+                                                           new PubSubNodeConfiguration(PubSubAccessModel.Authorize),
+                                                           BobsJid),
+                        Is.True);
+
+            PubSubSubscribeAuthorization? antrag = null;
+            bob.OnPubSubSubscriptionRequest += a => antrag = a;
+
+            var alice = await ConnectClientAsync("alice");
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            await WaitFor(() => antrag is not null, "den Antrag");
+
+            await bob.PubSubAnswerSubscriptionRequestAsync(antrag!, allow: false, BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Ablehnung");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(gemeldet!.Type, Is.EqualTo(PubSubEventType.SubscriptionEnded));
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node), Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region AnApprovalWithoutARequest_IsNotRecorded()
+
+        /// <summary>
+        /// Eine Zusage ohne eigenen Antrag wird nicht angenommen.
+        /// </summary>
+        /// <remarks>
+        /// <b>Das ist der Rest der Regel aus D86</b>, und er gilt weiter: Wer
+        /// eine unverlangte Zusage einträgt, lässt sich von einem Dienst
+        /// anmelden. Neu ist nur, dass es einen Fall gibt, in dem sie verlangt
+        /// war - und den erkennt dieser Client an seinem offenen Antrag.
+        /// </remarks>
+        [Test]
+        public async Task AnApprovalWithoutARequest_IsNotRecorded()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var abo   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            Assert.That(abo!.State, Is.EqualTo(PubSubSubscriptionState.Subscribed),
+                        "Auf einem offenen Knoten gibt es nichts zu genehmigen.");
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            // Eine Zusage auf einen Antrag, den es nie gab.
+            await Server.SessionOf(alice.FullJid)!.SendAsync(
+                $"<message from='{BobsJid}' type='headline' to='{alice.FullJid}'>" +
+                "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                $"<subscription node='{Node}' jid='{alice.BareJid}'" +
+                " subid='nie-gefragt' subscription='subscribed'/>" +
+                "</event></message>");
+
+            await WaitAgainst(() => gemeldet is not null, "eine Zusage ohne Antrag");
+
+            // Und dieselbe Zusage auf das bestehende Abonnement: <b>Zugesagt
+            // ist zugesagt.</b> Ohne diesen zweiten Teil hinge die Ablehnung
+            // allein an der fremden Kennung - eine Zusage auf etwas, das schon
+            // zugesagt ist, ginge durch und meldete eine Änderung, die keine
+            // ist.
+            await Server.SessionOf(alice.FullJid)!.SendAsync(
+                $"<message from='{BobsJid}' type='headline' to='{alice.FullJid}'>" +
+                "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
+                $"<subscription node='{Node}' jid='{alice.BareJid}'" +
+                $" subid='{abo!.SubId}' subscription='subscribed'/>" +
+                "</event></message>");
+
+            await WaitAgainst(() => gemeldet is not null,
+                              "eine Zusage auf ein bestehendes Abonnement");
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.SubId),
+                        Is.EqualTo(new[] { abo!.SubId }),
+                        "Es bleibt bei dem einen, das erfragt wurde.");
 
         }
 

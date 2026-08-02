@@ -39,5 +39,17 @@ public enum PubSubEventType
     /// anmelden, und genau das weist der Server dieses Projekts auf der
     /// anderen Seite ab.
     /// </remarks>
-    SubscriptionEnded
+    SubscriptionEnded,
+
+    /// <summary>
+    /// Ein beantragtes Abonnement wurde zugesagt (XEP-0060, Abschnitt 8.6).
+    /// </summary>
+    /// <remarks>
+    /// <b>Die Antwort auf eine eigene Frage, und nur die.</b> Sie kommt später
+    /// als die Frage - dazwischen liegt ein Mensch, der sie beantwortet -, und
+    /// deshalb kommt sie als Meldung und nicht als Antwort auf das IQ. Wer
+    /// dazu keinen offenen Antrag hat, bekommt dieses Ereignis nicht: Eine
+    /// unverlangte Zusage bliebe eine Anmeldung durch einen anderen.
+    /// </remarks>
+    SubscriptionApproved
 }
