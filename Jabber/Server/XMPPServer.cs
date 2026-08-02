@@ -2067,6 +2067,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // sichtbar oder gar nicht.
                 var anweisung = owner.Child(PubSubOwnerNamespace, "affiliations")  ??
                                 owner.Child(PubSubOwnerNamespace, "subscriptions") ??
+                                owner.Child(PubSubOwnerNamespace, "delete")        ??
+                                owner.Child(PubSubOwnerNamespace, "purge")         ??
                                 owner.Child(PubSubOwnerNamespace, "configure");
 
                 if (anweisung is null)
@@ -2292,6 +2294,79 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     // dieselbe Behauptung ins Blaue wie ein `result` darauf.
                     foreach (var eines in beendet)
                         await NotifySubscriptionEndedAsync(session.Account, node, eines);
+
+                    return true;
+
+                }
+
+                #endregion
+
+                #region Knoten löschen und leeren (XEP-0060, Abschnitte 8.4 und 8.5)
+
+                if (anweisung.Name.LocalName is "delete" or "purge")
+                {
+
+                    // Beides verändert etwas. Ein `get` darauf ist keine Frage,
+                    // die sich beantworten liesse - und dürfte auf keinen Fall
+                    // beim Einstellen weiter unten landen, wo es die
+                    // Knotenkonfiguration zurückbekäme.
+                    if (type != "set")
+                    {
+                        await session.SendAsync(BadRequestIq(id));
+                        return true;
+                    }
+
+                    if (anweisung.Name.LocalName == "delete")
+                    {
+
+                        var erloschen = session.Account.DeletePepNode(node)!;
+
+                        await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                        // XEP-0060, Abschnitt 8.4.2. <b>Eine Meldung je
+                        // Abonnenten und nicht je Abonnement</b>, und ohne
+                        // Kennung: Es endet nicht ein Abonnement, sondern der
+                        // Knoten. Eine Kennung zu nennen hiesse, die anderen
+                        // bestünden weiter.
+                        //
+                        // Eine zweite Meldung nach Abschnitt 8.8.4 gibt es
+                        // dazu nicht - dass ein Abonnement auf einen Knoten,
+                        // den es nicht mehr gibt, erloschen ist, sagt diese
+                        // Meldung bereits.
+                        await NotifyPepNodeAsync(session.Account, session,
+                                                 $"<delete node='{XmlEscaping.Escape(node)}'/>",
+                                                 erloschen.Select(a => a.Jid));
+
+                        return true;
+
+                    }
+
+                    // XEP-0060, Abschnitt 8.5.3.2: Was nichts aufbewahrt, kann
+                    // nichts hergeben. Ein `result` darauf wäre die Auskunft,
+                    // es sei etwas geleert worden, und die Meldung an die
+                    // Abonnenten die Aufforderung, etwas wegzuwerfen, das
+                    // dieser Knoten nie ausgeliefert hat.
+                    if (!bestand.PersistItems)
+                    {
+                        await session.SendAsync(
+                            StanzaErrorIq(id, "feature-not-implemented", "cancel",
+                                          applicationError: $"<unsupported xmlns='{PubSubErrorNamespace}'" +
+                                                            " feature='persistent-items'/>"));
+                        return true;
+                    }
+
+                    var abonnenten = session.Account.PepSubscriptions(node).Select(a => a.Jid);
+
+                    session.Account.PurgePepNode(node);
+
+                    await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                    // XEP-0060, Abschnitt 8.5.2. Der Knoten bleibt, die
+                    // Abonnements bleiben - die Meldung sagt nur, dass nichts
+                    // mehr abzuholen ist.
+                    await NotifyPepNodeAsync(session.Account, session,
+                                             $"<purge node='{XmlEscaping.Escape(node)}'/>",
+                                             abonnenten);
 
                     return true;
 
@@ -3018,6 +3093,55 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 foreach (var ziel in SessionsOf(abonnement.Jid))
                     if (ziel != sender && ziel.FullJid is not null)
                         await ziel.SendAsync(StampTo(Ereignis(abonnement.SubId), ziel.FullJid));
+
+        }
+
+        /// <summary>
+        /// Meldet allen, die von einem Knoten etwas bekommen hätten, was mit
+        /// ihm geschehen ist (XEP-0060, Abschnitte 8.4.2 und 8.5.2).
+        /// </summary>
+        /// <param name="content">
+        /// Der Inhalt der Meldung - <c>&lt;delete/&gt;</c> oder
+        /// <c>&lt;purge/&gt;</c> samt Knotennamen.
+        /// </param>
+        /// <param name="subscribers">
+        /// Die ausdrücklichen Abonnenten. Beim Löschen sind sie zu diesem
+        /// Zeitpunkt schon fort und müssen deshalb mitgegeben werden - eine
+        /// Meldung an die, die man hinterher noch findet, erreichte niemanden.
+        /// </param>
+        /// <remarks>
+        /// <b>Jeden einmal, ohne Kennung.</b> Anders als eine Veröffentlichung
+        /// gehört diese Meldung zu keiner Zustellung: Sie handelt vom Knoten.
+        /// Wer zwei Abonnements hält, bekommt sie trotzdem nur einmal - eine
+        /// Kennung zu nennen hiesse, die anderen bestünden weiter.
+        ///
+        /// Die Empfänger sind dieselben wie bei einer Veröffentlichung:
+        /// Presence-Empfänger und ausdrückliche Abonnenten. Wer die Einträge
+        /// bekommen hätte, soll erfahren, dass es sie nicht mehr gibt.
+        /// </remarks>
+        private async Task NotifyPepNodeAsync(XMPPAccount          owner,
+                                              XMPPSession          sender,
+                                              String               content,
+                                              IEnumerable<String>  subscribers)
+        {
+
+            if (!RouteStanzas || sender.FullJid is null)
+                return;
+
+            var ereignis = $"<message from='{owner.BareJid}' type='headline'>" +
+                           $"<event xmlns='{PubSubManager.EventNamespace}'>{content}</event>" +
+                           "</message>";
+
+            var ausdruecklich = new HashSet<String>(subscribers, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ziel in PresenceTargetsOf(owner, sender))
+                if (!ausdruecklich.Contains(ziel.BareJid ?? ""))
+                    await ziel.SendAsync(StampTo(ereignis, ziel.FullJid!));
+
+            foreach (var wer in ausdruecklich)
+                foreach (var ziel in SessionsOf(wer))
+                    if (ziel != sender && ziel.FullJid is not null)
+                        await ziel.SendAsync(StampTo(ereignis, ziel.FullJid));
 
         }
 

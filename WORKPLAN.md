@@ -6155,6 +6155,78 @@ Zugriffsregel bräuchte.
 
 ---
 
+### D87. Der Knoten und sein Inhalt ✅ — Löschen und Leeren
+
+Zwei Anweisungen, die man leicht für Abstufungen derselben hält, und die
+verschiedene Dinge betreffen: **Gelöscht wird der Knoten, geleert nur sein
+Inhalt.** Wer geleert hat, veröffentlicht weiter an dieselben Empfänger; wer
+gelöscht hat, an niemanden.
+
+Der Testserver konnte bis hierher keines von beiden — `/pubsub delete` gab es
+in der Konsole seit jeher, und der Server antwortete darauf, wie er auf alles
+Unbekannte antwortet. Der fehlende Teil war also nicht der Client, sondern die
+Gegenstelle.
+
+**Ein gelöschter Knoten nimmt vier Dinge mit**, und das vierte ist der Grund,
+es hinzuschreiben: Einträge, Einstellungen, Abonnements **und Rollen**. Blieben
+die Rollen stehen, erbte der nächste Knoten desselben Namens eine
+Ausschlussliste, die niemand mehr sieht — und der Eigentümer wunderte sich,
+warum ein Bekannter an seinen neuen Knoten nicht herankommt.
+
+## Die überlebende Mutation war gar keine
+
+Beim Leeren stand zuerst `eintraege.Clear()` statt `_pepNodes.Remove(node)`,
+und zwar mit einer Begründung, die gut klang: Ein Knoten, der bloss durchs
+Veröffentlichen entstanden ist, stünde allein in der Ablage — wird sie entfernt,
+hätte das Leeren ihn gelöscht. Die Mutation, die genau das tut, hat **überlebt**,
+zweimal, auch nachdem der Test die Lücke schloss, durch die er beim ersten Mal
+gefallen war.
+
+Der Grund: **Den Fall gibt es nicht.** `PublishPepItem` legt die Einstellung an,
+bevor es den ersten Eintrag schreibt, genau wie `CreatePepNode` — es gibt keinen
+Knoten, der nur in der Ablage steht. Die Abwehr richtete sich gegen einen
+Zustand, den nichts herstellen kann, und war deshalb nicht zu widerlegen.
+
+Dahinter lag der eigentliche Fund: **Die Frage „gibt es diesen Knoten" hatte
+zwei Antworten** — Einstellung vorhanden *oder* Einträge vorhanden. Die zweite
+war unerreichbar und wäre beim Leeren zur Falle geworden. Jetzt hängt ein Knoten
+an seiner Einstellung, an einer Stelle und nur dort; dieselbe Vereinfachung
+räumte eine zweite Aufzählung in `PepAffiliationsOf` mit weg. Das ist der Fund
+aus D81 in neuer Gestalt: nicht ein fehlender Test, sondern **zwei Wege zu
+derselben Entscheidung.**
+
+Der Test, den die erste Mutation aufgedeckt hat, bleibt trotzdem stehen — er
+sah erst nach der nächsten Veröffentlichung nach, und die legt den Knoten wieder
+an. **Ein gelöschter hätte danach ausgesehen wie ein geleerter.**
+
+**Je Abonnenten eine Meldung, nicht je Abonnement** — und ohne Kennung. Das ist
+die Gegenentscheidung zu D85, aus demselben Grund: Dort endeten einzelne
+Abonnements, und die Kennung sagte, welches. Hier endet der Knoten; eine
+Kennung zu nennen hiesse, die anderen bestünden weiter. Aus demselben Grund
+kommt keine zweite Meldung nach Abschnitt 8.8.4 hinterher.
+
+Zwei Absagen, die auch anders hätten ausfallen können:
+
+- **Ein Knoten ohne Ablage lässt sich nicht leeren** (Abschnitt 8.5.3.2). Für
+  das Gegenteil liesse sich argumentieren — die Meldung ist ja an den
+  Abonnenten gerichtet, und der hat womöglich etwas aufbewahrt. Das XEP
+  entscheidet anders, und mit dem besseren Grund: Ein `result` wäre die
+  Auskunft, es sei etwas geleert worden, und die Meldung die Aufforderung,
+  etwas wegzuwerfen, das dieser Knoten nie ausgeliefert hat.
+- **Ein `get` auf `<delete/>` ist ein `<bad-request/>`** und kein Löschen.
+  Ohne diese Prüfung fiele es bis zum Einstellen durch und bekäme die
+  Knotenkonfiguration zurück — eine Antwort auf eine Frage, die niemand
+  gestellt hat.
+
+Nicht umgesetzt: das `<redirect/>` aus Abschnitt 8.4.2, mit dem ein gelöschter
+Knoten auf seinen Nachfolger zeigt. Es wäre ein Verweis, dem der Client folgen
+müsste, und ohne den zweiten Knoten ein Versprechen ohne Deckung.
+
+Hundert Tests, zwölf Mutationen, alle erschlagen. Voller Lauf: 1102 bestanden,
+7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

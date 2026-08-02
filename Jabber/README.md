@@ -709,6 +709,18 @@ miteinander sprechen:
   für die Ablage** (XEP-0160): Wer offline war, erfährt es nicht — und findet
   es beim nächsten Verbinden über §5.6, wo der Stand von jetzt steht und nicht
   der von damals
+- XEP-0060 §8.4/§8.5 Knoten löschen und leeren, beides nur für den Eigentümer.
+  **Gelöscht wird der Knoten, geleert nur sein Inhalt** — nach dem Leeren
+  veröffentlicht er weiter an dieselben Empfänger, nach dem Löschen an
+  niemanden. Ein gelöschter Knoten nimmt Einträge, Einstellungen, Abonnements
+  **und Rollen** mit: Blieben die Rollen stehen, erbte der nächste Knoten
+  desselben Namens eine Ausschlussliste, die niemand mehr sieht. Ein Knoten
+  ohne Ablage lässt sich nicht leeren (§8.5.3.2, `<unsupported
+  feature='persistent-items'/>`) — ein `result` wäre die Auskunft, es sei etwas
+  geleert worden. Beides wird gemeldet (§8.4.2/§8.5.2), und zwar **je
+  Abonnenten einmal und ohne `subid`**: Es endet nicht ein Abonnement, sondern
+  der Knoten; eine Kennung zu nennen hiesse, die anderen bestünden weiter. Eine
+  zweite Meldung nach §8.8.4 kommt deshalb nicht hinterher
 - XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
   **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
   ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die

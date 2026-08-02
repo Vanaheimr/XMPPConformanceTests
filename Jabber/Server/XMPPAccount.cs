@@ -441,11 +441,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// existiert, bevor irgendetwas darin steht, und ein Knoten ohne
         /// Ablage bekommt nie welche - beide muss man abonnieren können, sonst
         /// wäre das Anlegen folgenlos.
+        ///
+        /// <b>Die Einstellung ist die Spur, an der ein Knoten hängt</b>, und
+        /// zwar die einzige: Sowohl <see cref="CreatePepNode"/> als auch
+        /// <see cref="PublishPepItem"/> legen sie an, bevor irgendetwas anderes
+        /// entsteht. Hier stand deshalb einmal ein „oder es gibt Einträge" -
+        /// eine zweite Antwort auf dieselbe Frage, die keinen Fall mehr
+        /// abdeckte und beim Leeren der Ablage zur Falle geworden wäre.
         /// </remarks>
         public Boolean PepNodeExists(String node)
         {
             lock (_lock)
-                return _pepNodeConfigs.ContainsKey(node) || _pepNodes.ContainsKey(node);
+                return _pepNodeConfigs.ContainsKey(node);
         }
 
         /// <summary>
@@ -503,6 +510,79 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// Löscht einen Knoten samt allem, was an ihm hängt (XEP-0060,
+        /// Abschnitt 8.4).
+        /// </summary>
+        /// <returns>
+        /// Die Abonnements, die dabei erloschen sind, oder <c>null</c>, wenn es
+        /// den Knoten nicht gab - das ist etwas anderes als eine leere Liste.
+        /// </returns>
+        /// <remarks>
+        /// <b>Alles vier, und die Rollen sind der Grund.</b> Einträge,
+        /// Einstellungen, Abonnements und Rollen gehen zusammen. Blieben die
+        /// Rollen stehen, erbte der nächste Knoten desselben Namens eine
+        /// Ausschlussliste, die niemand mehr sieht - und der Eigentümer
+        /// wunderte sich, warum ein Bekannter an seinen neuen Knoten nicht
+        /// herankommt.
+        /// </remarks>
+        public IReadOnlyList<PepSubscription>? DeletePepNode(String node)
+        {
+
+            lock (_lock)
+            {
+
+                if (!PepNodeExists(node))
+                    return null;
+
+                var betroffen = _pepSubscriptions.TryGetValue(node, out var abonnements)
+                                    ? (IReadOnlyList<PepSubscription>) [.. abonnements]
+                                    : [];
+
+                _pepNodes.        Remove(node);
+                _pepNodeConfigs.  Remove(node);
+                _pepAffiliations. Remove(node);
+                _pepSubscriptions.Remove(node);
+
+                return betroffen;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Leert einen Knoten (XEP-0060, Abschnitt 8.5).
+        /// </summary>
+        /// <returns>false, wenn es den Knoten nicht gibt.</returns>
+        /// <remarks>
+        /// <b>Der Knoten bleibt, und mit ihm seine Abonnenten.</b> Das ist der
+        /// ganze Unterschied zum Löschen: Wer geleert hat, veröffentlicht
+        /// weiter an dieselben Empfänger - wer gelöscht hat, an niemanden mehr.
+        ///
+        /// Die Ablage darf dabei ganz verschwinden: Ein Knoten hängt an seiner
+        /// Einstellung und nicht an seinen Einträgen (siehe
+        /// <see cref="PepNodeExists"/>). Solange das nicht so war, hätte diese
+        /// Zeile den Knoten mitgenommen - und ein Leeren wäre ein Löschen
+        /// gewesen, das sich erst bei der nächsten Veröffentlichung wieder
+        /// eingerenkt hätte.
+        /// </remarks>
+        public Boolean PurgePepNode(String node)
+        {
+
+            lock (_lock)
+            {
+
+                if (!PepNodeExists(node))
+                    return false;
+
+                _pepNodes.Remove(node);
+
+                return true;
+
+            }
+
+        }
+
+        /// <summary>
         /// Die Einstellungen eines Knotens, oder null, wenn es ihn nicht gibt.
         /// </summary>
         public PubSubNodeConfiguration? PepNodeConfiguration(String node)
@@ -510,9 +590,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             lock (_lock)
                 return _pepNodeConfigs.TryGetValue(node, out var einstellung)
                            ? einstellung
-                           : _pepNodes.ContainsKey(node)
-                                 ? PubSubNodeConfiguration.Default
-                                 : null;
+                           : null;
         }
 
         /// <summary>
@@ -865,8 +943,6 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // denen nie jemand eine Rolle eingetragen hat.
                 if (String.Equals(BareJid, bareJid, StringComparison.OrdinalIgnoreCase))
                     return [.. _pepNodeConfigs.Keys
-                               .Concat(_pepNodes.Keys)
-                               .Distinct(StringComparer.Ordinal)
                                .Select(n => (n, PubSubAffiliation.Owner))];
 
                 return [.. _pepAffiliations

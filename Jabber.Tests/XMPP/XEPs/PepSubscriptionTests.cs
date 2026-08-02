@@ -331,6 +331,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                      ?.Value;
 
         /// <summary>
+        /// Eine Anweisung des Eigentümers ohne Inhalt - <c>&lt;delete/&gt;</c>
+        /// oder <c>&lt;purge/&gt;</c>.
+        /// </summary>
+        private String OwnerIq(String id, String art, String element, String? node = null)
+            => $"<iq type='{art}' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<{element} node='{node ?? Node}'/>" +
+               "</pubsub></iq>";
+
+        /// <summary>
+        /// Die Knotenmeldungen in den gesammelten Ereignissen (XEP-0060,
+        /// Abschnitte 8.4.2 und 8.5.2) - je Eintrag die Art und der Knoten.
+        /// </summary>
+        private static List<(String Art, String? Node)> NodeEventsIn(List<String> ereignisse)
+        {
+            lock (ereignisse)
+                return [.. ereignisse
+                           .SelectMany(e => XElement.Parse(e)
+                                                    .Child(PubSubManager.EventNamespace, "event")
+                                                   ?.Elements() ?? [])
+                           .Where (e => e.Name.LocalName is "delete" or "purge")
+                           .Select(e => (e.Name.LocalName, e.Attr("node")))];
+        }
+
+        /// <summary>
         /// Die Abmeldungen aus den gesammelten Meldungen (XEP-0060,
         /// Abschnitt 8.8.4) - je Eintrag der Knoten, der JID und die Kennung.
         /// </summary>
@@ -3804,6 +3829,404 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                               "eine Abmeldung an den, der selbst abbestellt hat");
 
             Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region ADeletedNode_TakesEverythingWithIt()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.4: Gelöscht wird der Knoten, nicht sein
+        /// Inhalt - mit Einträgen, Einstellungen, Abonnements und Rollen.
+        /// </summary>
+        /// <remarks>
+        /// <b>Die Rollen sind der Grund, das aufzuschreiben.</b> Blieben sie
+        /// stehen, erbte der nächste Knoten desselben Namens eine
+        /// Ausschlussliste, die niemand mehr sieht - und der Eigentümer
+        /// wunderte sich, warum ein Bekannter an seinen neuen Knoten nicht
+        /// herankommt.
+        /// </remarks>
+        [Test]
+        public async Task ADeletedNode_TakesEverythingWithIt()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await SubscribeAsync(alice, "abo-30");
+
+            await AskAsync(bob, "aff-30",
+                           AffiliationsIq("aff-30", "set",
+                                          $"<affiliation jid='{carol.BareJid}' affiliation='outcast'/>"));
+
+            var geloescht = await AskAsync(bob, "del-1", OwnerIq("del-1", "set", "delete"));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(geloescht.Attr("type"),         Is.EqualTo("result"));
+                Assert.That(konto.PepNodeExists(Node),      Is.False);
+                Assert.That(konto.PepSubscriptions(Node),   Is.Empty);
+                Assert.That(konto.GetPepItems(Node),        Is.Empty);
+                Assert.That(konto.PepNodeConfiguration(Node), Is.Null);
+
+                Assert.That(konto.PepAffiliationOf(Node, carol.BareJid),
+                            Is.EqualTo(PubSubAffiliation.None),
+                            "Auch der Ausschluss ist mit dem Knoten gegangen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ADeletedNode_CanBeSubscribedNoMore()
+
+        /// <summary>
+        /// Und was es nicht gibt, lässt sich nicht abonnieren.
+        /// </summary>
+        [Test]
+        public async Task ADeletedNode_CanBeSubscribedNoMore()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "del-2", OwnerIq("del-2", "set", "delete"));
+
+            var abgewiesen = await AskAsync(alice, "sub-30",
+                                            PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                    alice.BareJid, "sub-30"));
+
+            Assert.That(ConditionOf(abgewiesen), Is.EqualTo("item-not-found"));
+
+        }
+
+        #endregion
+
+        #region DeletingSomebodyElsesNode_IsForbidden()
+
+        /// <summary>
+        /// Löschen darf nur der Eigentümer - hier hinge mehr daran als bei
+        /// jeder anderen Anweisung.
+        /// </summary>
+        [Test]
+        public async Task DeletingSomebodyElsesNode_IsForbidden()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var abgewiesen = await AskAsync(alice, "del-3", OwnerIq("del-3", "set", "delete"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(abgewiesen),                             Is.EqualTo("forbidden"));
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.PepNodeExists(Node), Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region DeletingANodeThatIsNotThere_IsRejected()
+
+        /// <summary>
+        /// Ein Knoten, den es nicht gibt, wird nicht gelöscht - er ist nicht
+        /// schon gelöscht.
+        /// </summary>
+        [Test]
+        public async Task DeletingANodeThatIsNotThere_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var abgewiesen = await AskAsync(bob, "del-4",
+                                            OwnerIq("del-4", "set", "delete", "urn:example:nichts"));
+
+            Assert.That(ConditionOf(abgewiesen), Is.EqualTo("item-not-found"));
+
+        }
+
+        #endregion
+
+        #region AGetOnDelete_IsRejected()
+
+        /// <summary>
+        /// Löschen und Leeren sind keine Fragen.
+        /// </summary>
+        /// <remarks>
+        /// Ohne diese Prüfung fiele ein <c>get</c> auf <c>&lt;delete/&gt;</c>
+        /// bis zum Einstellen durch und bekäme die Knotenkonfiguration zurück -
+        /// eine Antwort auf eine Frage, die niemand gestellt hat.
+        /// </remarks>
+        [Test]
+        public async Task AGetOnDelete_IsRejected()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            var geloescht = await AskAsync(bob, "del-5", OwnerIq("del-5", "get", "delete"));
+            var geleert   = await AskAsync(bob, "pur-1", OwnerIq("pur-1", "get", "purge"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(geloescht), Is.EqualTo("bad-request"));
+                Assert.That(ConditionOf(geleert),   Is.EqualTo("bad-request"));
+
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.PepNodeExists(Node), Is.True,
+                            "Und nichts davon hat etwas getan.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheDeletion_ReachesEverySubscriberOnce()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.4.2: Eine Meldung je Abonnenten und nicht je
+        /// Abonnement - und ohne Kennung.
+        /// </summary>
+        /// <remarks>
+        /// Es endet nicht ein Abonnement, sondern der Knoten. Eine Kennung zu
+        /// nennen hiesse, die anderen bestünden weiter. Aus demselben Grund
+        /// kommt keine zweite Meldung nach Abschnitt 8.8.4 hinterher: Dass ein
+        /// Abonnement auf einen Knoten, den es nicht mehr gibt, erloschen ist,
+        /// steht schon hier.
+        /// </remarks>
+        [Test]
+        public async Task TheDeletion_ReachesEverySubscriberOnce()
+        {
+
+            MakeContacts("carol", "bob");
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await SubscribeAsync(alice, "abo-31");
+            await SubscribeAsync(alice, "abo-32");
+
+            var beiAlice = CollectEvents(alice);
+            var beiCarol = CollectEvents(carol);
+
+            await AskAsync(bob, "del-6", OwnerIq("del-6", "set", "delete"));
+
+            await WaitFor(() => NodeEventsIn(beiAlice).Count > 0 && NodeEventsIn(beiCarol).Count > 0,
+                          "die Löschmeldung an Abonnentin und Kontakt");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(NodeEventsIn(beiAlice), Is.EqualTo(new[] { ("delete", (String?) Node) }),
+                            "Zwei Abonnements, eine Meldung.");
+
+                Assert.That(NodeEventsIn(beiCarol), Is.EqualTo(new[] { ("delete", (String?) Node) }),
+                            "Wer die Einträge bekommen hätte, erfährt auch ihr Ende.");
+
+                Assert.That(SubIdsIn(beiAlice), Is.Empty,
+                            "Eine Kennung zu nennen hiesse, die anderen bestünden weiter.");
+
+                Assert.That(EndingsIn(beiAlice), Is.Empty,
+                            "Und eine zweite Meldung darüber gibt es nicht.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region APurgedNode_KeepsItsSubscribersAndGoesOn()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.5: Geleert wird der Inhalt, nicht der Knoten.
+        /// </summary>
+        /// <remarks>
+        /// Der ganze Unterschied zum Löschen: Wer geleert hat, veröffentlicht
+        /// weiter an dieselben Empfänger.
+        /// </remarks>
+        [Test]
+        public async Task APurgedNode_KeepsItsSubscribersAndGoesOn()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-33");
+
+            await AskAsync(bob, "pur-2", OwnerIq("pur-2", "set", "purge"));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            // Sofort nachsehen und nicht erst nach der nächsten
+            // Veröffentlichung: <b>Ein Veröffentlichen legt den Knoten wieder
+            // an</b>, und danach sähe ein gelöschter aus wie ein geleerter.
+            // Genau daran ist die erste Fassung dieses Tests vorbeigelaufen -
+            // die Mutation, die die Ablage entfernt statt sie zu leeren, hat
+            // sie überlebt.
+            var gleichDanach = (Existiert: konto.PepNodeExists(Node),
+                                Eintraege: konto.GetPepItems(Node).Count);
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-20",
+                           PublishIq("pub-20", Node, "20", "<wetter xmlns='urn:example:x'>neu</wetter>"));
+
+            await WaitFor(() => SubIdsIn(ereignisse).Count > 0, "die Zustellung nach dem Leeren");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gleichDanach.Existiert, Is.True,
+                            "Den Knoten gibt es weiter - auch bevor wieder etwas darin steht.");
+
+                Assert.That(gleichDanach.Eintraege, Is.Zero,
+                            "Und leer ist er.");
+
+                Assert.That(konto.PepSubscriptions(Node).Select(a => a.SubId), Is.EqualTo(new[] { subId }),
+                            "Das Abonnement ist geblieben.");
+
+                Assert.That(konto.GetPepItems(Node).Select(e => e.ItemId), Is.EqualTo(new[] { "20" }),
+                            "Der alte Eintrag ist fort, der neue steht da.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ThePurge_IsAnnouncedOnce()
+
+        /// <summary>
+        /// Auch das Leeren wird gemeldet - wer etwas abgeholt hat, hält es
+        /// sonst für aktuell.
+        /// </summary>
+        [Test]
+        public async Task ThePurge_IsAnnouncedOnce()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-34");
+            await SubscribeAsync(alice, "abo-35");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pur-3", OwnerIq("pur-3", "set", "purge"));
+
+            await WaitFor(() => NodeEventsIn(ereignisse).Count > 0, "die Meldung über das Leeren");
+
+            Assert.That(NodeEventsIn(ereignisse), Is.EqualTo(new[] { ("purge", (String?) Node) }));
+
+        }
+
+        #endregion
+
+        #region PurgingANodeWithoutStorage_IsRejected()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.5.3.2: Was nichts aufbewahrt, kann nichts
+        /// hergeben.
+        /// </summary>
+        /// <remarks>
+        /// Ein <c>result</c> darauf wäre die Auskunft, es sei etwas geleert
+        /// worden - und die Meldung an die Abonnenten die Aufforderung, etwas
+        /// wegzuwerfen, das dieser Knoten nie ausgeliefert hat.
+        /// </remarks>
+        [Test]
+        public async Task PurgingANodeWithoutStorage_IsRejected()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            await AskAsync(bob, "cr-30",
+                           $"<iq type='set' id='cr-30'>" +
+                           $"<pubsub xmlns='{PubSubNamespace}'>" +
+                           $"<create node='urn:example:fluechtig'/>" +
+                           "<configure>" +
+                           ConfigForm("<field var='pubsub#persist_items'><value>0</value></field>") +
+                           "</configure></pubsub></iq>");
+
+            var abgewiesen = await AskAsync(bob, "pur-4",
+                                            OwnerIq("pur-4", "set", "purge", "urn:example:fluechtig"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(abgewiesen),       Is.EqualTo("feature-not-implemented"));
+                Assert.That(ErrorTypeOf(abgewiesen),       Is.EqualTo("cancel"));
+                Assert.That(PubSubConditionOf(abgewiesen), Is.EqualTo("unsupported"));
+            });
+
+        }
+
+        #endregion
+
+        #region PurgingSomebodyElsesNode_IsForbidden()
+
+        /// <summary>
+        /// Und leeren darf ebenfalls nur der Eigentümer.
+        /// </summary>
+        [Test]
+        public async Task PurgingSomebodyElsesNode_IsForbidden()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var abgewiesen = await AskAsync(alice, "pur-5", OwnerIq("pur-5", "set", "purge"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(abgewiesen), Is.EqualTo("forbidden"));
+
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node), Is.Not.Empty,
+                            "Und der Eintrag steht noch da.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ADeletedNode_CanBeCreatedAgain_AndIsEmpty()
+
+        /// <summary>
+        /// Der Name ist danach wieder frei - und was darin stand, kommt nicht
+        /// zurück.
+        /// </summary>
+        [Test]
+        public async Task ADeletedNode_CanBeCreatedAgain_AndIsEmpty()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "del-7", OwnerIq("del-7", "set", "delete"));
+
+            var neu = await AskAsync(bob, "cr-31",
+                                     $"<iq type='set' id='cr-31'>" +
+                                     $"<pubsub xmlns='{PubSubNamespace}'>" +
+                                     $"<create node='{Node}'/></pubsub></iq>");
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(neu.Attr("type"),          Is.EqualTo("result"),
+                            "Kein <conflict/>: Den alten gibt es nicht mehr.");
+                Assert.That(konto.PepNodeExists(Node), Is.True);
+                Assert.That(konto.GetPepItems(Node),   Is.Empty);
+            });
 
         }
 
