@@ -948,6 +948,7 @@ class Program
             Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
             Console.WriteLine("  /pubsub abonnenten <node>    Wer hängt an diesem Knoten (Alias: subscribers)");
             Console.WriteLine("  /pubsub raus <node> <jid> [subid]  Abonnent entfernen (Alias: kick)");
+            Console.WriteLine("  /pubsub retract <node> <id>  Einen Eintrag zurücknehmen");
             Console.WriteLine("  /pubsub purge <node>         Node leeren, Abonnenten behalten");
             Console.WriteLine("  /pubsub delete <node>        Node löschen");
             Console.WriteLine();
@@ -964,7 +965,7 @@ class Program
                                  "opts", "options", "deliver", "cfg", "nodecfg", "access",
                                  "rollen", "affiliations", "rolle",
                                  "abonnenten", "subscribers", "raus", "kick",
-                                 "purge", "leeren"];
+                                 "purge", "leeren", "retract", "zurueck"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1192,6 +1193,19 @@ class Program
                 Console.WriteLine(await _client!.PubSubDeleteNodeAsync(nodeId)
                                       ? $"➖ Node gelöscht: {nodeId}"
                                       : $"⚠️ Node nicht gelöscht: {nodeId} - siehe Log");
+                break;
+
+            // Ein einzelner Eintrag statt aller: 'retract' nimmt einen zurück,
+            // 'purge' alle, 'delete' den ganzen Knoten.
+            case "retract" or "zurueck":
+                if (parts.Length < 3)
+                {
+                    Console.WriteLine("Syntax: /pubsub retract <node> <itemId>");
+                    return;
+                }
+                Console.WriteLine(await _client!.PubSubRetractAsync(nodeId, parts[2])
+                                      ? $"🗑️ Zurückgenommen: {nodeId}/{parts[2]}"
+                                      : $"⚠️ Nicht zurückgenommen: {nodeId}/{parts[2]} - siehe Log");
                 break;
 
             // Der kleine Bruder von 'delete': Der Knoten bleibt, sein Inhalt

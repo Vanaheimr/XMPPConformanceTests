@@ -182,6 +182,23 @@ public static class PubSubBuilder
     }
 
     /// <summary>
+    /// XEP-0060, Abschnitt 7.2: Einen einzelnen Eintrag zurücknehmen.
+    /// </summary>
+    /// <remarks>
+    /// Im gewöhnlichen Namensraum und nicht in dem des Eigentümers:
+    /// Zurücknehmen darf, wer auch veröffentlichen darf. Und mit Kennung -
+    /// „nimm irgendetwas zurück" gibt es nicht, dafür ist das Leeren da.
+    /// </remarks>
+    public static string Retract(string pubsubJid, string nodeId, string itemId, string id = "pubsub-retract")
+    {
+        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='http://jabber.org/protocol/pubsub'>" +
+               $"<retract node='{XmlEscaping.Escape(nodeId)}'>" +
+               $"<item id='{XmlEscaping.Escape(itemId)}'/>" +
+               "</retract></pubsub></iq>";
+    }
+
+    /// <summary>
     /// Get items from a node
     /// </summary>
     public static string GetItems(string pubsubJid, string nodeId, int? maxItems = null, string id = "pubsub-get")

@@ -1923,6 +1923,134 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region ARetraction_ArrivesAsARetractEvent()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 7.2: Der Eintrag wird zurückgenommen, und der
+        /// Abonnent bekommt seine Kennung.
+        /// </summary>
+        /// <remarks>
+        /// <b>Die Kennung ist das Einzige, was ankommt</b> - eine Rücknahme hat
+        /// keine Nutzlast. Wer sie nicht liest, weiss, dass sich etwas geändert
+        /// hat, aber nicht was, und muss den ganzen Knoten neu abrufen.
+        /// </remarks>
+        [Test]
+        public async Task ARetraction_ArrivesAsARetractEvent()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await bob.PubSubPublishAsync(Node, "2", Payload("stürmisch"), BobsJid), Is.True);
+            Assert.That(await alice.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            var zurueck = await bob.PubSubRetractAsync(Node, "1", BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Meldung über die Rücknahme");
+
+            var uebrig = await alice.PubSubGetItemsAsync(Node, service: BobsJid);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zurueck,               Is.True);
+                Assert.That(gemeldet!.Type,        Is.EqualTo(PubSubEventType.Retract));
+                Assert.That(gemeldet!.NodeId,      Is.EqualTo(Node));
+                Assert.That(gemeldet!.RetractedIds, Is.EqualTo(new[] { "1" }));
+
+                Assert.That(uebrig?.Select(i => i.Id), Is.EqualTo(new[] { "2" }),
+                            "Der andere Eintrag ist noch abzurufen.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARetraction_LeavesTheSubscriptionAlone()
+
+        /// <summary>
+        /// Eine Rücknahme betrifft einen Eintrag und nicht den Knoten - die
+        /// Buchführung bleibt unberührt.
+        /// </summary>
+        /// <remarks>
+        /// Die Gegenprobe zum Löschen: Dort geht das Abonnement mit. Hier wäre
+        /// dasselbe ein Verlust ohne Anlass — der Knoten besteht weiter, und
+        /// die nächste Veröffentlichung käme an eine Adresse, die dieser Client
+        /// nicht mehr kennt.
+        /// </remarks>
+        [Test]
+        public async Task ARetraction_LeavesTheSubscriptionAlone()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var abo = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            Assert.That(await bob.PubSubRetractAsync(Node, "1", BobsJid), Is.True);
+
+            await WaitFor(() => gemeldet is not null, "die Meldung über die Rücknahme");
+
+            gemeldet = null;
+
+            Assert.That(await bob.PubSubPublishAsync(Node, "3", Payload("wieder da"), BobsJid), Is.True);
+
+            await WaitFor(() => gemeldet is not null, "die nächste Veröffentlichung");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.SubId),
+                            Is.EqualTo(new[] { abo!.SubId }),
+                            "Das Abonnement besteht weiter.");
+
+                Assert.That(gemeldet!.Type,   Is.EqualTo(PubSubEventType.Items));
+                Assert.That(gemeldet!.SubId,  Is.EqualTo(abo!.SubId),
+                            "Und liefert weiter unter derselben Kennung.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARetractionTheServiceRefuses_IsReported()
+
+        /// <summary>
+        /// Ein fremder Eintrag lässt sich nicht zurücknehmen, ein
+        /// nichtvorhandener auch nicht — und der Aufrufer erfährt beides.
+        /// </summary>
+        [Test]
+        public async Task ARetractionTheServiceRefuses_IsReported()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var fremd     = await alice.PubSubRetractAsync(Node, "1", BobsJid);
+            var erfunden  = await bob.PubSubRetractAsync  (Node, "gibtesnicht", BobsJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(fremd,    Is.False, "Ohne Rolle geht es nicht.");
+                Assert.That(erfunden, Is.False, "Und was es nicht gibt, wird nicht zurückgenommen.");
+            });
+
+            Assert.That((await bob.PubSubGetItemsAsync(Node, service: BobsJid))?.Select(i => i.Id),
+                        Is.EqualTo(new[] { "1" }),
+                        "Der Eintrag steht unangetastet da.");
+
+        }
+
+        #endregion
+
         #region ADeletedNode_TakesTheSubscriptionWithIt()
 
         /// <summary>

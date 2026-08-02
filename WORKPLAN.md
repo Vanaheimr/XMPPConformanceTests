@@ -6312,6 +6312,37 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D90. Der Teil, der schon da war ✅ — `<retract/>` auf der Clientseite
+
+Die kürzeste Etappe dieser Reihe, und das aus einem Grund, der zu ihr gehört:
+**Der Client konnte eingehende Rücknahmen von Anfang an lesen.** `PubSubEvent`
+kennt `Retract` samt der Liste betroffener Kennungen, seit es
+`PubSubManager.ProcessEvent` gibt — es kam nur nie eine an, weil kein Server in
+Reichweite eine schickte. Erst D89 hat die Gegenstelle nachgeliefert, und
+seither ist der Zweig zum ersten Mal gelaufen. Dieselbe Geschichte wie beim
+Löschen in D88, nur ohne den Aufräumteil.
+
+Denn aufzuräumen gibt es hier nichts, und das ist die einzige Entscheidung
+dieser Etappe: **Eine Rücknahme betrifft einen Eintrag und nicht den Knoten.**
+Das Abonnement bleibt stehen — anders als beim Löschen, wo es mitgeht. Es hier
+ebenfalls zu streichen wäre ein Verlust ohne Anlass: Der Knoten besteht weiter,
+und die nächste Veröffentlichung käme an eine Adresse, die dieser Client nicht
+mehr kennt. Der Test dafür veröffentlicht nach der Rücknahme noch einmal und
+prüft, dass es unter derselben Kennung ankommt.
+
+Was ankommt, ist allein die Kennung des Eintrags — eine Rücknahme hat keine
+Nutzlast. Wer sie nicht liest, weiss, dass sich etwas geändert hat, aber nicht
+was, und muss den ganzen Knoten neu abrufen.
+
+Sechzig Tests, sechs Mutationen, alle erschlagen. Voller Lauf: 1117 bestanden,
+7 übersprungen.
+
+Damit ist XEP-0060 bis auf die Zugriffsmodelle `authorize` und `roster` fertig —
+für die es einen Genehmigungsvorgang und Rostergruppen als Zugriffsregel
+bräuchte.
+
+---
+
 ## Später
 
 ### Testsammlung

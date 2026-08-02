@@ -842,6 +842,13 @@ public sealed class XMPPClient : IAsyncDisposable
         => _connection.PubSubConfigureNodeAsync(nodeId, configuration, service);
 
     /// <summary>
+    /// Nimmt einen einzelnen Eintrag zurück (XEP-0060, Abschnitt 7.2) - der
+    /// Knoten und seine Abonnenten bleiben.
+    /// </summary>
+    public Task<Boolean> PubSubRetractAsync(String nodeId, String itemId, String? service = null)
+        => _connection.PubSubRetractAsync(nodeId, itemId, service);
+
+    /// <summary>
     /// Löscht einen Knoten - samt dem eigenen Eintrag über ein Abonnement
     /// darauf.
     /// </summary>

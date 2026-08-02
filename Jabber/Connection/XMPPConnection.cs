@@ -3528,6 +3528,24 @@ public sealed class XMPPConnection : IAsyncDisposable
                                     "Einstellen", nodeId, ct);
 
     /// <summary>
+    /// XEP-0060, Abschnitt 7.2: Nimmt einen einzelnen Eintrag zurück.
+    /// </summary>
+    /// <remarks>
+    /// <b>Die Buchführung bleibt unberührt</b>, und zwar aus zwei Richtungen:
+    /// Der Knoten besteht weiter, also auch jedes Abonnement darauf - und was
+    /// dieser Client von dem Eintrag hat, führt er nicht. Was er führt, sind
+    /// Abonnements; die Einträge liegen beim Dienst.
+    /// </remarks>
+    public async Task<Boolean> PubSubRetractAsync(String             nodeId,
+                                                  String             itemId,
+                                                  String?            service  = null,
+                                                  CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.Retract(service ?? PubSub!.PubSubService,
+                                                          nodeId, itemId, NextPubSubId()),
+                                    "Zurücknehmen", nodeId, ct);
+
+    /// <summary>
     /// XEP-0060, Abschnitt 8.4: Löscht einen Knoten.
     /// </summary>
     /// <remarks>
