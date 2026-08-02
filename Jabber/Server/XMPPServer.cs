@@ -2841,6 +2841,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     $" subscription='{PubSubSubscription.NameOf(abonnement.State)}'/>" +
                     "</pubsub></iq>");
 
+                // XEP-0060, Abschnitt 8.6.1: Der Eigentümer erfährt vom Antrag,
+                // ohne nachsehen zu müssen.
+                if (abonnement.State == PubSubSubscriptionState.Pending)
+                    await RequestSubscriptionApprovalAsync(konto, node, abonnement);
+
                 return true;
 
             }
@@ -3296,6 +3301,114 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 foreach (var ziel in SessionsOf(wer))
                     if (ziel != sender && ziel.FullJid is not null)
                         await ziel.SendAsync(StampTo(ereignis, ziel.FullJid));
+
+        }
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.6.1: Legt dem Eigentümer einen Antrag vor.
+        /// </summary>
+        /// <remarks>
+        /// <b>Eine Bequemlichkeit und kein Träger des Zustands.</b> Der Antrag
+        /// selbst steht im Abonnement; diese Nachricht sagt nur, dass es ihn
+        /// gibt. Deshalb ein <c>headline</c>: Wer gerade offline ist, verpasst
+        /// die Nachricht und nicht den Antrag - der wartet in der
+        /// Abonnentenliste, bis jemand nachsieht.
+        ///
+        /// Umgekehrt wäre eine aufbewahrte Nachricht die schlechtere Auskunft:
+        /// Sie beschriebe einen Stand von damals, und der Antrag könnte längst
+        /// beschieden sein.
+        /// </remarks>
+        private async Task RequestSubscriptionApprovalAsync(XMPPAccount      owner,
+                                                            String           node,
+                                                            PepSubscription  subscription)
+        {
+
+            if (!RouteStanzas)
+                return;
+
+            var antrag = new PubSubSubscribeAuthorization(node, subscription.Jid, subscription.SubId);
+
+            var nachricht = $"<message from='{owner.BareJid}' type='headline'>" +
+                            antrag.ToForm().ToString(SaveOptions.DisableFormatting) +
+                            "</message>";
+
+            foreach (var ziel in SessionsOf(owner.BareJid))
+                if (ziel.FullJid is not null)
+                    await ziel.SendAsync(StampTo(nachricht, ziel.FullJid));
+
+        }
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.6.2: Nimmt die Antwort des Eigentümers auf
+        /// einen Antrag entgegen.
+        /// </summary>
+        /// <returns>
+        /// true, wenn die Nachricht eine solche Antwort war - dann ist sie
+        /// beantwortet und geht nicht weiter.
+        /// </returns>
+        /// <remarks>
+        /// <b>Was hier nicht verstanden wird, wird auch nicht verschluckt.</b>
+        /// Ein Formular dieses Zwecks, das sich nicht lesen lässt, geht seinen
+        /// gewöhnlichen Weg weiter - es könnte alles Mögliche sein, und eine
+        /// Nachricht spurlos verschwinden zu lassen ist die teuerste Art,
+        /// höflich zu sein.
+        ///
+        /// <b>Und beide Türen führen in denselben Raum:</b> Zusagen und
+        /// Ablehnen tun hier genau das, was die Abonnentenliste aus D84 tut.
+        /// Zwei Wege zu einer Entscheidung sind in Ordnung, solange es eine
+        /// Entscheidung bleibt.
+        /// </remarks>
+        private async Task<Boolean> TryAnswerSubscribeAuthorizationAsync(XMPPSession session, String frame)
+        {
+
+            if (!frame.Contains(PubSubSubscribeAuthorization.FormType, StringComparison.Ordinal))
+                return false;
+
+            XElement nachricht;
+
+            try
+            {
+                nachricht = XElement.Parse(frame);
+            }
+            catch (System.Xml.XmlException)
+            {
+                return false;
+            }
+
+            if (nachricht.Child(DataFormNamespace, "x") is not { } formular ||
+                !PubSubSubscribeAuthorization.TryRead(formular, out var antwort))
+            {
+                return false;
+            }
+
+            var konto = session.Account!;
+
+            // Beschieden wird nur, was an den eigenen Knoten hängt. Ein
+            // Formular über einen fremden ist keine Antwort, sondern eine
+            // Anmassung - und geht als das weiter, was es ist: eine Nachricht.
+            if (!konto.PepNodeExists(antwort!.NodeId))
+                return false;
+
+            var wer = BareOf(antwort.SubscriberJid);
+
+            if (antwort.Allow)
+            {
+
+                if (konto.ApprovePepSubscription(antwort.NodeId, wer, antwort.SubId) is { } zugesagt)
+                    await NotifySubscriptionStateAsync(konto, antwort.NodeId, zugesagt,
+                                                       PubSubSubscriptionState.Subscribed);
+
+            }
+
+            else
+                foreach (var beendet in konto.RemovePepSubscriptions(antwort.NodeId, wer, antwort.SubId,
+                                                                     PubSubSubscriptionState.Pending))
+                {
+                    await NotifySubscriptionStateAsync(konto, antwort.NodeId, beendet,
+                                                       PubSubSubscriptionState.None);
+                }
+
+            return true;
 
         }
 
@@ -3798,6 +3911,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
             if (!RouteStanzas)
                 return;
+
+            // XEP-0060, Abschnitt 8.6.2: Die Antwort des Eigentümers auf einen
+            // Antrag. Sie ist an den Dienst gerichtet, und bei PEP ist der
+            // Dienst das Konto selbst - deshalb wird sie hier abgefangen,
+            // bevor sie als gewöhnliche Nachricht an die eigenen Geräte ginge.
+            if (session.Account is not null &&
+                await TryAnswerSubscribeAuthorizationAsync(session, frame))
+            {
+                return;
+            }
 
             var to = Attr(frame, "to");
 

@@ -806,9 +806,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// stehen zu lassen hiesse, die Anweisung zur Hälfte auszuführen - und
         /// der Betroffene bekäme weiter alles.
         /// </remarks>
-        public IReadOnlyList<PepSubscription> RemovePepSubscriptions(String   node,
-                                                                    String   subscriberBareJid,
-                                                                    String?  subId = null)
+        /// <param name="onlyInState">
+        /// Nur Abonnements in diesem Zustand, oder null für alle.
+        ///
+        /// <b>Die Ablehnung eines Antrags braucht das</b> (XEP-0060, Abschnitt
+        /// 8.6): Ein „nein" auf eine Frage von vorhin darf kein Abonnement
+        /// beenden, das inzwischen zugesagt wurde - sonst entschiede die
+        /// Reihenfolge zweier Nachrichten darüber, was gilt.
+        /// </param>
+        public IReadOnlyList<PepSubscription> RemovePepSubscriptions(String                    node,
+                                                                     String                    subscriberBareJid,
+                                                                     String?                   subId        = null,
+                                                                     PubSubSubscriptionState?  onlyInState  = null)
         {
 
             lock (_lock)
@@ -819,7 +828,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                 var betroffen = abonnements.FindAll(
                                     a => String.Equals(a.Jid, subscriberBareJid, StringComparison.OrdinalIgnoreCase) &&
-                                         (subId is null || String.Equals(a.SubId, subId, StringComparison.Ordinal)));
+                                         (subId is null || String.Equals(a.SubId, subId, StringComparison.Ordinal)) &&
+                                         (onlyInState is null || a.State == onlyInState));
 
                 foreach (var eines in betroffen)
                     abonnements.Remove(eines);

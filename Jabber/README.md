@@ -713,6 +713,17 @@ miteinander sprechen:
   für die Ablage** (XEP-0160): Wer offline war, erfährt es nicht — und findet
   es beim nächsten Verbinden über §5.6, wo der Stand von jetzt steht und nicht
   der von damals
+- XEP-0060 §4.5/§8.6 `authorize`: **Das einzige Modell, bei dem Abonnieren und
+  Hereinkommen zwei Dinge sind.** Jeder darf fragen — das Fragen ist der
+  Vorgang —, und die Antwort ist ein `pending`: die angenommene Frage und nicht
+  die Zusage. Bis zur Genehmigung kommt nichts an, weder über ein Abonnement
+  noch über die Presence, und abrufen lässt sich auch nichts. Der Eigentümer
+  bekommt den Antrag als Formular vorgelegt (§8.6.1, `pubsub#allow` steht auf
+  „nein" — ein Formular, das schon auf ja steht, macht aus dem Wegklicken eine
+  Zusage) und beantwortet ihn entweder damit (§8.6.2) oder über die
+  Abonnentenliste (§8.8.2). **Zwei Türen, ein Raum:** Die Liste ist die Sicht
+  eines Verwalters, das Formular die eines Menschen. Ein „nein" auf eine Frage
+  von vorhin beendet kein inzwischen zugesagtes Abonnement
 - XEP-0060 §7.2 `<retract/>`: Ein einzelner Eintrag wird zurückgenommen — von
   dem, der auch veröffentlichen dürfte. **Wer schreiben darf, darf auch
   zurücknehmen**; einen Publizierenden von fremden Einträgen fernzuhalten

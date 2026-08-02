@@ -6482,6 +6482,59 @@ Ohne sie wäre schon heute nichts falsch, nur unbequem.
 
 ---
 
+### D94. Zwei Türen, ein Raum ✅ — die Genehmigungsanfrage
+
+Der Antrag wird dem Eigentümer jetzt vorgelegt, statt auf ihn zu warten
+(Abschnitt 8.6.1) — und die Antwort darauf kommt an (8.6.2).
+
+**Zwei Türen zu derselben Entscheidung, und deshalb keine zweite
+Entscheidung.** Genehmigen liess sich ein Antrag seit D93 über die
+Abonnentenliste; jetzt geht es auch über das Formular, und beide Wege rufen
+dieselbe Stelle im Konto auf. Zwei Türen sind trotzdem nötig: **Die Liste ist
+die Sicht eines Verwalters, das Formular die eines Menschen, dem sein Client
+eine Frage anzeigt.** Wer nur die Liste hätte, verlangte von jedem Client, dass
+er Abonnenten verwalten kann.
+
+Daraus folgt auch die Kopplung, die diese Etappe überhaupt zu einer macht: **Ein
+Formular, das niemand beantworten kann, wäre schlimmer als keines.** Es genügt
+nicht, die Frage zu stellen — wer sie stellt, muss die Antwort annehmen, sonst
+genehmigt ein Mensch etwas und es geschieht nichts. Deshalb stehen Lesen und
+Schreiben des Formulars in einer Datei nebeneinander.
+
+Drei Entscheidungen im Kleinen:
+
+- **`pubsub#allow` steht auf „nein".** Ein Formular, das schon auf ja steht,
+  macht aus dem Wegklicken eine Zusage.
+- **Ein „nein" auf eine Frage von vorhin beendet kein zugesagtes Abonnement.**
+  Sonst entschiede die Reihenfolge zweier Nachrichten darüber, was gilt — ein
+  spät eintreffendes Formular nähme jemandem etwas weg, das er längst hat.
+- **Was hier nicht verstanden wird, wird nicht verschluckt.** Ein Formular über
+  einen fremden Knoten oder eines, das sich nicht lesen lässt, geht seinen
+  gewöhnlichen Weg als Nachricht weiter. Eine Nachricht spurlos verschwinden zu
+  lassen ist die teuerste Art, höflich zu sein.
+
+  Der Test dazu hat das zuerst nicht geprüft, und die Mutation, die die
+  Knotenprüfung entfernt, hat überlebt: Er schickte das fremde Formular an das
+  Konto des Absenders, wo es ohnehin nichts bewirken konnte. **Beide Fassungen
+  taten dasselbe — nämlich nichts.** Jetzt geht es an einen Dritten, und der
+  Unterschied ist zu sehen: Ohne die Prüfung kommt es bei ihm nie an.
+
+Die Anfrage selbst ist ein `headline` und wird nicht aufbewahrt. **Sie ist eine
+Bequemlichkeit und kein Träger des Zustands:** Der Antrag steht im Abonnement,
+die Nachricht sagt nur, dass es ihn gibt. Wer offline war, verpasst die
+Nachricht und nicht den Antrag — und eine aufbewahrte wäre die schlechtere
+Auskunft, weil sie einen Stand von damals beschriebe, der längst beschieden sein
+kann.
+
+Hundertzweiundzwanzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf:
+1138 bestanden, 7 übersprungen.
+
+Damit ist XEP-0060 in dem Umfang fertig, den dieses Projekt braucht: alle fünf
+Zugriffsmodelle, Rollen, Abonnements samt Kennungen und Einstellungen,
+Knotenverwaltung, Rücknahme und Genehmigung.
+
+---
+
 ## Später
 
 ### Testsammlung

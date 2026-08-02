@@ -342,6 +342,50 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                      ?.Value;
 
         /// <summary>
+        /// Sammelt die eingehenden Rahmen eines Clients, die einen bestimmten
+        /// Text enthalten.
+        /// </summary>
+        private static List<String> CollectRaw(XMPPClient client, String enthaelt)
+        {
+
+            var rahmen = new List<String>();
+
+            client.Connection.OnRawXml += xml =>
+            {
+                if (xml.StartsWith("<<< ", StringComparison.Ordinal) &&
+                    xml.Contains(enthaelt, StringComparison.Ordinal))
+                {
+                    lock (rahmen)
+                        rahmen.Add(xml[4..]);
+                }
+            };
+
+            return rahmen;
+
+        }
+
+        /// <summary>Der Wert eines Feldes in einem beliebigen Formular.</summary>
+        private static String? FormValue(XElement formular, String var)
+            => formular.Children("jabber:x:data", "field")
+                       .FirstOrDefault(f => f.Attr("var") == var)
+                      ?.Child("jabber:x:data", "value")
+                      ?.Value;
+
+        /// <summary>
+        /// Die Antwort des Eigentümers auf einen Antrag (XEP-0060,
+        /// Abschnitt 8.6.2).
+        /// </summary>
+        private String AuthorizationAnswer(String jid, String subId, Boolean ja, String? an = null)
+            => $"<message to='{an ?? $"bob@{Server.Domain}"}'>" +
+               "<x xmlns='jabber:x:data' type='submit'>" +
+               "<field var='FORM_TYPE'><value>" + PubSubSubscribeAuthorization.FormType + "</value></field>" +
+               $"<field var='pubsub#node'><value>{Node}</value></field>" +
+               $"<field var='pubsub#subid'><value>{subId}</value></field>" +
+               $"<field var='pubsub#subscriber_jid'><value>{jid}</value></field>" +
+               $"<field var='pubsub#allow'><value>{(ja ? "1" : "0")}</value></field>" +
+               "</x></message>";
+
+        /// <summary>
         /// Eine Rücknahme (XEP-0060, Abschnitt 7.2) - im gewöhnlichen
         /// Namensraum und nicht in dem des Eigentümers: Zurücknehmen darf, wer
         /// auch veröffentlichen darf.
@@ -4160,6 +4204,251 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             await WaitAgainst(() => Count(ereignisse) > 0,
                               "eine Zustellung an einen Kontakt ohne Zusage");
+
+        }
+
+        #endregion
+
+        #region TheOwner_IsAskedWithAForm()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.6.1: Der Eigentümer bekommt den Antrag
+        /// vorgelegt, ohne nachsehen zu müssen.
+        /// </summary>
+        /// <remarks>
+        /// Die Vorbelegung von <c>pubsub#allow</c> ist <c>false</c>: Ein
+        /// Formular, das schon auf „ja" steht, machte aus dem Wegklicken eine
+        /// Zusage.
+        /// </remarks>
+        [Test]
+        public async Task TheOwner_IsAskedWithAForm()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-70",
+                           ConfigureIq("cfg-70", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var beiBob = CollectRaw(bob, PubSubSubscribeAuthorization.FormType);
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-70",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-70"));
+
+            await WaitFor(() => Count(beiBob) > 0, "den Antrag beim Eigentümer");
+
+            var formular = XElement.Parse(beiBob[0]).Child("jabber:x:data", "x")!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(FormValue(formular, PubSubSubscribeAuthorization.NodeVariable),
+                            Is.EqualTo(Node));
+
+                Assert.That(FormValue(formular, PubSubSubscribeAuthorization.SubscriberVariable),
+                            Is.EqualTo(alice.BareJid));
+
+                Assert.That(FormValue(formular, PubSubSubscribeAuthorization.SubIdVariable),
+                            Is.EqualTo(SubscriptionOf(zusage)!.Attr("subid")));
+
+                Assert.That(FormValue(formular, PubSubSubscribeAuthorization.AllowVariable),
+                            Is.EqualTo("0"),
+                            "Ein Formular, das schon auf ja steht, macht aus dem Wegklicken eine Zusage.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheReturnedForm_ApprovesTheRequest()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.6.2: Das zurückgeschickte Formular sagt zu -
+        /// und tut dasselbe wie die Abonnentenliste.
+        /// </summary>
+        /// <remarks>
+        /// <b>Zwei Türen in denselben Raum.</b> Die Liste ist die Sicht eines
+        /// Verwalters, das Formular die eines Menschen, dem sein Client eine
+        /// Frage anzeigt. Ein Formular zu stellen, das niemand beantworten
+        /// kann, wäre schlimmer als keines: Der Mensch genehmigte etwas, und
+        /// es geschähe nichts.
+        /// </remarks>
+        [Test]
+        public async Task TheReturnedForm_ApprovesTheRequest()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-71",
+                           ConfigureIq("cfg-71", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-71",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-71"));
+
+            var subId  = SubscriptionOf(zusage)!.Attr("subid")!;
+
+            var beiAlice = CollectEvents(alice);
+
+            await bob.SendRawAsync(AuthorizationAnswer(alice.BareJid, subId, ja: true));
+
+            await WaitFor(() => beiAlice.Any(e => e.Contains("subscription='subscribed'", StringComparison.Ordinal)),
+                          "die Zusage an die Wartende");
+
+            var liste = await AskAsync(bob, "subm-70", NodeSubscriptionsIq("subm-70", "get"));
+
+            Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subscription")),
+                        Is.EqualTo(new[] { "subscribed" }));
+
+        }
+
+        #endregion
+
+        #region TheReturnedForm_DeniesTheRequest()
+
+        /// <summary>
+        /// Und ein „nein" beendet den Antrag - dieselbe Meldung wie ein
+        /// Entfernen.
+        /// </summary>
+        [Test]
+        public async Task TheReturnedForm_DeniesTheRequest()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-72",
+                           ConfigureIq("cfg-72", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-72",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-72"));
+
+            var subId  = SubscriptionOf(zusage)!.Attr("subid")!;
+
+            var beiAlice = CollectEvents(alice);
+
+            await bob.SendRawAsync(AuthorizationAnswer(alice.BareJid, subId, ja: false));
+
+            await WaitFor(() => EndingsIn(beiAlice).Count > 0, "die Ablehnung an die Wartende");
+
+            var liste = await AskAsync(bob, "subm-71", NodeSubscriptionsIq("subm-71", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(EndingsIn(beiAlice).Select(e => e.SubId), Is.EqualTo(new[] { subId }));
+                Assert.That(SubscriptionsIn(liste, OwnerNamespace),   Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region ADenialAfterTheApproval_ChangesNothing()
+
+        /// <summary>
+        /// Ein „nein" auf eine Frage von vorhin beendet kein zugesagtes
+        /// Abonnement.
+        /// </summary>
+        /// <remarks>
+        /// Sonst entschiede die Reihenfolge zweier Nachrichten darüber, was
+        /// gilt - und ein spät eintreffendes Formular nähme jemandem ein
+        /// Abonnement weg, das er längst hat.
+        /// </remarks>
+        [Test]
+        public async Task ADenialAfterTheApproval_ChangesNothing()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-73",
+                           ConfigureIq("cfg-73", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice  = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-73",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-73"));
+
+            var subId  = SubscriptionOf(zusage)!.Attr("subid")!;
+
+            await AskAsync(bob, "subm-72",
+                           NodeSubscriptionsIq("subm-72", "set",
+                                               SubscriberEntry(alice.BareJid, "subscribed", subId)));
+
+            var beiAlice = CollectEvents(alice);
+
+            await bob.SendRawAsync(AuthorizationAnswer(alice.BareJid, subId, ja: false));
+
+            await WaitAgainst(() => EndingsIn(beiAlice).Count > 0,
+                              "eine Ablehnung nach der Zusage");
+
+            var liste = await AskAsync(bob, "subm-73", NodeSubscriptionsIq("subm-73", "get"));
+
+            Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subscription")),
+                        Is.EqualTo(new[] { "subscribed" }));
+
+        }
+
+        #endregion
+
+        #region AFormAboutAForeignNode_IsNoAnswer()
+
+        /// <summary>
+        /// Beschieden wird nur, was am eigenen Knoten hängt - alles andere
+        /// bleibt eine Nachricht.
+        /// </summary>
+        /// <remarks>
+        /// Alice kann Bobs Antrag nicht für ihn beantworten: Ihr Formular nennt
+        /// einen Knoten, den es in ihrem Konto nicht gibt. <b>Und es
+        /// verschwindet dabei nicht</b> - es geht seinen gewöhnlichen Weg
+        /// weiter. Eine Nachricht spurlos verschwinden zu lassen ist die
+        /// teuerste Art, höflich zu sein; genau daran hing die Mutation, die
+        /// diese Prüfung entfernt.
+        /// </remarks>
+        [Test]
+        public async Task AFormAboutAForeignNode_IsNoAnswer()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-74",
+                           ConfigureIq("cfg-74", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice  = await ConnectClientAsync("alice");
+            var carol  = await ConnectClientAsync("carol");
+
+            var zusage = await AskAsync(alice, "sub-74",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-74"));
+
+            var subId  = SubscriptionOf(zusage)!.Attr("subid")!;
+
+            var beiCarol = CollectRaw(carol, PubSubSubscribeAuthorization.FormType);
+
+            // Alice schickt die Antwort auf ihren eigenen Antrag an Carol - in
+            // deren Konto es diesen Knoten nicht gibt.
+            await alice.SendRawAsync(AuthorizationAnswer(alice.BareJid, subId, ja: true, an: carol.BareJid));
+
+            await WaitFor(() => Count(beiCarol) > 0,
+                          "die Nachricht, die keine Antwort ist");
+
+            Assert.That(Server.GetAccount($"bob@{Server.Domain}")!
+                              .PepSubscriptions(Node)
+                              .Select(a => a.State),
+                        Is.EqualTo(new[] { PubSubSubscriptionState.Pending }),
+                        "Und Bobs Antrag steht unbeschieden da.");
 
         }
 
