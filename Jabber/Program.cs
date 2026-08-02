@@ -942,7 +942,7 @@ class Program
             Console.WriteLine("  /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus");
             Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
-            Console.WriteLine("  /pubsub create <node> [open|presence]  Node erstellen");
+            Console.WriteLine("  /pubsub create <node> [zugriff]  Node erstellen");
             Console.WriteLine("  /pubsub cfg <node>           Knoteneinstellungen");
             Console.WriteLine("  /pubsub access <node> <open|presence|whitelist|roster>  Zugriff umstellen");
             Console.WriteLine("  /pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (leer: alle)");
@@ -1091,12 +1091,32 @@ class Program
 
             // Anlegen und einstellen in einem Zug: Zwei Schritte hätten eine
             // Lücke, in der der Knoten offen steht.
+            // Die Modellnamen kommen aus derselben Stelle wie beim 'access' und
+            // wie im Formular. Hier standen zwei davon fest im Text - alles
+            // andere wurde stillschweigend zu 'open', und wer 'whitelist'
+            // schrieb, bekam einen offenen Knoten und eine Erfolgsmeldung.
             case "create":
-                var zugang = parts.Length > 2 && parts[2].ToLower() == "presence"
-                                 ? new PubSubNodeConfiguration(PubSubAccessModel.Presence)
-                                 : null;
+
+                PubSubNodeConfiguration? zugang = null;
+
+                if (parts.Length > 2)
+                {
+
+                    if (!PubSubNodeConfiguration.TryReadAccessModel(parts[2].ToLower(), out var modellNeu))
+                    {
+                        Console.WriteLine("Syntax: /pubsub create <node> [open|presence|whitelist|roster|authorize]");
+                        return;
+                    }
+
+                    zugang = new PubSubNodeConfiguration(modellNeu);
+
+                }
+
                 Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId, zugang)
-                                      ? $"➕ Node erstellt: {nodeId}" + (zugang is not null ? " (presence)" : "")
+                                      ? $"➕ Node erstellt: {nodeId}" +
+                                        (zugang is not null
+                                             ? $" ({PubSubNodeConfiguration.NameOf(zugang.AccessModel)})"
+                                             : "")
                                       : $"⚠️ Node nicht erstellt: {nodeId} - siehe Log");
                 break;
 
@@ -1819,6 +1839,7 @@ PubSub (XEP-0060):
   /pubsub pub <node> <id> <data>  Item veröffentlichen
   /pubsub get <node> [max]        Items abrufen
   /pubsub create|delete <node>    Node anlegen/löschen
+  /pubsub …                       die übrigen zwanzig, /pubsub für die Hilfe
 
 Verbindung:
   /ping [jid]     Ping senden (XEP-0199)

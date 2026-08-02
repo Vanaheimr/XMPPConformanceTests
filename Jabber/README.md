@@ -225,6 +225,7 @@ dotnet run -- -j user@example.com -p geheim -v
 /to <jid>                 Chat-Partner setzen (Aliase: /chat)
 /to                       Chat-Partner zurücksetzen
 /msg <jid> <text>         Einzelne Nachricht senden (Alias: /m)
+/fix <text>               Letzte Nachricht berichtigen (XEP-0308, Alias: /korr)
 /status [show] [text]     Status setzen: available|away|chat|dnd|xa (Alias: /s)
 ```
 
@@ -276,15 +277,15 @@ Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
 /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus
 /pubsub pub <node> <id> <data> Item veröffentlichen (Alias: publish)
 /pubsub get <node> [max]       Items abrufen (Alias: items)
-/pubsub create <node> [open|presence]  Node erstellen
+/pubsub create <node> [zugriff]  Node erstellen (Modelle wie bei 'access')
 /pubsub cfg <node>             Knoteneinstellungen (Alias: nodecfg)
-/pubsub access <node> <open|presence|whitelist>  Zugriff umstellen
+/pubsub access <node> <open|presence|whitelist|roster|authorize>  Zugriff umstellen
 /pubsub rollen <node>          Wer ist was an diesem Knoten (Alias: affiliations)
 /pubsub rolle <node> <jid> <owner|publisher|member|outcast|none>  Rolle setzen
 /pubsub abonnenten <node>      Wer hängt an diesem Knoten (Alias: subscribers)
 /pubsub raus <node> <jid> [subid]  Abonnent entfernen (Alias: kick)
-/pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (leer: alle)
-/pubsub antrag <node> <jid> <ja|nein>  Abonnementantrag beantworten
+/pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (Alias: rostergroups)
+/pubsub antrag <node> <jid> <ja|nein>  Abonnementantrag beantworten (Alias: authorize)
 /pubsub retract <node> <id>    Einen Eintrag zurücknehmen (Alias: zurueck)
 /pubsub purge <node>           Node leeren, Abonnenten behalten (Alias: leeren)
 /pubsub delete <node>          Node löschen
@@ -303,6 +304,11 @@ der Client sucht sich keines aus. `/pubsub abos` zeigt sie.
 hängt, das andere, wer an einem eigenen Knoten hängt. Beim `raus` ist die
 `[subid]` dagegen freiwillig — ohne sie gehen **alle** Abonnements dieses JIDs,
 denn der Eigentümer meint den Menschen und nicht die Buchführung.
+
+Ein beantragtes Abonnement steht bei `abos` mit dabei und sagt, was es ist
+(`pending`). Ohne den Zustand sähe es aus wie ein zugesagtes, und die
+ausbleibenden Meldungen sähen aus wie ein Fehler. Ein eingehender Antrag wird
+gemeldet, sobald er eintrifft; `antrag` beantwortet ihn.
 
 ### Verbindung
 ```
@@ -1031,7 +1037,7 @@ In der Konsole:
 ```
 /omemo an                        einschalten
 /omemo an <jid> <text>           verschlüsselt senden
-/omemo fingerabdruecke           eigenen und bekannte anzeigen
+/omemo fingerabdruecke           eigenen und bekannte anzeigen (Alias: fp)
 /omemo vertrauen <jid> <geraet>  Gerät bestätigen
 /omemo ablehnen <jid> <geraet>   Gerät ablehnen
 ```

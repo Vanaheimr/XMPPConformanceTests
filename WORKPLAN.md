@@ -6574,6 +6574,42 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D96. Drei Listen derselben Befehle ✅ — die Konsole im README
+
+Nachgezogen, und zwar in beide Richtungen abgeglichen: **kein Befehl im Code,
+den das README nicht nennt; keiner im README, den es nicht gibt.** Die
+PubSub-Unterbefehle, die obersten Befehle und `/omemo` sind je einmal
+durchgezählt.
+
+Es gibt sie nämlich **dreimal**: in `PrintHelp`, in der Hilfe von `/pubsub` und
+im README. Drei Listen derselben Sache halten sich, bis eine von ihnen falsch
+wird — und genau das war passiert:
+
+- **`/fix` fehlte im README ganz.** Der Befehl gibt es seit D60, die
+  Merkmalstabelle nennt ihn („In der Konsole `/fix <text>`"), die Konsolenhilfe
+  auch — nur die Befehlsliste nicht, also gerade die Stelle, an der jemand
+  nachsieht, der wissen will, was er tippen kann.
+- **`/pubsub access` versprach drei Modelle, `create` kannte zwei.** Das erste
+  war seit D92 behoben; beim zweiten stand dieselbe Verkürzung noch im Text.
+  <b>Wer `whitelist` schrieb, bekam einen offenen Knoten und eine
+  Erfolgsmeldung</b> — die stillste Art, eine Einstellung zu verlieren. Jetzt
+  liest auch `create` die Namen aus der Stelle, die auch das Formular liest.
+- Zwei Aliase (`rostergroups`, `authorize`, `fp`) waren nirgends vermerkt.
+
+Und die Kurzhilfe sagt jetzt, dass sie eine ist: Die fünf PubSub-Zeilen in
+`/help` sahen aus wie die ganze Menge; es sind fünf von zwanzig.
+
+**Warum das überhaupt auseinanderlaufen konnte:** Die Konsole hat keine Tests.
+Sie ist die einzige Ecke dieses Projekts, in der eine Behauptung ohne Deckung
+niemandem auffällt — kein Mutant kann hier etwas erschlagen, weil nichts
+hinsieht. Der Abgleich lief deshalb als Wegwerf-Skript über beide Dateien;
+es als Test einzubauen hiesse, den Pfad zweier Textdateien in die Testsammlung
+zu schreiben, und der Umzug nach `HermodTests` steht noch aus.
+
+Voller Lauf: 1141 bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
