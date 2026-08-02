@@ -143,16 +143,30 @@ public sealed class PubSubManager
 
         }
 
+        // XEP-0060, Abschnitt 8.5.2: Der Knoten ist leer - und bleibt bestehen.
+        // Das Abonnement wird deshalb gerade nicht angetastet: Die nächste
+        // Veröffentlichung kommt an dieselbe Adresse.
         if (eventElement.Child(EventNamespace, "purge") is not null)
         {
             OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Purge, subId));
             return true;
         }
 
+        // XEP-0060, Abschnitt 8.4.2: Den Knoten gibt es nicht mehr.
+        //
+        // <b>Also auch kein Abonnement darauf.</b> Es stehen zu lassen hiesse,
+        // auf Meldungen von einem Knoten zu warten, den niemand mehr
+        // veröffentlicht - und beim Abbestellen eine Kennung mitzuschicken,
+        // die der Dienst nicht mehr kennt.
         if (eventElement.Child(EventNamespace, "delete") is not null)
         {
+
+            RemoveSubscriptionsOf(nodeId, from);
+
             OnEvent?.Invoke(new PubSubEvent(nodeId, PubSubEventType.Delete, subId));
+
             return true;
+
         }
 
         // XEP-0060, Abschnitt 8.8.4: Der Dienst sagt, dass ein Abonnement
@@ -306,6 +320,35 @@ public sealed class PubSubManager
                 return;
 
             abos.RemoveAll(a => String.Equals(a.SubId, subId, StringComparison.Ordinal));
+
+            if (abos.Count == 0)
+                _subscriptions.Remove(nodeId);
+
+        }
+    }
+
+    /// <summary>
+    /// Streicht alle Abonnements eines Knotens <b>bei einem bestimmten
+    /// Dienst</b>.
+    /// </summary>
+    /// <remarks>
+    /// Der Dienst gehört dazu, weil der Knotenname allein keiner ist:
+    /// <c>urn:xmpp:omemo:2:bundles</c> heisst bei jedem Konto so. Wer ihn ohne
+    /// die Adresse streicht, beendet bei einem gelöschten Knoten auch das
+    /// Abonnement auf den gleichnamigen Knoten von jemand anderem - und merkt
+    /// es erst, wenn dessen Meldungen ausbleiben.
+    /// </remarks>
+    public void RemoveSubscriptionsOf(String nodeId, String serviceJid)
+    {
+        lock (_lock)
+        {
+
+            if (!_subscriptions.TryGetValue(nodeId, out var abos))
+                return;
+
+            abos.RemoveAll(a => String.Equals(JidUtilities.Bare(a.ServiceJid),
+                                              JidUtilities.Bare(serviceJid),
+                                              StringComparison.OrdinalIgnoreCase));
 
             if (abos.Count == 0)
                 _subscriptions.Remove(nodeId);

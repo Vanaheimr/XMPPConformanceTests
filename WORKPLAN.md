@@ -6227,6 +6227,43 @@ Hundert Tests, zwölf Mutationen, alle erschlagen. Voller Lauf: 1102 bestanden,
 
 ---
 
+### D88. Was der Löschende als einziger nicht erfährt ✅ — die Clientseite
+
+Die Clientseite von D87, und sie besteht fast ganz aus dem, was **nach** der
+Antwort zu tun ist.
+
+**Ein gelöschter Knoten nimmt das Abonnement darauf mit, ein geleerter nicht.**
+Das ist derselbe Unterschied wie im Server, nur von der anderen Seite gesehen:
+Nach einem `<purge/>` kommt die nächste Veröffentlichung an dieselbe Adresse,
+und wer hier mit aufräumte, hätte danach keinen Eintrag mehr über ein
+Abonnement, das weiterbesteht — und müsste dessen Meldungen für Fälschungen
+halten.
+
+**Der Löschende bekommt keine Meldung.** Der Dienst schickt das `<delete/>` an
+alle ausser den, der gelöscht hat — richtig so, aber es heisst, dass genau der
+seinen Eintrag selbst streichen muss. Wer sich auf die Meldung verliesse,
+behielte als einziger eine Buchführung über einen Knoten, den er selbst
+beseitigt hat. Eine abgewiesene Löschung räumt dagegen nichts auf; auch das ist
+eine eigene Mutation wert.
+
+**Gestrichen wird je Dienst und nicht je Namen.** `urn:xmpp:omemo:2:bundles`
+heisst bei jedem Konto so — wer beim Löschen bloss den Knotennamen aus der
+Buchführung nimmt, beendet zugleich das Abonnement auf den gleichnamigen Knoten
+von jemand anderem und merkt es erst, wenn dessen Meldungen ausbleiben. Der
+Test dazu hält zwei Abonnements auf denselben Namen bei zwei Konten.
+
+Nebenbei: `PubSubBuilder.DeleteNode` schrieb seinen Namensraum als Zeichenkette
+aus, während alle anderen Eigentümer-Anfragen die Konstante benutzen. Zwei
+Schreibweisen derselben Sache halten sich, bis eine von beiden falsch wird.
+
+Siebenundfünfzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1107
+bestanden, 7 übersprungen.
+
+Damit bleibt von XEP-0060 noch `<retract/>` sowie die Zugriffsmodelle
+`authorize` und `roster`.
+
+---
+
 ## Später
 
 ### Testsammlung

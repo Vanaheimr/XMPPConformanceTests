@@ -236,13 +236,28 @@ public static class PubSubBuilder
     }
 
     /// <summary>
-    /// Delete a node
+    /// XEP-0060, Abschnitt 8.4: Einen Knoten löschen.
     /// </summary>
     public static string DeleteNode(string pubsubJid, string nodeId, string id = "pubsub-delete")
     {
         return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
-               $"<pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
                $"<delete node='{XmlEscaping.Escape(nodeId)}'/>" +
+               $"</pubsub></iq>";
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.5: Einen Knoten leeren.
+    /// </summary>
+    /// <remarks>
+    /// Sieht dem Löschen zum Verwechseln ähnlich und meint etwas anderes: Der
+    /// Knoten bleibt, seine Abonnenten bleiben, nur der Inhalt geht.
+    /// </remarks>
+    public static string PurgeNode(string pubsubJid, string nodeId, string id = "pubsub-purge")
+    {
+        return $"<iq type='set' to='{XmlEscaping.Escape(pubsubJid)}' id='{id}'>" +
+               $"<pubsub xmlns='{OwnerNamespace}'>" +
+               $"<purge node='{XmlEscaping.Escape(nodeId)}'/>" +
                $"</pubsub></iq>";
     }
 }

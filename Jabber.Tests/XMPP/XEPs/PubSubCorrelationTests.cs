@@ -1923,6 +1923,202 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
         #endregion
 
+        #region ADeletedNode_TakesTheSubscriptionWithIt()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.4.2: Den Knoten gibt es nicht mehr — also auch
+        /// kein Abonnement darauf.
+        /// </summary>
+        /// <remarks>
+        /// Es stehen zu lassen hiesse, auf Meldungen von einem Knoten zu
+        /// warten, den niemand mehr veröffentlicht — und beim Abbestellen eine
+        /// Kennung mitzuschicken, die der Dienst nicht mehr kennt.
+        /// </remarks>
+        [Test]
+        public async Task ADeletedNode_TakesTheSubscriptionWithIt()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await alice.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            var geloescht = await bob.PubSubDeleteNodeAsync(Node, BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Meldung über das Löschen");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(geloescht,        Is.True);
+                Assert.That(gemeldet!.Type,   Is.EqualTo(PubSubEventType.Delete));
+                Assert.That(gemeldet!.NodeId, Is.EqualTo(Node));
+
+                Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.False,
+                            "Ein Abonnement auf einen Knoten, den es nicht gibt, ist keines.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region APurgedNode_KeepsTheSubscription()
+
+        /// <summary>
+        /// Und die Gegenprobe: Das Leeren lässt das Abonnement in Ruhe.
+        /// </summary>
+        /// <remarks>
+        /// Der Knoten bleibt bestehen, die nächste Veröffentlichung kommt an
+        /// dieselbe Adresse. Wer hier mit aufräumt, hat danach keinen Eintrag
+        /// mehr über ein Abonnement, das weiterhin besteht — und bekommt
+        /// Meldungen, die er für Fälschungen halten muss.
+        /// </remarks>
+        [Test]
+        public async Task APurgedNode_KeepsTheSubscription()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var abo = await alice.PubSubSubscribeAsync(Node, BobsJid);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            var geleert = await bob.PubSubPurgeNodeAsync(Node, BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Meldung über das Leeren");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(geleert,          Is.True);
+                Assert.That(gemeldet!.Type,   Is.EqualTo(PubSubEventType.Purge));
+                Assert.That(gemeldet!.NodeId, Is.EqualTo(Node));
+
+                Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.SubId),
+                            Is.EqualTo(new[] { abo!.SubId }),
+                            "Das Abonnement besteht weiter.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WhoDeletesHisOwnNode_ForgetsHisOwnSubscription()
+
+        /// <summary>
+        /// Der Löschende bekommt keine Meldung — und muss trotzdem aufräumen.
+        /// </summary>
+        /// <remarks>
+        /// Der Dienst schickt die Meldung nach Abschnitt 8.4.2 an alle ausser
+        /// den, der gelöscht hat. Wer sich darauf verliesse, behielte als
+        /// einziger einen Eintrag über einen Knoten, den er selbst beseitigt
+        /// hat.
+        /// </remarks>
+        [Test]
+        public async Task WhoDeletesHisOwnNode_ForgetsHisOwnSubscription()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            Assert.That(await bob.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null,
+                        "Der Eigentümer darf seinen eigenen Knoten abonnieren.");
+
+            Assert.That(await bob.PubSubDeleteNodeAsync(Node, BobsJid), Is.True);
+
+            Assert.That(bob.Connection.PubSub!.IsSubscribed(Node), Is.False,
+                        "Und weiss danach selbst, dass es das Abonnement nicht mehr gibt.");
+
+        }
+
+        #endregion
+
+        #region ADeletionElsewhere_LeavesTheSameNodeHereAlone()
+
+        /// <summary>
+        /// Der Knotenname allein ist kein Knoten: Gelöscht wird bei einem
+        /// bestimmten Dienst.
+        /// </summary>
+        /// <remarks>
+        /// <c>urn:xmpp:omemo:2:bundles</c> heisst bei jedem Konto so. Wer den
+        /// Namen ohne die Adresse streicht, beendet mit einem gelöschten Knoten
+        /// auch das Abonnement auf den gleichnamigen Knoten von jemand anderem
+        /// — und merkt es erst, wenn dessen Meldungen ausbleiben.
+        /// </remarks>
+        [Test]
+        public async Task ADeletionElsewhere_LeavesTheSameNodeHereAlone()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            Assert.That(await carol.PubSubPublishAsync(Node, "1", Payload("bewölkt"), carol.BareJid),
+                        Is.True,
+                        "Carol hat einen Knoten desselben Namens.");
+
+            var beiBob   = await alice.PubSubSubscribeAsync(Node, BobsJid);
+            var beiCarol = await alice.PubSubSubscribeAsync(Node, carol.BareJid);
+
+            Assert.That(beiBob,   Is.Not.Null);
+            Assert.That(beiCarol, Is.Not.Null);
+
+            PubSubEvent? gemeldet = null;
+            alice.OnPubSubEvent += e => gemeldet = e;
+
+            await bob.PubSubDeleteNodeAsync(Node, BobsJid);
+
+            await WaitFor(() => gemeldet is not null, "die Meldung über Bobs gelöschten Knoten");
+
+            Assert.That(alice.Connection.PubSub!.SubscriptionsOf(Node).Select(a => a.ServiceJid),
+                        Is.EqualTo(new[] { carol.BareJid }),
+                        "Carols gleichnamiger Knoten steht weiter in der Buchführung.");
+
+        }
+
+        #endregion
+
+        #region ADeletionTheServiceRefuses_IsReported()
+
+        /// <summary>
+        /// Ein fremder Knoten lässt sich nicht löschen — und der Aufrufer
+        /// erfährt es.
+        /// </summary>
+        [Test]
+        public async Task ADeletionTheServiceRefuses_IsReported()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            Assert.That(await alice.PubSubSubscribeAsync(Node, BobsJid), Is.Not.Null);
+
+            // Erst awaiten, dann prüfen: Assert.Multiple nimmt eine Action, und
+            // ein async-Lambda darin liefe als async void weiter - die
+            // Zusicherungen fielen womöglich nach dem Block, also nirgends.
+            var geloescht = await alice.PubSubDeleteNodeAsync(Node, BobsJid);
+            var geleert   = await alice.PubSubPurgeNodeAsync (Node, BobsJid);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(geloescht, Is.False);
+                Assert.That(geleert,   Is.False);
+            });
+
+            Assert.That(alice.Connection.PubSub!.IsSubscribed(Node), Is.True,
+                        "Eine abgewiesene Löschung räumt nichts auf.");
+
+        }
+
+        #endregion
+
         #region APromiseByMessage_IsNotRecorded()
 
         /// <summary>

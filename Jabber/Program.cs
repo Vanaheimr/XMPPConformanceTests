@@ -948,6 +948,7 @@ class Program
             Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
             Console.WriteLine("  /pubsub abonnenten <node>    Wer hängt an diesem Knoten (Alias: subscribers)");
             Console.WriteLine("  /pubsub raus <node> <jid> [subid]  Abonnent entfernen (Alias: kick)");
+            Console.WriteLine("  /pubsub purge <node>         Node leeren, Abonnenten behalten");
             Console.WriteLine("  /pubsub delete <node>        Node löschen");
             Console.WriteLine();
             Console.WriteLine("  Ohne <jid> geht die Anfrage an pubsub.<domain>. Ein PEP-Knoten");
@@ -962,7 +963,8 @@ class Program
                                  "pub", "publish", "get", "items", "create", "delete",
                                  "opts", "options", "deliver", "cfg", "nodecfg", "access",
                                  "rollen", "affiliations", "rolle",
-                                 "abonnenten", "subscribers", "raus", "kick"];
+                                 "abonnenten", "subscribers", "raus", "kick",
+                                 "purge", "leeren"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1190,6 +1192,14 @@ class Program
                 Console.WriteLine(await _client!.PubSubDeleteNodeAsync(nodeId)
                                       ? $"➖ Node gelöscht: {nodeId}"
                                       : $"⚠️ Node nicht gelöscht: {nodeId} - siehe Log");
+                break;
+
+            // Der kleine Bruder von 'delete': Der Knoten bleibt, sein Inhalt
+            // geht - und die Abonnenten bleiben ihm erhalten.
+            case "purge" or "leeren":
+                Console.WriteLine(await _client!.PubSubPurgeNodeAsync(nodeId)
+                                      ? $"🧹 Node geleert: {nodeId}"
+                                      : $"⚠️ Node nicht geleert: {nodeId} - siehe Log");
                 break;
 
             default:

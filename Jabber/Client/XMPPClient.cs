@@ -841,8 +841,19 @@ public sealed class XMPPClient : IAsyncDisposable
     public Task<Boolean> PubSubConfigureNodeAsync(String nodeId, PubSubNodeConfiguration configuration, String? service = null)
         => _connection.PubSubConfigureNodeAsync(nodeId, configuration, service);
 
+    /// <summary>
+    /// Löscht einen Knoten - samt dem eigenen Eintrag über ein Abonnement
+    /// darauf.
+    /// </summary>
     public Task<Boolean> PubSubDeleteNodeAsync(String nodeId, String? service = null)
         => _connection.PubSubDeleteNodeAsync(nodeId, service);
+
+    /// <summary>
+    /// Leert einen Knoten (XEP-0060, Abschnitt 8.5) - der Knoten bleibt, sein
+    /// Inhalt geht.
+    /// </summary>
+    public Task<Boolean> PubSubPurgeNodeAsync(String nodeId, String? service = null)
+        => _connection.PubSubPurgeNodeAsync(nodeId, service);
 
     public Task<IReadOnlyList<PubSubItem>?> PubSubGetItemsAsync(String nodeId, Int32? maxItems = null, String? service = null)
         => _connection.PubSubGetItemsAsync(nodeId, maxItems, service);

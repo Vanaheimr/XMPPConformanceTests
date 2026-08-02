@@ -3530,13 +3530,47 @@ public sealed class XMPPConnection : IAsyncDisposable
     /// <summary>
     /// XEP-0060, Abschnitt 8.4: Löscht einen Knoten.
     /// </summary>
+    /// <remarks>
+    /// <b>Danach ist auch das eigene Abonnement darauf fort</b>, und dieser
+    /// Client muss es selbst streichen: Die Meldung nach Abschnitt 8.4.2 geht
+    /// an alle ausser den, der gelöscht hat. Wer sich darauf verliesse,
+    /// behielte als einziger einen Eintrag über einen Knoten, den er selbst
+    /// beseitigt hat.
+    /// </remarks>
     public async Task<Boolean> PubSubDeleteNodeAsync(String             nodeId,
                                                      String?            service  = null,
                                                      CancellationToken  ct       = default)
+    {
 
-        => await PubSubRequestAsync(PubSubBuilder.DeleteNode(service ?? PubSub!.PubSubService,
+        var ziel = service ?? PubSub!.PubSubService;
+
+        if (!await PubSubRequestAsync(PubSubBuilder.DeleteNode(ziel, nodeId, NextPubSubId()),
+                                      "Löschen", nodeId, ct))
+        {
+            return false;
+        }
+
+        PubSub!.RemoveSubscriptionsOf(nodeId, ziel);
+
+        return true;
+
+    }
+
+    /// <summary>
+    /// XEP-0060, Abschnitt 8.5: Leert einen Knoten.
+    /// </summary>
+    /// <remarks>
+    /// Und lässt die Buchführung in Ruhe: Den Knoten gibt es weiter, das
+    /// Abonnement darauf auch - die nächste Veröffentlichung kommt an dieselbe
+    /// Adresse.
+    /// </remarks>
+    public async Task<Boolean> PubSubPurgeNodeAsync(String             nodeId,
+                                                    String?            service  = null,
+                                                    CancellationToken  ct       = default)
+
+        => await PubSubRequestAsync(PubSubBuilder.PurgeNode(service ?? PubSub!.PubSubService,
                                                              nodeId, NextPubSubId()),
-                                    "Löschen", nodeId, ct);
+                                    "Leeren", nodeId, ct);
 
     /// <summary>
     /// Schickt eine PubSub-Anfrage und meldet, ob der Dienst zugestimmt hat.
