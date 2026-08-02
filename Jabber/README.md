@@ -691,6 +691,17 @@ miteinander sprechen:
   ändert nichts für den, dessen Postfach sich füllt. Ein `subscribed` für ein
   bestehendes Abonnement ist trotzdem gültig: Eine Liste, die sich nicht
   unverändert zurückschicken lässt, wäre kein Zustand
+- XEP-0060 §8.8.4 **Wer beendet wurde, ohne zu fragen, erfährt es** — eine
+  Meldung mit Knoten, JID und Kennung, und zwar **je erloschenem Abonnement
+  eine**: Käme auf ein `none` ohne `subid` nur eine, wüsste der Empfänger von
+  einer Kennung, dass sie erloschen ist, und von der anderen nichts. Ebenso
+  beim Ausschluss (§8.9.4) — dort ohne die Rolle zu nennen: was er an dem
+  Knoten ist, geht ihn nichts an, dass er ihn nicht mehr bekommt, schon.
+  Gemeldet wird, was geschehen ist, nicht was angewiesen wurde; eine
+  abgewiesene Anweisung meldet nichts ab. Ein `headline` und damit **nichts
+  für die Ablage** (XEP-0160): Wer offline war, erfährt es nicht — und findet
+  es beim nächsten Verbinden über §5.6, wo der Stand von jetzt steht und nicht
+  der von damals
 - XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
   **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
   ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die

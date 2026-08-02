@@ -2147,13 +2147,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     }
 
+                    var erloschen = new List<PepSubscription>();
+
                     foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "affiliation"))
                     {
+
                         PubSubAffiliations.TryRead(eintrag.Attr("affiliation"), out var rolle);
-                        session.Account.SetPepAffiliation(node, BareOf(eintrag.Attr("jid")!)!, rolle);
+
+                        session.Account.SetPepAffiliation(node,
+                                                          BareOf(eintrag.Attr("jid")!),
+                                                          rolle,
+                                                          out var mitgegangen);
+
+                        erloschen.AddRange(mitgegangen);
+
                     }
 
                     await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                    // Ein Ausschluss beendet Abonnements (Abschnitt 8.9.4), und
+                    // auch davon erfährt der Betroffene. Der Ausschluss selbst
+                    // bleibt ihm verborgen: Was er an diesem Knoten ist, geht
+                    // ihn nichts an - dass er ihn nicht mehr bekommt, schon.
+                    foreach (var eines in erloschen)
+                        await NotifySubscriptionEndedAsync(session.Account, node, eines);
 
                     return true;
 
@@ -2255,16 +2272,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     }
 
+                    var beendet = new List<PepSubscription>();
+
                     foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "subscription"))
                     {
                         PubSubSubscription.TryReadState(eintrag.Attr("subscription"), out var zustand);
                         if (zustand == PubSubSubscriptionState.None)
-                            session.Account.RemovePepSubscriptions(node,
-                                                                   BareOf(eintrag.Attr("jid")!),
-                                                                   eintrag.Attr("subid"));
+                            beendet.AddRange(
+                                session.Account.RemovePepSubscriptions(node,
+                                                                       BareOf(eintrag.Attr("jid")!),
+                                                                       eintrag.Attr("subid")));
                     }
 
                     await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                    // Erst die Antwort, dann die Meldungen - und nur über das,
+                    // was wirklich erloschen ist. Eine Meldung über ein
+                    // Abonnement, das der Server gar nicht gefunden hat, wäre
+                    // dieselbe Behauptung ins Blaue wie ein `result` darauf.
+                    foreach (var eines in beendet)
+                        await NotifySubscriptionEndedAsync(session.Account, node, eines);
 
                     return true;
 
@@ -2991,6 +3018,52 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 foreach (var ziel in SessionsOf(abonnement.Jid))
                     if (ziel != sender && ziel.FullJid is not null)
                         await ziel.SendAsync(StampTo(Ereignis(abonnement.SubId), ziel.FullJid));
+
+        }
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.8.4: Sagt einem Abonnenten, dass sein
+        /// Abonnement beendet wurde.
+        /// </summary>
+        /// <remarks>
+        /// <b>Wer beendet wurde, ohne zu fragen, muss es erfahren.</b> Sonst
+        /// wartet er auf Meldungen, die nicht mehr kommen - und das ist der
+        /// Zustand, den <see cref="PubSubSubscriptionState"/> seit D71 als den
+        /// schlimmeren beschreibt: Wer sich zu Unrecht für nicht abonniert
+        /// hält, fragt noch einmal nach; wer sich zu Unrecht für abonniert
+        /// hält, wartet auf etwas, das nie kommt.
+        ///
+        /// <b>Die Kennung gehört dazu.</b> Bei mehreren Abonnements auf
+        /// denselben Knoten ist sie das einzige, woran der Empfänger erkennt,
+        /// welches erloschen ist - und ohne sie müsste er alle für erloschen
+        /// halten oder keines.
+        ///
+        /// <b>Ein <c>headline</c>, also nichts für die Ablage</b> (XEP-0160).
+        /// Wer gerade offline ist, erfährt es nicht - so wie er auch die
+        /// Veröffentlichungen nicht bekommt, die er versäumt. Die Auskunft
+        /// bleibt trotzdem erreichbar: Abschnitt 5.6 sagt ihm beim nächsten
+        /// Verbinden, was er noch hat. Eine aufbewahrte Meldung wäre die
+        /// schlechtere Auskunft, denn sie beschreibt einen Stand von damals.
+        /// </remarks>
+        private async Task NotifySubscriptionEndedAsync(XMPPAccount      owner,
+                                                        String           node,
+                                                        PepSubscription  subscription)
+        {
+
+            if (!RouteStanzas)
+                return;
+
+            var ereignis = $"<message from='{owner.BareJid}' type='headline'>" +
+                           $"<event xmlns='{PubSubManager.EventNamespace}'>" +
+                           $"<subscription node='{XmlEscaping.Escape(node)}'" +
+                           $" jid='{XmlEscaping.Escape(subscription.Jid)}'" +
+                           $" subid='{XmlEscaping.Escape(subscription.SubId)}'" +
+                           " subscription='none'/>" +
+                           "</event></message>";
+
+            foreach (var ziel in SessionsOf(subscription.Jid))
+                if (ziel.FullJid is not null)
+                    await ziel.SendAsync(StampTo(ereignis, ziel.FullJid));
 
         }
 

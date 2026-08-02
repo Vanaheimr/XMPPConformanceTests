@@ -6071,6 +6071,46 @@ bestanden, 7 übersprungen.
 
 ---
 
+### D85. Eine Meldung über das, was geschehen ist ✅ — die Abmeldung
+
+Das Loch aus D84 zugemacht: Wer entfernt wurde, wartete auf Meldungen, die nicht
+mehr kommen. **Das ist der schlimmere der beiden Irrtümer** — so steht es seit
+D71 in `PubSubSubscriptionState`: Wer sich zu Unrecht für nicht abonniert hält,
+fragt noch einmal nach; wer sich zu Unrecht für abonniert hält, wartet auf
+etwas, das nie kommt.
+
+**Je erloschenem Abonnement eine Meldung, nicht je Anweisung.** Ein `none` ohne
+Kennung beendet alle Abonnements eines JIDs; käme darauf nur eine Meldung,
+wüsste der Empfänger von einer Kennung, dass sie erloschen ist, und von der
+anderen nichts. Deshalb meldet der Server nicht, was ihm aufgeschrieben wurde,
+sondern was er tatsächlich entfernt hat — eine abgewiesene Anweisung meldet
+nichts ab.
+
+**Auch der Ausschluss meldet sich**, denn er beendet Abonnements (Abschnitt
+8.9.4). Er nennt dabei seine eigene Ursache nicht: Was der Ausgeschlossene an
+diesem Knoten *ist*, geht ihn nichts an — dass er ihn nicht mehr bekommt,
+schon. Zwei verschiedene Auskünfte, und nur die zweite schuldet der Server ihm.
+
+Dafür musste `SetPepAffiliation` sagen können, was der Ausschluss gekostet hat.
+Die Auskunft gehört dorthin, wo entfernt wird: Sie sich vorher selbst
+zusammenzusuchen hiesse, dieselbe Frage zweimal zu beantworten — und die zweite
+Antwort wäre die ungenauere, weil zwischen Nachsehen und Setzen etwas
+dazwischenkommen kann. Beide Wege zum Beenden führen jetzt durch dieselbe
+Methode; zwei Stellen, die Abonnements beenden, beenden sie irgendwann
+verschieden.
+
+**Ein `headline` und damit nichts für die Ablage** (XEP-0160). Wer offline ist,
+erfährt es nicht — so wie er auch die Veröffentlichungen nicht bekommt, die er
+versäumt. Die Auskunft bleibt trotzdem erreichbar, und das ist der Grund, aus
+dem D79/D80 vorher dran waren: Abschnitt 5.6 sagt ihm beim nächsten Verbinden,
+was er noch hat. **Eine aufbewahrte Meldung wäre die schlechtere Auskunft**,
+denn sie beschreibt einen Stand von damals.
+
+Neunundachtzig Tests, acht Mutationen, alle erschlagen. Voller Lauf: 1082
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

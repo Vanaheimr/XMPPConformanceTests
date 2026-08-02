@@ -331,6 +331,22 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                      ?.Value;
 
         /// <summary>
+        /// Die Abmeldungen aus den gesammelten Meldungen (XEP-0060,
+        /// Abschnitt 8.8.4) - je Eintrag der Knoten, der JID und die Kennung.
+        /// </summary>
+        private static List<(String? Node, String? Jid, String? SubId)> EndingsIn(List<String> ereignisse)
+        {
+            lock (ereignisse)
+                return [.. ereignisse
+                           .Select(e => XElement.Parse(e)
+                                                .Child(PubSubManager.EventNamespace, "event")
+                                               ?.Child(PubSubManager.EventNamespace, "subscription"))
+                           .OfType<XElement>()
+                           .Where (s => s.Attr("subscription") == "none")
+                           .Select(s => (s.Attr("node"), s.Attr("jid"), s.Attr("subid")))];
+        }
+
+        /// <summary>
         /// Bob veröffentlicht - den Knoten gibt es danach.
         /// </summary>
         private async Task<XMPPClient> PublishingBobAsync(String itemId = "1", String inhalt = "sonnig")
@@ -3517,6 +3533,326 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                 Assert.That(SubscriptionsIn(liste, OwnerNamespace).Select(e => e.Attr("subid")),
                             Is.EquivalentTo(new[] { ihres, seines }),
                             "Auch Alices Abonnement steht noch da - geprüft wurde vor dem ersten Schritt.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheRemovedSubscriber_IsTold()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.8.4: Wer beendet wurde, ohne zu fragen,
+        /// erfährt es.
+        /// </summary>
+        /// <remarks>
+        /// Sonst wartet er auf Meldungen, die nicht mehr kommen — der Zustand,
+        /// den <c>PubSubSubscriptionState</c> seit D71 als den schlimmeren
+        /// beschreibt. Die Kennung gehört dazu: Bei mehreren Abonnements ist
+        /// sie das einzige, woran der Empfänger erkennt, welches erloschen ist.
+        /// </remarks>
+        [Test]
+        public async Task TheRemovedSubscriber_IsTold()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-19");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "subm-23",
+                           NodeSubscriptionsIq("subm-23", "set",
+                                               SubscriberEntry(alice.BareJid, "none")));
+
+            await WaitFor(() => EndingsIn(ereignisse).Count > 0, "die Abmeldung an den Entfernten");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(EndingsIn(ereignisse),
+                            Is.EqualTo(new[] { ((String?) Node, (String?) alice.BareJid, (String?) subId) }));
+
+                Assert.That(ereignisse[0], Does.Contain($"from='bob@{Server.Domain}'"),
+                            "Sie kommt vom Konto, dem der Knoten gehört - sonst verwirft sie der " +
+                            "Spoofing-Schutz des Empfängers zu Recht.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region EveryEndedSubscription_IsAnnouncedOnce()
+
+        /// <summary>
+        /// Eine Meldung je erloschenem Abonnement, nicht eine je Anweisung.
+        /// </summary>
+        /// <remarks>
+        /// Ein <c>none</c> ohne Kennung beendet alle Abonnements dieses JIDs.
+        /// Käme darauf nur eine Meldung, wüsste der Empfänger von einer
+        /// Kennung, dass sie erloschen ist, und von der anderen nichts.
+        /// </remarks>
+        [Test]
+        public async Task EveryEndedSubscription_IsAnnouncedOnce()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste  = await SubscribeAsync(alice, "abo-28");
+            var zweite = await SubscribeAsync(alice, "abo-29");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "subm-28",
+                           NodeSubscriptionsIq("subm-28", "set",
+                                               SubscriberEntry(alice.BareJid, "none")));
+
+            await WaitFor(() => EndingsIn(ereignisse).Count > 1, "beide Abmeldungen");
+
+            Assert.That(EndingsIn(ereignisse).Select(e => e.SubId),
+                        Is.EquivalentTo(new[] { erste, zweite }));
+
+        }
+
+        #endregion
+
+        #region TheOutcast_IsToldToo()
+
+        /// <summary>
+        /// Auch der Ausschluss beendet Abonnements (Abschnitt 8.9.4) — und auch
+        /// davon erfährt der Betroffene.
+        /// </summary>
+        /// <remarks>
+        /// <b>Der Ausschluss selbst bleibt ihm verborgen.</b> Was er an diesem
+        /// Knoten ist, geht ihn nichts an; dass er ihn nicht mehr bekommt,
+        /// schon. Zwei verschiedene Auskünfte, und nur die zweite schuldet ihm
+        /// der Server.
+        /// </remarks>
+        [Test]
+        public async Task TheOutcast_IsToldToo()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-20");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "aff-20",
+                           AffiliationsIq("aff-20", "set",
+                                          $"<affiliation jid='{alice.BareJid}' affiliation='outcast'/>"));
+
+            await WaitFor(() => EndingsIn(ereignisse).Count > 0, "die Abmeldung an den Ausgeschlossenen");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(EndingsIn(ereignisse),
+                            Is.EqualTo(new[] { ((String?) Node, (String?) alice.BareJid, (String?) subId) }));
+
+                Assert.That(ereignisse.Any(e => e.Contains("outcast", StringComparison.Ordinal)),
+                            Is.False,
+                            "Seine Rolle steht nicht darin.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region OnlyTheEndedOne_IsAnnounced()
+
+        /// <summary>
+        /// Gemeldet wird, was erloschen ist - nicht, was der Eigentümer
+        /// aufgeschrieben hat.
+        /// </summary>
+        [Test]
+        public async Task OnlyTheEndedOne_IsAnnounced()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var erste = await SubscribeAsync(alice, "abo-21");
+
+            await SubscribeAsync(alice, "abo-22");
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "subm-24",
+                           NodeSubscriptionsIq("subm-24", "set",
+                                               SubscriberEntry(alice.BareJid, "none", erste)));
+
+            await WaitFor(() => EndingsIn(ereignisse).Count > 0, "die Abmeldung des einen Abonnements");
+
+            await AskAsync(bob, "subm-25", NodeSubscriptionsIq("subm-25", "get"));
+
+            Assert.That(EndingsIn(ereignisse).Select(e => e.SubId),
+                        Is.EqualTo(new[] { erste }),
+                        "Genau eines ist erloschen, also kommt genau eine Meldung.");
+
+        }
+
+        #endregion
+
+        #region NobodyElse_IsTold()
+
+        /// <summary>
+        /// Die Abmeldung geht an den Betroffenen und an sonst niemanden.
+        /// </summary>
+        /// <remarks>
+        /// Wer sie mitbekäme, erführe, wer den Knoten verlassen hat — und der
+        /// Eigentümer bekäme sie als Antwort auf seine eigene Anweisung ein
+        /// zweites Mal.
+        /// </remarks>
+        [Test]
+        public async Task NobodyElse_IsTold()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await SubscribeAsync(alice, "abo-23");
+            await SubscribeAsync(carol, "abo-24");
+
+            var beiAlice = CollectEvents(alice);
+            var beiCarol = CollectEvents(carol);
+            var beiBob   = CollectEvents(bob);
+
+            await AskAsync(bob, "subm-26",
+                           NodeSubscriptionsIq("subm-26", "set",
+                                               SubscriberEntry(alice.BareJid, "none")));
+
+            await WaitFor(() => EndingsIn(beiAlice).Count > 0, "die Abmeldung an die Entfernte");
+
+            await WaitAgainst(() => EndingsIn(beiCarol).Count > 0 || EndingsIn(beiBob).Count > 0,
+                              "eine Abmeldung an Unbeteiligte");
+
+        }
+
+        #endregion
+
+        #region AnUnsuccessfulRemoval_AnnouncesNothing()
+
+        /// <summary>
+        /// Eine abgewiesene Anweisung meldet nichts ab.
+        /// </summary>
+        /// <remarks>
+        /// Sonst hinge die Meldung an dem, was jemand aufgeschrieben hat, und
+        /// nicht an dem, was geschehen ist: Alice bekäme die Abmeldung eines
+        /// Abonnements, das sie weiterhin hat.
+        /// </remarks>
+        [Test]
+        public async Task AnUnsuccessfulRemoval_AnnouncesNothing()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-25");
+
+            var ereignisse = CollectEvents(alice);
+
+            var abgewiesen = await AskAsync(bob, "subm-27",
+                                            NodeSubscriptionsIq("subm-27", "set",
+                                                                SubscriberEntry(alice.BareJid, "none", "gibtesnicht")));
+
+            await WaitAgainst(() => EndingsIn(ereignisse).Count > 0,
+                              "eine Abmeldung ohne beendetes Abonnement");
+
+            Assert.That(ConditionOf(abgewiesen), Is.EqualTo("item-not-found"));
+
+        }
+
+        #endregion
+
+        #region WhoUnsubscribesHimself_IsNotTold()
+
+        /// <summary>
+        /// Wer selbst abbestellt, bekommt keine Abmeldung.
+        /// </summary>
+        /// <remarks>
+        /// Er hat die Antwort schon: das <c>result</c> auf sein eigenes
+        /// <c>unsubscribe</c>. Eine zweite Auskunft darüber wäre keine
+        /// Nachricht, sondern ein Echo.
+        /// </remarks>
+        [Test]
+        public async Task WhoUnsubscribesHimself_IsNotTold()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-26");
+
+            var ereignisse = CollectEvents(alice);
+
+            var antwort = await AskAsync(alice, "unsub-20",
+                                         PubSubBuilder.Unsubscribe($"bob@{Server.Domain}",
+                                                                   Node,
+                                                                   alice.BareJid,
+                                                                   "unsub-20"));
+
+            await WaitAgainst(() => EndingsIn(ereignisse).Count > 0,
+                              "eine Abmeldung an den, der selbst abbestellt hat");
+
+            Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region TheAccountApi_NamesWhatTheBanCostHim()
+
+        /// <summary>
+        /// Wer die Rolle setzt, erfährt dabei, welche Abonnements sie beendet
+        /// hat.
+        /// </summary>
+        /// <remarks>
+        /// Die Auskunft gehört dorthin, wo entfernt wird. Sie sich vorher
+        /// selbst zusammenzusuchen hiesse, dieselbe Frage zweimal zu
+        /// beantworten - und die zweite Antwort wäre die ungenauere, weil
+        /// zwischen Nachsehen und Setzen etwas dazwischenkommen kann.
+        /// </remarks>
+        [Test]
+        public async Task TheAccountApi_NamesWhatTheBanCostHim()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+            var subId = await SubscribeAsync(alice, "abo-27");
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+
+                // Zuerst eine Rolle, die nichts beendet - an derselben
+                // Abonnentin. Sonst bewiese die leere Liste nur, dass Carol
+                // ohnehin nichts hatte.
+                Assert.That(konto.SetPepAffiliation(Node, alice.BareJid,
+                                                    PubSubAffiliation.Member, out var keine),
+                            Is.True);
+
+                Assert.That(keine, Is.Empty,
+                            "Jede andere Rolle beendet nichts.");
+
+                Assert.That(konto.PepSubscriptions(Node).Select(a => a.SubId),
+                            Is.EqualTo(new[] { subId }),
+                            "Und lässt das Abonnement stehen.");
+
+                Assert.That(konto.SetPepAffiliation(Node, alice.BareJid,
+                                                    PubSubAffiliation.Outcast, out var erloschen),
+                            Is.True);
+
+                Assert.That(erloschen.Select(a => a.SubId), Is.EqualTo(new[] { subId }));
 
             });
 

@@ -762,7 +762,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// mehreren.
         /// </remarks>
         public Boolean SetPepAffiliation(String node, String bareJid, PubSubAffiliation affiliation)
+
+            => SetPepAffiliation(node, bareJid, affiliation, out _);
+
+        /// <summary>
+        /// Dasselbe, und nennt die Abonnements, die dabei erloschen sind.
+        /// </summary>
+        /// <param name="endedSubscriptions">
+        /// Was der Ausschluss beendet hat - leer bei jeder anderen Rolle.
+        /// </param>
+        /// <remarks>
+        /// <b>Warum die Auskunft hierher gehört und nicht zum Aufrufer.</b> Wer
+        /// den Betroffenen benachrichtigen will, muss wissen, welche Kennungen
+        /// erloschen sind. Sie sich vorher selbst zusammenzusuchen hiesse,
+        /// dieselbe Frage ein zweites Mal zu beantworten - und die zweite
+        /// Antwort wäre die ungenauere, weil zwischen Nachsehen und Setzen
+        /// etwas dazwischenkommen kann.
+        /// </remarks>
+        public Boolean SetPepAffiliation(String                            node,
+                                         String                            bareJid,
+                                         PubSubAffiliation                 affiliation,
+                                         out IReadOnlyList<PepSubscription>  endedSubscriptions)
         {
+
+            endedSubscriptions = [];
 
             if (String.Equals(BareJid, bareJid, StringComparison.OrdinalIgnoreCase) ||
                 affiliation == PubSubAffiliation.Owner)
@@ -802,16 +825,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 // seine Abonnements. Ihn nur an neuen zu hindern hiesse, den
                 // Ausschluss von dem Zufall abhängig zu machen, ob er vorher
                 // schon da war.
-                if (affiliation == PubSubAffiliation.Outcast &&
-                    _pepSubscriptions.TryGetValue(node, out var abonnements))
-                {
-
-                    abonnements.RemoveAll(a => String.Equals(a.Jid, bareJid, StringComparison.OrdinalIgnoreCase));
-
-                    if (abonnements.Count == 0)
-                        _pepSubscriptions.Remove(node);
-
-                }
+                //
+                // Über denselben Weg wie die Anweisung des Eigentümers
+                // (Abschnitt 8.8.2): Zwei Stellen, die Abonnements beenden,
+                // beenden sie irgendwann verschieden.
+                if (affiliation == PubSubAffiliation.Outcast)
+                    endedSubscriptions = RemovePepSubscriptions(node, bareJid);
 
                 return true;
 
