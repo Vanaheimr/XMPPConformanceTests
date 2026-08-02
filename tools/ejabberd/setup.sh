@@ -301,15 +301,15 @@ $TEST_USER@$PEER_DOMAIN und $TEST_USER2@$PEER_DOMAIN, Passwort $TEST_PASSWORD.
 Ausgehender Lauf, von Windows aus:
 
     \$env:JABBER_EJABBERD_CERTS = '\\\\wsl.localhost\\Debian$PREFIX/certs'
-    dotnet test Jabber.Tests\\Jabber.Tests.csproj --filter FullyQualifiedName~EjabberdFederationTests
+    dotnet test libs\\Ratatoskr\\RatatoskrTests\\RatatoskrTests.csproj --filter FullyQualifiedName~EjabberdFederationTests
 
 Eingehender Lauf - der muss *in* WSL laufen, weil ejabberd uns sonst nicht
 erreicht: die Hyper-V-Firewall verwirft jede Verbindung von WSL zum
 Windows-Host. Innerhalb von WSL ist alles Rueckschleife:
 
     JABBER_EJABBERD_CERTS=$PREFIX/certs \\
-    dotnet test /mnt/c/.../Jabber.Tests/Jabber.Tests.csproj \\
-        --artifacts-path /tmp/jabber-artifacts \\
+    dotnet test /mnt/c/.../libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj \\
+        --artifacts-path /tmp/ratatoskr-artifacts \\
         --filter FullyQualifiedName~EjabberdFederationTests
 
 Log:      $PREFIX/logs/ejabberd.log

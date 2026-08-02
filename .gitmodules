@@ -4,3 +4,6 @@
 [submodule "libs/Hermod"]
 	path = libs/Hermod
 	url = ssh://git@git.graphdefined.com:5001/Vanaheimr/Hermod.git
+[submodule "libs/Ratatoskr"]
+	path = libs/Ratatoskr
+	url = ssh://git@git.graphdefined.com:5001/Vanaheimr/Ratatoskr.git

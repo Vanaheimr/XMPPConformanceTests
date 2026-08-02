@@ -6608,6 +6608,87 @@ zu schreiben, und der Umzug nach `HermodTests` steht noch aus.
 
 Voller Lauf: 1141 bestanden, 7 übersprungen.
 
+### D97. Das Protokoll zieht aus ✅ — Ratatoskr
+
+Der Umzug selbst kam von aussen: Client, Server, XEPs und die Testsammlung
+liegen jetzt in **Ratatoskr**, einem eigenen Repository unter `libs/`, mit dem
+Namensraum `org.GraphDefined.Vanaheimr.Ratatoskr`. Hier bleiben die Konsole,
+ihre Tests und die beiden fremden Gegenstellen in `tools/`.
+
+Dieser Eintrag handelt von dem, was so ein Umzug hinter sich herzieht. **Vier
+Dinge waren danach kaputt, und drei davon hätten sich nicht von selbst
+gemeldet.**
+
+**Der Übersetzer meldete zwei Zeilen, gemeint waren vier.** `IPPort`,
+`IPv4Address` und `IPSocket` kommen von Hermod, und niemand hatte je ein
+`using` dafür geschrieben — der Namensraum lag *unterhalb* von Hermod, die
+Typen kamen über die Verschachtelung herein. Zwei Dateien in der Bibliothek,
+zwei in den Föderationstests. Das ist die freundliche Sorte Fehler: Sie steht
+im Bauprotokoll.
+
+**Mit derselben Verschachtelung ist eine Begründung verfallen.** Am Alias
+`using IPAddress = System.Net.IPAddress;` stand, er müsse im Rumpf der
+Namespace-Deklaration stehen, weil ein Namespace-Member gegen einen Alias der
+Compilation Unit gewinnt. Das stimmte, solange der Namensraum unter Hermod lag.
+Jetzt kommt Hermods `IPAddress` nur noch über eine `using`-Direktive, und gegen
+die gewinnt der Alias — er steht deshalb wieder oben bei den anderen. Der
+Kommentar sagt jetzt beides: warum es den Alias braucht, und warum er nicht
+mehr in den Rumpf muss.
+
+**Drei Tests haben sich seither stillschweigend übersprungen.** Das
+OMEMO-Orakel wurde gesucht, indem von der Ausgabe aus nach oben gelaufen wurde,
+bis `WORKPLAN.md` dalag — und von dort aus unter
+`Jabber.Tests/XMPP/XEPs/Orakel/`. Beide Marken gehören dem Programm und nicht
+der Bibliothek, und beide waren nach dem Umzug falsch. Die Meldung dazu lautete
+**„Das Orakel ist nicht erreichbar (python-omemo in WSL …)"** — sie klingt nach
+fehlender Referenzimplementierung und nicht nach einem falschen Pfad. Das ist
+genau der Unterschied zwischen **7 und 10 Übersprungenen**, also zwischen „die
+Gegenstelle stand bereit" und „die Gegenstelle wurde nie gefragt".
+
+Gesucht wird jetzt nach dem Skript selbst, und **fehlt es, ist der Lauf rot und
+nicht übersprungen**: Das Orakel liegt in demselben Projekt wie die Tests, ein
+fehlendes ist also ein kaputter Checkout. Übersprungen wird nur noch, was
+wirklich an der Umgebung liegt.
+
+**Drei Erzeugerskripte schrieben ins Leere.** `tools/unicode/` und
+`tools/stringprep/` holen die Unicode-Datei beziehungsweise RFC 3454 und
+schreiben daraus `Common/BidiClasses.cs`, `Common/ContextTables.cs` und
+`Auth/StringPrepTables.cs`. Ihr Ziel stand als `parents[2] / "Jabber" / …` im
+Quelltext. Beim nächsten Unicode-Wechsel hätten sie ein frisches
+`Jabber/Common/BidiClasses.cs` neben die Konsole gelegt, „fertig" gemeldet, und
+die Tabelle, die tatsächlich übersetzt wird, wäre die alte geblieben. Sie sind
+mit ihrem Erzeugnis nach `libs/Ratatoskr/tools/` gezogen.
+
+**Und zwei Abhängigkeiten standen am falschen Ort — beide funktionierten
+trotzdem.** BouncyCastle stand in `Jabber.csproj`, wo seit dem Umzug kein OMEMO
+mehr liegt; in `Ratatoskr.csproj` stand weder es noch
+`Microsoft.Extensions.Logging`. Übersetzt hat es dennoch, weil Hermod beide
+mitbringt. Genau davor warnte der Kommentar, der über dem Paket stand: *wer
+eine transitive Abhängigkeit direkt benutzt, verliert sie in dem Augenblick, in
+dem der Vorbesitzer sie ablegt.* Der Kommentar ist mitgewandert, das Paket
+auch; dieselbe Begründung steht jetzt am ausdrücklichen `ProjectReference` der
+Föderationstests auf Hermod.
+
+**Ein Provisorium hat sich erledigt.** In `Jabber.csproj` standen zwei
+`InternalsVisibleTo`-Namen — der zweite „für den Fall, dass die Tests später
+nach `HermodTests` wandern". Sie sind gewandert, nur woandershin. Jetzt steht
+einer, in `Ratatoskr.csproj`, und er nennt die Assembly, die es gibt.
+
+**Das README ist geteilt, nicht verschoben.** Das grosse bleibt hier: Es
+beschreibt beides zusammen, weil beides zusammen entstanden ist und die
+Entscheidungen dahinter in diesem Arbeitsplan stehen. Ratatoskr bekommt daraus
+den Auszug für den, der die Bibliothek ohne diese Konsole benutzt — XEPs,
+RFC-Konformität, Server, Testvektoren, OMEMO. **Was den Prüfungen gegen fremde
+Gegenstellen gilt, bleibt hier**, denn hier liegen die Aufbauten. Nachgezogen
+sind ausserdem die Pfade in beiden `setup.sh`, die noch auf `Jabber.Tests`
+zeigten.
+
+**Keine Mutationen für diesen Schritt.** Es gibt keinen neuen Produktivcode —
+bis auf die eine Zeile, die entscheidet, wo das Orakel gesucht wird, und die
+ist dadurch belegt, dass drei Tests wieder laufen statt sich zu überspringen.
+
+Voller Lauf: 1133 bestanden, 7 übersprungen; dazu 8 für die Konsole.
+
 ---
 
 ## Später
@@ -6662,7 +6743,7 @@ Voller Lauf: 1141 bestanden, 7 übersprungen.
   durch, und die Frist von 15 Sekunden lag nur 5,7 Sekunden über den 9,3, die
   der Client allein mit Warten verbringen darf
 
-### Server (`Jabber/Server/`)
+### Server (`libs/Ratatoskr/Ratatoskr/Server/`)
 Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
 Was dort nicht auftauchte und trotzdem anstand, ist in D49 bis D53
 abgearbeitet: `<resume/>` beantworten (war seit R1 erledigt, offen blieb das
@@ -6671,9 +6752,14 @@ das unbekannte Konto — D50) und Stanza-Fehler ohne Schalter (D51 bis D53).
 **Hier steht derzeit nichts offen.**
 
 ### Struktur
-- `Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst aufgeschoben;
-  Namespaces, Ordnerschnitt und der doppelte `InternalsVisibleTo`-Eintrag in
-  `Jabber.csproj` sind bereits darauf ausgelegt, dass das eine Kopie wird.
+- ~~`Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst
+  aufgeschoben; Namespaces, Ordnerschnitt und der doppelte
+  `InternalsVisibleTo`-Eintrag in `Jabber.csproj` sind bereits darauf ausgelegt,
+  dass das eine Kopie wird.~~ ✅ erledigt in D97 — nur anders als geplant: Nicht
+  die Testsammlung ist zu Hermod gewandert, sondern das ganze Protokoll in eine
+  eigene Bibliothek (**Ratatoskr**), und die Tests mit ihm. Die Vorarbeit hat
+  trotzdem getragen: Ordnerschnitt und Namensraum liessen sich unverändert
+  übernehmen. Der doppelte `InternalsVisibleTo` ist damit einer geworden.
 - ~~Konsolen-UI und Logger trennen: der Standard-Konsolenlogger schreibt in
   dieselbe Konsole wie die Eingabezeile und zerlegt den Prompt. Ein eigener
   `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.~~

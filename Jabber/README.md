@@ -12,6 +12,15 @@ SCRAM-Authentifizierung.
 > [Bekannte Einschränkungen](#bekannte-einschränkungen)). Nicht für den
 > Produktivbetrieb.
 
+Das Protokoll selbst — Client, Server, XEPs, Föderation, OMEMO — liegt seit D97
+in **[Ratatoskr](../libs/Ratatoskr/README.md)**, einer eigenen Bibliothek unter
+`libs/`. Dieses Dokument beschreibt beides weiter zusammen, weil beides
+zusammen entstanden ist und die Entscheidungen dahinter im
+[Arbeitsplan](../WORKPLAN.md) stehen; das README von Ratatoskr ist der Auszug
+für den, der die Bibliothek ohne diese Konsole benutzt. **Hier** stehen
+ausserdem die Dinge, die es dort nicht gibt: die Konsole selbst und der Aufbau
+der Interoperabilitätsprüfungen gegen Prosody, ejabberd und python-omemo.
+
 ## Authentifizierung
 
 | Methode | Status |
@@ -168,7 +177,8 @@ Trägt ein einziges Label rechtsläufige Zeichen, ist der ganze Name ein
 *Bidi domain name* (RFC 5893 §2), und dann müssen **alle** Labels die sechs
 Bedingungen erfüllen — auch die aus reinem ASCII. `9abc.example` ist deshalb ein
 gültiger Domainname und `9abc.אבג` keiner. Die Bidi-Klassen stehen in
-`Jabber/Common/BidiClasses.cs`, erzeugt von `tools/unicode/generate-bidiclass.py`
+`libs/Ratatoskr/Ratatoskr/Common/BidiClasses.cs`, erzeugt von
+`libs/Ratatoskr/tools/unicode/generate-bidiclass.py`
 aus `DerivedBidiClass.txt`.
 
 Die kontextabhängigen Regeln aus RFC 5892 Anhang A sind vollständig umgesetzt —
@@ -176,8 +186,8 @@ für Localparts wie für Domain-Labels. Sie hängen nicht am Codepoint, sondern 
 seiner Umgebung: `col·la` ist ein katalanisches Wort und ein gültiger Localpart,
 `co·lla` ist keiner. Die dafür nötigen Eigenschaften
 (`Canonical_Combining_Class`, `Joining_Type`, `Script`) stehen in
-`Jabber/Common/ContextTables.cs`, erzeugt von
-`tools/unicode/generate-contexttables.py`.
+`libs/Ratatoskr/Ratatoskr/Common/ContextTables.cs`, erzeugt von
+`libs/Ratatoskr/tools/unicode/generate-contexttables.py`.
 
 **Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
 (`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird
@@ -439,7 +449,7 @@ unwohlgeformten Rahmen umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
 
 ```csharp
 using Microsoft.Extensions.Logging;
-using org.GraphDefined.Vanaheimr.Hermod.XMPP;
+using org.GraphDefined.Vanaheimr.Ratatoskr;
 
 using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
 
@@ -468,88 +478,94 @@ abgewehrte Spoofing-Versuche und Protokollauffälligkeiten.
 
 ## Projektstruktur
 
-Namespace ist durchgehend flach `org.GraphDefined.Vanaheimr.Hermod.XMPP`
-(wie `Hermod.DNS` und `Hermod.HTTP`); die Ordner gliedern nur.
-Eine Datei pro Typ:
+**Das Protokoll liegt seit D97 nicht mehr hier**, sondern in
+[Ratatoskr](../libs/Ratatoskr/README.md) — einem eigenen Repository unter
+`libs/`, damit es sich ohne diese Konsole benutzen laesst. Hier bleibt, was
+Benutzeroberflaeche ist, und der Aufbau fuer die Pruefungen gegen fremde Server.
+
+Namespace ist durchgehend flach `org.GraphDefined.Vanaheimr.Ratatoskr` (wie
+`Hermod.DNS` und `Hermod.HTTP`); die Ordner gliedern nur. Eine Datei pro Typ:
 
 ```
-Jabber/
-├── Program.cs                            Konsolen-Frontend
-├── Client/
-│   ├── XMPPClient.cs                     Anwendungsnaher Client
-│   └── XMPPMessage.cs                    Empfangene Chat-Nachricht
-├── Common/
-│   ├── JidUtilities.cs                   Bare-JID-Ermittlung
-│   └── XmlEscaping.cs                    XML-Escaping
-├── Auth/
-│   ├── AuthenticationException.cs
-│   ├── SCRAMAuthenticator.cs             RFC 5802 / RFC 7677
-│   └── SCRAMMechanism.cs
-├── Connection/
-│   ├── ConnectionState.cs
-│   └── XMPPConnection.cs                 WebSocket-I/O, Auth-Ablauf, Stanza-Routing
-├── Rosters/
-│   ├── PresenceState.cs
-│   ├── Roster.cs                         Kontaktverwaltung
-│   ├── RosterItem.cs
-│   ├── RosterStanzaBuilder.cs
-│   └── SubscriptionState.cs
-└── XEPs/
-    ├── XEP0030ServiceDiscovery/          DiscoManager, DiscoInfo, DiscoItems,
-    │                                     DiscoIdentity, DiscoItem
-    ├── XEP0060PubSub/                    PubSubManager, PubSubBuilder,
-    │                                     PubSubEvent, PubSubEventType, PubSubItem
-    ├── XEP0085ChatStates/                ChatState, ChatStateExtensions
-    ├── XEP0115EntityCapabilities/        EntityCapsManager
-    ├── XEP0184MessageReceipts/           ReceiptTracker, ReceiptBuilder,
-    │                                     MessageReceipt, PendingReceipt
-    ├── XEP0198StreamManagement/          StreamManagementManager
-    ├── XEP0199Ping/                      PingManager
-    ├── XEP0280MessageCarbons/            CarbonManager, CarbonMessage, CarbonResult
-    └── XEP0333ChatMarkers/               ChatMarkers, ChatMarker, ChatMarkerType
+Jabber/                                  die Konsole
+├── Program.cs                           Kommandozeile, Weiche, Darstellung
+└── ConsoleUI/
+    ├── ConsoleOutput.cs                 Eine Sperre, eine Zeile, eine Ausgabe
+    └── ConsoleOutputLoggerProvider.cs   Das Protokoll durch dieselbe Sperre
 
-Server/                                   XMPPServer, XMPPSession,
-   (Namespace …Hermod.XMPP.Server)        XMPPAccount, RosterEntry
+tools/                                   die fremden Gegenstellen
+├── prosody/setup.sh                     Prosody 13 rootless in WSL
+└── ejabberd/setup.sh                    ejabberd 24.12 rootless in WSL
+
+libs/Ratatoskr/Ratatoskr/                das Protokoll
+├── Client/       XMPPClient, XMPPMessage, MessageType
+├── Common/       JIDs (RFC 7622), PRECIS, IDNA, Punycode, Bidi-Klassen,
+│                 Stanza-Namen und -Namensraeume, XML-Escaping
+├── Auth/         SCRAM (RFC 5802/7677), SASLprep, Mechanismus-Politik
+├── Connection/   XMPPConnection: WebSocket-I/O, Aushandlung, Stanza-Routing
+├── Errors/       Stanza- und Stream-Fehler
+├── Rosters/      Roster, Subscription-Zustaende, Stanza-Bau
+├── Server/       XMPPServer, XMPPSession, S2S, Konten, PEP
+└── XEPs/         Ein Ordner je XEP, benannt nach ihrer Nummer
+
+libs/Ratatoskr/tools/                    erzeugte Tabellen
+├── unicode/      Bidi-Klassen und die Kontexttabellen aus RFC 5892 Anhang A
+└── stringprep/   die StringPrep-Tabellen aus RFC 3454
 ```
 
 Die XEP-Manager bekommen ihre Sende-Funktion als `Func<string, Task>` injiziert
-und kennen den Transport nicht — sie sind damit unabhängig von
-`XMPPConnection` testbar.
+und kennen den Transport nicht — sie sind damit unabhaengig von
+`XMPPConnection` testbar. Der vollstaendige Baum steht im
+[README von Ratatoskr](../libs/Ratatoskr/README.md#projektstruktur).
 
 ## Tests
 
 ```bash
+# Die Konsolenausgabe - acht Tests
 dotnet test ../Jabber.Tests/Jabber.Tests.csproj
+
+# Das Protokoll - der grosse Teil
+dotnet test ../libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj
 ```
 
-Die Suite liegt in `Jabber.Tests/XMPP/` und nutzt NUnit in denselben Versionen
-wie `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter 6.2.0, Test.Sdk 18.8.1).
-Namespaces und Ordnerschnitt entsprechen `HermodTests`, damit sich der Inhalt
-von `XMPP/` später unverändert dorthin verschieben lässt.
-
-Die Fixtures sind nach Themen gegliedert; der Namespace bleibt dabei flach
-`org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP`, die Ordner gliedern nur:
+NUnit in denselben Versionen wie `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter
+6.2.0, Test.Sdk 18.8.1). Die Fixtures sind nach Themen gegliedert; der Namespace
+bleibt dabei flach `org.GraphDefined.Vanaheimr.Ratatoskr.Tests`, die Ordner
+gliedern nur:
 
 ```
-Jabber.Tests/XMPP/
+libs/Ratatoskr/RatatoskrTests/
 ├── Infrastructure/     Basisklasse aller Fixtures, Wache gegen interne Fehler
-├── Common/             JIDs, Stanza-Namen, Namensräume, IQ-Typen, XML-Splitter
+├── Common/             JIDs, Stanza-Namen, Namensraeume, IQ-Typen, XML-Splitter
 ├── Auth/               SASL/SCRAM, Mechanismus-Politik, Konten und Zertifikate
 ├── Streams/            Aushandlung, Binding, TLS, Fristen, Wiederverbindung
-├── StreamManagement/   XEP-0198: Zählen, Bestätigen, Wiederaufnehmen
+├── StreamManagement/   XEP-0198: Zaehlen, Bestaetigen, Wiederaufnehmen
 ├── Federation/         S2S: Dialback, SRV, TCP/WebSocket, fremde Server
 ├── Routing/            Zustellregeln, mehrere Resourcen, Offline-Ablage
 ├── Rosters/            Roster, Subscriptions, Versionierung, Push-Sicherheit
 ├── Stanzas/            Aufbau, Parsen und Fehler einzelner Stanzas
-└── XEPs/               XEP-0115 Caps und die Nutzlasten der übrigen XEPs
+└── XEPs/               XEP-0115 Caps und die Nutzlasten der uebrigen XEPs
 ```
+
+`Jabber.Tests` prueft nur noch die Konsolenausgabe — dass sie die Eingabezeile
+heil laesst, fuer Ereignisse **und** fuer das Protokoll. Die Kommandos selbst
+haben keine Tests.
+
+**Die Zahl der uebersprungenen Tests ist die Gesundheitspruefung des Laufs.**
+Steht sie auf **7**, standen Prosody, ejabberd und das OMEMO-Orakel bereit; jede
+hoehere Zahl heisst, dass etwas gar nicht erst geprueft wurde. Die sieben, die
+auch im guten Fall stehen bleiben, sind keine Versaeumnisse, sondern eine Grenze
+der Umgebung: sechs brauchen den **eingehenden** Weg, den die Hyper-V-Firewall
+von WSL zum Windows-Host verwirft (siehe unten), und einer gilt nur im
+STARTTLS-Betrieb.
 
 ### XMPPServer
 
-`Jabber/Server/` enthält einen echten XMPP-over-WebSocket-Server (RFC 7395).
-Er liegt bewusst im Hauptprojekt und nicht im Testprojekt, damit er beim Umzug
-nach Hermod mitwandert; sein Namespace ist `…Hermod.XMPP.Server`. Er reicht so
-weit, dass sich mehrere echte `XMPPClient`-Instanzen gleichzeitig anmelden und
+`libs/Ratatoskr/Ratatoskr/Server/` enthält einen echten XMPP-Server: über
+WebSocket (RFC 7395) zu Clients, über TCP (RFC 6120) zu anderen Servern. Er lag
+bis D97 im Hauptprojekt, damit er beim Umzug in eine Bibliothek mitwandert —
+dieser Umzug ist erfolgt, und sein Namespace ist jetzt `…Ratatoskr.Server`. Er
+reicht so weit, dass sich mehrere echte `XMPPClient`-Instanzen gleichzeitig anmelden und
 miteinander sprechen:
 
 - TLS: `wss://` mit einem selbst signierten Zertifikat, das der Konstruktor
@@ -887,7 +903,9 @@ Server-Implementierung:
 - **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
   sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
   SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide
-  Aufbauten stehen in `tools/`; die Tests überspringen sich ohne sie. Was der
+  Aufbauten stehen in `tools/`, die Tests dazu in
+  `libs/Ratatoskr/RatatoskrTests/Federation/`; ohne die Server überspringen
+  sie sich. Was der
   zweite Server zutage förderte, stand im ersten Lauf nicht: ejabberd kündigt
   Bidi im Namensraum des Freischalt-Elements an, und wir übersahen das Angebot
   darum. Ein dritter Server fände vermutlich ein Drittes.
@@ -940,8 +958,8 @@ nicht gegen sich selbst:
 | RFC 4013 §3 | SASLprep-Beispieltabelle, alle sieben Zeilen | ✅ exakt reproduziert |
 | RFC 7622 §3.5 | JID-Beispieltabellen: 15 gültige, 8 ungültige Adressen | ✅ reproduziert (Ausnahme: Beispiel 18, siehe oben) |
 | RFC 3492 §7.1 | Punycode: elf Beispiele in acht Schriften | ✅ exakt reproduziert, in beide Richtungen |
-| RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
-| Unicode `DerivedBidiClass.txt` | Die Bidi-Klassen für RFC 5893 | ✅ von `tools/unicode/generate-bidiclass.py` aus der Unicode-Datei erzeugt (15.1.0, 764 Bereiche) |
+| RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `libs/Ratatoskr/tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
+| Unicode `DerivedBidiClass.txt` | Die Bidi-Klassen für RFC 5893 | ✅ von `libs/Ratatoskr/tools/unicode/generate-bidiclass.py` aus der Unicode-Datei erzeugt (15.1.0, 764 Bereiche) |
 | XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
 
 Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
@@ -981,7 +999,7 @@ Einfügereihenfolge stehenblieb. Der `xml:lang`-Platz bleibt leer, weil
 Zum Festnageln des Client-Nonce trägt `SCRAMAuthenticator` eine
 `internal`-Eigenschaft `FixedClientNonce`; ohne sie liessen sich AuthMessage
 und Proof nicht reproduzieren. Sichtbar gemacht wird sie über
-`InternalsVisibleTo` in `Jabber.csproj` — für beide möglichen Testassembly-Namen.
+`InternalsVisibleTo` in `Ratatoskr.csproj`.
 
 ## Bekannte Einschränkungen
 
@@ -1076,7 +1094,7 @@ Sitzungsspeicher und die Verdrahtung.
   `<encrypted/>`-Element, die PEP-Knoten und der Verlauf eines Gesprächs über
   mehrere Nachrichten — und ein echter Client über eine echte Verbindung
   ohnehin nicht: Conversations, Dino und Gajim sprechen überwiegend noch OMEMO
-  0.3.0. Siehe [Jabber.Tests/XMPP/XEPs/Orakel](../Jabber.Tests/XMPP/XEPs/Orakel/README.md)
+  0.3.0. Siehe [das Orakel](../libs/Ratatoskr/RatatoskrTests/XEPs/Orakel/README.md)
 - **Der Sitzungsspeicher ist nicht verschlüsselt.** Er enthält den geheimen
   IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer die Datei liest,
   liest die Gespräche mit. Sie gehört an einen Ort, an den nur dieser Benutzer

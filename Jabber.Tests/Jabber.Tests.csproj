@@ -5,13 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!--
-      RootNamespace bewusst wie in HermodTests: Der Inhalt von XMPP/ soll sich
-      spaeter unveraendert nach HermodTests/XMPP/ kopieren lassen. Der
-      AssemblyName bleibt eigenstaendig, damit beide Suiten nebeneinander
-      existieren koennen.
+      Was hier liegt, gehoert der Konsole - alles andere ist mit dem Protokoll
+      nach Ratatoskr gezogen. Der RootNamespace folgt deshalb Ratatoskr, der
+      AssemblyName bleibt eigenstaendig: Zwei Suiten mit demselben Namen waeren
+      dieselbe Datei.
     -->
-    <RootNamespace>org.GraphDefined.Vanaheimr.Hermod.Tests</RootNamespace>
-    <AssemblyName>org.GraphDefined.Vanaheimr.Hermod.XMPP.Tests</AssemblyName>
+    <RootNamespace>org.GraphDefined.Vanaheimr.Ratatoskr.Tests</RootNamespace>
+    <AssemblyName>org.GraphDefined.Vanaheimr.Ratatoskr.Jabber.Tests</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

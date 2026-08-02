@@ -274,7 +274,7 @@ $TEST_USER@$PEER_DOMAIN und $TEST_USER2@$PEER_DOMAIN, Passwort $TEST_PASSWORD.
 Ausgehender Lauf, von Windows aus:
 
     \$env:JABBER_PROSODY_CERTS = '\\\\wsl.localhost\\Debian$PREFIX/certs'
-    dotnet test Jabber.Tests\\Jabber.Tests.csproj --filter FullyQualifiedName~ProsodyFederationTests
+    dotnet test libs\\Ratatoskr\\RatatoskrTests\\RatatoskrTests.csproj --filter FullyQualifiedName~ProsodyFederationTests
 
 Eingehender Lauf (P4) - der muss *in* WSL laufen, weil Prosody uns sonst
 nicht erreicht: die Hyper-V-Firewall verwirft jede Verbindung von WSL zum
@@ -282,8 +282,8 @@ Windows-Host, und daran ist nichts zu deuteln, ohne eine Firewall-Regel zu
 setzen. Innerhalb von WSL ist alles Loopback:
 
     JABBER_PROSODY_CERTS=$PREFIX/certs \\
-    dotnet test /mnt/c/.../Jabber.Tests/Jabber.Tests.csproj \\
-        --artifacts-path /tmp/jabber-artifacts \\
+    dotnet test /mnt/c/.../libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj \\
+        --artifacts-path /tmp/ratatoskr-artifacts \\
         --filter FullyQualifiedName~ProsodyFederationTests
 
 Log:      $PREFIX/prosody.log

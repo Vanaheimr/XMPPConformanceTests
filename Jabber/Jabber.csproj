@@ -5,35 +5,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>org.GraphDefined.Vanaheimr.Hermod.XMPP</RootNamespace>
+    <RootNamespace>org.GraphDefined.Vanaheimr.Ratatoskr</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Nur noch das Protokoll der Ausgabe: Die Konsole schreibt selbst und
+      braucht dafuer einen Logger. BouncyCastle stand hier, solange OMEMO hier
+      lag - das tut es seit D97 nicht mehr, und ein Paket, das niemand mehr
+      benutzt, ist eine Behauptung ueber eine Abhaengigkeit, die es nicht gibt.
+    -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.9" />
-
-    <!--
-      OMEMO (XEP-0384) braucht X25519 und Ed25519. Die BCL hat beides nicht -
-      in System.Security.Cryptography.dll von .NET 10 kommt "X25519" kein
-      einziges Mal vor -, und Kurvenarithmetik von Hand ist der eine Ort, an
-      dem ein Fehler nicht auffaellt und alles kostet.
-
-      Ausdruecklich aufgefuehrt, obwohl Hermod dasselbe Paket schon mitbringt:
-      Wer eine transitive Abhaengigkeit direkt benutzt, verliert sie in dem
-      Augenblick, in dem der Vorbesitzer sie ablegt.
-    -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Der Testserver benutzt Hermods WebSocket-Server samt TLS, statt WebSocket-Framing selbst zu schreiben. -->
-    <ProjectReference Include="..\libs\Hermod\Hermod\Hermod.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- Zweiter Name fuer den Fall, dass die Tests spaeter nach HermodTests wandern. -->
-    <InternalsVisibleTo Include="org.GraphDefined.Vanaheimr.Hermod.XMPP.Tests" />
-    <InternalsVisibleTo Include="org.GraphDefined.Vanaheimr.Hermod.Tests" />
+    <ProjectReference Include="..\libs\Ratatoskr\Ratatoskr\Ratatoskr.csproj" />
   </ItemGroup>
 
 </Project>
