@@ -146,7 +146,13 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                        Append(e.Name).        Append('\u001F').
                        Append(e.Subscription).Append('\u001F').
                        Append(e.Ask).         Append('\u001F').
-                       Append(e.Approved).    Append('\u001E');
+                       Append(e.Approved).    Append('\u001F').
+                       // Die Gruppen gehören dazu, sonst bliebe die Fassung
+                       // nach einem Umgruppieren dieselbe - und ein Client, der
+                       // sie zwischengespeichert hat, holte den Roster nie
+                       // wieder und behielte die alte Einteilung.
+                       AppendJoin('\u001F', e.Groups.OrderBy(g => g, StringComparer.Ordinal)).
+                       Append('\u001E');
 
                 return Convert.ToBase64String(
                            SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))

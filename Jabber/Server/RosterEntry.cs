@@ -43,10 +43,32 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     /// <see cref="XMPPAccount.PendingSubscriptionRequests"/> - und dort
     /// vollständig, samt erweitertem Inhalt, statt als blosses Ja/Nein.
     /// </remarks>
-    public sealed record RosterEntry(String   Jid,
-                                         String?  Name          = null,
-                                         String   Subscription  = "both",
-                                         String?  Ask           = null,
-                                         Boolean  Approved      = false);
+    /// <param name="Groups">
+    /// Die Gruppen, in die der Eigentümer diesen Kontakt gesteckt hat (RFC
+    /// 6121, Abschnitt 2.1.2.4).
+    /// </param>
+    /// <remarks>
+    /// <b>Die Gruppen fehlten hier bis D91</b>, und der Kommentar in der
+    /// Roster-Behandlung behauptete seit jeher, ein Set ändere „Name und
+    /// Gruppen". Gelesen wurden sie nie: Ein Client schickte eine Gruppe, bekam
+    /// ein <c>result</c> und im Push denselben Eintrag ohne sie zurück - womit
+    /// sie auch bei ihm verschwand, denn ein Push ersetzt die Gruppen eines
+    /// Eintrags vollständig.
+    /// </remarks>
+    public sealed record RosterEntry(String                 Jid,
+                                     String?                Name          = null,
+                                     String                 Subscription  = "both",
+                                     String?                Ask           = null,
+                                     Boolean                Approved      = false,
+                                     IReadOnlyList<String>? Groups        = null)
+    {
+
+        /// <summary>
+        /// Die Gruppen, nie null - „keine Gruppe" ist eine leere Liste und
+        /// nichts Fehlendes.
+        /// </summary>
+        public IReadOnlyList<String> Groups { get; init; } = Groups ?? [];
+
+    }
 
 }

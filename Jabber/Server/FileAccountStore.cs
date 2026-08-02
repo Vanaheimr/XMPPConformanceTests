@@ -192,7 +192,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                         Convert.ToBase64String(credentials.KeysOf(m).ServerKey)))),
 
                        [.. account.Roster.Select(e => new GespeicherterKontakt(e.Jid, e.Name, e.Subscription,
-                                                                              e.Ask, e.Approved))],
+                                                                              e.Ask, e.Approved,
+                                                                              e.Groups.Count > 0
+                                                                                  ? [.. e.Groups]
+                                                                                  : null))],
 
                        account.PendingSubscriptionRequests.Count > 0
                            ? new Dictionary<String, String>(account.PendingSubscriptionRequests)
@@ -224,7 +227,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                                        kontakt.Name,
                                                        kontakt.Subscription,
                                                        kontakt.Ask,
-                                                       kontakt.Approved));
+                                                       kontakt.Approved,
+                                                       kontakt.Groups));
 
             // RFC 6121, Abschnitt 3.1.3: eine aufbewahrte Anfrage soll
             // zugestellt werden, sobald der Kontakt sich das nächste Mal
@@ -279,11 +283,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         private sealed record GespeicherteSchluessel(String StoredKey,
                                                      String ServerKey);
 
-        private sealed record GespeicherterKontakt(String   Jid,
-                                                   String?  Name,
-                                                   String   Subscription,
-                                                   String?  Ask,
-                                                   Boolean  Approved);
+        /// <param name="Groups">
+        /// Die Gruppen, oder null in einer Datei von vor D91 - dann steht der
+        /// Kontakt in keiner. Ein fehlendes Feld als „unbekannt" zu behandeln
+        /// gäbe es hier nicht: Der Roster kennt keinen dritten Zustand
+        /// zwischen „in dieser Gruppe" und „nicht".
+        /// </param>
+        private sealed record GespeicherterKontakt(String     Jid,
+                                                   String?    Name,
+                                                   String     Subscription,
+                                                   String?    Ask,
+                                                   Boolean    Approved,
+                                                   String[]?  Groups = null);
 
         #endregion
 

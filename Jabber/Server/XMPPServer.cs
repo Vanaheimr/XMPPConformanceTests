@@ -3622,16 +3622,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var items = new StringBuilder();
 
                 foreach (var e in account.Roster)
-                {
-                    items.Append($"<item jid='{e.Jid}'");
-                    if (e.Name is not null)
-                        items.Append($" name='{e.Name}'");
-                    if (e.Ask is not null)
-                        items.Append($" ask='{e.Ask}'");
-                    if (e.Approved)
-                        items.Append(" approved='true'");
-                    items.Append($" subscription='{e.Subscription}'/>");
-                }
+                    items.Append(RosterItemXml(e));
 
                 var verAttribut = OfferRosterVersioning ? $" ver='{fassung}'" : "";
 
@@ -3646,7 +3637,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (type == "set")
             {
 
-                var m = Regex.Match(frame, @"<item\s+([^>]+?)/?>");
+                // Der Rumpf gehört mit: In ihm stehen die Gruppen. Das Muster
+                // nimmt beide Schreibweisen - das leere Element und das mit
+                // Schluss-Tag -, denn beide kommen vor.
+                var m = Regex.Match(frame, @"<item\s+([^>]+?)(?:/>|>(.*?)</item>)", RegexOptions.Singleline);
 
                 if (!m.Success)
                 {
@@ -3658,6 +3652,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 var jid           = AttrIn(attrs, "jid");
                 var name          = AttrIn(attrs, "name");
                 var subscription  = AttrIn(attrs, "subscription");
+
+                // RFC 6121, Abschnitt 2.3.2: Die Gruppen des Sets ersetzen die
+                // bisherigen vollständig. Ein Set ohne <group/> nimmt sie also
+                // weg - das ist keine Auslassung, sondern die Anweisung, dass
+                // der Kontakt in keiner Gruppe mehr steht.
+                var gruppen       = Regex.Matches(m.Groups[2].Value, @"<group[^>]*>([^<]*)</group>")
+                                         .Select(g => XmlEscaping.Unescape(g.Groups[1].Value))
+                                         .Where (g => g.Length > 0)
+                                         .Distinct(StringComparer.Ordinal)
+                                         .ToArray();
 
                 if (jid is null)
                 {
@@ -3691,7 +3695,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 account.SetRosterEntry(new RosterEntry(jid,
                                                        name,
                                                        bestand?.Subscription ?? "none",
-                                                       bestand?.Ask));
+                                                       bestand?.Ask,
+                                                       bestand?.Approved ?? false,
+                                                       gruppen));
 
                 await session.SendAsync($"<iq type='result' id='{id}'/>");
 
@@ -4477,18 +4483,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                                               Boolean?     approved      = null)
         {
 
-            var vorher = account.Roster.FirstOrDefault(
-                             e => String.Equals(e.Jid, contactBareJid, StringComparison.OrdinalIgnoreCase));
+            // Der bestehende Eintrag wird geändert und nicht nachgebaut.
+            //
+            // <b>Nachgebaut hiess: Feld für Feld übernommen</b> - und was
+            // später dazukam, fiel heraus. Genau so sind in D91 die Gruppen
+            // verschwunden: Der Client setzte sie, gleich darauf ging seine
+            // Presence-Anfrage durch diese Stelle, und die schrieb einen
+            // Eintrag ohne sie zurück. Ein `with` kennt die neuen Felder,
+            // ohne dass jemand daran denken muss.
+            var vorher = RosterEntryOf(account, contactBareJid)
+                             ?? new RosterEntry(contactBareJid, Subscription: "none");
 
-            account.SetRosterEntry(new RosterEntry(contactBareJid,
-                                                   vorher?.Name,
-                                                   subscription ?? vorher?.Subscription ?? "none",
-                                                   ask switch {
-                                                       AskChange.Set    => "subscribe",
-                                                       AskChange.Clear  => null,
-                                                       _                => vorher?.Ask
-                                                   },
-                                                   approved   ?? vorher?.Approved  ?? false));
+            account.SetRosterEntry(vorher with {
+
+                                       Subscription  = subscription ?? vorher.Subscription,
+
+                                       Ask           = ask switch {
+                                                           AskChange.Set    => "subscribe",
+                                                           AskChange.Clear  => null,
+                                                           _                => vorher.Ask
+                                                       },
+
+                                       Approved      = approved ?? vorher.Approved
+
+                                   });
 
         }
 
@@ -4510,11 +4528,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (entry is null)
                 return;
 
-            var item = $"<item jid='{entry.Jid}'" +
-                       (entry.Name is not null ? $" name='{entry.Name}'" : "") +
-                       (entry.Ask  is not null ? $" ask='{entry.Ask}'"   : "") +
-                       (entry.Approved         ? " approved='true'"      : "") +
-                       $" subscription='{entry.Subscription}'/>";
+            var item = RosterItemXml(entry);
 
             // RFC 6121, Abschnitt 2.6.3: Auch der Push trägt die neue Fassung.
             // Ohne sie müsste der Client nach jeder Änderung den ganzen Roster
@@ -5553,6 +5567,30 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var m = Regex.Match(attrs, name + @"\s*=\s*['""]([^'""]*)['""]");
             return m.Success ? m.Groups[1].Value : null;
         }
+
+        /// <summary>
+        /// Ein Roster-Eintrag als <c>&lt;item/&gt;</c> (RFC 6121,
+        /// Abschnitt 2.1.2).
+        /// </summary>
+        /// <remarks>
+        /// <b>Eine Stelle für den Abruf und für den Push.</b> Sie standen
+        /// getrennt, und die Gruppen fehlten dann auch getrennt - zwei
+        /// Auskünfte über denselben Eintrag laufen irgendwann auseinander, und
+        /// die Versionierung macht daraus eine dauerhafte: Der Client hält den
+        /// Stand aus dem Push für den ganzen und fragt nicht nach.
+        /// </remarks>
+        private static String RosterItemXml(RosterEntry entry)
+
+            => $"<item jid='{entry.Jid}'" +
+               (entry.Name is not null ? $" name='{XmlEscaping.Escape(entry.Name)}'" : "") +
+               (entry.Ask  is not null ? $" ask='{entry.Ask}'"   : "") +
+               (entry.Approved         ? " approved='true'"      : "") +
+               $" subscription='{entry.Subscription}'" +
+               (entry.Groups.Count == 0
+                    ? "/>"
+                    : ">" +
+                      String.Concat(entry.Groups.Select(g => $"<group>{XmlEscaping.Escape(g)}</group>")) +
+                      "</item>");
 
         private static String BareOf(String jid)
         {

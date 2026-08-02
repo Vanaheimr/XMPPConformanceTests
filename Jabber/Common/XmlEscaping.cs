@@ -33,4 +33,22 @@ public static class XmlEscaping
             .Replace(">", "&gt;")
             .Replace("'", "&apos;")
             .Replace("\"", "&quot;");
+
+    /// <summary>
+    /// Der Rückweg - für die Stellen, die eine Stanza mit einem Muster lesen
+    /// statt sie zu zerlegen.
+    /// </summary>
+    /// <remarks>
+    /// <b>Das kaufmännische Und zuletzt</b>, und das ist die ganze Sorgfalt
+    /// hier: Wer es zuerst ersetzt, macht aus <c>&amp;amp;lt;</c> ein
+    /// <c>&lt;</c> - aus einem Text, der von einem Zeichen handelt, wird ein
+    /// Zeichen. Ein XML-Leser hat dieses Problem nicht; ein Muster über den
+    /// rohen Rahmen schon.
+    /// </remarks>
+    public static string Unescape(string text) =>
+        text.Replace("&lt;",   "<")
+            .Replace("&gt;",   ">")
+            .Replace("&apos;", "'")
+            .Replace("&quot;", "\"")
+            .Replace("&amp;",  "&");
 }

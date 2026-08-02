@@ -91,7 +91,7 @@ Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · �
 
 | Bereich | Status |
 |---------|--------|
-| Roster abrufen, hinzufügen, entfernen, Gruppen | ✅ |
+| Roster abrufen, hinzufügen, entfernen, Gruppen | ✅ Die Gruppen (§2.1.2.4) gingen bis D91 auf halbem Weg verloren: Der Client schickte sie, der Server las das `<item/>` nur bis zu seinen Attributen und schickte im Push denselben Eintrag ohne sie zurück — und weil ein Push die Gruppen eines Eintrags **ersetzt**, verschwanden sie damit auch beim Client. Jetzt trägt sie der Server, gibt sie in Abruf und Push aus, sie zählen für die Fassung des Rosters, und sie überstehen einen Neustart |
 | Ergebnis ersetzt den Zwischenspeicher (§2.1.4) | ✅ Ein Kontakt, der bei abgemeldetem Client entfernt wurde, ist danach weg — vorher blieb er stehen |
 | Roster-Pushes anwenden | ✅ Ergänzend und nicht ersetzend: Ein Push trägt nur die geänderten Einträge |
 | Absender-Validierung von Roster-Pushes (§2.1.6) | ✅ Nur ohne `from` oder mit dem eigenen Bare-JID; sonst verworfen und als Spoofing gemeldet |

@@ -6343,6 +6343,51 @@ bräuchte.
 
 ---
 
+### D91. Die Gruppe, die es nie bis zum Server schaffte ✅ — Roster-Gruppen
+
+Auf dem Weg zum Zugriffsmodell `roster` stellte sich heraus, dass die
+Voraussetzung fehlt: **Der Testserver kannte keine Roster-Gruppen.** Und nicht
+nur das — er tat so, als kennte er sie:
+
+- `RosterStanzaBuilder.SetItem` schickt `<group/>` mit, seit es ihn gibt.
+- `RosterItem.Groups` führt sie beim Client, `/roster` zeigt danach sortiert an.
+- Der Kommentar in der Roster-Behandlung des Servers sagt seit jeher, ein Set
+  ändere „Name **und Gruppen**".
+- Gelesen wurde das `<item/>` nur bis zu seinen Attributen.
+
+Die Gruppe kam an, wurde still verworfen, und der Push brachte denselben
+Eintrag ohne sie zurück. **Weil ein Push die Gruppen eines Eintrags ersetzt,
+verschwand sie damit auch beim Client** — was der Mensch eingestellt hatte, war
+einen Wimpernschlag später weg, und nichts sah nach einem Fehler aus.
+
+**Zwei Stellen, an denen dasselbe noch einmal passiert wäre**, sind beim
+Nachziehen aufgefallen:
+
+- Der **Handschlag** (`UpdateRosterEntry`) baute den Eintrag Feld für Feld neu.
+  Die frisch gesetzte Gruppe fiel dabei heraus, weil `AddContactAsync` gleich
+  nach dem Set eine Presence-Anfrage schickt — der Test war rot, obwohl das
+  Lesen längst stimmte. Jetzt wird der bestehende Eintrag mit `with` geändert;
+  das kennt auch die Felder, die noch kommen.
+- Die **Ablage** (`FileAccountStore`) schrieb den Roster ebenso Feld für Feld.
+  Ohne die Ergänzung hätten die Gruppen jeden Serverneustart nicht überlebt.
+
+**Die Fassung des Rosters zählt sie mit** (RFC 6121, Abschnitt 2.6). Das ist der
+Teil, an dem sonst nichts auffiele: Bliebe die Fassung nach einem Umgruppieren
+dieselbe, bekäme ein Client, der sie zwischengespeichert hat, beim nächsten
+Anmelden ein leeres Ergebnis — und behielte die alte Einteilung für immer. Der
+Fehler zeigte sich erst Tage später und an einem anderen Gerät.
+
+Dazu ein `XmlEscaping.Unescape` für die Stellen, die eine Stanza mit einem
+Muster lesen statt sie zu zerlegen. **Das kaufmännische Und zuletzt:** Wer es
+zuerst ersetzt, macht aus `&amp;lt;` ein `<` — aus einem Text, der von einem
+Zeichen handelt, wird das Zeichen. Der Test dazu trägt eine Gruppe namens
+`A&lt;B`, die genau das wörtlich meint.
+
+Sechs Tests, sechs Mutationen, alle erschlagen. Voller Lauf: 1123 bestanden,
+7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung
