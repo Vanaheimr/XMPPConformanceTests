@@ -644,7 +644,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// zweite Zustellung - der Server muss trotzdem richtig antworten,
         /// wenn es eines gibt.
         /// </remarks>
-        public String AddPepSubscription(String node, String subscriberBareJid)
+        /// <returns>
+        /// Das angelegte Abonnement - mit seiner Kennung und seinem Zustand.
+        /// <b>Der Zustand wird hier entschieden und nicht beim Aufrufer:</b>
+        /// Er hängt an der Einstellung des Knotens, und die steht hier.
+        /// </returns>
+        public PepSubscription AddPepSubscription(String node, String subscriberBareJid)
         {
 
             lock (_lock)
@@ -653,13 +658,51 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 if (!_pepSubscriptions.TryGetValue(node, out var abonnements))
                     _pepSubscriptions[node] = abonnements = [];
 
-                var subId = Guid.NewGuid().ToString("N")[..12];
+                // XEP-0060, Abschnitt 6.1.3.7: Auf einem Knoten mit
+                // Genehmigungsvorgang ist die Antwort ein `pending` - der
+                // Dienst hat die Anfrage angenommen und mehr nicht.
+                var neu = new PepSubscription(
+                              subscriberBareJid,
+                              Guid.NewGuid().ToString("N")[..12],
+                              new PubSubSubscriptionOptions(),
+                              PepNodeConfiguration(node)?.AccessModel == PubSubAccessModel.Authorize
+                                  ? PubSubSubscriptionState.Pending
+                                  : PubSubSubscriptionState.Subscribed);
 
-                abonnements.Add(new PepSubscription(subscriberBareJid,
-                                                    subId,
-                                                    new PubSubSubscriptionOptions()));
+                abonnements.Add(neu);
 
-                return subId;
+                return neu;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Sagt ein beantragtes Abonnement zu (XEP-0060, Abschnitt 8.6).
+        /// </summary>
+        /// <returns>
+        /// Das zugesagte Abonnement, oder null, wenn es keines zum Zusagen
+        /// gab - <b>auch dann, wenn es schon zugesagt war.</b> Eine zweite
+        /// Zusage ändert nichts und soll deshalb auch nichts melden.
+        /// </returns>
+        public PepSubscription? ApprovePepSubscription(String node, String subscriberBareJid, String? subId = null)
+        {
+
+            lock (_lock)
+            {
+
+                if (FindPepSubscription(node, subscriberBareJid, subId, out var abonnement) != PepSubscriptionResult.Ok ||
+                    abonnement!.State != PubSubSubscriptionState.Pending)
+                {
+                    return null;
+                }
+
+                var abonnements = _pepSubscriptions[node];
+                var zugesagt    = abonnement with { State = PubSubSubscriptionState.Subscribed };
+
+                abonnements[abonnements.IndexOf(abonnement)] = zugesagt;
+
+                return zugesagt;
 
             }
 

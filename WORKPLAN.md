@@ -6427,6 +6427,61 @@ Fünf Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1128 bestanden,
 
 ---
 
+### D93. Das Modell, bei dem Fragen und Dürfen zweierlei sind ✅ — `authorize`
+
+Das fünfte und letzte Zugriffsmodell. **Bei allen anderen entscheidet dieselbe
+Regel zweierlei:** Wer nicht hereindarf, darf auch nicht abonnieren. Hier nicht
+— jeder darf fragen, denn das Fragen ist der Vorgang. Wer beides
+zusammenwürfe, machte den Genehmigungsvorgang unerreichbar: Um zu dürfen,
+müsste man schon dürfen.
+
+Damit bekommt `PubSubSubscriptionState.Pending` zum ersten Mal einen Sinn. Der
+Zustand steht seit D71 im Code, mit der Begründung, ein `pending` sehe wie eine
+Zusage aus und sei keine — **auf dem Papier**, denn kein Knoten konnte einen
+erzeugen. Jetzt kann einer, und an drei Stellen im Server stand
+`subscription='subscribed'` als feste Zeichenkette. Jede davon war ab sofort
+eine Behauptung.
+
+Die Zusage geht durch die Tür, die D84 gebaut hat: die Abonnentenliste. Dort
+stand ausdrücklich, der Zustand sei fest eingetragen und dies wäre „eine der
+Stellen, die einen echten Zustand brauchen", sobald es `authorize` gibt — und
+ebenso, ein `subscribed` sei „keine Anweisung, sondern eine Bestätigung". Beides
+gilt jetzt anders herum, und der Grund war schon damals notiert: *Ohne
+Genehmigungsvorgang gäbe es nichts, was vorher eine Frage gewesen wäre.* Jetzt
+gibt es etwas. **Ein `subscribed` auf ein beantragtes Abonnement ist die Zusage,
+auf ein zugesagtes bleibt es die Bestätigung von vorher** — und die meldet sich
+nicht, weil sich nichts geändert hat.
+
+## Was `authorize` nebenbei aufgedeckt hat
+
+**Die beiläufige Zustellung fragte das Zugriffsmodell nicht.** Presence-Kontakte
+bekamen jede Veröffentlichung — auch von einem Knoten, dessen Modell ihnen den
+Abruf versperrte. Das Modell hielt die Tür zu und liess die Meldung durch, in
+der der Eintrag vollständig steht. Für `whitelist` und `roster` war das seit
+D82 und D92 falsch und fiel niemandem auf, weil beide Modelle nur am Abruf und
+am Abonnieren geprüft wurden. Bei `authorize` wäre die Genehmigung damit eine
+blosse Förmlichkeit gewesen: Wer wartet, hätte längst alles bekommen.
+
+Jetzt fragt auch dieser Weg dieselbe Stelle — eine Zeile, und sie räumt drei
+Modelle zugleich auf.
+
+Und ein Test hat sein Beispiel **zum zweiten Mal verloren**, beide Male aus dem
+besten Grund: „Ein Zugriffsmodell, das niemand anbietet, wird abgewiesen" hiess
+bis K13 `whitelist` und bis D93 `authorize`. Beide sind jetzt angeboten, weil
+sie sich durchsetzen lassen. Übrig bleibt der Fall, den es immer geben wird:
+ein Name, den niemand vergeben hat.
+
+Hundertsiebzehn Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 1133
+bestanden, 7 übersprungen.
+
+**Was noch fehlt:** die Genehmigungsanfrage nach Abschnitt 8.6.1 — die
+Nachricht mit dem Formular, über die ein fremder Client den Antrag anzeigt und
+beantwortet. Solange es sie nicht gibt, erfährt der Eigentümer vom Antrag nur,
+wenn er nachsieht. Das ist die nächste Etappe, und sie hängt nicht in der Luft:
+Ohne sie wäre schon heute nichts falsch, nur unbequem.
+
+---
+
 ## Später
 
 ### Testsammlung

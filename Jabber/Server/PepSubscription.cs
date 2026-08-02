@@ -28,8 +28,21 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
     /// Konfiguration je Abonnement auch, welche Einstellung gemeint ist.
     /// </param>
     /// <param name="Options">Die Einstellungen dieses Abonnements.</param>
-    public sealed record PepSubscription(String                   Jid,
-                                         String                   SubId,
-                                         PubSubSubscriptionOptions Options);
+    /// <param name="State">
+    /// Zugesagt oder erst beantragt (XEP-0060, Abschnitt 12.19).
+    /// </param>
+    /// <remarks>
+    /// <b>Der Zustand stand bis D93 nur auf dem Papier.</b> Ohne
+    /// <c>authorize</c> war jedes eingetragene Abonnement ein zugesagtes, und
+    /// der Server schrieb <c>subscription='subscribed'</c> als feste
+    /// Zeichenkette hin - richtig, solange es nichts anderes gab. Mit dem
+    /// Genehmigungsvorgang gibt es etwas anderes, und ein Abonnement, das man
+    /// nicht von einem beantragten unterscheiden kann, ist genau die Zusage
+    /// ohne Deckung, gegen die diese Reihe schreibt.
+    /// </remarks>
+    public sealed record PepSubscription(String                     Jid,
+                                         String                     SubId,
+                                         PubSubSubscriptionOptions  Options,
+                                         PubSubSubscriptionState    State = PubSubSubscriptionState.Subscribed);
 
 }

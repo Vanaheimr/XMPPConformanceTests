@@ -2172,7 +2172,8 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     // bleibt ihm verborgen: Was er an diesem Knoten ist, geht
                     // ihn nichts an - dass er ihn nicht mehr bekommt, schon.
                     foreach (var eines in erloschen)
-                        await NotifySubscriptionEndedAsync(session.Account, node, eines);
+                        await NotifySubscriptionStateAsync(session.Account, node, eines,
+                                                           PubSubSubscriptionState.None);
 
                     return true;
 
@@ -2202,10 +2203,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     if (type == "get")
                     {
 
-                        // Der Zustand steht fest da: Dieser Server kennt keine
-                        // Genehmigung, also ist jedes eingetragene Abonnement
-                        // ein abonniertes. Käme `authorize` dazu, wäre dies
-                        // eine der Stellen, die einen echten Zustand brauchen.
+                        // <b>Hier stand der Zustand fest im Text</b>, mit der
+                        // Anmerkung, dies wäre eine der Stellen, die einen
+                        // echten brauchten, sobald es `authorize` gibt. Es
+                        // gibt ihn - und diese Liste ist der Ort, an dem der
+                        // Eigentümer sieht, wer noch auf seine Zusage wartet.
                         await session.SendAsync(
                             $"<iq type='result' id='{id}'>" +
                             $"<pubsub xmlns='{PubSubOwnerNamespace}'>" +
@@ -2213,7 +2215,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                             String.Concat(abonnenten.Select(a =>
                                 $"<subscription jid='{XmlEscaping.Escape(a.Jid)}'" +
                                 $" subid='{a.SubId}'" +
-                                " subscription='subscribed'/>")) +
+                                $" subscription='{PubSubSubscription.NameOf(a.State)}'/>")) +
                             "</subscriptions></pubsub></iq>");
 
                         return true;
@@ -2274,26 +2276,41 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
 
                     }
 
-                    var beendet = new List<PepSubscription>();
+                    var geaendert = new List<(PepSubscription Abonnement, PubSubSubscriptionState Zustand)>();
 
                     foreach (var eintrag in anweisung.Children(PubSubOwnerNamespace, "subscription"))
                     {
+
                         PubSubSubscription.TryReadState(eintrag.Attr("subscription"), out var zustand);
+
+                        var wer     = BareOf(eintrag.Attr("jid")!);
+                        var gemeint = eintrag.Attr("subid");
+
                         if (zustand == PubSubSubscriptionState.None)
-                            beendet.AddRange(
-                                session.Account.RemovePepSubscriptions(node,
-                                                                       BareOf(eintrag.Attr("jid")!),
-                                                                       eintrag.Attr("subid")));
+                            geaendert.AddRange(
+                                session.Account.RemovePepSubscriptions(node, wer, gemeint)
+                                       .Select(a => (a, PubSubSubscriptionState.None)));
+
+                        // XEP-0060, Abschnitt 8.6: Die Zusage auf einen Antrag.
+                        //
+                        // In D84 stand hier, ein `subscribed` sei „keine
+                        // Anweisung, sondern eine Bestätigung" - richtig,
+                        // solange es nichts zu genehmigen gab. Jetzt gibt es
+                        // etwas: Ein beantragtes Abonnement wird zugesagt, ein
+                        // zugesagtes bleibt die Bestätigung von vorher.
+                        else if (session.Account.ApprovePepSubscription(node, wer, gemeint) is { } zugesagt)
+                            geaendert.Add((zugesagt, PubSubSubscriptionState.Subscribed));
+
                     }
 
                     await session.SendAsync($"<iq type='result' id='{id}'/>");
 
                     // Erst die Antwort, dann die Meldungen - und nur über das,
-                    // was wirklich erloschen ist. Eine Meldung über ein
+                    // was sich wirklich geändert hat. Eine Meldung über ein
                     // Abonnement, das der Server gar nicht gefunden hat, wäre
                     // dieselbe Behauptung ins Blaue wie ein `result` darauf.
-                    foreach (var eines in beendet)
-                        await NotifySubscriptionEndedAsync(session.Account, node, eines);
+                    foreach (var (eines, zustand) in geaendert)
+                        await NotifySubscriptionStateAsync(session.Account, node, eines, zustand);
 
                     return true;
 
@@ -2746,7 +2763,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                         $"<subscription node='{XmlEscaping.Escape(e.Node)}'" +
                         $" jid='{XmlEscaping.Escape(e.Subscription.Jid)}'" +
                         $" subid='{e.Subscription.SubId}'" +
-                        " subscription='subscribed'/>")) +
+                        $" subscription='{PubSubSubscription.NameOf(e.Subscription.State)}'/>")) +
                     "</subscriptions></pubsub></iq>");
 
                 return true;
@@ -2802,21 +2819,26 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 }
 
                 // XEP-0060, Abschnitte 6.1.3.4 und 6.1.3.8
-                if (PepAccessErrorIq(id, konto, node, session.BareJid!) is { } abgewiesen)
+                if (PepAccessErrorIq(id, konto, node, session.BareJid!, forSubscribing: true) is { } abgewiesen)
                 {
                     await session.SendAsync(abgewiesen);
                     return true;
                 }
 
-                var subId = konto.AddPepSubscription(node, session.BareJid!);
+                var abonnement = konto.AddPepSubscription(node, session.BareJid!);
 
+                // Der Zustand kommt aus dem angelegten Abonnement und steht
+                // nicht mehr fest im Text: Auf einem Knoten mit
+                // Genehmigungsvorgang ist er `pending`, und wer das als Zusage
+                // läse, wartete auf Meldungen, die erst jemand freigeben muss.
                 await session.SendAsync(
                     $"<iq type='result' id='{id}'" +
                     (to is not null ? $" from='{XmlEscaping.Escape(BareOf(to)!)}'" : "") + ">" +
                     $"<pubsub xmlns='{OmemoPep.PubSubNamespace}'>" +
                     $"<subscription node='{XmlEscaping.Escape(node)}'" +
                     $" jid='{XmlEscaping.Escape(session.BareJid!)}'" +
-                    $" subid='{subId}' subscription='subscribed'/>" +
+                    $" subid='{abonnement.SubId}'" +
+                    $" subscription='{PubSubSubscription.NameOf(abonnement.State)}'/>" +
                     "</pubsub></iq>");
 
                 return true;
@@ -3035,6 +3057,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                        PubSubAccessModel.Roster
                            => account.IsInRosterGroups(requesterBareJid, einstellung.RosterGroups),
 
+                       // Hereingelassen wird, wem der Eigentümer zugesagt hat.
+                       // Ein beantragtes Abonnement zählt nicht - sonst wäre
+                       // die Genehmigung eine Förmlichkeit, und wer fragt,
+                       // bekäme in derselben Sekunde alles.
+                       PubSubAccessModel.Authorize
+                           => account.PepSubscriptions(node).Any(
+                                  a => String.Equals(a.Jid, requesterBareJid, StringComparison.OrdinalIgnoreCase) &&
+                                       a.State == PubSubSubscriptionState.Subscribed),
+
                        _   => true
 
                    };
@@ -3064,11 +3095,29 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Ausgeschlossenen auf eine Presence-Anfrage zu schicken, die nichts
         /// ändern wird.
         /// </remarks>
-        private String? PepAccessErrorIq(String? id, XMPPAccount account, String node, String requesterBareJid)
+        /// <param name="forSubscribing">
+        /// Wird nach dem <i>Beantragen</i> eines Abonnements gefragt und nicht
+        /// nach dem Zugriff?
+        ///
+        /// <b>Bei <c>authorize</c> sind das zwei Fragen</b>, und bei allen
+        /// anderen Modellen dieselbe: Wer nicht hereindarf, darf dort auch
+        /// nicht abonnieren. Hier darf jeder fragen - das Fragen ist der
+        /// Vorgang. Wer das zusammenwürfe, machte den Genehmigungsvorgang
+        /// unerreichbar: Um zu dürfen, müsste man schon dürfen.
+        ///
+        /// Der Ausschluss gilt trotzdem. Er ist keine Frage des Modells.
+        /// </param>
+        private String? PepAccessErrorIq(String?      id,
+                                         XMPPAccount  account,
+                                         String       node,
+                                         String       requesterBareJid,
+                                         Boolean      forSubscribing = false)
 
             => account.PepAffiliationOf(node, requesterBareJid) == PubSubAffiliation.Outcast
                    ? StanzaErrorIq(id, "forbidden", "auth")
-                   : MayAccessPepNode(account, node, requesterBareJid)
+                   : (forSubscribing &&
+                      account.PepNodeConfiguration(node)?.AccessModel == PubSubAccessModel.Authorize) ||
+                     MayAccessPepNode(account, node, requesterBareJid)
                          ? null
                          : NotAuthorizedForPepNodeIq(id);
 
@@ -3178,11 +3227,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             var ausdruecklich = new HashSet<String>(abonnements.Select(a => a.Jid),
                                                     StringComparer.OrdinalIgnoreCase);
 
+            // <b>Auch die beiläufige Zustellung fragt das Zugriffsmodell.</b>
+            // Sie tat es bis D93 nicht: Auf einem Knoten mit `whitelist` ging
+            // jede Veröffentlichung trotzdem an alle Presence-Empfänger - das
+            // Modell versperrte den Abruf und liess die Meldung durch, in der
+            // der Eintrag vollständig steht. Mit `authorize` wäre daraus die
+            // Genehmigung als blosse Förmlichkeit geworden.
             foreach (var ziel in PresenceTargetsOf(owner, sender))
-                if (!ausdruecklich.Contains(ziel.BareJid ?? ""))
+                if (!ausdruecklich.Contains(ziel.BareJid ?? "") &&
+                    MayAccessPepNode(owner, node, ziel.BareJid ?? ""))
+                {
                     await ziel.SendAsync(StampTo(Ereignis(null), ziel.FullJid!));
+                }
 
-            foreach (var abonnement in abonnements.Where(a => a.Options.Deliver))
+            // Ein beantragtes Abonnement bekommt nichts: Es ist die Frage und
+            // nicht die Zusage.
+            foreach (var abonnement in abonnements.Where(a => a.Options.Deliver &&
+                                                              a.State == PubSubSubscriptionState.Subscribed))
                 foreach (var ziel in SessionsOf(abonnement.Jid))
                     if (ziel != sender && ziel.FullJid is not null)
                         await ziel.SendAsync(StampTo(Ereignis(abonnement.SubId), ziel.FullJid));
@@ -3239,9 +3300,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
-        /// XEP-0060, Abschnitt 8.8.4: Sagt einem Abonnenten, dass sein
-        /// Abonnement beendet wurde.
+        /// XEP-0060, Abschnitt 8.8.4: Sagt einem Abonnenten, was aus seinem
+        /// Abonnement geworden ist.
         /// </summary>
+        /// <param name="state">
+        /// Der neue Zustand: <c>None</c> für ein beendetes, <c>Subscribed</c>
+        /// für ein zugesagtes (Abschnitt 8.6). <b>Beide Male dieselbe Meldung
+        /// und dieselbe Stelle</b> - es ist dieselbe Auskunft, nur mit anderem
+        /// Ausgang.
+        /// </param>
         /// <remarks>
         /// <b>Wer beendet wurde, ohne zu fragen, muss es erfahren.</b> Sonst
         /// wartet er auf Meldungen, die nicht mehr kommen - und das ist der
@@ -3249,6 +3316,11 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// schlimmeren beschreibt: Wer sich zu Unrecht für nicht abonniert
         /// hält, fragt noch einmal nach; wer sich zu Unrecht für abonniert
         /// hält, wartet auf etwas, das nie kommt.
+        ///
+        /// <b>Und wer zugesagt bekommt, muss es ebenso erfahren.</b> Er hat
+        /// gefragt und ein <c>pending</c> bekommen; ohne diese Meldung wüsste
+        /// er nie, ob aus der Frage etwas geworden ist, und müsste in
+        /// Abständen nachsehen.
         ///
         /// <b>Die Kennung gehört dazu.</b> Bei mehreren Abonnements auf
         /// denselben Knoten ist sie das einzige, woran der Empfänger erkennt,
@@ -3262,9 +3334,10 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Verbinden, was er noch hat. Eine aufbewahrte Meldung wäre die
         /// schlechtere Auskunft, denn sie beschreibt einen Stand von damals.
         /// </remarks>
-        private async Task NotifySubscriptionEndedAsync(XMPPAccount      owner,
-                                                        String           node,
-                                                        PepSubscription  subscription)
+        private async Task NotifySubscriptionStateAsync(XMPPAccount              owner,
+                                                        String                   node,
+                                                        PepSubscription          subscription,
+                                                        PubSubSubscriptionState  state)
         {
 
             if (!RouteStanzas)
@@ -3275,7 +3348,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                            $"<subscription node='{XmlEscaping.Escape(node)}'" +
                            $" jid='{XmlEscaping.Escape(subscription.Jid)}'" +
                            $" subid='{XmlEscaping.Escape(subscription.SubId)}'" +
-                           " subscription='none'/>" +
+                           $" subscription='{PubSubSubscription.NameOf(state)}'/>" +
                            "</event></message>";
 
             foreach (var ziel in SessionsOf(subscription.Jid))

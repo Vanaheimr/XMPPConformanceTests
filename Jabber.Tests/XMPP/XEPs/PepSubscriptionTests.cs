@@ -1474,19 +1474,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
         #region AnAccessModelNobodyOffered_IsRejected()
 
         /// <summary>
-        /// <c>authorize</c> steht nicht im Angebot - und wird nicht
+        /// Was kein Zugriffsmodell ist, wird abgewiesen - und nicht
         /// stillschweigend zu <c>open</c>.
         /// </summary>
         /// <remarks>
-        /// <b>Der teuerste Ort für eine Zusage ohne Deckung.</b> Wer
-        /// <c>authorize</c> einstellt und <c>open</c> bekommt, glaubt jedes
-        /// Abonnement genehmigen zu müssen und hat seine Einträge
-        /// veröffentlicht.
+        /// <b>Der teuerste Ort für eine Zusage ohne Deckung.</b> Wer etwas
+        /// Verschlossenes einstellt und <c>open</c> bekommt, glaubt seine
+        /// Einträge geschützt und hat sie veröffentlicht.
         ///
-        /// Der Test hiess bis K13 <c>whitelist</c> - das ist seitdem
-        /// angeboten, weil es sich durchsetzen lässt. Der Genehmigungsvorgang
-        /// hinter <c>authorize</c> fehlt weiterhin, und darum wird er
-        /// abgewiesen.
+        /// <b>Dieser Test hat sein Beispiel zweimal verloren</b>, und beide
+        /// Male aus dem besten Grund: Er hiess bis K13 <c>whitelist</c> und bis
+        /// D93 <c>authorize</c> - jetzt sind beide angeboten, weil sie sich
+        /// durchsetzen lassen. Übrig bleibt der Fall, den es immer geben wird:
+        /// ein Name, den niemand vergeben hat. Hier <c>geschlossen</c>, das wie
+        /// eine Absicht klingt und keine ist.
         /// </remarks>
         [Test]
         public async Task AnAccessModelNobodyOffered_IsRejected()
@@ -1496,7 +1497,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var antwort = await AskAsync(bob, "cfg-9",
                                          ConfigureIq("cfg-9", "set",
-                                                     ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+                                                     ConfigForm("<field var='pubsub#access_model'><value>geschlossen</value></field>")));
 
             Assert.That(antwort.Attr("type"), Is.EqualTo("error"));
 
@@ -3516,19 +3517,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             var subId = await SubscribeAsync(alice, "abo-12");
 
+            var ereignisse = CollectEvents(alice);
+
             var zurueck = await AskAsync(bob, "subm-15",
                                          NodeSubscriptionsIq("subm-15", "set",
                                                              SubscriberEntry(alice.BareJid, "subscribed", subId)));
 
-            var ereignisse = CollectEvents(alice);
-
             await AskAsync(bob, "pub-13",
                            PublishIq("pub-13", Node, "13", "<wetter xmlns='urn:example:x'>Tau</wetter>"));
 
-            await WaitFor(() => Count(ereignisse) > 0,
+            await WaitFor(() => ItemIdsIn(ereignisse).Count > 0,
                           "die Benachrichtigung an das bestätigte Abonnement");
 
-            Assert.That(zurueck.Attr("type"), Is.EqualTo("result"));
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zurueck.Attr("type"), Is.EqualTo("result"));
+
+                // Eine Bestätigung meldet nichts: Es hat sich nichts geändert.
+                // Erst mit dem Genehmigungsvorgang aus D93 kann dasselbe
+                // 'subscribed' eine Zusage sein - und dann meldet es sich.
+                Assert.That(ereignisse.Any(e => e.Contains("<subscription", StringComparison.Ordinal)),
+                            Is.False,
+                            "Eine Bestätigung ist keine Änderung und meldet sich nicht.");
+
+            });
 
         }
 
@@ -3890,6 +3903,263 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                               "eine Abmeldung an den, der selbst abbestellt hat");
 
             Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region WithAuthorize_ASubscriptionIsOnlyARequest()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 6.1.3.7: Auf einem Knoten mit
+        /// Genehmigungsvorgang ist die Antwort ein <c>pending</c>.
+        /// </summary>
+        /// <remarks>
+        /// <b>Das einzige Modell, bei dem Abonnieren und Hereinkommen zwei
+        /// Dinge sind.</b> Jeder darf fragen - das Fragen ist der Vorgang -,
+        /// und was er bekommt, ist die angenommene Frage und nicht die Zusage.
+        /// Wer sie als Zusage läse, wartete auf Meldungen, die erst jemand
+        /// freigeben muss.
+        /// </remarks>
+        [Test]
+        public async Task WithAuthorize_ASubscriptionIsOnlyARequest()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-60",
+                           ConfigureIq("cfg-60", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-60",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-60"));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-60",
+                           PublishIq("pub-60", Node, "60", "<wetter xmlns='urn:example:x'>heiter</wetter>"));
+
+            await WaitAgainst(() => Count(ereignisse) > 0,
+                              "eine Zustellung an ein beantragtes Abonnement");
+
+            var abholen = await AskAsync(alice, "get-60",
+                                         PubSubBuilder.GetItems($"bob@{Server.Domain}", Node, id: "get-60"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zusage.Attr("type"),                  Is.EqualTo("result"),
+                            "Fragen darf jeder.");
+
+                Assert.That(SubscriptionOf(zusage)?.Attr("subscription"), Is.EqualTo("pending"),
+                            "Aber die Antwort ist die angenommene Frage.");
+
+                Assert.That(ConditionOf(abholen),                 Is.EqualTo("not-authorized"),
+                            "Und abholen kann er auch nichts.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheOwner_SeesWhoIsWaiting_AndApproves()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 8.6: Der Eigentümer sieht den Antrag in seiner
+        /// Abonnentenliste und sagt ihn zu.
+        /// </summary>
+        /// <remarks>
+        /// In D84 stand an der Liste, der Zustand stehe dort fest im Text, und
+        /// dies wäre eine der Stellen, die einen echten brauchten, sobald es
+        /// <c>authorize</c> gibt. Genau so ist es gekommen.
+        /// </remarks>
+        [Test]
+        public async Task TheOwner_SeesWhoIsWaiting_AndApproves()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-61",
+                           ConfigureIq("cfg-61", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-61",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-61"));
+
+            var subId  = SubscriptionOf(zusage)!.Attr("subid")!;
+
+            var wartend = await AskAsync(bob, "subm-60", NodeSubscriptionsIq("subm-60", "get"));
+
+            var beiAlice = CollectEvents(alice);
+
+            var genehmigt = await AskAsync(bob, "subm-61",
+                                           NodeSubscriptionsIq("subm-61", "set",
+                                                               SubscriberEntry(alice.BareJid, "subscribed", subId)));
+
+            await WaitFor(() => Count(beiAlice) > 0, "die Zusage an die Wartende");
+
+            var danach = await AskAsync(bob, "subm-62", NodeSubscriptionsIq("subm-62", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(SubscriptionsIn(wartend, OwnerNamespace).Select(e => e.Attr("subscription")),
+                            Is.EqualTo(new[] { "pending" }),
+                            "Der Eigentümer sieht, wer wartet.");
+
+                Assert.That(genehmigt.Attr("type"), Is.EqualTo("result"));
+
+                Assert.That(beiAlice[0], Does.Contain("subscription='subscribed'"),
+                            "Und die Wartende erfährt die Zusage.");
+
+                Assert.That(SubscriptionsIn(danach, OwnerNamespace).Select(e => e.Attr("subscription")),
+                            Is.EqualTo(new[] { "subscribed" }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AfterTheApproval_TheItemsArrive()
+
+        /// <summary>
+        /// Erst die Zusage, dann die Zustellung - und dann auch das Abholen.
+        /// </summary>
+        [Test]
+        public async Task AfterTheApproval_TheItemsArrive()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-62",
+                           ConfigureIq("cfg-62", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-62",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-62"));
+
+            await AskAsync(bob, "subm-63",
+                           NodeSubscriptionsIq("subm-63", "set",
+                                               SubscriberEntry(alice.BareJid, "subscribed",
+                                                               SubscriptionOf(zusage)!.Attr("subid"))));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-61",
+                           PublishIq("pub-61", Node, "61", "<wetter xmlns='urn:example:x'>endlich</wetter>"));
+
+            await WaitFor(() => ItemIdsIn(ereignisse).Count > 0, "die Zustellung nach der Zusage");
+
+            var abholen = await AskAsync(alice, "get-61",
+                                         PubSubBuilder.GetItems($"bob@{Server.Domain}", Node, id: "get-61"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ItemIdsIn(ereignisse), Is.EqualTo(new[] { "61" }));
+                Assert.That(abholen.Attr("type"),  Is.EqualTo("result"));
+            });
+
+        }
+
+        #endregion
+
+        #region ADeniedRequest_IsEndedAndAnnounced()
+
+        /// <summary>
+        /// Die Ablehnung ist dieselbe Anweisung wie das Entfernen - und sagt
+        /// dem Wartenden Bescheid.
+        /// </summary>
+        /// <remarks>
+        /// Ohne die Meldung wartete er weiter auf eine Antwort, die es schon
+        /// gab. Das ist derselbe Grund wie in D85, nur von der anderen Seite:
+        /// Wer nichts hört, hält die Frage für offen.
+        /// </remarks>
+        [Test]
+        public async Task ADeniedRequest_IsEndedAndAnnounced()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-63",
+                           ConfigureIq("cfg-63", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var zusage = await AskAsync(alice, "sub-63",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-63"));
+
+            var subId  = SubscriptionOf(zusage)!.Attr("subid")!;
+
+            var beiAlice = CollectEvents(alice);
+
+            await AskAsync(bob, "subm-64",
+                           NodeSubscriptionsIq("subm-64", "set",
+                                               SubscriberEntry(alice.BareJid, "none", subId)));
+
+            await WaitFor(() => EndingsIn(beiAlice).Count > 0, "die Ablehnung an die Wartende");
+
+            var danach = await AskAsync(bob, "subm-65", NodeSubscriptionsIq("subm-65", "get"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(EndingsIn(beiAlice).Select(e => e.SubId), Is.EqualTo(new[] { subId }));
+
+                Assert.That(SubscriptionsIn(danach, OwnerNamespace), Is.Empty,
+                            "Der Antrag ist fort und steht nicht als abgelehnter herum.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region OnAnAuthorizeNode_APresenceContactGetsNothing()
+
+        /// <summary>
+        /// Auch die beiläufige Zustellung fragt das Zugriffsmodell.
+        /// </summary>
+        /// <remarks>
+        /// <b>Sie tat es bis D93 nicht.</b> Ein Kontakt bekam jede
+        /// Veröffentlichung über die Presence - auch von einem Knoten, dessen
+        /// Modell ihm den Abruf versperrte. Das Modell hielt die Tür zu und
+        /// liess die Meldung durch, in der der Eintrag vollständig steht; bei
+        /// <c>authorize</c> wäre die Genehmigung damit eine blosse Förmlichkeit
+        /// gewesen.
+        /// </remarks>
+        [Test]
+        public async Task OnAnAuthorizeNode_APresenceContactGetsNothing()
+        {
+
+            MakeContacts("carol", "bob");
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-64",
+                           ConfigureIq("cfg-64", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>authorize</value></field>")));
+
+            var carol      = await ConnectClientAsync("carol");
+            var ereignisse = CollectEvents(carol);
+
+            await AskAsync(bob, "pub-62",
+                           PublishIq("pub-62", Node, "62", "<wetter xmlns='urn:example:x'>still</wetter>"));
+
+            await WaitAgainst(() => Count(ereignisse) > 0,
+                              "eine Zustellung an einen Kontakt ohne Zusage");
 
         }
 

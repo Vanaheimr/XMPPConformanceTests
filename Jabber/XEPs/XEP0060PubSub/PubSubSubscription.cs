@@ -111,6 +111,23 @@ public sealed record PubSubSubscription(String                      NodeId,
            };
 
     /// <summary>
+    /// Der Zustand, wie er im Protokoll steht.
+    /// </summary>
+    /// <remarks>
+    /// Die Gegenrichtung zu <see cref="StateOf"/>, und aus demselben Grund an
+    /// einer Stelle: Solange es nur zugesagte Abonnements gab, stand
+    /// <c>subscribed</c> als feste Zeichenkette an drei Stellen im Server.
+    /// Mit <c>authorize</c> wurde aus jeder davon eine Behauptung.
+    /// </remarks>
+    public static String NameOf(PubSubSubscriptionState state)
+        => state switch {
+               PubSubSubscriptionState.Subscribed    => "subscribed",
+               PubSubSubscriptionState.Pending       => "pending",
+               PubSubSubscriptionState.Unconfigured  => "unconfigured",
+               _                                     => "none"
+           };
+
+    /// <summary>
     /// Derselbe Name, streng gelesen: false, wenn es kein Zustandsname ist.
     /// </summary>
     /// <remarks>

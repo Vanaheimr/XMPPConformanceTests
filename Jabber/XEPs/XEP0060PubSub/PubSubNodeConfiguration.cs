@@ -85,6 +85,7 @@ public sealed record PubSubNodeConfiguration(PubSubAccessModel       AccessModel
                PubSubAccessModel.Presence   => "presence",
                PubSubAccessModel.Whitelist  => "whitelist",
                PubSubAccessModel.Roster     => "roster",
+               PubSubAccessModel.Authorize  => "authorize",
                _                            => "open"
            };
 
@@ -92,8 +93,9 @@ public sealed record PubSubNodeConfiguration(PubSubAccessModel       AccessModel
     /// Liest ein Zugriffsmodell.
     /// </summary>
     /// <returns>
-    /// false bei allem, was dieser Server nicht durchsetzen kann - also bei
-    /// <c>authorize</c>.
+    /// false bei allem, was dieser Server nicht durchsetzen kann. Seit D93 ist
+    /// das nichts mehr - die Prüfung bleibt trotzdem: Sie unterscheidet einen
+    /// Namen, den es gibt, von einem Tippfehler.
     /// </returns>
     /// <remarks>
     /// <b>Eine Stelle für alle, die danach fragen</b>: das Knotenformular in
@@ -112,6 +114,7 @@ public sealed record PubSubNodeConfiguration(PubSubAccessModel       AccessModel
             case "presence":   model = PubSubAccessModel.Presence;   return true;
             case "whitelist":  model = PubSubAccessModel.Whitelist;  return true;
             case "roster":     model = PubSubAccessModel.Roster;     return true;
+            case "authorize":  model = PubSubAccessModel.Authorize;  return true;
 
             default:           model = PubSubAccessModel.Open;       return false;
 

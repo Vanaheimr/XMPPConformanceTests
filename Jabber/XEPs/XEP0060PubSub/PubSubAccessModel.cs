@@ -21,20 +21,19 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// Wer an die Einträge eines Knotens kommt (XEP-0060, Abschnitt 4.5).
 /// </summary>
 /// <remarks>
-/// <b>Vier von fünf.</b> Was fehlt, ist <c>authorize</c> - der Eigentümer
-/// genehmigt jedes Abonnement einzeln, und dafür braucht es einen
-/// Genehmigungsvorgang.
-///
-/// Was dieser Server nicht durchsetzen kann, bietet er nicht an, statt es
-/// anzunehmen und zu übergehen. Bei einem Zugriffsmodell wäre das der teuerste
-/// Ort für eine Zusage ohne Deckung: Wer <c>whitelist</c> einstellt und
-/// <c>open</c> bekommt, glaubt seine Einträge geschützt und hat sie
-/// veröffentlicht.
+/// <b>Alle fünf.</b> Was dieser Server nicht durchsetzen kann, bietet er nicht
+/// an, statt es anzunehmen und zu übergehen - bei einem Zugriffsmodell wäre
+/// das der teuerste Ort für eine Zusage ohne Deckung: Wer <c>whitelist</c>
+/// einstellt und <c>open</c> bekommt, glaubt seine Einträge geschützt und hat
+/// sie veröffentlicht. Dass die Liste jetzt vollständig ist, heisst deshalb
+/// auch: Jedes Modell hier tut etwas.
 ///
 /// <see cref="Whitelist"/> kam mit den Rollen dazu (K13): Es ist das Modell,
 /// das <see cref="PubSubAffiliation.Member"/> überhaupt einen Sinn gibt.
 /// <see cref="Roster"/> folgte in D92 - und brauchte erst einmal einen Server,
-/// der Rostergruppen überhaupt kennt (D91).
+/// der Rostergruppen überhaupt kennt (D91). <see cref="Authorize"/> in D93, mit
+/// dem Zustand <see cref="PubSubSubscriptionState.Pending"/>, den es bis dahin
+/// nur auf dem Papier gab.
 /// </remarks>
 public enum PubSubAccessModel
 {
@@ -87,6 +86,24 @@ public enum PubSubAccessModel
     /// wirkungsgleich mit einer leeren <see cref="Whitelist"/> - zwei Namen
     /// für dieselbe Sache, und einer davon führte in die Irre.
     /// </remarks>
-    Roster
+    Roster,
+
+    /// <summary>
+    /// Nur, wen der Eigentümer einzeln hereingelassen hat.
+    /// </summary>
+    /// <remarks>
+    /// <b>Das einzige Modell, bei dem Abonnieren und Hereinkommen zwei Dinge
+    /// sind.</b> Bei allen anderen entscheidet dieselbe Regel beides: Wer nicht
+    /// hereindarf, darf auch nicht abonnieren. Hier darf jeder <i>fragen</i> -
+    /// das Fragen ist der Vorgang -, und was er bekommt, ist ein Abonnement im
+    /// Zustand <see cref="PubSubSubscriptionState.Pending"/>: angenommen,
+    /// aber noch nicht zugesagt.
+    ///
+    /// Der Unterschied zu <see cref="Whitelist"/> ist der Zeitpunkt: Dort muss
+    /// der Eigentümer jemanden eintragen, <i>bevor</i> der fragt, und erfährt
+    /// nie, dass jemand vergeblich angeklopft hat. Hier kommt die Frage bei
+    /// ihm an.
+    /// </remarks>
+    Authorize
 
 }
