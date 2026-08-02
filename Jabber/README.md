@@ -658,9 +658,10 @@ miteinander sprechen:
   optionalem Formular, `<configure/>` im `#owner`-Namensraum, und **nur der
   Eigentümer**. Ein angelegter Knoten existiert, bevor etwas darin steht.
   Wirksame Felder: `pubsub#max_items` (eine kleinere Grenze gilt sofort),
-  `pubsub#persist_items` (ein Knoten ohne Ablage meldet nur) und
-  `pubsub#access_model`. Angeboten werden `open`, `presence` und `whitelist`;
-  `authorize` und `roster` werden abgewiesen statt zu `open` verkürzt
+  `pubsub#persist_items` (ein Knoten ohne Ablage meldet nur),
+  `pubsub#access_model` und `pubsub#roster_groups_allowed`. Angeboten werden
+  `open`, `presence`, `whitelist` und `roster`; `authorize` wird abgewiesen
+  statt zu `open` verkürzt
 - Das Zugriffsmodell wird durchgesetzt: `presence` sperrt beim Abrufen und beim
   Abonnieren aus, wer die Presence des Eigentümers nicht sehen darf
   (`<not-authorized/>` mit `<presence-subscription-required/>`); der Eigentümer

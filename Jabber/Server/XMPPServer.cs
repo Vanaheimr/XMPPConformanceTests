@@ -3015,7 +3015,9 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             if (String.Equals(account.BareJid, requesterBareJid, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            return account.PepNodeConfiguration(node)?.AccessModel switch {
+            var einstellung = account.PepNodeConfiguration(node);
+
+            return einstellung?.AccessModel switch {
 
                        PubSubAccessModel.Presence
                            => account.IsPresenceSubscriber(requesterBareJid),
@@ -3026,6 +3028,12 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                        PubSubAccessModel.Whitelist
                            => account.PepAffiliationOf(node, requesterBareJid)
                                   is PubSubAffiliation.Publisher or PubSubAffiliation.Member,
+
+                       // Und hier entscheidet die Liste, die der Eigentümer
+                       // ohnehin führt. Ohne genannte Gruppen ist das der ganze
+                       // Roster; mit ihnen nur, wer in einer davon steht.
+                       PubSubAccessModel.Roster
+                           => account.IsInRosterGroups(requesterBareJid, einstellung.RosterGroups),
 
                        _   => true
 

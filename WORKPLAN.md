@@ -6388,6 +6388,45 @@ Sechs Tests, sechs Mutationen, alle erschlagen. Voller Lauf: 1123 bestanden,
 
 ---
 
+### D92. Die Liste, die der Eigentümer ohnehin führt ✅ — Zugriffsmodell `roster`
+
+Das vierte von fünf Modellen, und nach D91 fast eine Formsache: Wer im Roster
+des Eigentümers steht, kommt herein; sind Gruppen genannt, nur wer in einer
+davon steht.
+
+**Ein Eintrag genügt, ein Presence-Zustand wird nicht verlangt** — das ist der
+Unterschied zu `presence`, und er ist keine Ungenauigkeit, sondern eine andere
+Frage: Dort geht es darum, wer *mich sehen darf*, hier darum, wen *ich führe*.
+Beides kann auseinandergehen, und dann sind es zwei Antworten und nicht eine
+ungefähre.
+
+**Ohne genannte Gruppen kommt der ganze Roster herein.** Die leere Liste als
+„niemand" zu lesen wäre die andere Möglichkeit und die schlechtere: Sie machte
+`roster` in seiner Grundeinstellung wirkungsgleich mit einer leeren
+`whitelist` — zwei Namen für dieselbe Sache, und einer davon führte in die
+Irre.
+
+Die Gruppenliste steht auch dann im Formular, wenn ein anderes Modell gilt. Sie
+ist eine Einstellung des **Knotens** und nicht des Modells: Wer von `open` auf
+`roster` umstellt, soll die Liste vorher setzen können, statt den Knoten
+zwischen zwei Anweisungen für den ganzen Roster offen stehen zu lassen.
+
+`pubsub#roster_groups_allowed` ist das erste Feld dieses Hauses, das **mehrere
+Werte** trägt. Der Formularhelfer sagte bis hierher ausdrücklich, Mehrfachwerte
+würden nicht gebraucht — jetzt gibt es sie, und ein `list-multi`, von dem nur
+der erste Wert gelesen würde, wäre genau die stille Verkürzung, gegen die
+dieses Haus sonst schreibt.
+
+Nebenbei ein Fund derselben Art wie in D91: **Der Konsolenbefehl `/pubsub
+access` kannte `whitelist` nicht** — er nahm seit jeher nur `open` und
+`presence`, während der Hilfetext daneben und das README seit D82 alle drei
+versprachen. Er liest die Namen jetzt aus derselben Stelle wie das Formular.
+
+Fünf Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1128 bestanden,
+7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

@@ -34,9 +34,15 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// und stolpern über dieselben Schreibweisen. Zweimal dasselbe zu schreiben
 /// heisst, es einmal zu ändern und einmal zu vergessen.
 ///
-/// Was hier <b>nicht</b> steht, ist ein Formularmodell mit Feldtypen,
-/// Mehrfachwerten und Prüfregeln. Es gäbe eines zu bauen; gebraucht wird es
-/// nicht, und ungenutzte Fläche ist in diesem Bau kein Guthaben.
+/// Was hier <b>nicht</b> steht, ist ein Formularmodell mit Feldtypen und
+/// Prüfregeln. Es gäbe eines zu bauen; gebraucht wird es nicht, und ungenutzte
+/// Fläche ist in diesem Bau kein Guthaben.
+///
+/// <b>Mehrfachwerte standen bis D92 in derselben Zeile</b> - auch sie wurden
+/// nicht gebraucht. Mit <c>pubsub#roster_groups_allowed</c> gibt es das erste
+/// Feld, das mehrere trägt; ein <c>list-multi</c>, von dem nur der erste Wert
+/// gelesen würde, wäre genau die stille Verkürzung, gegen die dieses Haus
+/// sonst schreibt.
 /// </remarks>
 internal static class DataForm
 {
@@ -61,6 +67,17 @@ internal static class DataForm
     /// </summary>
     public static String? ValueOf(XElement field)
         => field.Child(Namespace, "value")?.Value;
+
+    /// <summary>
+    /// Alle Werte eines Feldes - für <c>list-multi</c>, wo jeder Wert ein
+    /// eigenes <c>&lt;value/&gt;</c> ist.
+    /// </summary>
+    /// <remarks>
+    /// Ein Feld ohne Werte gibt eine leere Liste. Bei einem Mehrfachfeld ist
+    /// das eine Aussage und keine Lücke: <b>keine Auswahl</b>.
+    /// </remarks>
+    public static IReadOnlyList<String> ValuesOf(XElement field)
+        => [.. field.Children(Namespace, "value").Select(v => v.Value)];
 
     /// <summary>
     /// XEP-0004, Abschnitt 3.3: Ein Wahrheitswert steht als 0/1 oder
@@ -112,6 +129,34 @@ internal static class DataForm
             field.Add(new XAttribute("label", label));
 
         field.Add(new XElement(ns + "value", value));
+
+        return field;
+
+    }
+
+    /// <summary>
+    /// Ein Feld mit beliebig vielen Werten - auch mit keinem.
+    /// </summary>
+    /// <remarks>
+    /// Kein Wert heisst hier „nichts ausgewählt" und nicht „Feld fehlt": Das
+    /// Feld steht im Formular, es ist nur leer. Wer es stattdessen wegliesse,
+    /// sagte „diese Einstellung gibt es nicht" - etwas ganz anderes.
+    /// </remarks>
+    public static XElement MultiField(String var, String? type, String? label, IEnumerable<String> values)
+    {
+
+        XNamespace ns = Namespace;
+
+        var field = new XElement(ns + "field", new XAttribute("var", var));
+
+        if (type is not null)
+            field.Add(new XAttribute("type", type));
+
+        if (label is not null)
+            field.Add(new XAttribute("label", label));
+
+        foreach (var value in values)
+            field.Add(new XElement(ns + "value", value));
 
         return field;
 

@@ -21,18 +21,20 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP;
 /// Wer an die Einträge eines Knotens kommt (XEP-0060, Abschnitt 4.5).
 /// </summary>
 /// <remarks>
-/// <b>Drei von fünf.</b> XEP-0060 kennt ausserdem <c>authorize</c> (der
-/// Eigentümer genehmigt jedes Abonnement einzeln) und <c>roster</c> (nur
-/// bestimmte Rostergruppen). Beide brauchen etwas, das dieser Server nicht
-/// hat - einen Genehmigungsvorgang, Rostergruppen als Zugriffsregel.
+/// <b>Vier von fünf.</b> Was fehlt, ist <c>authorize</c> - der Eigentümer
+/// genehmigt jedes Abonnement einzeln, und dafür braucht es einen
+/// Genehmigungsvorgang.
 ///
-/// Sie werden deshalb nicht angeboten, statt angeboten und ignoriert zu
-/// werden. Bei einem Zugriffsmodell wäre das der teuerste Ort für eine Zusage
-/// ohne Deckung: Wer <c>whitelist</c> einstellt und <c>open</c> bekommt,
-/// glaubt seine Einträge geschützt und hat sie veröffentlicht.
+/// Was dieser Server nicht durchsetzen kann, bietet er nicht an, statt es
+/// anzunehmen und zu übergehen. Bei einem Zugriffsmodell wäre das der teuerste
+/// Ort für eine Zusage ohne Deckung: Wer <c>whitelist</c> einstellt und
+/// <c>open</c> bekommt, glaubt seine Einträge geschützt und hat sie
+/// veröffentlicht.
 ///
 /// <see cref="Whitelist"/> kam mit den Rollen dazu (K13): Es ist das Modell,
 /// das <see cref="PubSubAffiliation.Member"/> überhaupt einen Sinn gibt.
+/// <see cref="Roster"/> folgte in D92 - und brauchte erst einmal einen Server,
+/// der Rostergruppen überhaupt kennt (D91).
 /// </remarks>
 public enum PubSubAccessModel
 {
@@ -64,6 +66,27 @@ public enum PubSubAccessModel
     /// entsteht nicht nebenbei: Auf ihr steht nur, wen der Eigentümer
     /// ausdrücklich daraufgesetzt hat.
     /// </remarks>
-    Whitelist
+    Whitelist,
+
+    /// <summary>
+    /// Nur, wer im Roster des Eigentümers steht - und, wenn Gruppen genannt
+    /// sind, in einer davon.
+    /// </summary>
+    /// <remarks>
+    /// <b>Der Roster ist die Liste des Eigentümers</b>, und deshalb genügt ein
+    /// Eintrag: Wer darin steht, steht dort, weil der Eigentümer ihn
+    /// eingetragen hat. Ein Presence-Zustand wird nicht verlangt - das wäre
+    /// <see cref="Presence"/>, und das ist eine andere Frage: Dort geht es
+    /// darum, wer <i>mich sehen darf</i>, hier darum, wen <i>ich führe</i>.
+    /// Beides kann auseinandergehen, und dann sind es zwei verschiedene
+    /// Antworten und keine ungenaue.
+    ///
+    /// <b>Ohne genannte Gruppen kommt der ganze Roster herein.</b> Eine leere
+    /// Liste als „niemand" zu lesen wäre die andere Möglichkeit und die
+    /// schlechtere: Sie machte das Modell in seiner Grundeinstellung
+    /// wirkungsgleich mit einer leeren <see cref="Whitelist"/> - zwei Namen
+    /// für dieselbe Sache, und einer davon führte in die Irre.
+    /// </remarks>
+    Roster
 
 }

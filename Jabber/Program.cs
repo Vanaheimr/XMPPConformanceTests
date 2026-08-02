@@ -943,7 +943,8 @@ class Program
             Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
             Console.WriteLine("  /pubsub create <node> [open|presence]  Node erstellen");
             Console.WriteLine("  /pubsub cfg <node>           Knoteneinstellungen");
-            Console.WriteLine("  /pubsub access <node> <open|presence|whitelist>  Zugriff umstellen");
+            Console.WriteLine("  /pubsub access <node> <open|presence|whitelist|roster>  Zugriff umstellen");
+            Console.WriteLine("  /pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (leer: alle)");
             Console.WriteLine("  /pubsub rollen <node>        Wer ist was an diesem Knoten");
             Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
             Console.WriteLine("  /pubsub abonnenten <node>    Wer hängt an diesem Knoten (Alias: subscribers)");
@@ -965,7 +966,8 @@ class Program
                                  "opts", "options", "deliver", "cfg", "nodecfg", "access",
                                  "rollen", "affiliations", "rolle",
                                  "abonnenten", "subscribers", "raus", "kick",
-                                 "purge", "leeren", "retract", "zurueck"];
+                                 "purge", "leeren", "retract", "zurueck",
+                                 "gruppen", "rostergroups"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -1161,10 +1163,15 @@ class Program
                                       : $"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
                 break;
 
+            // Die Namen kommen aus derselben Stelle, die auch das Formular
+            // liest. Vorher standen hier zwei davon fest im Text - 'whitelist'
+            // gab es seit D82, im Hilfetext seit D82, und dieser Befehl wies
+            // es ab.
             case "access":
-                if (parts.Length < 3 || parts[2].ToLower() is not ("open" or "presence"))
+                if (parts.Length < 3 ||
+                    !PubSubNodeConfiguration.TryReadAccessModel(parts[2].ToLower(), out var modell))
                 {
-                    Console.WriteLine("Syntax: /pubsub access <node> <open|presence>");
+                    Console.WriteLine("Syntax: /pubsub access <node> <open|presence|whitelist|roster>");
                     return;
                 }
                 var bestand = await _client!.PubSubGetNodeConfigAsync(nodeId);
@@ -1178,14 +1185,29 @@ class Program
                 // Auf dem gelesenen Stand aufsetzen und nicht auf der Vorgabe:
                 // Sonst setzte ein Umstellen des Zugriffs nebenbei die Ablage
                 // und die Zahl der Einträge zurück.
-                var gewuenscht = bestand with {
-                                     AccessModel = parts[2].ToLower() == "presence"
-                                                       ? PubSubAccessModel.Presence
-                                                       : PubSubAccessModel.Open
-                                 };
+                Console.WriteLine(await _client!.PubSubConfigureNodeAsync(nodeId,
+                                                                          bestand with { AccessModel = modell })
+                                      ? $"⚙️ {nodeId}: Zugriff {PubSubNodeConfiguration.NameOf(modell)}"
+                                      : $"⚠️ Knoten nicht eingestellt: {nodeId} - siehe Log");
+                break;
 
-                Console.WriteLine(await _client!.PubSubConfigureNodeAsync(nodeId, gewuenscht)
-                                      ? $"⚙️ {nodeId}: Zugriff {parts[2].ToLower()}"
+            // Ohne Gruppen kommt beim Zugriffsmodell 'roster' der ganze Roster
+            // herein - der Befehl ohne weitere Wörter setzt genau das.
+            case "gruppen" or "rostergroups":
+                var vorher = await _client!.PubSubGetNodeConfigAsync(nodeId);
+
+                if (vorher is null)
+                {
+                    Console.WriteLine($"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
+                    return;
+                }
+
+                var erlaubt = parts.Skip(2).ToArray();
+
+                Console.WriteLine(await _client!.PubSubConfigureNodeAsync(nodeId,
+                                                                          vorher with { RosterGroups = erlaubt })
+                                      ? $"⚙️ {nodeId}: Gruppen " +
+                                        (erlaubt.Length == 0 ? "(alle)" : String.Join(", ", erlaubt))
                                       : $"⚠️ Knoten nicht eingestellt: {nodeId} - siehe Log");
                 break;
 

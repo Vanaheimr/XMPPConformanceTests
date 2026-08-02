@@ -1099,6 +1099,39 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
             => SubscriptionOf(bareJid) is "from" or "both";
 
         /// <summary>
+        /// Steht dieser JID im Roster - und, wenn Gruppen genannt sind, in
+        /// einer davon (XEP-0060, Abschnitt 4.5)?
+        /// </summary>
+        /// <param name="groups">
+        /// Die erlaubten Gruppen, oder eine leere Liste für den ganzen Roster.
+        /// </param>
+        /// <remarks>
+        /// <b>Ein Eintrag genügt, ein Presence-Zustand wird nicht verlangt.</b>
+        /// Der Roster ist die Liste des Eigentümers: Wer darin steht, steht
+        /// dort, weil der Eigentümer ihn eingetragen hat. Ob der Kontakt
+        /// umgekehrt dessen Presence sehen darf, ist eine andere Frage - und
+        /// für sie gibt es ein eigenes Modell.
+        /// </remarks>
+        public Boolean IsInRosterGroups(String bareJid, IReadOnlyList<String> groups)
+        {
+
+            lock (_lock)
+            {
+
+                var eintrag = _roster.FirstOrDefault(
+                                  e => String.Equals(e.Jid, bareJid, StringComparison.OrdinalIgnoreCase));
+
+                if (eintrag is null)
+                    return false;
+
+                return groups.Count == 0 ||
+                       eintrag.Groups.Any(g => groups.Contains(g, StringComparer.Ordinal));
+
+            }
+
+        }
+
+        /// <summary>
         /// Bekommt dieses Konto die Presence des Kontakts - also <c>to</c> oder
         /// <c>both</c>?
         /// </summary>

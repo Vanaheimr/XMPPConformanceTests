@@ -22,6 +22,7 @@ using System.Xml.Linq;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.XMPP;
+using org.GraphDefined.Vanaheimr.Hermod.XMPP.Server;
 
 #endregion
 
@@ -319,6 +320,16 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                       .FirstOrDefault(f => f.Attr("var") == var)
                      ?.Child("jabber:x:data", "value")
                      ?.Value;
+
+        /// <summary>Alle Werte eines Feldes im Knotenformular einer Antwort.</summary>
+        private static List<String> ConfigValues(XElement antwort, String var)
+            => [.. antwort.Child(OwnerNamespace, "pubsub")
+                         ?.Child(OwnerNamespace, "configure")
+                         ?.Child("jabber:x:data", "x")
+                         ?.Children("jabber:x:data", "field")
+                          .FirstOrDefault(f => f.Attr("var") == var)
+                         ?.Children("jabber:x:data", "value")
+                          .Select(v => v.Value) ?? []];
 
         /// <summary>Der Wert eines Formularfeldes in einer Antwort.</summary>
         private static String? FieldValue(XElement antwort, String var)
@@ -3879,6 +3890,227 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                               "eine Abmeldung an den, der selbst abbestellt hat");
 
             Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region WithRosterAccess_OnlyTheRosterGetsIn()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 4.5: Beim Zugriffsmodell <c>roster</c> kommt
+        /// herein, wer im Roster des Eigentümers steht.
+        /// </summary>
+        /// <remarks>
+        /// <b>Ein Eintrag genügt, ein Presence-Zustand wird nicht verlangt.</b>
+        /// Der Roster ist die Liste des Eigentümers: Wer darin steht, steht
+        /// dort, weil der Eigentümer ihn eingetragen hat. Ob der Kontakt
+        /// umgekehrt dessen Presence sehen darf, ist eine andere Frage - und
+        /// für die gibt es <c>presence</c>.
+        /// </remarks>
+        [Test]
+        public async Task WithRosterAccess_OnlyTheRosterGetsIn()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            // Ein Eintrag ganz ohne Presence-Berechtigung.
+            Server.GetAccount($"bob@{Server.Domain}")!.SetRosterEntry(
+                new RosterEntry($"alice@{Server.Domain}", null, "none"));
+
+            await AskAsync(bob, "cfg-50",
+                           ConfigureIq("cfg-50", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>roster</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            var drin   = await AskAsync(alice, "sub-50",
+                                        PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                alice.BareJid, "sub-50"));
+
+            var draussen = await AskAsync(carol, "sub-51",
+                                          PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                  carol.BareJid, "sub-51"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(drin.Attr("type"),      Is.EqualTo("result"),
+                            "Alice steht im Roster - auch ohne jede Presence-Berechtigung.");
+
+                Assert.That(ConditionOf(draussen),  Is.EqualTo("not-authorized"),
+                            "Carol steht nirgends.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WithRosterGroups_OnlyTheNamedOnesGetIn()
+
+        /// <summary>
+        /// Sind Gruppen genannt, kommt nur herein, wer in einer davon steht.
+        /// </summary>
+        [Test]
+        public async Task WithRosterGroups_OnlyTheNamedOnesGetIn()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            konto.SetRosterEntry(new RosterEntry($"alice@{Server.Domain}", null, "both", null, false, ["Freunde"]));
+            konto.SetRosterEntry(new RosterEntry($"carol@{Server.Domain}", null, "both", null, false, ["Arbeit"]));
+
+            await AskAsync(bob, "cfg-51",
+                           ConfigureIq("cfg-51", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>roster</value></field>" +
+                                                  "<field var='pubsub#roster_groups_allowed'>" +
+                                                  "<value>Freunde</value></field>")));
+
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            var drin     = await AskAsync(alice, "sub-52",
+                                          PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                  alice.BareJid, "sub-52"));
+
+            var draussen = await AskAsync(carol, "sub-53",
+                                          PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                                  carol.BareJid, "sub-53"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(drin.Attr("type"),     Is.EqualTo("result"));
+                Assert.That(ConditionOf(draussen), Is.EqualTo("not-authorized"),
+                            "Im Roster, aber in der falschen Gruppe.");
+            });
+
+        }
+
+        #endregion
+
+        #region SeveralGroups_AreAllRead()
+
+        /// <summary>
+        /// Ein Mehrfachfeld trägt mehrere Werte - und alle werden gelesen.
+        /// </summary>
+        /// <remarks>
+        /// Ein <c>list-multi</c>, von dem nur der erste Wert ankäme, gäbe dem
+        /// Eigentümer eine Liste zurück, die er so nie geschickt hat - und
+        /// sperrte die halbe erlaubte Menge aus.
+        /// </remarks>
+        [Test]
+        public async Task SeveralGroups_AreAllRead()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            konto.SetRosterEntry(new RosterEntry($"carol@{Server.Domain}", null, "both", null, false, ["Arbeit"]));
+
+            await AskAsync(bob, "cfg-52",
+                           ConfigureIq("cfg-52", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>roster</value></field>" +
+                                                  "<field var='pubsub#roster_groups_allowed'>" +
+                                                  "<value>Freunde</value><value>Arbeit</value></field>")));
+
+            var gelesen = await AskAsync(bob, "cfg-53", ConfigureIq("cfg-53", "get"));
+
+            var carol = await ConnectClientAsync("carol");
+
+            var drin  = await AskAsync(carol, "sub-54",
+                                       PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                               carol.BareJid, "sub-54"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConfigValues(gelesen, "pubsub#roster_groups_allowed"),
+                            Is.EqualTo(new[] { "Freunde", "Arbeit" }),
+                            "Das Angebot nennt beide zurück.");
+
+                Assert.That(drin.Attr("type"), Is.EqualTo("result"),
+                            "Und die zweite Gruppe gilt so gut wie die erste.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WithoutGroups_TheWholeRosterGetsIn()
+
+        /// <summary>
+        /// Keine Gruppe genannt heisst: der ganze Roster.
+        /// </summary>
+        /// <remarks>
+        /// Die leere Liste als „niemand" zu lesen wäre die andere Möglichkeit
+        /// und die schlechtere: Sie machte <c>roster</c> in seiner
+        /// Grundeinstellung wirkungsgleich mit einer leeren <c>whitelist</c> -
+        /// zwei Namen für dieselbe Sache, und einer davon führte in die Irre.
+        /// </remarks>
+        [Test]
+        public async Task WithoutGroups_TheWholeRosterGetsIn()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            konto.SetRosterEntry(new RosterEntry($"alice@{Server.Domain}", null, "both", null, false, ["Freunde"]));
+
+            await AskAsync(bob, "cfg-54",
+                           ConfigureIq("cfg-54", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>roster</value></field>" +
+                                                  "<field var='pubsub#roster_groups_allowed'/>")));
+
+            var alice = await ConnectClientAsync("alice");
+
+            var drin  = await AskAsync(alice, "sub-55",
+                                       PubSubBuilder.Subscribe($"bob@{Server.Domain}", Node,
+                                                               alice.BareJid, "sub-55"));
+
+            Assert.That(drin.Attr("type"), Is.EqualTo("result"),
+                        "Eine Gruppe zu haben schadet nicht, wenn keine verlangt ist.");
+
+        }
+
+        #endregion
+
+        #region TheGroupsSurvive_AChangeOfTheAccessModel()
+
+        /// <summary>
+        /// Die Gruppenliste ist eine Einstellung des Knotens und nicht des
+        /// Modells.
+        /// </summary>
+        /// <remarks>
+        /// Wer von <c>open</c> auf <c>roster</c> umstellt, soll die Liste
+        /// vorher setzen können - sonst stünde der Knoten zwischen den beiden
+        /// Anweisungen für den ganzen Roster offen.
+        /// </remarks>
+        [Test]
+        public async Task TheGroupsSurvive_AChangeOfTheAccessModel()
+        {
+
+            var bob = await PublishingBobAsync();
+
+            await AskAsync(bob, "cfg-55",
+                           ConfigureIq("cfg-55", "set",
+                                       ConfigForm("<field var='pubsub#roster_groups_allowed'>" +
+                                                  "<value>Freunde</value></field>")));
+
+            await AskAsync(bob, "cfg-56",
+                           ConfigureIq("cfg-56", "set",
+                                       ConfigForm("<field var='pubsub#access_model'><value>roster</value></field>")));
+
+            var gelesen = await AskAsync(bob, "cfg-57", ConfigureIq("cfg-57", "get"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConfigField (gelesen, "pubsub#access_model"),          Is.EqualTo("roster"));
+                Assert.That(ConfigValues(gelesen, "pubsub#roster_groups_allowed"), Is.EqualTo(new[] { "Freunde" }));
+            });
 
         }
 
