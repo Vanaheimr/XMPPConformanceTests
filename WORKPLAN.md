@@ -6264,6 +6264,54 @@ Damit bleibt von XEP-0060 noch `<retract/>` sowie die Zugriffsmodelle
 
 ---
 
+### D89. Eine Zustellung und keine Nachricht über den Knoten ✅ — `<retract/>`
+
+Der Gegensatz zu D87 in einem Satz: **Löschen und Leeren betreffen den Knoten,
+eine Rücknahme betrifft einen Eintrag.** Daran hängt alles Weitere. Sie geht
+deshalb nicht je Abonnenten einmal hinaus, sondern **je Abonnement, mit
+Kennung, und an ein stillgelegtes gar nicht** — genau wie eine
+Veröffentlichung, denn sie ist eine Zustellung.
+
+Das liess sich beweisen, statt es zu behaupten: Die Zustellung von
+Veröffentlichung und Rücknahme läuft jetzt durch dieselbe Stelle, die nur noch
+den Inhalt von `<items/>` gereicht bekommt. Für das stillgelegte Abonnement war
+danach nichts mehr zu bedenken — der Test dazu prüft, dass es auch so bleibt.
+
+**Wer schreiben darf, darf auch zurücknehmen.** Dieselbe Rollenprüfung wie beim
+Veröffentlichen, und damit kommt ein `publisher` auch an fremde Einträge im
+selben Knoten. Die feinere Regel — jeder nur seine eigenen — wäre die bessere,
+setzte aber voraus, sich zu merken, wer welchen Eintrag geschrieben hat. Diese
+Ablage gibt es hier nicht, und ohne sie wäre die Regel bloss behauptet.
+
+Zwei Absagen, beide aus demselben Grund wie in D87: Ein Eintrag, den es nicht
+gibt, bekommt `<item-not-found/>`; ein Knoten ohne Ablage `<unsupported
+feature='persistent-items'/>`. Ein `result` wäre jeweils die Auskunft, etwas sei
+zurückgenommen worden — und die Meldung an die Abonnenten die Aufforderung,
+etwas wegzuwerfen, das sie nie bekommen haben.
+
+Ein Test hatte zuerst unrecht, und die Antwort des Servers war die bessere: Für
+einen **fremden** Knoten erwartete er `<forbidden/>` mit der Begründung aus D81
+— an einem Knoten, den es nicht gibt, hat niemand eine Rolle. Für den
+Eigentümer gilt das nicht: **Er wird erkannt und nicht nachgeschlagen**, weil
+ein PEP-Knoten dem Konto gehört. Ihm fehlt also nicht die Erlaubnis, sondern der
+Eintrag, und genau das sagt `<item-not-found/>`.
+
+Der letzte zurückgenommene Eintrag lässt den Knoten stehen. Ein Knoten, der mit
+seinem Inhalt verschwände, wäre für seine Abonnenten ohne Ankündigung fort — und
+die nächste Veröffentlichung legte einen neuen an, den niemand abonniert hat.
+
+**Was die Zusammenlegung nebenbei aufgedeckt hat:** Die Mutation, die eine
+Veröffentlichung ohne ihre `<item/>`-Hülle hinausschickt, hat überlebt. Diese
+Sammlung prüfte den Inhalt einer Zustellung, die Herkunft und die Kennung des
+Abonnements — **nie aber die Kennung des zugestellten Eintrags.** Das ist keine
+Förmlichkeit: Ein Client, der Einträge nach ihrer Kennung führt, übergeht ein
+Item ohne sie ganz. Der Inhalt käme an und wäre trotzdem verloren.
+
+Hundertsieben Tests, neun Mutationen, alle erschlagen. Voller Lauf: 1114
+bestanden, 7 übersprungen.
+
+---
+
 ## Später
 
 ### Testsammlung

@@ -510,6 +510,31 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         }
 
         /// <summary>
+        /// Nimmt einen einzelnen Eintrag zurück (XEP-0060, Abschnitt 7.2).
+        /// </summary>
+        /// <returns>
+        /// false, wenn es den Eintrag nicht gibt - <b>und das schliesst den
+        /// Fall ein, dass es den Knoten nicht gibt.</b> Beide Male ist die
+        /// Antwort dieselbe: Da war nichts zurückzunehmen. Der Unterschied
+        /// zwischen „leerer Knoten" und „kein Knoten" beantwortet auch hier
+        /// nicht die Frage, die gestellt wurde.
+        /// </returns>
+        /// <remarks>
+        /// Der Knoten bleibt, auch wenn es sein letzter Eintrag war. Ein
+        /// Knoten, der mit seinem Inhalt verschwände, wäre für seine
+        /// Abonnenten ohne Ankündigung fort - und die nächste Veröffentlichung
+        /// legte einen neuen an, den niemand abonniert hat.
+        /// </remarks>
+        public Boolean RetractPepItem(String node, String itemId)
+        {
+
+            lock (_lock)
+                return _pepNodes.TryGetValue(node, out var eintraege) &&
+                       eintraege.Remove(itemId);
+
+        }
+
+        /// <summary>
         /// Löscht einen Knoten samt allem, was an ihm hängt (XEP-0060,
         /// Abschnitt 8.4).
         /// </summary>

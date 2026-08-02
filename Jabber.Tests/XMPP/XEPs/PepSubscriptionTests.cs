@@ -331,6 +331,48 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                      ?.Value;
 
         /// <summary>
+        /// Eine Rücknahme (XEP-0060, Abschnitt 7.2) - im gewöhnlichen
+        /// Namensraum und nicht in dem des Eigentümers: Zurücknehmen darf, wer
+        /// auch veröffentlichen darf.
+        /// </summary>
+        private String RetractIq(String id, String? itemId, String? node = null)
+            => $"<iq type='set' to='bob@{Server.Domain}' id='{id}'>" +
+               $"<pubsub xmlns='{PubSubNamespace}'>" +
+               $"<retract node='{node ?? Node}'>" +
+               (itemId is null ? "" : $"<item id='{itemId}'/>") +
+               "</retract></pubsub></iq>";
+
+        /// <summary>
+        /// Die Kennungen der zugestellten Einträge in den gesammelten
+        /// Meldungen.
+        /// </summary>
+        private static List<String?> ItemIdsIn(List<String> ereignisse)
+        {
+            lock (ereignisse)
+                return [.. ereignisse
+                           .SelectMany(e => XElement.Parse(e)
+                                                    .Child(PubSubManager.EventNamespace, "event")
+                                                   ?.Child(PubSubManager.EventNamespace, "items")
+                                                   ?.Children(PubSubManager.EventNamespace, "item") ?? [])
+                           .Select(i => i.Attr("id"))];
+        }
+
+        /// <summary>
+        /// Die zurückgenommenen Einträge in den gesammelten Meldungen
+        /// (XEP-0060, Abschnitt 7.2.2.1).
+        /// </summary>
+        private static List<String?> RetractsIn(List<String> ereignisse)
+        {
+            lock (ereignisse)
+                return [.. ereignisse
+                           .SelectMany(e => XElement.Parse(e)
+                                                    .Child(PubSubManager.EventNamespace, "event")
+                                                   ?.Child(PubSubManager.EventNamespace, "items")
+                                                   ?.Children(PubSubManager.EventNamespace, "retract") ?? [])
+                           .Select(r => r.Attr("id"))];
+        }
+
+        /// <summary>
         /// Eine Anweisung des Eigentümers ohne Inhalt - <c>&lt;delete/&gt;</c>
         /// oder <c>&lt;purge/&gt;</c>.
         /// </summary>
@@ -544,10 +586,18 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
 
             Assert.Multiple(() =>
             {
+
                 Assert.That(ereignisse[0], Does.Contain(Node));
                 Assert.That(ereignisse[0], Does.Contain("Regen"));
                 Assert.That(ereignisse[0], Does.Contain($"from='bob@{Server.Domain}'"),
                             "Die Benachrichtigung kommt vom Konto und nicht vom Server.");
+
+                // Die Nutzlast steckt in einem <item/> mit seiner Kennung, und
+                // das ist keine Förmlichkeit: Ein Client, der Einträge nach
+                // ihrer Kennung führt, übergeht ein Item ohne sie ganz - der
+                // Inhalt käme an und wäre trotzdem verloren.
+                Assert.That(ItemIdsIn(ereignisse), Is.EqualTo(new[] { "2" }));
+
             });
 
         }
@@ -3829,6 +3879,300 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Tests.XMPP
                               "eine Abmeldung an den, der selbst abbestellt hat");
 
             Assert.That(antwort.Attr("type"), Is.EqualTo("result"));
+
+        }
+
+        #endregion
+
+        #region ARetractedItem_IsGoneAndAnnounced()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 7.2: Ein einzelner Eintrag wird zurückgenommen -
+        /// und die Abonnenten erfahren es mit seiner Kennung.
+        /// </summary>
+        /// <remarks>
+        /// <b>Eine Zustellung wie eine Veröffentlichung</b>, nur mit anderem
+        /// Inhalt: je Abonnement eine, mit der SHIM-Kennung. Das unterscheidet
+        /// sie vom Löschen und Leeren, die den Knoten betreffen und deshalb je
+        /// Abonnenten einmal hinausgehen.
+        /// </remarks>
+        [Test]
+        public async Task ARetractedItem_IsGoneAndAnnounced()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await AskAsync(bob, "pub-30",
+                           PublishIq("pub-30", Node, "30", "<wetter xmlns='urn:example:x'>windig</wetter>"));
+
+            var subId = await SubscribeAsync(alice, "abo-40");
+
+            var ereignisse = CollectEvents(alice);
+
+            var zurueck = await AskAsync(bob, "ret-1", RetractIq("ret-1", "1"));
+
+            await WaitFor(() => RetractsIn(ereignisse).Count > 0, "die Meldung über die Rücknahme");
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zurueck.Attr("type"),   Is.EqualTo("result"));
+                Assert.That(RetractsIn(ereignisse), Is.EqualTo(new[] { "1" }));
+                Assert.That(SubIdsIn(ereignisse),   Is.EqualTo(new[] { subId }),
+                            "Mit Kennung: Es ist eine Zustellung und keine Nachricht über den Knoten.");
+
+                Assert.That(konto.GetPepItems(Node).Select(e => e.ItemId), Is.EqualTo(new[] { "30" }),
+                            "Der eine Eintrag ist fort, der andere steht da.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARetractionWithoutTheRole_IsForbidden()
+
+        /// <summary>
+        /// Dieselbe Regel wie beim Veröffentlichen: Wer nicht schreiben darf,
+        /// darf auch nicht zurücknehmen.
+        /// </summary>
+        [Test]
+        public async Task ARetractionWithoutTheRole_IsForbidden()
+        {
+
+            await PublishingBobAsync();
+
+            var alice = await ConnectClientAsync("alice");
+
+            var abgewiesen = await AskAsync(alice, "ret-2", RetractIq("ret-2", "1"));
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(abgewiesen), Is.EqualTo("forbidden"));
+
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node), Is.Not.Empty,
+                            "Und der Eintrag steht noch da.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region APublisher_MayRetractToo()
+
+        /// <summary>
+        /// <b>Wer schreiben darf, darf auch zurücknehmen</b> - und die Meldung
+        /// kommt trotzdem vom Eigentümer.
+        /// </summary>
+        /// <remarks>
+        /// Ein Publizierender kommt damit auch an fremde Einträge im selben
+        /// Knoten. Sie auseinanderzuhalten hiesse, sich zu merken, wer welchen
+        /// geschrieben hat - eine Ablage, die es hier nicht gibt, und ohne die
+        /// jede feinere Regel bloss behauptet wäre.
+        /// </remarks>
+        [Test]
+        public async Task APublisher_MayRetractToo()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+            var carol = await ConnectClientAsync("carol");
+
+            await AskAsync(bob, "aff-40",
+                           AffiliationsIq("aff-40", "set",
+                                          $"<affiliation jid='{carol.BareJid}' affiliation='publisher'/>"));
+
+            await SubscribeAsync(alice, "abo-41");
+
+            var ereignisse = CollectEvents(alice);
+
+            var zurueck = await AskAsync(carol, "ret-3", RetractIq("ret-3", "1"));
+
+            await WaitFor(() => RetractsIn(ereignisse).Count > 0, "die Meldung über die fremde Rücknahme");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(zurueck.Attr("type"), Is.EqualTo("result"));
+
+                Assert.That(ereignisse[0], Does.Contain($"from='bob@{Server.Domain}'"),
+                            "Die Meldung kommt vom Eigentümer und nicht von dem, der zurückgenommen hat.");
+
+                Assert.That(Server.GetAccount($"bob@{Server.Domain}")!.GetPepItems(Node), Is.Empty);
+
+            });
+
+        }
+
+        #endregion
+
+        #region RetractingWhatIsNotThere_IsRejected()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 7.2.3.2: Was es nicht gibt, wird nicht
+        /// zurückgenommen.
+        /// </summary>
+        /// <remarks>
+        /// Ein <c>result</c> darauf wäre die Auskunft, der Eintrag sei jetzt
+        /// fort - und die Meldung an die Abonnenten die Aufforderung, etwas
+        /// wegzuwerfen, das sie nie bekommen haben.
+        /// </remarks>
+        [Test]
+        public async Task RetractingWhatIsNotThere_IsRejected()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            await SubscribeAsync(alice, "abo-42");
+
+            var ereignisse = CollectEvents(alice);
+
+            var falscherEintrag = await AskAsync(bob, "ret-4", RetractIq("ret-4", "gibtesnicht"));
+            var falscherKnoten  = await AskAsync(bob, "ret-5", RetractIq("ret-5", "1", "urn:example:nichts"));
+            var ohneEintrag     = await AskAsync(bob, "ret-6", RetractIq("ret-6", null));
+
+            await WaitAgainst(() => RetractsIn(ereignisse).Count > 0,
+                              "eine Meldung über eine Rücknahme, die nicht stattfand");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(ConditionOf(falscherEintrag), Is.EqualTo("item-not-found"));
+
+                // Für einen Fremden käme hier ein <forbidden/>: An einem
+                // Knoten, den es nicht gibt, hat niemand eine Rolle. Für den
+                // Eigentümer nicht - er wird erkannt und nicht nachgeschlagen,
+                // weil ein PEP-Knoten dem Konto gehört. Ihm fehlt also nicht
+                // die Erlaubnis, sondern der Eintrag.
+                Assert.That(ConditionOf(falscherKnoten),  Is.EqualTo("item-not-found"),
+                            "Dem Eigentümer fehlt nicht die Rolle, sondern der Eintrag.");
+
+                Assert.That(ConditionOf(ohneEintrag),     Is.EqualTo("bad-request"),
+                            "„Nimm irgendetwas zurück\" gibt es nicht - dafür ist das Leeren da.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region RetractingFromANodeWithoutStorage_IsRejected()
+
+        /// <summary>
+        /// XEP-0060, Abschnitt 7.2.3.3, wie beim Leeren: Was nichts aufbewahrt,
+        /// kann nichts zurücknehmen.
+        /// </summary>
+        [Test]
+        public async Task RetractingFromANodeWithoutStorage_IsRejected()
+        {
+
+            var bob = await ConnectClientAsync("bob");
+
+            await AskAsync(bob, "cr-40",
+                           $"<iq type='set' id='cr-40'>" +
+                           $"<pubsub xmlns='{PubSubNamespace}'>" +
+                           $"<create node='urn:example:fluechtig'/>" +
+                           "<configure>" +
+                           ConfigForm("<field var='pubsub#persist_items'><value>0</value></field>") +
+                           "</configure></pubsub></iq>");
+
+            var abgewiesen = await AskAsync(bob, "ret-7",
+                                            RetractIq("ret-7", "1", "urn:example:fluechtig"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ConditionOf(abgewiesen),       Is.EqualTo("feature-not-implemented"));
+                Assert.That(PubSubConditionOf(abgewiesen), Is.EqualTo("unsupported"));
+            });
+
+        }
+
+        #endregion
+
+        #region ARetraction_RespectsASilencedSubscription()
+
+        /// <summary>
+        /// Ein stillgelegtes Abonnement bleibt auch bei einer Rücknahme still.
+        /// </summary>
+        /// <remarks>
+        /// Sie geht denselben Weg wie eine Veröffentlichung - dass beide durch
+        /// dieselbe Stelle laufen, ist genau der Grund, aus dem hier nichts
+        /// zusätzlich zu bedenken war.
+        /// </remarks>
+        [Test]
+        public async Task ARetraction_RespectsASilencedSubscription()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-43");
+
+            await AskAsync(alice, "opt-40",
+                           OptionsIq("opt-40", "set", subId, SubmitForm(DeliverField("0"))));
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "ret-8", RetractIq("ret-8", "1"));
+
+            await WaitAgainst(() => RetractsIn(ereignisse).Count > 0,
+                              "eine Rücknahme an ein stillgelegtes Abonnement");
+
+        }
+
+        #endregion
+
+        #region TheLastRetractedItem_LeavesTheNodeStanding()
+
+        /// <summary>
+        /// Auch der letzte Eintrag nimmt den Knoten nicht mit.
+        /// </summary>
+        /// <remarks>
+        /// Ein Knoten, der mit seinem Inhalt verschwände, wäre für seine
+        /// Abonnenten ohne Ankündigung fort - und die nächste Veröffentlichung
+        /// legte einen neuen an, den niemand abonniert hat.
+        /// </remarks>
+        [Test]
+        public async Task TheLastRetractedItem_LeavesTheNodeStanding()
+        {
+
+            var bob   = await PublishingBobAsync();
+            var alice = await ConnectClientAsync("alice");
+
+            var subId = await SubscribeAsync(alice, "abo-44");
+
+            await AskAsync(bob, "ret-9", RetractIq("ret-9", "1"));
+
+            var konto = Server.GetAccount($"bob@{Server.Domain}")!;
+
+            var gleichDanach = (Existiert: konto.PepNodeExists(Node),
+                                Eintraege: konto.GetPepItems(Node).Count);
+
+            var ereignisse = CollectEvents(alice);
+
+            await AskAsync(bob, "pub-31",
+                           PublishIq("pub-31", Node, "31", "<wetter xmlns='urn:example:x'>klar</wetter>"));
+
+            await WaitFor(() => SubIdsIn(ereignisse).Count > 0, "die Zustellung nach der Rücknahme");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gleichDanach.Existiert, Is.True,
+                            "Den Knoten gibt es weiter.");
+
+                Assert.That(gleichDanach.Eintraege, Is.Zero);
+
+                Assert.That(konto.PepSubscriptions(Node).Select(a => a.SubId), Is.EqualTo(new[] { subId }),
+                            "Und das Abonnement auch.");
+
+            });
 
         }
 

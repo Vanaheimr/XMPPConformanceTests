@@ -2550,7 +2550,80 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                     $"<item id='{XmlEscaping.Escape(itemId)}'/>" +
                     "</publish></pubsub></iq>");
 
-                await NotifyPepAsync(besitzer, session, node, itemId, inhalt);
+                await NotifyPepAsync(besitzer, session, node,
+                                     $"<item id='{XmlEscaping.Escape(itemId)}'>{inhalt}</item>");
+
+                return true;
+
+            }
+
+            #endregion
+
+            #region Zurücknehmen (XEP-0060, Abschnitt 7.2)
+
+            if (type == "set" && pubsub.Child(OmemoPep.PubSubNamespace, "retract") is { } retract)
+            {
+
+                var node    = retract.Attr("node");
+                var eintrag = retract.Child(OmemoPep.PubSubNamespace, "item")?.Attr("id");
+
+                // Ohne Kennung ist nicht zu sagen, was zurückgenommen werden
+                // soll. XEP-0060 kennt kein „nimm irgendetwas zurück" - dafür
+                // gibt es das Leeren, und das ist eine andere Anweisung mit
+                // einer anderen Meldung.
+                if (String.IsNullOrEmpty(node) || String.IsNullOrEmpty(eintrag))
+                {
+                    await session.SendAsync(BadRequestIq(id));
+                    return true;
+                }
+
+                var besitzer = to is null ||
+                               String.Equals(BareOf(to), session.BareJid, StringComparison.OrdinalIgnoreCase)
+                                   ? session.Account
+                                   : GetAccount(BareOf(to));
+
+                // Dieselbe Regel wie beim Veröffentlichen, und das ist die
+                // Entscheidung: <b>Wer schreiben darf, darf auch zurücknehmen.</b>
+                //
+                // Ein Publizierender käme so an fremde Einträge im selben
+                // Knoten. Sie auseinanderzuhalten hiesse, sich zu merken, wer
+                // welchen geschrieben hat - eine Ablage, die es hier nicht
+                // gibt, und ohne die jede feinere Regel bloss behauptet wäre.
+                if (besitzer?.PepAffiliationOf(node, session.BareJid!)
+                        is not (PubSubAffiliation.Owner or PubSubAffiliation.Publisher))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "forbidden", "auth"));
+                    return true;
+                }
+
+                // XEP-0060, Abschnitt 7.2.3.3, wie beim Leeren: Was nichts
+                // aufbewahrt, kann nichts zurücknehmen.
+                if (besitzer.PepNodeConfiguration(node) is { PersistItems: false })
+                {
+                    await session.SendAsync(
+                        StanzaErrorIq(id, "feature-not-implemented", "cancel",
+                                      applicationError: $"<unsupported xmlns='{PubSubErrorNamespace}'" +
+                                                        " feature='persistent-items'/>"));
+                    return true;
+                }
+
+                // XEP-0060, Abschnitt 7.2.3.2. Ein `result` auf einen Eintrag,
+                // den es nicht gibt, wäre die Auskunft, er sei jetzt fort - und
+                // die Meldung an die Abonnenten die Aufforderung, etwas
+                // wegzuwerfen, das sie nie bekommen haben.
+                if (!besitzer.RetractPepItem(node, eintrag))
+                {
+                    await session.SendAsync(StanzaErrorIq(id, "item-not-found"));
+                    return true;
+                }
+
+                await session.SendAsync($"<iq type='result' id='{id}'/>");
+
+                // XEP-0060, Abschnitt 7.2.2.1: dieselbe Zustellung wie eine
+                // Veröffentlichung, nur mit anderem Inhalt. Wer den Eintrag
+                // bekommen hat, hält ihn sonst weiter für gültig.
+                await NotifyPepAsync(besitzer, session, node,
+                                     $"<retract id='{XmlEscaping.Escape(eintrag)}'/>");
 
                 return true;
 
@@ -3053,11 +3126,23 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
         /// Die Sitzung, die veröffentlicht hat - sie bekommt ihre eigene
         /// Meldung nicht.
         /// </param>
+        /// <param name="content">
+        /// Was in <c>&lt;items/&gt;</c> steht: ein <c>&lt;item/&gt;</c> mit
+        /// seiner Nutzlast oder ein <c>&lt;retract/&gt;</c> mit der Kennung des
+        /// zurückgenommenen Eintrags.
+        ///
+        /// <b>Beides ist eine Zustellung und geht deshalb hier durch</b> - je
+        /// Abonnement, mit Kennung, und stillgelegte übergangen. Eine
+        /// Rücknahme, die einem stillgelegten Abonnement doch zugestellt würde,
+        /// unterliefe die Einstellung, und eine ohne Kennung wäre bei mehreren
+        /// Abonnements keiner Zustellung zuzuordnen. Das unterscheidet sie vom
+        /// Löschen und Leeren: Die betreffen den Knoten und gehen deshalb je
+        /// Abonnenten einmal hinaus (siehe <see cref="NotifyPepNodeAsync"/>).
+        /// </param>
         private async Task NotifyPepAsync(XMPPAccount   owner,
                                           XMPPSession   sender,
                                           String        node,
-                                          String        itemId,
-                                          String        payload)
+                                          String        content)
         {
 
             if (!RouteStanzas || sender.FullJid is null)
@@ -3067,7 +3152,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.XMPP.Server
                 => $"<message from='{owner.BareJid}' type='headline'>" +
                    "<event xmlns='http://jabber.org/protocol/pubsub#event'>" +
                    $"<items node='{XmlEscaping.Escape(node)}'>" +
-                   $"<item id='{XmlEscaping.Escape(itemId)}'>{payload}</item>" +
+                   content +
                    "</items></event>" +
                    (subId is not null
                         ? "<headers xmlns='http://jabber.org/protocol/shim'>" +

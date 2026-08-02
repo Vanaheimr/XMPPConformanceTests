@@ -710,6 +710,17 @@ miteinander sprechen:
   für die Ablage** (XEP-0160): Wer offline war, erfährt es nicht — und findet
   es beim nächsten Verbinden über §5.6, wo der Stand von jetzt steht und nicht
   der von damals
+- XEP-0060 §7.2 `<retract/>`: Ein einzelner Eintrag wird zurückgenommen — von
+  dem, der auch veröffentlichen dürfte. **Wer schreiben darf, darf auch
+  zurücknehmen**; einen Publizierenden von fremden Einträgen fernzuhalten
+  hiesse, sich zu merken, wer welchen geschrieben hat, und ohne diese Ablage
+  wäre jede feinere Regel bloss behauptet. Ein Eintrag, den es nicht gibt, wird
+  mit `<item-not-found/>` abgewiesen, ein Knoten ohne Ablage mit
+  `<unsupported feature='persistent-items'/>` wie beim Leeren. **Die Meldung
+  geht denselben Weg wie eine Veröffentlichung** — je Abonnement, mit `subid`,
+  und ein stillgelegtes bleibt still: Eine Rücknahme ist eine Zustellung und
+  keine Nachricht über den Knoten. Der letzte zurückgenommene Eintrag lässt den
+  Knoten stehen
 - XEP-0060 §8.4/§8.5 Knoten löschen und leeren, beides nur für den Eigentümer.
   **Gelöscht wird der Knoten, geleert nur sein Inhalt** — nach dem Leeren
   veröffentlicht er weiter an dieselben Empfänger, nach dem Löschen an
