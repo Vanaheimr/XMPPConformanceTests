@@ -279,8 +279,8 @@ das ist die Zeile, die aus dem Austausch überhaupt eine Sicherung macht
 **Wo der Wert steckt:** `WebSocketServerLinks.VerifyDialbackKeyAsync` fragt
 nicht den, der sich gerade ausweisen will, sondern die Adresse, die *dieser*
 Server für die Absenderdomain hinterlegt hat — über eine eigene, kurzlebige
-Verbindung. Wer sich fälschlich für `links.example` ausgibt, wird deshalb nie
-selbst gefragt; gefragt wird der echte `links.example`, und der kennt den
+Verbindung. Wer sich fälschlich für `left.example` ausgibt, wird deshalb nie
+selbst gefragt; gefragt wird der echte `left.example`, und der kennt den
 Schlüssel nicht. An die Stelle der DNS-Auflösung des XEP tritt dabei die
 Gegenstellenliste des Betreibers. Für den Zweck ist das eher strenger als DNS
 (das unauthentifiziert ist), aber es füllt sich nicht selbst: eine Domain ohne
@@ -4308,7 +4308,7 @@ wahrscheinlicheren Fall:** Den eigenen Client schreibt dieselbe Bibliothek, die
 fremde Implementierung nicht.
 
 **Beim Hinsehen hatte das `from` dieselbe Lücke, und die ist die ernstere.**
-`DomainOf("al ice@links.example")` liefert brav `links.example`, die
+`DomainOf("al ice@left.example")` liefert brav `left.example`, die
 Zuständigkeitsprüfung ist zufrieden, und eine Stanza mit einer Absenderadresse,
 die keine ist, läuft durch. Bruchstücke zu vergleichen und das Ergebnis „fremde
 Domain" zu nennen ist keine Prüfung.
@@ -4327,7 +4327,7 @@ Entscheidung:
   hält die Grenze fest.
 
 **Die Reihenfolge ist selbst eine Aussage** und hat deshalb einen eigenen
-Testfall. Bei `bob@-rechts.example` ist schon die Domain keine; `IsLocal` hielte
+Testfall. Bei `bob@-right.example` ist schon die Domain keine; `IsLocal` hielte
 sie für die einer dritten Partei. Stünde die Prüfung dahinter, wäre die Stanza
 richtig abgewiesen und **falsch begründet** — der Absender suchte den Fehler an
 der falschen Stelle. Die Mutation, die genau das tut, stirbt an diesem Fall und
