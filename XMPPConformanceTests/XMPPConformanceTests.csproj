@@ -5,13 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!--
-      What lies here belongs to the console - everything else has moved to
-      Ratatoskr with the protocol. The RootNamespace therefore follows
-      Ratatoskr, the AssemblyName stays independent: two suites with the same
-      name would be the same file.
+      What lies here is what needs a foreign implementation - Prosody,
+      ejabberd, python-omemo - and nothing else: since E20 the console and its
+      tests have a repository of their own. What is checked is Ratatoskr, so
+      the RootNamespace follows it; the AssemblyName does not, for two suites
+      with the same name would be the same file.
     -->
     <RootNamespace>org.GraphDefined.Vanaheimr.Ratatoskr.Tests</RootNamespace>
-    <AssemblyName>org.GraphDefined.Vanaheimr.Ratatoskr.Jabber.Tests</AssemblyName>
+    <AssemblyName>org.GraphDefined.Vanaheimr.Ratatoskr.XMPPConformanceTests</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Jabber\Jabber.csproj" />
+    <ProjectReference Include="..\libs\Ratatoskr\Ratatoskr\Ratatoskr.csproj" />
   </ItemGroup>
 
 </Project>

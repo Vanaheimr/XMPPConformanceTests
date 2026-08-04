@@ -13,7 +13,7 @@ reference implementation for `urn:xmpp:omemo:2` — the same version we speak.
 ## Setting it up
 
 ```bash
-wsl -d Debian -- python3 Jabber.Tests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
+wsl -d Debian -- python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
 ```
 
 That downloads the wheels and unpacks them — **no pip, no venv, no sudo,

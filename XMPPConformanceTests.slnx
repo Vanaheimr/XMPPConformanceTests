@@ -7,6 +7,5 @@
     <Project Path="libs/Styx/Styx/Styx.csproj" />
     <Project Path="libs/Styx/StyxTests/StyxTests.csproj" />
   </Folder>
-  <Project Path="Jabber/Jabber.csproj" />
-  <Project Path="Jabber.Tests/Jabber.Tests.csproj" />
+  <Project Path="XMPPConformanceTests/XMPPConformanceTests.csproj" />
 </Solution>

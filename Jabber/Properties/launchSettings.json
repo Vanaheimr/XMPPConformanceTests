@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "Jabber": {
-      "commandName": "Project",
-      "commandLineArgs": "-j ahzf@graphdefined.com -p vsp4_j4-bAww -w wss://jabber.graphdefined.com:5443/ws"
-    }
-  }
-}

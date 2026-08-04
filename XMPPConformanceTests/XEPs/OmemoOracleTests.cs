@@ -69,10 +69,10 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// The search goes upwards from the output until precisely this file
         /// lies there - not after a mark of the surrounding repository. Until
         /// D97 the mark was `WORKPLAN.md`, and the path pointed at
-        /// `Jabber.Tests/`: both belonged to the program, not to the library,
-        /// and both were wrong here after the move. Ratatoskr has to be able to
-        /// run its own tests even when nobody has checked Jabber out next to
-        /// it.
+        /// `Jabber.Tests/` (this suite under its name of back then): both
+        /// belonged to the program, not to the library, and both were wrong
+        /// here after the move. Ratatoskr has to be able to run its own tests
+        /// even when nobody has checked this repository out next to it.
         /// </remarks>
         private static readonly String ScriptPath = Path.Combine("XEPs", "Oracle", "omemo_oracle.py");
 

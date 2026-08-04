@@ -2,7 +2,7 @@
 
 What is open on the client and the server, in what order that makes sense and
 why. The detailed description of the individual gaps stands in
-[Jabber/README.md](Jabber/README.md) — here stands only what is to be **done**.
+[README.md](README.md) — here stands only what is to be **done**.
 
 State: 2026-07-27
 
@@ -74,7 +74,7 @@ it is reported, and six tests strike the mutation down.
 mere test server — for that three things were missing, the first of them is
 done now, and a fourth would be the proof that it works. The complete list of
 gaps stands in
-[Jabber/README.md](Jabber/README.md#what-the-server-lacks-for-production-use).
+[README.md](README.md#what-the-server-lacks-for-production-use).
 
 ### S1. TLS ✅
 
@@ -6412,6 +6412,69 @@ skipped in the console suite.
 
 ---
 
+### D99. The name says what the thing is ✅ — Jabber becomes XMPPConformanceTests
+
+"Jabber" said where this came from, not what it does. Since D97 the protocol
+lives in Ratatoskr, and since D98 every check against a foreign implementation
+lives here. What is left is a suite of conformance and interoperability checks.
+
+| before | after |
+|---|---|
+| `Jabber.Tests/` | `XMPPConformanceTests/` |
+| `Jabber.slnx` | `XMPPConformanceTests.slnx` |
+| `…Ratatoskr.Jabber.Tests` (AssemblyName) | `…Ratatoskr.XMPPConformanceTests` |
+| `Jabber/` (the console) | its own repository, [XMPPConsole](https://github.com/Vanaheimr/XMPPConsole) |
+
+**The console left in the middle of this step, and that was the better cut.**
+It had been renamed to `XMPPConsole/` here first; then it turned out that it
+already had a repository of its own, and the eight tests of `ConsoleOutput`
+went with it. They belong there: they check that the input line survives an
+output, which is a question about a program and not about a protocol. What
+stays behind is a suite that has exactly one reason to exist — and no longer
+"two things that have nothing to do with each other", as the README had to
+admit since E19.
+
+**One of these names lives outside this repository.** The `InternalsVisibleTo`
+in `Ratatoskr.csproj` has to spell the assembly name exactly; it is what gives
+the moved tests `XMPPServer.OnInstanceCreated` and thereby the guard from D54.
+That is the harmless direction, though: a name that no longer fits does not
+switch the guard off quietly, it fails the build with `CS0122`. Which is why
+the rename and the pointer to it are **one** commit — split apart, they would
+leave a state in between in which nothing builds.
+
+**The history above keeps its old names.** `Jabber/Server/S2SStream.cs`,
+`Jabber/Common/BidiClasses.cs`, `Jabber.csproj` — those name what stood there
+at the time, and several of them had already ceased to exist with D97. What did
+follow are the links and the live instructions: a link that does not resolve is
+a defect, and E16n was about exactly that. Renamed as well are the two test CAs
+in `tools/*/setup.sh`; certificates already generated keep their old subject,
+and nothing matches on it.
+
+**Not renamed are `JABBER_PROSODY_CERTS` and `JABBER_EJABBERD_CERTS`.** They
+live in the environment of whoever runs the tests, not in this repository, and
+renaming them would skip every interoperability check until each machine had
+been changed over. The count of skipped tests would report it — but a rename
+that needs the health check to be noticed is one to make deliberately and not
+in passing.
+
+**Nothing was lost in the move, and that was counted rather than hoped:**
+
+| | before | after |
+|---|---|---|
+| RatatoskrTests | 1110 passed, 1 skipped | 1110 passed, 1 skipped |
+| this suite | 31 passed, 6 skipped | 23 passed, 6 skipped |
+| XMPPConsole.Tests | — | 8 passed, 0 skipped |
+| together | 1141 / 7 | 1141 / 7 |
+
+The old root `README.md` was a note to self: a list of XEPs with a mark for
+what was done. What it still held that the work plan did not stands under
+"Optional" now; its place is taken by the document that describes this suite.
+
+What still says `Jabber` is the directory on this machine and the three remote
+URLs. Those are not in the repository's hand.
+
+---
+
 ## Later
 
 ### Test suite
@@ -6483,7 +6546,7 @@ unknown account — D50) and stanza errors without a switch (D51 to D53).
   synchronised output did not exist at all in doing so: the handling of the events
   bracketed every output by hand, without a lock
 - ~~Decide about unused public members: use or strike. List in
-  [Jabber/README.md](Jabber/README.md).~~ ✅ done in D57
+  [README.md](README.md).~~ ✅ done in D57
 
 ---
 
@@ -6521,6 +6584,21 @@ implementation can be checked.
   Then the use case is there, and with it the counter-check — Prosody listens on
   127.0.0.1:5222 and would be the touchstone
   (see D34, D48)
+
+- **What the old root README still wanted.** It was a note to self from the beginning
+  of the project — a list of XEPs with a dash in front of what was done — and D99 has
+  taken its place. What stood on it and is implemented today does not need to be
+  repeated here; what stayed open is this, and each one is a group chat away from being
+  the same wish:
+
+  | | What is missing |
+  |---|---|
+  | XEP-0045 | **MUC** — multi-user chat. Without it there is no group, and with it a second roster model, a second presence model and a second delivery path |
+  | XEP-0313 | **MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over |
+  | XEP-0363 | **HTTP File Upload** — the way to send anything that is not text |
+  | XEP-0461 | **Replies** — a reference to the message being answered |
+  | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |
+  | — | **A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it |
 
 ---
 

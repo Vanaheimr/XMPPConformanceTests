@@ -120,7 +120,7 @@ cd "$PREFIX/certs"
 if [ ! -f ca.crt ]; then
 
     openssl req -x509 -newkey rsa:2048 -keyout ca.key -out ca.crt -days 30 -nodes \
-        -subj "/CN=Jabber ejabberd Test CA" \
+        -subj "/CN=XMPPConformanceTests ejabberd Test CA" \
         -addext "basicConstraints=critical,CA:TRUE" \
         -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
 
