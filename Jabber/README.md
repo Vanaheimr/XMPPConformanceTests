@@ -516,10 +516,10 @@ and do not know the transport — they are thereby testable independently of
 ## Tests
 
 ```bash
-# The console output - eight tests
+# The console output and everything against foreign implementations
 dotnet test ../Jabber.Tests/Jabber.Tests.csproj
 
-# The protocol - the large part
+# The protocol against itself - the large part
 dotnet test ../libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj
 ```
 
@@ -535,23 +535,34 @@ libs/Ratatoskr/RatatoskrTests/
 ├── Auth/               SASL/SCRAM, mechanism policy, accounts and certificates
 ├── Streams/            negotiation, binding, TLS, deadlines, reconnection
 ├── StreamManagement/   XEP-0198: counting, acknowledging, resuming
-├── Federation/         S2S: dialback, SRV, TCP/WebSocket, foreign servers
+├── Federation/         S2S: dialback, SRV, TCP/WebSocket, between two of ours
 ├── Routing/            delivery rules, several resources, offline store
 ├── Rosters/            roster, subscriptions, versioning, push safety
 ├── Stanzas/            building, parsing and errors of single stanzas
 └── XEPs/               XEP-0115 caps and the payloads of the other XEPs
+
+Jabber.Tests/
+├── Infrastructure/     the same guard against internal errors, once per suite
+├── Federation/         S2S against Prosody 13 and ejabberd 24.12
+├── StreamManagement/   XEP-0198 against the same two
+└── XEPs/Oracle/        python-omemo as a reference, fetched into WSL
 ```
 
-`Jabber.Tests` now checks only the console output — that it leaves the input
-line whole, for events **and** for the log. The commands themselves have no
-tests.
+`Jabber.Tests` holds two things that have nothing to do with each other, and
+that is deliberate. It checks the console output — that it leaves the input line
+whole, for events **and** for the log; the commands themselves have no tests.
+And since E19 it holds **every check against a foreign implementation**:
+Prosody, ejabberd and python-omemo. Those live here because the setups that
+produce those far sides live here, in `tools/`. Ratatoskr tests the library
+against itself and needs nothing but a checkout.
 
-**The number of skipped tests is the health check of the run.** If it stands at
-**7**, Prosody, ejabberd and the OMEMO oracle were ready; every higher number
-means that something was not checked at all. The seven that stay even in the
-good case are no omissions but a limit of the environment: six need the
-**incoming** way, which the Hyper-V firewall discards from WSL to the Windows
-host (see below), and one holds only in STARTTLS operation.
+**The number of skipped tests is the health check of the run**, and it is now
+read per suite. In `Jabber.Tests` it stands at **6** when Prosody, ejabberd and
+the OMEMO oracle were ready; every higher number means that something was not
+checked at all. Those six are no omission but a limit of the environment: they
+need the **incoming** way, which the Hyper-V firewall discards from WSL to the
+Windows host (see below). In `RatatoskrTests` it stands at **1** — the test for
+a property that exists only in STARTTLS operation.
 
 ### XMPPServer
 
@@ -1070,7 +1081,7 @@ distribution, session store and the wiring.
   envelope, the `<encrypted/>` element, the PEP nodes and the course of a
   conversation over several messages — and a real client over a real connection
   not at all anyway: Conversations, Dino and Gajim mostly still speak OMEMO
-  0.3.0. See [the oracle](../libs/Ratatoskr/RatatoskrTests/XEPs/Oracle/README.md)
+  0.3.0. See [the oracle](../Jabber.Tests/XEPs/Oracle/README.md)
 - **The session store is not encrypted.** It holds the secret IdentityKey, all
   the PreKeys and every chain key; whoever reads the file reads the
   conversations along with it. It belongs in a place only this user can get to

@@ -6354,6 +6354,64 @@ Full run: 1133 passed, 7 skipped; to that 8 for the console.
 
 ---
 
+### D98. The tests follow their setups ✅ — interoperability moves to Jabber
+
+D97 wrote down the rule and did not carry it through: *"What holds for the
+checks against foreign far sides stays here, for here lie the setups."* The
+setups did stay — `tools/prosody/setup.sh` and `tools/ejabberd/setup.sh` are in
+this repository. The tests that need them stayed in Ratatoskr, which therefore
+checked against far sides it cannot produce itself.
+
+**The CI runner made it visible.** Written for Ratatoskr in E18a, it needed
+fifteen lines of comment to explain what can never run on a hosted runner, and
+its most informative result was "28 skipped". A gate that cannot reach a
+quarter of its own statement is a weaker gate — and the comment explaining why
+was the smell, not the fix.
+
+Moved are seven files and the oracle: the federation and stream-management
+tests against Prosody and ejabberd, and the three OMEMO tests against
+python-omemo together with the script that fetches it. The namespace did not
+have to change — `Jabber.Tests` already carries `…Ratatoskr.Tests` as its root
+namespace, a decision from D97 that turns out to have been the right shape for
+this.
+
+**The move is exactly conservative, and that was checked rather than hoped:**
+
+| | before | after |
+|---|---|---|
+| RatatoskrTests | 1133 passed, 7 skipped | 1110 passed, 1 skipped |
+| Jabber.Tests | 8 passed, 0 skipped | 31 passed, 6 skipped |
+| together | 1141 / 7 | 1141 / 7 |
+
+Not one test was lost or gained; 29 changed sides. The one that still skips in
+Ratatoskr checks a property which exists only in STARTTLS operation, and the
+six in Jabber.Tests are the ones that need the **incoming** way, which the
+Hyper-V firewall discards from WSL to the Windows host.
+
+**The one real cost is a second `InternalsVisibleTo`, and it is not the stopgap
+D97 removed.** That one named an assembly for a move that had not happened.
+This one names the suite that exists, and it is needed for exactly one member:
+`XMPPServer.OnInstanceCreated`, the internal event the guard from D54 hangs
+itself on. Without it the moved tests would run unguarded, and a programming
+error in the server would land in Hermod's log again instead of failing the
+test — the state D18, D19 and D54 took three steps to leave.
+
+**The second cost is duplication, and it is named rather than hidden.**
+`InternalErrorGuard` and `GlobalErrorWatch` now exist once per test assembly,
+367 lines in two copies. The alternative was a `ProjectReference` from
+`Jabber.Tests` back to `RatatoskrTests`, which would have restored exactly the
+coupling this step removes. Two copies of test scaffolding can drift; a
+dependency that undoes the point of the change is worse.
+
+Ratatoskr's runner is now what Styx's is: build, test, done. It still needs
+three checkouts side by side, because the relative paths to Hermod and Styx are
+not a matter of tests.
+
+Full run after the move: 1110 passed, 1 skipped in Ratatoskr; 31 passed, 6
+skipped in the console suite.
+
+---
+
 ## Later
 
 ### Test suite
