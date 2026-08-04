@@ -1781,549 +1781,527 @@ answer, and to write down a supposition would be worse than the open question.
 Stands under "Later".
 *(Addendum: found in D11 — it was no test error.)*
 
-### D11. Die Wiederaufnahme gehört dem Stream, nicht der Presence ✅
+### D11. The resumption belongs to the stream, not to the presence ✅
 
-Der offene Punkt aus D10 ist geklärt, und er war kein Testartefakt. `Park`
-verlangte, dass die Sitzung <i>verfügbar</i> ist:
+The open point from D10 is cleared up, and it was no test artefact. `Park`
+demanded that the session be <i>available</i>:
 
 ```csharp
 if (session.FullJid is null || !session.IsAvailable)
     return false;
 ```
 
-Damit hingen zwei Dinge aneinander, die nichts miteinander zu tun haben. Die
-Wiederaufnahme wird mit `<enabled resume='true'/>` zugesagt und gehört dem
-Stream; die Presence sagt den Kontakten etwas über den Menschen davor. Wer sich
-unsichtbar machte, ohne die Verbindung zu beenden, verlor die Zusage
-stillschweigend: Beim Abriss wurde sein Stream nicht abgelegt, sein
-`<resume/>` bekam ein `<failed/>`, und alles Unbestätigte war fort — genau der
-Verlust, für den der Puffer aus R2 und R7 überhaupt gebaut wurde.
+With that two things hung on each other that have nothing to do with each other.
+The resumption is promised with `<enabled resume='true'/>` and belongs to the
+stream; the presence says something to the contacts about the human in front of
+it. Whoever made themselves invisible without ending the connection lost the
+promise silently: at the break their stream was not laid aside, their `<resume/>`
+got a `<failed/>`, and everything unacknowledged was gone — exactly the loss the
+buffer from R2 and R7 was built for in the first place.
 
-Dasselbe traf den Client, dessen erste Presence noch unterwegs war. Und genau
-daran hing der wackelige Test: Er riss die Verbindung ab, sobald die
-Wiederaufnahme zugesagt war, und das ist im Aufbau des Clients *vor* seiner
-ersten Presence. Auf einer ruhigen Maschine kam sie rechtzeitig, unter Last
-nicht immer — ein Fehler, der sich als Zeitproblem verkleidet hat.
+The same hit the client whose first presence was still on its way. And exactly on
+that hung the flaky test: it broke the connection off as soon as the resumption
+was promised, and that is in the setup of the client *before* its first presence.
+On a quiet machine it came in time, under load not always — an error that
+disguised itself as a problem of timing.
 
-Die Bedingung ist weg. Für die Abmeldung, in deren Ablauf `Park` sitzt, ändert
-das nichts: `TryMarkUnavailable` lehnt eine nie verfügbare Sitzung von sich aus
-ab, die Unterscheidung war dort längst getroffen. Die Prüfung in `Park` war
-also nicht nur falsch, sondern auch doppelt.
+The condition is gone. For the sign-off, in whose course `Park` sits, that changes
+nothing: `TryMarkUnavailable` refuses a never available session of its own accord,
+the distinction had long since been taken there. The check in `Park` was therefore
+not only wrong but also double.
 
-Eine Mutation, erschlagen von `AnInvisibleClient_KeepsItsResumableStream`: die
-Verfügbarkeit wieder verlangen.
+One mutation, struck down by `AnInvisibleClient_KeepsItsResumableStream`: demand
+the availability again.
 
-Drei von vier Wackelkandidaten waren damit echte Fehler im Code, einer war ein
-Fehler in der Testanlage. Das ist die Ausbeute, wenn man einem einzelnen roten
-Lauf nachgeht, statt ihn zu wiederholen, bis er grün ist.
+Three out of four flaky candidates were thereby real errors in the code, one was
+an error in the arrangement of the test. That is the yield when one follows up a
+single red run instead of repeating it until it is green.
 
-### D12. Die Art einer Nachricht ✅ — und die Quittung vor Publikum
+### D12. The type of a message ✅ — and the receipt before an audience
 
-RFC 6121, Abschnitt 5.2.2 kennt fünf Arten von Nachrichten. Dieser Client kannte
-eine: Alles kam gleich an, und der Empfänger konnte den Zuruf einer
-Nachrichtenquelle nicht von der Zeile eines Bekannten unterscheiden — und die
-aus einem Raum nicht von einer an ihn allein gerichteten. Nur `error` war schon
-getrennt, weil eine Fehler-Stanza sonst als Chatzeile durchgelaufen wäre.
+RFC 6121, section 5.2.2 knows five types of messages. This client knew one:
+everything arrived alike, and the recipient could not distinguish the headline of
+a news source from the line of an acquaintance — and the one out of a room not
+from one directed at them alone. Only `error` was separated already, because an
+error stanza would otherwise have run through as a chat line.
 
-Wo das nicht die Anzeige betrifft, sondern das Verhalten, wird es unangenehm:
-**Der Client quittierte jede Nachricht, auch die aus einem Raum.** Der Absender
-ist dort der Raum und nicht ein Mensch; die Quittung ginge an den Raum, und der
-reicht sie an alle weiter. Aus einer stillen Bestätigung würde eine Wortmeldung
-vor Publikum — bei zwanzig Anwesenden vierhundert Quittungen für zwanzig
-Zeilen. Beim Zuruf sagt es der RFC selbst: „no reply is expected".
+Where that concerns not the display but the behaviour, it becomes unpleasant:
+**the client acknowledged every message, the one out of a room as well.** The
+sender there is the room and not a human; the receipt would go to the room, and
+that hands it on to everybody. Out of a silent acknowledgement would become a
+speaking up before an audience — at twenty present four hundred receipts for
+twenty lines. At the headline the RFC says it itself: "no reply is expected".
 
-`MessageType` trägt die Art jetzt bis in die Anwendung, und `ExpectsAReply`
-entscheidet an einer Stelle, ob von selbst geantwortet wird — in beide
-Richtungen: Wer in einen Raum schreibt, fordert auch keine Bestätigung mehr an
-(XEP-0184, Abschnitt 5.3 rät dem Absender ausdrücklich davon ab).
+`MessageType` now carries the type as far as into the application, and
+`ExpectsAReply` decides at one place whether an answer is given of itself — in
+both directions: whoever writes into a room no longer requests an acknowledgement
+either (XEP-0184, section 5.3 expressly advises the sender against it).
 
-Die Vorgabe ist ein MUSS und kein Geschmack: Fehlt das Attribut **oder ist sein
-Wert unbekannt**, gilt die Nachricht als `normal`. Der Grund liegt in der
-Zukunft — eine spätere Erweiterung soll bei alten Empfängern als gewöhnliche
-Nachricht ankommen und nicht verschwinden.
+The default is a MUST and no matter of taste: is the attribute missing **or is its
+value unknown**, then the message counts as `normal`. The reason lies in the
+future — a later extension is to arrive at old recipients as an ordinary message
+and not to disappear.
 
-Sieben Mutationen, alle erschlagen.
+Seven mutations, all struck down.
 
-Der Test brauchte einen zweiten Anlauf, und der Fehler war ein alter Bekannter
-in neuem Gewand: Ich beobachtete die Quittung über `OnReceiptReceived` beim
-Absender — und das Ereignis feuert nur für Nachrichten, die der Client selbst
-über `SendMessageAsync` abgeschickt hat. Bei einer rohen Stanza gilt die
-Quittung als Fälschungsversuch und wird verworfen. Beobachtet wird jetzt, was
-der Empfänger hinausschickt, und damit der Weg statt der Wirkung.
+The test needed a second attempt, and the error was an old acquaintance in a new
+garb: I observed the receipt over `OnReceiptReceived` at the sender — and the
+event fires only for messages the client itself has sent off over
+`SendMessageAsync`. At a raw stanza the receipt counts as an attempt at forgery
+and is discarded. Observed is now what the recipient sends out, and with that the
+way instead of the effect.
 
-Nicht angefasst: die typabhängigen Zustellregeln des *Servers* aus Abschnitt 8.
-Der Testserver stellt weiterhin für alle Typen gleich zu. Steht unter „Später".
+Not touched: the type-dependent delivery rules of the *server* from section 8. The
+test server still delivers alike for all types. Stands under "Later".
 
-### D13. Die Zustellregeln des Servers ✅ — und die Adresse entscheidet mit
+### D13. The delivery rules of the server ✅ — and the address decides too
 
-Die Client-Hälfte aus D12 hat die Server-Hälfte sichtbar gemacht: RFC 6121,
-Abschnitt 8.5 macht die Zustellung von der Art der Nachricht abhängig, und
-dieser Server stellte alles gleich zu.
+The client half from D12 has made the server half visible: RFC 6121, section 8.5
+makes the delivery depend on the type of the message, and this server delivered
+everything alike.
 
-Vier Regeln, zwei davon MUSS:
+Four rules, two of them MUST:
 
-| An den Bare-JID | Verhalten |
+| To the bare JID | Behaviour |
 |---|---|
-| `groupchat` | nie zustellen, `<service-unavailable/>` an den Absender |
-| `error` | still verwerfen — ein Fehler auf einen Fehler wäre der Anfang einer Schleife |
-| `headline` | an **alle** Resourcen mit nicht-negativer Priorität |
-| `normal`/`chat` | an eine Resource |
+| `groupchat` | never deliver, `<service-unavailable/>` to the sender |
+| `error` | discard silently — an error on an error would be the beginning of a loop |
+| `headline` | to **all** resources with a non-negative priority |
+| `normal`/`chat` | to one resource |
 
-Dazu die Priorität, die es vorher gar nicht gab: Eine Resource mit negativer
-Priorität bekommt nichts, was bloss an das Konto ging. Genau dafür setzt ein
-Client sie — das Zweitgerät bleibt gerichtet ansprechbar und hält sich aus dem
-Übrigen heraus.
+To that the priority, which did not exist at all before: a resource with a
+negative priority gets nothing that went merely to the account. Exactly for that a
+client sets it — the second device stays addressable directedly and keeps out of
+the rest.
 
-**Die Adresse entscheidet mit, und das hat mich einen Anlauf gekostet.** Meine
-erste Fassung lehnte `groupchat` und `error` unbesehen ab. Abschnitt 8.5.3.1
-sagt aber für eine *passende Resource*: „For a message stanza, the server MUST
-deliver the stanza to the resource" — ohne Unterscheidung nach Art. Und das ist
-kein Sonderfall, sondern der Normalfall: Ein Raum liefert an
-`nutzer@server/resource` aus, nicht an das Konto. Meine Regel hätte die
-Raumfunktion unbenutzbar gemacht und jede Fehlerantwort verschluckt.
+**The address decides too, and that cost me an attempt.** My first version refused
+`groupchat` and `error` unseen. Section 8.5.3.1 says however for a *matching
+resource*: "For a message stanza, the server MUST deliver the stanza to the
+resource" — without a distinction by type. And that is no special case but the
+normal one: a room delivers to `user@server/resource`, not to the account. My rule
+would have made the room function unusable and swallowed every error answer.
 
-Aufgefallen ist es daran, dass zwei Tests aus D12 rot wurden — jene, die eine
-Raum-Nachricht an einen Bare-JID schickten. Auch sie waren falsch: Diese
-Adressierung gibt es bei einem regelkonformen Server nicht. Sie gehen jetzt an
-die Full-JID, so wie ein Raum es täte.
+It came out in that two tests from D12 went red — those that sent a room message
+to a bare JID. They too were wrong: this addressing does not exist at a
+rule-conformant server. They now go to the full JID, the way a room would do it.
 
-Acht Mutationen, alle erschlagen — darunter die feinste: die Priorität auch für
-gerichtete Nachrichten anzuwenden. Sie sieht nach Gründlichkeit aus und nimmt
-der negativen Priorität genau das, was sie ausmacht.
+Eight mutations, all struck down — among them the finest: to apply the priority to
+directed messages as well. It looks like thoroughness and takes from the negative
+priority exactly what makes it what it is.
 
-Nicht behoben und vermerkt: Ohne erreichbare Resource verlangt Abschnitt
-8.5.2.2.1 für `normal` und `chat` Ablage oder Fehler. Dieser Server hat keine
-Ablage für Abwesende und verwirft still — für die drei übrigen Arten ist das
-richtig, für diese beiden nicht.
+Not fixed and noted: without a reachable resource section 8.5.2.2.1 demands for
+`normal` and `chat` a store or an error. This server has no store for the absent
+and discards silently — for the three other types that is right, for these two it
+is not.
 
-### D14. Die Offline-Ablage ✅ — und der dritte Weg, den es nicht gibt
+### D14. The offline store ✅ — and the third way that does not exist
 
-Der offene Punkt aus D13. Abschnitt 8.5.2.2.1 stellt zwei Wege nebeneinander und
-verbietet den dritten:
+The open point from D13. Section 8.5.2.2.1 puts two ways beside each other and
+forbids the third:
 
-| Ohne erreichbare Resource | Vorschrift |
+| Without a reachable resource | Prescription |
 |---|---|
-| `normal`, `chat` | ablegen **oder** `<service-unavailable/>` an den Absender |
-| `groupchat` | MUSS `<service-unavailable/>` |
-| `headline`, `error` | MUSS still verwerfen |
-
-Der dritte Weg — stillschweigend verwerfen, was abgelegt oder abgelehnt werden
-müsste — war genau der, den dieser Server ging. Und er ist der unangenehmste von
-allen: Der Absender hält seine Nachricht für zugestellt, der Empfänger hat nie
-erfahren, dass es sie gab, und **niemand kann den Verlust bemerken**. Ein Fehler,
-der sich selbst verbirgt, ist schlimmer als einer, der lärmt.
-
-Beide erlaubten Wege sind jetzt da, weil sie sich gegenseitig begrenzen: Ohne
-Ablage wäre die Ablehnung der Regelfall, ohne Ablehnung hätte eine voll gelaufene
-Ablage keinen Ausweg. `StoreOfflineMessages` wählt zwischen ihnen — abgeschaltet
-ist der Server nicht weniger regelkonform, nur unbequemer.
-
-**Zwei Stellen führen in die Ablage, nicht eine.** Die zweite ist Abschnitt
-8.5.3.2.1: Ein `chat` an eine Resource, die es nicht gibt, wird behandelt, als
-wäre er an das Konto gegangen. Die Ausnahme sieht schrullig aus und trifft den
-Alltag — ein Client antwortet auf die Full-JID, die er zuletzt gesehen hat, und
-wenn der Gesprächspartner in der Zwischenzeit das Gerät gewechselt hat, ist sie
-weg. Für die übrigen Arten bleibt es beim stillen Verwerfen: Wer eine Full-JID
-anschreibt, meint diese Resource; bei einem Gespräch ist das eine Abkürzung für
-„mein Gegenüber", bei allem anderen eine Angabe, die der Absender so gewollt hat.
-
-Nur die halbe Ausnahme umzusetzen wäre schlimmer als der bisherige Zustand
-gewesen: Die Nachricht landete in der Ablage, während der Empfänger mit einer
-anderen Resource daneben sitzt und wartet. Deshalb steht sie in einem Test.
-
-**Die Grenze weist ab und verdrängt nicht.** Beide Richtungen verlieren eine
-Nachricht, aber nur eine davon sagt es jemandem. Und eine Grenze, die verdrängt,
-wäre selbst der Angriff: Wer die Ablage vollschreibt, löschte damit fremde Post.
-Dieselbe Überlegung wie bei den aufbewahrten Subscription-Anfragen aus S6.
-
-**Nachgereicht wird bei jeder nicht-negativen verfügbaren Presence, nicht beim
-Verfügbar*werden*** — anders als die aufbewahrte Anfrage direkt darüber. Der
-Unterschied liegt daran, dass die Ablage beim Zustellen geleert wird: Ein zweiter
-Durchgang findet nichts mehr und kann nichts doppelt vorlegen. Und er hat einen
-eigenen Fall: Eine Resource, die mit negativer Priorität angemeldet ist und sie
-auf 0 hebt, war schon verfügbar — sie wird aber gerade eben erst zu einem
-Empfänger.
-
-Beide Bedingungen sind nötig, nicht nur die Priorität. Eine Abmeldung setzt die
-Priorität der Sitzung auf 0 zurück, denn eine abgemeldete Resource hat keinen
-Zustand zu berichten. Wer nur nach der Priorität fragt, leert die Ablage in einen
-Stream, der sich gerade verabschiedet.
-
-Dazu drei Dinge, ohne die die Ablage nur halb taugt: der XEP-0203-Stempel (ohne
-ihn behauptet eine Nachricht von gestern, sie sei von jetzt), das Überdauern
-eines Neustarts (ein angenommener Absender darf sich darauf verlassen) und die
-Ankündigung als `msgoffline` in disco#info (sonst müsste ein Client aus dem
-Ausbleiben eines Fehlers schliessen, dass abgelegt wurde — und ein Fehler kann
-sich verspäten).
-
-Neu am Client: `PresencePriority`. Ohne sie kann ein Client nicht sagen, wie sehr
-er gemeint ist, wenn eine Nachricht an das Konto geht — und der negative Zweig
-der Ablage wäre durch den Client überhaupt nicht prüfbar gewesen.
-
-27 Mutationen, 26 erschlagen. Der Überlebende ist die Abkürzung `if
-(_offlineMessages.Count == 0) return [];` in `TakeOfflineMessages`. Sie ist keine
-Aussage über Verhalten, sondern eine Vorkehrung gegen ein Schreiben ohne
-Änderung: Ohne sie meldete jede verfügbare Presence eine Kontoänderung, und der
-Dateispeicher schriebe bei jeder Anmeldung. Kein Test hält sie fest, und das ist
-richtig so — ein Test darauf prüfte den Dateizugriff und nicht das Protokoll.
-
-**Der lehrreiche Fehlschlag lag diesmal im Werkzeug.** Ein Test scheiterte drei
-Läufe hintereinander, auch allein, auch nach Neubau — und war doch richtig. Mein
-Mutationsskript setzt die Datei am Ende mit `Copy-Item` aus einer Sicherung
-zurück, und `Copy-Item` übernimmt den Zeitstempel der Sicherung. Der ist älter
-als das mutierte Binary; MSBuild hielt den Build für aktuell und übersetzte nicht
-neu. Der „reproduzierbare" Fehlschlag lief gegen das Binary der letzten Mutation.
-
-Die Lehre ist nicht neu, aber sie hatte eine neue Verkleidung: **Wenn ein Test
-scheitert, den man gerade geschrieben hat, ist der Verdächtige nicht immer der
-Code — er kann auch das sein, womit man messt.** Das Skript setzt den Zeitstempel
-jetzt neu, und jeder Mutationsdurchgang klammert die Mutation zwischen zwei grüne
-Läufe ohne sie.
-
-Nicht behoben und vermerkt: Eine Nachricht, die über die Servergrenze
-hereinkommt, nimmt weiterhin nicht den Weg aus Abschnitt 8.5 — sie geht direkt
-ins Routing. Damit greifen für sie weder die Ablage noch die Prioritäten noch die
-Typregeln aus D13. Das ist kein Loch, das die Ablage aufgerissen hat, sondern
-eines, das sie sichtbar macht: Für den häufigsten Fall einer Nachricht an einen
-Abwesenden — den Bekannten auf einem anderen Server — ist die Ablage noch nicht
-zuständig.
-
-Ebenfalls vermerkt: XEP-0160 rät, eine Nachricht mit ausschliesslich
-XEP-0085-Inhalt (Tippstatus) nicht abzulegen. Dieser Client schickt keine, also
-gibt es dafür keinen Weg zu prüfen — die Regel bliebe ungetestet.
-
-### D15. Eingehende S2S-Stanzas ✅ — und eine Weiche, die schon da war
-
-Der offene Punkt aus D14, und der grössere von beiden: Abschnitt 8.5 spricht
-durchweg von einer „inbound stanza" und fragt nirgends, ob sie von einem Client
-oder von einem anderen Server kam. Dieser Server fragte es doch. Was über die
-Grenze kam, ging unbesehen ins Routing — ohne Ablage, ohne Prioritäten, ohne
-Typunterscheidung.
-
-Damit lag die Lücke genau im häufigsten Fall. Der Bekannte auf einem anderen
-Server ist der Regelfall und nicht die Ausnahme; zwei Konten auf derselben
-Instanz sind es nicht. Wer eine Offline-Ablage baut, baut sie vor allem für ihn —
-und in D14 tat sie für ihn nichts.
-
-Jetzt nehmen beide Herkünfte eine Strecke, `DeliverMessageLocallyAsync`. Der
-ganze Unterschied steckt in einem Parameter: `XMPPSession? origin` ist `null`,
-wenn die Nachricht von aussen kam, und das entscheidet allein über die
-`<sent>`-Carbons — die gehören den anderen Geräten des Absenders, und die eines
-fremden Kontos sind nicht unsere Sache.
-
-**Zwei meiner Verzweigungen waren überflüssig, und das Aufräumen war der
-lehrreiche Teil.** Ich hatte zuerst zwei Rückwege für eine Fehlerantwort gebaut —
-in den Stream des Absenders, wenn er hier sitzt, sonst über die Grenze hinaus —
-und zwei Wege, den Absender zu bestimmen (`origin.FullJid` oder das `from` der
-Stanza). Beide Paare waren dasselbe:
-
-- `RouteToAsync` **ist** die Weiche zwischen „hier" und „woanders"; ihr eigener
-  Kommentar sagt das seit S4a. Eine Verzweigung daneben war eine zweite Antwort
-  auf eine schon beantwortete Frage — und zwei Antworten laufen mit der Zeit
-  auseinander. Sie erledigt nebenbei auch den Namensraumwechsel.
-- Das `from` ist in beiden Fällen geprüft und nicht behauptet: Bei einem Client
-  stempelt es der Server selbst, bei einer fremden Stanza hat
-  `AcceptFromRemoteAsync` die Absenderdomain gegen die Gegenstelle geprüft.
-  `origin.FullJid` daneben lieferte dieselbe Zeichenkette.
-
-Aufgefallen ist es an den Mutationen: Beide Verzweigungen liessen sich entfernen,
-ohne dass ein Test es merkte — nicht weil die Tests lückenhaft waren, sondern
-weil die Zeilen nichts taten. **Ein überlebender Mutant ist nicht immer eine
-fehlende Prüfung; manchmal ist er überflüssiger Code, der sich als Gründlichkeit
-tarnt.**
-
-Zehn Mutationen, neun erschlagen — zwei davon erst im zweiten Anlauf, und beide
-Male war der Test schuld:
-
-**Der Presence-Wächter stand am falschen Ort.** Er sollte belegen, dass nur
-Nachrichten den neuen Weg nehmen. Bei verbundenem Bob bestand er auch mit der
-Mutation, die *alles* durch die Nachrichtenstrecke schickt — denn einer
-erreichbaren Resource stellt auch die zu. Sichtbar wird der falsche Weg erst
-dort, wo die beiden sich unterscheiden, und das ist die Ablage: Ein
-`<presence/>` hat kein `type`, gälte damit als `normal` und läge beim nächsten
-Anmelden als Anwesenheit von vorgestern bereit. Der Test prüft jetzt mit
-**abwesendem** Bob.
-
-Das ist eine neue Fassung einer alten Regel. „Beobachte den Weg, nicht die
-Wirkung" hiess bisher: Sieh nach, was hinausgeht. Hier heisst es: **Ein Wächter
-gegen den falschen Weg muss dort stehen, wo die Wege sich trennen.** An einer
-Stelle, an der beide dasselbe tun, bewacht er nichts.
-
-**Die Ablehnung kam an, war aber an den Falschen adressiert.** Das `to` der
-Fehlerantwort durch die Empfängeradresse zu ersetzen, überlebte: Zugestellt wird
-sie nach der Routing-Adresse, und die blieb richtig. Über die Grenze fällt es
-ohnehin nicht auf, weil `RouteToAsync` beim Hinausgehen ein `StampTo` setzt und
-das falsche `to` überschreibt — daheim schon. Ein Client, der nach RFC 6120,
-Abschnitt 8.1.1 prüft, ob eine Stanza an ihn adressiert ist, verwürfe sie
-stillschweigend. Der lokale Ablehnungstest aus D13 prüft das jetzt mit.
-
-Der eine Überlebende ist keiner über diesen Code: Lässt man im Offline-Zweig die
-Frage nach der Herkunft weg, wirft der Mutant für eine Nachricht von aussen eine
-`NullReferenceException` — und **kein Test sieht sie**. Das `catch` beim
-Verarbeiten eines Frames ist für abgerissene Verbindungen gedacht und verschluckt
-jeden Programmierfehler mit. Weil die Ablage vorher geschrieben ist und danach
-nichts mehr folgt, bleibt der Wurf ohne Folge. Die Zeile ist richtig; das `catch`
-ist das Problem, und es steht unter „Später".
-
-Nicht behoben und vermerkt: Presence und IQ von einem anderen Server nehmen
-weiterhin den geraden Weg. Bei Presence ist der Unterschied klein, bei IQ nicht —
-eine Anfrage an einen Bare-JID soll der Server nach Abschnitt 8.5.2.1.3 selbst
-beantworten; verteilt wird sie derzeit an **alle** Resourcen, und jede antwortet.
-Mehrere Antworten auf eine `id`.
-
-### D16. Die Anfrage an ein Konto ✅ — und zwei Abschnitte, ein Verhalten
-
-Der offene Punkt aus D15, und der einzige der Reihe, der ein Verfahren zerbrach
-statt nur eine Regel zu verletzen.
-
-Abschnitt 8.5.2.1.3 sagt es doppelt: „the server itself MUST reply on behalf of
-the user" **und** „MUST NOT deliver the IQ stanza to any of the user's available
-resources". Die Verdopplung hat einen Grund. IQ ist ein Frage-Antwort-Paar, über
-die `id` zusammengehalten, und jede empfangene Anfrage *muss* beantwortet werden
-(RFC 6120, Abschnitt 8.2.3, Regel 3). Wer sie an alle Resourcen verteilt, bekommt
-von allen eine Antwort — der Fragende hält drei Antworten auf eine `id` in der
-Hand und kann nicht entscheiden, welche gilt.
-
-Genau das tat dieser Server: Jede IQ-Anfrage an eine fremde Adresse ging ins
-Routing, und das verteilte an einen Bare-JID an jede Sitzung, die es fand. Bei
-einer Nachricht wäre mehrfache Zustellung lästig; hier bricht sie das Verfahren.
-
-**Die Antwort ist immer `<service-unavailable/>`, und das ist vollständig und
-nicht halb.** Der Abschnitt verlangt eine eigene Antwort, „if the semantics of
-the qualifying namespace define a reply that the server can provide on behalf of
-the user" — und andernfalls ausdrücklich diesen Fehler. Dieser Server kennt
-keinen Namensraum, den er im Namen eines Nutzers beantworten könnte; die Stelle
-für einen späteren ist markiert.
-
-**Eine Antwort wird nie beantwortet.** Hier standen zwei Vorschriften
-gegeneinander: Abschnitt 8.5.3.2.3 verlangt für „eine IQ-Stanza" ohne passende
-Resource einen Fehler und unterscheidet die Art nicht; RFC 6120, Abschnitt 8.2.3,
-Regel 4 verbietet, ein `result` oder `error` zu beantworten. Regel 4 gewinnt: Ein
-Fehler auf ein `result` ginge an jemanden, der nichts gefragt hat, unter der `id`
-einer Frage, die er selbst beantwortet hat.
-
-**Der Unterschied zum unbekannten Konto ist lehrreich.** Bei einer Nachricht darf
-der Server nach Abschnitt 8.5.1 schweigen und verrät damit nicht, welche Konten
-es gibt; bei einer Anfrage muss er antworten. Preisgegeben wird trotzdem nichts,
-weil die Antwort dieselbe ist wie für ein vorhandenes Konto ohne erreichbare
-Resource. Zwei Tests stehen deshalb nebeneinander — wären die Antworten
-verschieden, hätte der Server ein Verzeichnis seiner Konten ausgeplaudert.
-
-Neun Mutationen, alle erschlagen — nach zwei Runden, und beide haben etwas
-gelehrt:
-
-**Zwei Abschnitte, ein Verhalten.** Ich hatte den Bare-JID-Fall und „Full-JID
-ohne passende Resource" getrennt behandelt, weil der RFC sie in zwei Abschnitten
-behandelt. Eine Mutation, die die Trennung aufhob, überlebte — und musste
-überleben: Die Abschnitte 8.5.2.1.3, 8.5.2.2.3 und 8.5.3.2.3 verlangen alle
-dasselbe. **Wo das vorgeschriebene Verhalten dasselbe ist, kann kein Test die
-Fälle unterscheiden, und eine Verzweigung, die es doch tut, behauptet einen
-Unterschied, den es nicht gibt.** Die Gliederung eines RFC ist kein Bauplan für
-Verzweigungen.
-
-Geblieben ist eine Zeile weniger: `SessionOf` vergleicht ausschliesslich
-Full-JIDs, ein Bare-JID fällt deshalb von selbst in den Fehlerzweig. Das „MUST
-NOT deliver" hängt damit an einer Eigenschaft einer anderen Methode — gehalten
-wird es nicht von einer Prüfung, sondern von einem Test, der zwei Resourcen
-anmeldet und nur besteht, wenn keine die Anfrage sieht. Die Mutation, die genau
-den alten Fehler wiederherstellt (an alle statt an eine), erschlägt er.
-
-**Die Serveradresse ist kein Nutzer.** Eine Mutation, die den Zustellweg für
-Nutzer auch für Anfragen an die Domain selbst nahm, überlebte zunächst. Sie hätte
-`<service-unavailable/>` geantwortet, wo der Server heute schweigt — und das wäre
-schlechter: Schweigen ist eine Lücke, ein Fehler ist eine Aussage, und diese
-Aussage wäre falsch. Eine Gegenstelle, die sie glaubt, fragt nicht wieder. Ein
-Test hält jetzt fest, dass der Nutzer-Zustellweg die Serveradresse nicht anfasst.
-
-**Ein roter Lauf, der nicht dazugehört, und er bleibt vermerkt.** In einem von
-vier Vollläufen scheiterte `TheStreamSurvivesABrokenConnection` gegen einen
-Fremdserver mit „Zeitüberschreitung beim Warten auf: den wiederaufgenommenen
-Stream". Der Test fährt einen Client gegen Prosody bzw. ejabberd; `XMPPServer`
-kommt darin nur als statische Warte-Hilfe vor, der geänderte Zustellweg also gar
-nicht. Allein läuft er 4 von 4 Mal grün, danach zwei weitere Vollläufe ebenso.
-
-Der wahrscheinliche Mechanismus: Der Test reisst die Verbindung ab und gibt dem
-Client 15 Sekunden für Wiederverbindung samt Wiederaufnahme. Unter der Last eines
-vollen Laufs — viele Fixtures gleichzeitig, die Gegenstelle jenseits der
-WSL-Rückschleife — reicht das bei exponentiellem Backoff nicht immer. Bewiesen
-ist das nicht: Ein einzelnes Ereignis kann die Erklärung nicht von einer anderen
-trennen. Deshalb steht es unter „Später" und nicht als erledigt.
-
-Nicht behoben und vermerkt: die zweite Hälfte von Abschnitt 8.5.3.1. Wer die
-Presence des Empfängers nicht sehen darf, soll eine Anfrage an dessen Resource
-nicht zugestellt bekommen — schon die Antwort verrät, dass die Resource
-existiert. Das braucht die Aufzeichnung gerichteter Presence, die es hier nicht
-gibt. Ebenfalls offen: Eine Anfrage von einer Gegenstelle an die eigene
-Serveradresse (disco#info, Ping) bleibt unbeantwortet; die Antworten dafür stehen
-in `HandleIqAsync` und wollen eine Sitzung, die es bei S2S nicht gibt.
-
-### D17. Schon die Antwort ist eine Auskunft ✅
-
-Der offene Punkt aus D16: die erste Hälfte von Abschnitt 8.5.3.1. Eine IQ-Anfrage
-an eine Resource wird nur zugestellt, wenn der Fragende die Presence des
-Empfängers sehen darf — sonst `<service-unavailable/>`.
-
-Der Grund steht in Abschnitt 11 und ist feiner, als er zuerst aussieht: **Schon
-die Antwort ist eine Auskunft.** Wer eine Full-JID anfragt und ein Ergebnis
-bekommt, weiss, dass genau diese Resource in diesem Augenblick angemeldet ist;
-wer `<service-unavailable/>` bekommt, weiss es nicht. Ohne die Prüfung liesse
-sich die Anwesenheit eines Menschen abfragen, ohne ihn je um Erlaubnis gefragt zu
-haben — und Resourcenamen liessen sich durchprobieren, bis einer antwortet.
-
-Deshalb prüft ein Test auch, dass die Abweisung für eine **vorhandene** Resource
-dieselbe ist wie für eine erfundene. Wären die beiden verschieden, wäre die
-Prüfung wirkungslos: Der Fragende läse aus der Art der Ablehnung heraus, was sie
-ihm verschweigen soll.
-
-**Zwei Wege hinein, und beide waren nötig.** Der Roster des Empfängers mit
-`from` oder `both` — oder gerichtete Presence (Abschnitt 4.6). Nur den Roster zu
-nehmen wäre zu streng für den häufigsten Fall überhaupt: Ein Gespräch mit
-jemandem, der nicht im Roster steht, beginnt damit, dass man ihm seine Anwesenheit
-zeigt (Abschnitt 5.1). Wer das getan hat, verliert durch eine Antwort nichts mehr.
-
-Die Liste dafür ist neu und folgt Abschnitt 4.6.1 wörtlich: je Resource, geleert
-wenn der Nutzer sich abmeldet, und ein Eintrag verschwindet, sobald ihm gerichtete
-`unavailable`-Presence geschickt wird. Beides sind MUSS-Regeln, und beide haben
-denselben Grund wie die Prüfung selbst: Eine Erlaubnis, die man nicht
-zurücknehmen kann, ist keine.
-
-**Die Richtung im Roster ist leicht zu verwechseln, und `both` verdeckt die
-Verwechslung vollständig.** Gefragt wird die Hälfte des **Empfängers**: „der darf
-mich sehen" (`from` oder `both`). Ein `to` heisst das Gegenteil und gäbe die
-Auskunft an genau die falsche Seite — an jeden, den der Empfänger beobachtet,
-statt an jeden, der ihn beobachten darf. Bei `both` stimmen beide Hälften, und
-eine Umsetzung, die die falsche liest, fällt nicht auf. Der Test setzt deshalb
-erst `to` (Abweisung) und dann `from` (Zustellung).
-
-**Drei bestehende Tests haben einen Leck dokumentiert, ohne es zu merken.**
-`PingBetweenClients_MeasuresRoundTrip` pingte einen Fremden an, und zwei Tests aus
-D16 fragten eine fremde Resource. Alle drei bestanden nur, weil der Server die
-Regel nicht kannte — ein Ping zwischen zwei Fremden ist genau der Fall, den sie
-abweist. Sie machen jetzt zuerst Kontakte, was ausserdem der realistischere
-Aufbau ist.
-
-Zehn Mutationen, alle erschlagen. Drei davon hätte die Sammlung vorher nicht
-gehalten:
-
-- Die falsche Roster-Hälfte lesen — erschlagen nur vom neuen einseitigen Test.
-- Die gerichtete Presence mit der Full-JID vermerken statt mit dem Bare-JID —
-  erschlagen nur, weil ein Test die Full-JID anschreibt. Beide Formen kommen
-  jetzt vor, weil ein Client beide schickt.
-- Die Prüfung auch auf `result` und `error` anwenden. Das sieht nach
-  Gründlichkeit aus und verstösst gegen die zweite Hälfte desselben Abschnitts:
-  „For an IQ stanza of type 'result' or 'error', the server MUST deliver the
-  stanza to the resource." Eine Antwort gehört dem, der gefragt hat, und der hat
-  seine Erlaubnis mit der Frage schon gehabt.
-
-Nicht behoben und vermerkt: der SOLL-Teil von Abschnitt 4.6.1 — eine Entität, die
-uns `unavailable` schickt, soll aus der Liste verschwinden. Und Abschnitt 4.6.3,
-Regel 2: Wird die Resource unverfügbar, soll die Abmeldung an jede Entität gehen,
-der sie gerichtete Presence geschickt hat. Die Liste dafür gibt es nun; das
-Verschicken fehlt.
-
-### D18. Ein `catch` ohne Filter ✅ — und eine Messung, die die Aufgabe umgedreht hat
-
-Der Punkt aus D15: Um das Verarbeiten eines Frames stand ein `catch` ohne Filter,
-mit dem Vermerk „Verbindung abgerissen - im Test der Normalfall". Ich wollte ihn
-auf die Ausnahmen einschränken, die ein Abriss wirklich erzeugt — und habe erst
-gemessen.
-
-**Die Messung hat die Aufgabe umgedreht.** Ich habe den Fang durch ein Anhängen
-an eine Datei ersetzt und die ganze Sammlung laufen lassen: **keine einzige
-Ausnahme.** Der Vermerk stimmte nicht mehr; der Abriss wird längst anderswo
-abgefangen (`SendAsync` fragt `IsClosed`, Hermod liefert einen `SentStatus`
-statt zu werfen). Was der Fang noch leistete, war ausschliesslich das Verschlucken
-von Programmierfehlern.
-
-Damit fällt die geplante Lösung weg. Eine Liste von Ausnahmen, die ein Abriss
-„wirklich" erzeugt, wäre geraten — und ein Zweig, den kein Test erreicht, ist
-genau die Sorte Vorkehrung, die den Fehler von damals gedeckt hat. Es gibt nichts
-zu filtern.
-
-**Ersatzlos entfernen wäre auch falsch gewesen**, und das habe ich ebenfalls
-nachgesehen statt vermutet: Hermod fängt oberhalb jede Ausnahme aus
-`ProcessTextMessage` und schreibt sie mit `Logger.LogError` weg. Ohne unseren Fang
-wanderte der Fehler also von „stillschweigend verworfen" nach „in einem Log, das
-kein Test ansieht". Besser, aber nicht die Lösung.
-
-Die Lösung ist **Sichtbarkeit**: `OnInternalError` meldet Sitzung, Frame und
-Ausnahme; geworfen wird nichts weiter, am Verhalten des Servers ändert sich
-nichts. Und in der Testsammlung hängt eine Wache an **jedem** Test, die jede
-Meldung als Mangel behandelt. Wo ein solcher Fehler auftritt, weiss man vorher
-nicht — ein eigener Test dafür bewachte nur den Weg, den er selbst geht.
-
-**Der Nachweis ist die Mutation von damals.** Der D15-Überlebende — die
-Herkunftsfrage vor den `<sent>`-Carbons weglassen, was für eine Nachricht von
-aussen eine `NullReferenceException` wirft — wird jetzt von **sechs** Tests
-erschlagen. Zum ersten Mal in dieser Reihe macht ein Schritt einen früher benannten
-Überlebenden nachträglich sterblich. Die Liste der benannten Ausnahmen geht von
-sechs auf fünf.
-
-Fünf Mutationen auf die eigenen Zeilen, alle erschlagen — eine erst im zweiten
-Anlauf, und sie ist die interessanteste: **Ein Wächter, den nichts auslöst, ist
-selbst unbewacht.** Die Mutation „die Wache gibt immer frei" überlebte jeden
-Test. Sie musste: Wo kein Fehler gemeldet wird, verhält sich eine wirkungslose
-Wache genau wie eine wirksame, und ein Test, der scheitern *muss*, lässt sich
-nicht als bestehender Test schreiben. Erst die Trennung von `Watch` (Verdrahtung)
-und `Record` (Aufnahme) machte die Wache unmittelbar befragbar — dieselbe Falle
-wie beim alten `catch`, nur eine Ebene höher.
-
-Neu und begründet: `FailFrameHandling`, ein Schalter, dessen ganze Aufgabe ein
-Fehlschlag ist. Ohne ihn wäre der Meldeweg von keinem Test erreichbar — dieselbe
-Begründung wie bei `SwallowClientStanzas`, und genau der Mangel, an dem der alte
-Fang so lange unbemerkt blieb.
-
-Nicht behoben und vermerkt: Die Wache hängt an `AXMPPTests` und an den drei
-Fixtures, die Stanzas zwischen zwei eigenen Servern zustellen
-(`FederationTests`, `CrossDomainSubscriptionTests`, `RemoteDeliveryRulesTests`).
-Weitere Fixtures betreiben eigene Server, ohne bewacht zu sein — dort gilt
-weiterhin, dass ein Programmierfehler nur in Hermods Log landet. *(Behoben in
-D19.)*
-
-### D19. Die restlichen Fixtures ✅ — die Wache dorthin, wo der Server entsteht
-
-Der offene Punkt aus D18. Es waren nicht neun Fixtures, wie dort vermerkt,
-sondern **elf**: `AccountStoreTests` und `AForeignPeerFederationTests` hatte ich
-in der Liste übersehen. Aufgefallen ist es beim Nachzählen der Erzeugungsstellen,
-nicht beim Lesen der eigenen Notiz — eine Liste, die man aus dem Kopf schreibt,
-ist keine Bestandsaufnahme.
-
-Jetzt ist jeder Server in der Sammlung bewacht: `AXMPPTests` plus vierzehn
-Fixtures, die eigene betreiben.
-
-**Verdrahtet über `Watched(…)`, nicht über eine eigene Zeile.** Die drei aus D18
-hatten `_guard.Watch(_links)` getrennt darunter stehen; das ist ein zweiter Ort,
-den man beim nächsten Server vergisst. `Watched(new XMPPServer(…))` gibt den
-Server zurück und stellt ihn unter die Wache — damit steht sie dort, wo er
-entsteht, und die drei aus D18 sind auf dieselbe Form gebracht. Mehrere Fixtures
-erzeugen ihre Server ohnehin nicht im SetUp, sondern mitten im Test; für die gibt
-es keine andere brauchbare Stelle.
-
-**Zwei Fixtures brauchten ein neues `[SetUp]`**, und der Grund ist eine
-Eigenschaft von NUnit, die leicht zu übersehen ist: Eine Fixture-Instanz wird für
-alle ihre Tests wiederverwendet. Ohne `Reset()` nähme der nächste Test die Meldung
-des vorigen mit und scheiterte an einem fremden Fehler.
-
-Drei Mutationen, alle erschlagen — alle drei auf denselben Punkt: dass `Watched`
-kein Durchreicher ist. Keine Wache anhängen, einen anderen Server zurückgeben,
-oder die Weiterleitung in der Testbasis kurzschliessen. Geprüft wird das am
-echten Weg: Ein zweiter Server bekommt einen Client, scheitert absichtlich, und
-die Meldung muss bei der Wache desselben Tests ankommen. Ohne diesen Test wären
-alle elf Fixtures unbewacht, ohne dass ein einziger anderer Test es merkte — wo
-kein Fehler auftritt, sieht eine fehlende Wache wie eine wirksame aus.
-
-**Die dritte Messung, und die vollständigste:** ein Volllauf mit beiden
-Fremdservern, jeder Server der Sammlung bewacht — **keine einzige Meldung.** Der
-alte `catch` war über die ganze Sammlung hinweg toter Ballast, und das steht
-jetzt nicht mehr auf einer Messung, sondern auf drei.
-
-Ehrlich vermerkt: Die Verdrahtung selbst hält kein Test. Nähme jemand in einem
-einzelnen Fixture das `AssertClean()` heraus, fiele es nicht auf — ein Test dafür
-müsste in jedem Fixture einen Fehler auslösen. Gesichert ist sie durch eine
-Quelltextprüfung: Im Testprojekt steht kein `new XMPPServer(` ohne `Watched(…)`,
-mit genau zwei gewollten Ausnahmen — der Server der Basis, der in der Folgezeile
-bewacht wird, und die Hilfsvariable des Tests, der die Rückgabe von `Watched`
-prüft.
+| `normal`, `chat` | store **or** `<service-unavailable/>` to the sender |
+| `groupchat` | MUST `<service-unavailable/>` |
+| `headline`, `error` | MUST discard silently |
+
+The third way — to discard silently what would have to be stored or refused — was
+exactly the one this server went. And it is the most unpleasant of all: the sender
+holds their message to be delivered, the recipient has never learned that it
+existed, and **nobody can notice the loss**. An error that hides itself is worse
+than one that makes a noise.
+
+Both permitted ways are there now, because they bound each other: without a store
+the refusal would be the rule, without a refusal a store that has run full would
+have no way out. `StoreOfflineMessages` chooses between them — switched off the
+server is not less rule-conformant, only less convenient.
+
+**Two places lead into the store, not one.** The second is section 8.5.3.2.1: a
+`chat` to a resource that does not exist is treated as though it had gone to the
+account. The exception looks quirky and hits everyday life — a client answers to
+the full JID it last saw, and if the partner in the conversation has changed
+device in the meantime, that one is gone. For the other types it stays at the
+silent discarding: whoever writes to a full JID means this resource; at a
+conversation that is a shortcut for "the one I am talking to", at everything else
+a piece of information the sender wanted that way.
+
+To implement only half the exception would have been worse than the previous
+state: the message would land in the store while the recipient sits beside it with
+another resource and waits. This is why it stands in a test.
+
+**The limit refuses and does not displace.** Both directions lose a message, but
+only one of them says it to somebody. And a limit that displaces would itself be
+the attack: whoever writes the store full would thereby delete foreign post. The
+same consideration as at the kept subscription requests from S6.
+
+**Handed in later at every non-negative available presence, not at the
+*becoming* available** — unlike the kept request directly above. The difference
+lies in the store being emptied at the delivering: a second pass finds nothing any
+more and can put nothing up twice. And it has a case of its own: a resource that
+is logged in with a negative priority and raises it to 0 was available already —
+it becomes a recipient however only just now.
+
+Both conditions are necessary, not only the priority. A sign-off resets the
+priority of the session to 0, for a signed-off resource has no state to report.
+Whoever asks only after the priority empties the store into a stream that is just
+taking its leave.
+
+To that three things without which the store is only half of use: the XEP-0203
+stamp (without it a message from yesterday claims to be from now), the surviving
+of a restart (an accepted sender may rely on it) and the announcement as
+`msgoffline` in disco#info (otherwise a client would have to conclude from the
+staying out of an error that something was stored — and an error can be late).
+
+New at the client: `PresencePriority`. Without it a client cannot say how much it
+is meant when a message goes to the account — and the negative branch of the store
+would not have been checkable through the client at all.
+
+27 mutations, 26 struck down. The survivor is the shortcut `if
+(_offlineMessages.Count == 0) return [];` in `TakeOfflineMessages`. It is no
+statement about behaviour, but a precaution against a writing without a change:
+without it every available presence would report a change of the account, and the
+file store would write at every login. No test holds it fast, and that is right so
+— a test on it would check the file access and not the protocol.
+
+**The instructive failure lay this time in the tool.** One test failed three runs
+in a row, on its own as well, after a rebuild as well — and was right after all.
+My mutation script sets the file back at the end with `Copy-Item` out of a backup,
+and `Copy-Item` takes over the timestamp of the backup. That is older than the
+mutated binary; MSBuild held the build to be current and did not compile anew. The
+"reproducible" failure ran against the binary of the last mutation.
+
+The lesson is not new, but it had a new disguise: **when a test fails that one has
+just written, the suspect is not always the code — it can also be that with which
+one measures.** The script now sets the timestamp anew, and every mutation pass
+brackets the mutation between two green runs without it.
+
+Not fixed and noted: a message that comes in over the server border still does not
+take the way from section 8.5 — it goes straight into the routing. With that
+neither the store nor the priorities nor the type rules from D13 take hold for it.
+That is no hole the store tore open, but one it makes visible: for the most
+frequent case of a message to an absent person — the acquaintance on another
+server — the store is not yet responsible.
+
+Likewise noted: XEP-0160 advises not to store a message with exclusively XEP-0085
+content (typing state). This client sends none, so there is no way to check that —
+the rule would stay untested.
+
+### D15. Incoming S2S stanzas ✅ — and a switch that was there already
+
+The open point from D14, and the bigger of the two: section 8.5 speaks throughout
+of an "inbound stanza" and asks nowhere whether it came from a client or from
+another server. This server asked it all the same. What came over the border went
+unseen into the routing — without a store, without priorities, without a
+distinction by type.
+
+With that the gap lay in exactly the most frequent case. The acquaintance on
+another server is the rule and not the exception; two accounts on the same
+instance are not. Whoever builds an offline store builds it above all for them —
+and in D14 it did nothing for them.
+
+Now both origins take one route, `DeliverMessageLocallyAsync`. The whole
+difference sits in one parameter: `XMPPSession? origin` is `null` when the message
+came from outside, and that alone decides about the `<sent>` carbons — those
+belong to the other devices of the sender, and the ones of a foreign account are
+not our business.
+
+**Two of my branchings were superfluous, and the clearing up was the instructive
+part.** I had first built two ways back for an error answer — into the stream of
+the sender if they sit here, otherwise out over the border — and two ways to
+determine the sender (`origin.FullJid` or the `from` of the stanza). Both pairs
+were the same thing:
+
+- `RouteToAsync` **is** the switch between "here" and "elsewhere"; its own comment
+  says that since S4a. A branching beside it was a second answer to an already
+  answered question — and two answers run apart with time. It settles the change
+  of namespace along the way as well.
+- The `from` is checked and not claimed in both cases: at a client the server
+  stamps it itself, at a foreign stanza `AcceptFromRemoteAsync` has checked the
+  sender domain against the far side. `origin.FullJid` beside it delivered the
+  same string.
+
+It came out at the mutations: both branchings could be removed without a test
+noticing it — not because the tests were full of gaps, but because the lines did
+nothing. **A surviving mutant is not always a missing check; sometimes it is
+superfluous code that disguises itself as thoroughness.**
+
+Ten mutations, nine struck down — two of them only at the second attempt, and both
+times the test was to blame:
+
+**The presence guard stood at the wrong place.** It was to show that only messages
+take the new way. With Bob connected it passed with the mutation that sends
+*everything* through the message route as well — for that delivers to a reachable
+resource too. The wrong way becomes visible only where the two differ, and that is
+the store: a `<presence/>` has no `type`, would thereby count as `normal` and
+would lie ready at the next login as a presence from the day before yesterday. The
+test now checks with Bob **absent**.
+
+That is a new version of an old rule. "Observe the way, not the effect" meant until
+now: look at what goes out. Here it means: **a guard against the wrong way has to
+stand where the ways part.** At a place at which both do the same thing it guards
+nothing.
+
+**The refusal arrived but was addressed to the wrong one.** To replace the `to` of
+the error answer by the address of the recipient survived: delivered it is by the
+routing address, and that stayed right. Over the border it does not come out
+anyway, because `RouteToAsync` sets a `StampTo` on going out and overwrites the
+wrong `to` — at home it does. A client that checks under RFC 6120, section 8.1.1
+whether a stanza is addressed to it would discard it silently. The local test of
+the refusal from D13 checks that along now.
+
+The one survivor is none about this code: does one leave out the question of the
+origin in the offline branch, then the mutant throws a `NullReferenceException`
+for a message from outside — and **no test sees it**. The `catch` at the processing
+of a frame is meant for broken-off connections and swallows every programming
+error along. Because the store is written before and nothing follows afterwards,
+the throw stays without consequence. The line is right; the `catch` is the
+problem, and it stands under "Later".
+
+Not fixed and noted: presence and IQ from another server still take the straight
+way. At presence the difference is small, at IQ it is not — a request to a bare JID
+the server is to answer itself under section 8.5.2.1.3; distributed it is at
+present to **all** resources, and each one answers. Several answers to one `id`.
+
+### D16. The request to an account ✅ — and two sections, one behaviour
+
+The open point from D15, and the only one of the series that broke a procedure
+instead of merely violating a rule.
+
+Section 8.5.2.1.3 says it twice: "the server itself MUST reply on behalf of the
+user" **and** "MUST NOT deliver the IQ stanza to any of the user's available
+resources". The doubling has a reason. IQ is a question-answer pair, held together
+over the `id`, and every request received *must* be answered (RFC 6120, section
+8.2.3, rule 3). Whoever distributes it to all resources gets an answer from all of
+them — the one asking holds three answers to one `id` in hand and cannot decide
+which one holds.
+
+Exactly that this server did: every IQ request to a foreign address went into the
+routing, and that distributed to a bare JID to every session it found. At a message
+multiple delivery would be a nuisance; here it breaks the procedure.
+
+**The answer is always `<service-unavailable/>`, and that is complete and not
+half.** The section demands an answer of its own, "if the semantics of the
+qualifying namespace define a reply that the server can provide on behalf of the
+user" — and otherwise expressly this error. This server knows no namespace it
+could answer in the name of a user; the place for a later one is marked.
+
+**An answer is never answered.** Here two prescriptions stood against each other:
+section 8.5.3.2.3 demands for "an IQ stanza" without a matching resource an error
+and does not distinguish the type; RFC 6120, section 8.2.3, rule 4 forbids
+answering a `result` or `error`. Rule 4 wins: an error on a `result` would go to
+somebody who has asked nothing, under the `id` of a question they answered
+themselves.
+
+**The difference to the unknown account is instructive.** At a message the server
+may under section 8.5.1 keep silent and thereby does not betray which accounts
+there are; at a request it has to answer. Nothing is given away all the same,
+because the answer is the same as for an existing account without a reachable
+resource. Two tests therefore stand beside each other — were the answers
+different, the server would have blabbed out a directory of its accounts.
+
+Nine mutations, all struck down — after two rounds, and both taught something:
+
+**Two sections, one behaviour.** I had treated the bare JID case and "full JID
+without a matching resource" separately, because the RFC treats them in two
+sections. A mutation that lifted the separation survived — and had to survive: the
+sections 8.5.2.1.3, 8.5.2.2.3 and 8.5.3.2.3 all demand the same. **Where the
+prescribed behaviour is the same, no test can distinguish the cases, and a
+branching that does it all the same claims a difference that does not exist.** The
+structure of an RFC is no plan of construction for branchings.
+
+What has stayed is one line less: `SessionOf` compares exclusively full JIDs, a
+bare JID therefore falls into the error branch of itself. The "MUST NOT deliver"
+thereby hangs on a property of another method — held it is not by a check, but by
+a test that logs in two resources and passes only when neither sees the request.
+The mutation that restores exactly the old error (to all instead of to one) it
+strikes down.
+
+**The server address is no user.** A mutation that took the delivery way for users
+for requests to the domain itself as well survived at first. It would have answered
+`<service-unavailable/>` where the server today keeps silent — and that would be
+worse: silence is a gap, an error is a statement, and this statement would be
+wrong. A far side that believes it does not ask again. A test now holds fast that
+the delivery way for users does not touch the server address.
+
+**A red run that does not belong here, and it stays noted.** In one of four full
+runs `TheStreamSurvivesABrokenConnection` failed against a foreign server with
+"timeout at the waiting for: the resumed stream". The test drives a client against
+Prosody or ejabberd; `XMPPServer` appears in it only as a static waiting aid, so
+the changed delivery way not at all. On its own it runs green 4 out of 4 times,
+after that two further full runs likewise.
+
+The probable mechanism: the test breaks the connection off and gives the client 15
+seconds for reconnecting together with resumption. Under the load of a full run —
+many fixtures at the same time, the far side beyond the WSL loopback — that does
+not always suffice at exponential backoff. Proved that is not: a single event
+cannot separate the explanation from another one. This is why it stands under
+"Later" and not as done.
+
+Not fixed and noted: the second half of section 8.5.3.1. Whoever may not see the
+presence of the recipient is not to get a request to that one's resource delivered
+— the answer alone already betrays that the resource exists. That needs the
+recording of directed presence, which does not exist here. Likewise open: a request
+from a far side to our own server address (disco#info, ping) stays unanswered; the
+answers for that stand in `HandleIqAsync` and want a session that does not exist at
+S2S.
+
+### D17. The answer alone is already information ✅
+
+The open point from D16: the first half of section 8.5.3.1. An IQ request to a
+resource is delivered only when the one asking may see the presence of the
+recipient — otherwise `<service-unavailable/>`.
+
+The reason stands in section 11 and is finer than it looks at first: **the answer
+alone is already information.** Whoever asks a full JID and gets a result knows
+that exactly this resource is logged in at this moment; whoever gets
+`<service-unavailable/>` does not know it. Without the check the presence of a
+human could be queried without ever having asked them for permission — and resource
+names could be tried through until one answers.
+
+This is why a test also checks that the refusal for an **existing** resource is the
+same as for an invented one. Were the two different, the check would be without
+effect: the one asking would read out of the kind of refusal what it is supposed to
+keep from them.
+
+**Two ways in, and both were necessary.** The roster of the recipient with `from`
+or `both` — or directed presence (section 4.6). To take only the roster would be
+too strict for the most frequent case of all: a conversation with somebody who does
+not stand in the roster begins with one showing them one's presence (section 5.1).
+Whoever has done that loses nothing more through an answer.
+
+The list for that is new and follows section 4.6.1 word for word: per resource,
+emptied when the user signs off, and an entry disappears as soon as directed
+`unavailable` presence is sent to it. Both are MUST rules, and both have the same
+reason as the check itself: a permission one cannot take back is none.
+
+**The direction in the roster is easy to confuse, and `both` covers the confusion
+up completely.** Asked is the half of the **recipient**: "that one may see me"
+(`from` or `both`). A `to` means the opposite and would give the information to
+exactly the wrong side — to everybody the recipient watches, instead of to
+everybody who may watch them. At `both` both halves are right, and an
+implementation that reads the wrong one does not come out. The test therefore sets
+`to` first (refusal) and then `from` (delivery).
+
+**Three existing tests documented a leak without noticing it.**
+`PingBetweenClients_MeasuresRoundTrip` pinged a stranger, and two tests from D16
+asked a foreign resource. All three passed only because the server did not know
+the rule — a ping between two strangers is exactly the case it refuses. They now
+make contacts first, which is moreover the more realistic setup.
+
+Ten mutations, all struck down. Three of them the suite would not have held
+before:
+
+- Read the wrong roster half — struck down only by the new one-sided test.
+- Note the directed presence with the full JID instead of with the bare JID —
+  struck down only because a test writes to the full JID. Both forms now appear,
+  because a client sends both.
+- Apply the check to `result` and `error` as well. That looks like thoroughness
+  and offends against the second half of the same section: "For an IQ stanza of
+  type 'result' or 'error', the server MUST deliver the stanza to the resource."
+  An answer belongs to the one who asked, and that one has had their permission
+  with the question already.
+
+Not fixed and noted: the SHOULD part of section 4.6.1 — an entity that sends us
+`unavailable` is to disappear from the list. And section 4.6.3, rule 2: does the
+resource become unavailable, then the sign-off is to go to every entity it has sent
+directed presence to. The list for that exists now; the sending is missing.
+
+### D18. A `catch` without a filter ✅ — and a measurement that turned the task round
+
+The point from D15: around the processing of a frame there stood a `catch` without
+a filter, with the note "connection broken off - in the test the normal case". I
+wanted to narrow it to the exceptions a break really creates — and measured first.
+
+**The measurement turned the task round.** I replaced the catching by an appending
+to a file and let the whole suite run: **not a single exception.** The note no
+longer held; the break has long since been caught elsewhere (`SendAsync` asks
+`IsClosed`, Hermod delivers a `SentStatus` instead of throwing). What the catching
+still achieved was exclusively the swallowing of programming errors.
+
+With that the planned solution falls away. A list of exceptions a break "really"
+creates would be guessed — and a branch no test reaches is exactly the sort of
+precaution that covered the error of back then. There is nothing to filter.
+
+**To remove it without replacement would have been wrong as well**, and that I
+likewise looked up instead of supposing: Hermod catches above every exception out
+of `ProcessTextMessage` and writes it away with `Logger.LogError`. Without our
+catching the error would therefore wander from "discarded silently" to "in a log no
+test looks at". Better, but not the solution.
+
+The solution is **visibility**: `OnInternalError` reports session, frame and
+exception; nothing further is thrown, nothing changes about the behaviour of the
+server. And in the test suite a guard hangs on **every** test that treats every
+report as a defect. Where such an error occurs one does not know beforehand — a
+test of its own for it would guard only the way it goes itself.
+
+**The proof is the mutation of back then.** The D15 survivor — leave out the
+question of the origin before the `<sent>` carbons, which throws a
+`NullReferenceException` for a message from outside — is now struck down by **six**
+tests. For the first time in this series a step makes a survivor named earlier
+mortal after the fact. The list of the named exceptions goes from six to five.
+
+Five mutations on our own lines, all struck down — one only at the second attempt,
+and it is the most interesting: **a guard nothing sets off is itself unguarded.**
+The mutation "the guard always lets through" survived every test. It had to: where
+no error is reported, a guard without effect behaves exactly like an effective one,
+and a test that *has* to fail cannot be written as a passing test. Only the
+separation of `Watch` (wiring) and `Record` (recording) made the guard directly
+questionable — the same trap as at the old `catch`, only one level higher.
+
+New and given reasons for: `FailFrameHandling`, a switch whose whole task is a
+failure. Without it the way of reporting would be reachable by no test — the same
+reason as at `SwallowClientStanzas`, and exactly the defect at which the old
+catching stayed unnoticed for so long.
+
+Not fixed and noted: the guard hangs on `AXMPPTests` and on the three fixtures that
+deliver stanzas between two of our own servers (`FederationTests`,
+`CrossDomainSubscriptionTests`, `RemoteDeliveryRulesTests`). Further fixtures run
+servers of their own without being guarded — there it still holds that a
+programming error lands only in Hermod's log. *(Fixed in D19.)*
+
+### D19. The remaining fixtures ✅ — the guard where the server arises
+
+The open point from D18. It was not nine fixtures, as noted there, but **eleven**:
+`AccountStoreTests` and `AForeignPeerFederationTests` I had overlooked in the list.
+It came out at the counting up of the places of creation, not at the reading of my
+own note — a list one writes out of one's head is no stocktaking.
+
+Now every server in the suite is guarded: `AXMPPTests` plus fourteen fixtures that
+run their own.
+
+**Wired over `Watched(…)`, not over a line of its own.** The three from D18 had
+`_guard.Watch(_links)` standing separately under it; that is a second place one
+forgets at the next server. `Watched(new XMPPServer(…))` gives the server back and
+puts it under the guard — with that it stands where the server arises, and the
+three from D18 are brought to the same form. Several fixtures create their servers
+not in the SetUp anyway, but in the middle of the test; for those there is no other
+usable place.
+
+**Two fixtures needed a new `[SetUp]`**, and the reason is a property of NUnit that
+is easy to overlook: a fixture instance is reused for all its tests. Without
+`Reset()` the next test would take the report of the previous one along and fail at
+a foreign error.
+
+Three mutations, all struck down — all three on the same point: that `Watched` is
+no pass-through. Hang no guard on, give a different server back, or short-circuit
+the passing on in the test base. Checked that is on the real way: a second server
+gets a client, fails on purpose, and the report has to arrive at the guard of the
+same test. Without this test all eleven fixtures would be unguarded without a
+single other test noticing it — where no error occurs, a missing guard looks like
+an effective one.
+
+**The third measurement, and the most complete:** a full run with both foreign
+servers, every server of the suite guarded — **not a single report.** The old
+`catch` was dead ballast across the whole suite, and that now stands not on one
+measurement but on three.
+
+Honestly noted: the wiring itself no test holds. Would somebody take the
+`AssertClean()` out in a single fixture, it would not come out — a test for that
+would have to set off an error in every fixture. Secured it is by a check of the
+source: in the test project there stands no `new XMPPServer(` without `Watched(…)`,
+with exactly two wanted exceptions — the server of the base, which is guarded in
+the following line, and the auxiliary variable of the test that checks the return
+of `Watched`.
 
 ### D20. Eine Zusage, die endet ✅ — Abschnitt 4.6.3, Regel 2
 
