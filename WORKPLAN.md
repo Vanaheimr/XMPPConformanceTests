@@ -1280,528 +1280,506 @@ is one.
 
 With that the whole XEP-0198 strand has no unchecked line any more.
 
-### D1. Der SASL-Downgrade ✅ — nie schwächer als beim letzten Mal
+### D1. The SASL downgrade ✅ — never weaker than the last time
 
-Der Client nahm den stärksten angebotenen Mechanismus. Das ist richtig, solange
-die Ankündigung von dem kommt, der sie zu machen hat — nur ist sie nicht
-authentifiziert. Sie kommt zwar über TLS, aber TLS belegt nur, dass die
-Gegenstelle ein Zertifikat einer vertrauten CA hat, und der klassische
-Zwischenmann hat eines. Wer allein der Ankündigung folgt, folgt damit auch dem,
-der sie gefälscht hat: Aus den Features verschwinden die SCRAM-Angebote, übrig
-bleibt PLAIN, und der Client schickt bereitwillig das Passwort selbst statt
-eines Beweises, dass er es kennt. Dieselbe Bewegung wie beim STARTTLS-Downgrade
-aus S4b-6, eine Schicht höher.
+The client took the strongest mechanism offered. That is right as long as the
+announcement comes from the one that has to make it — only it is not
+authenticated. It does come over TLS, but TLS shows only that the far side has a
+certificate of a trusted CA, and the classic man in the middle has one. Whoever
+follows the announcement alone thereby follows the one who forged it as well:
+out of the features the SCRAM offers disappear, left over is PLAIN, and the
+client willingly sends the password itself instead of a proof that it knows it.
+The same movement as at the STARTTLS downgrade from S4b-6, one layer higher.
 
-`SaslMechanismPolicy` hält zwei Untergrenzen, die dieselbe Prüfung durchlaufen:
-`Minimum`, was der Aufrufer verlangt, und `Pinned`, womit die letzte Anmeldung
-gelang. Die erste wirkt vom ersten Rahmen an und muss gesetzt werden, die
-zweite wirkt von selbst und erst ab der zweiten Verbindung.
+`SaslMechanismPolicy` holds two lower bounds that run through the same check:
+`Minimum`, what the caller demands, and `Pinned`, what the last login succeeded
+with. The first takes effect from the first frame on and has to be set, the
+second takes effect of itself and only from the second connection on.
 
-Zwei Stellen entscheiden über den Wert des Ganzen, und beide sind
-Reihenfolgefragen:
+Two places decide about the value of the whole thing, and both are questions of
+order:
 
-- **Geprüft wird vor dem `<auth/>`, nicht nach der Antwort.** Bei PLAIN steht
-  das Passwort in genau diesem Rahmen. Wer das Downgrade erst an der Antwort
-  bemerkt, hat es dem Zwischenmann schon gegeben, und die Anmeldung danach
-  abzubrechen nimmt es ihm nicht wieder ab.
-- **Angeheftet wird nach der Anmeldung, nicht davor.** Ein Fehlschlag sagt
-  nichts darüber, was dieser Server kann.
+- **Checked is before the `<auth/>`, not after the answer.** At PLAIN the
+  password stands in exactly this frame. Whoever notices the downgrade only at
+  the answer has already given it to the man in the middle, and to break off the
+  login afterwards does not take it back off him.
+- **Pinned is after the login, not before.** A failure says nothing about what
+  this server can do.
 
-Dass die Anheftung ein Trust-On-First-Use ist, bleibt: Steht der Zwischenmann
-schon beim allerersten Aufbau dazwischen, heftet sie sein Downgrade an. Nur ist
-das nicht der Angriff, der sich lohnt. Der Client kommt nach jedem Abriss von
-allein wieder, und ein Abriss lässt sich erzwingen — es genügt also, die
-Verbindung zu stören und die *zweite* Anmeldung abzufangen. Genau die ist jetzt
-gedeckt, ohne dass irgendwer irgendetwas konfiguriert.
+That the pinning is a trust on first use stays: does the man in the middle stand
+in between at the very first setup already, then it pins his downgrade. Only that
+is not the attack that is worth it. The client comes back of itself after every
+break, and a break can be forced — it therefore suffices to disturb the
+connection and to intercept the *second* login. Exactly that one is covered now,
+without anybody configuring anything.
 
-Der Testserver spielt den Zwischenmann, indem er `OfferedSaslMechanisms`
-zwischen den beiden Verbindungen ändert.
+The test server plays the man in the middle by changing `OfferedSaslMechanisms`
+between the two connections.
 
-Sieben Mutationen, alle erschlagen:
+Seven mutations, all struck down:
 
-| Mutation | Erschlagen von |
+| Mutation | Struck down by |
 |---|---|
-| `Minimum` nicht prüfen | `TheMinimumHoldsOnTheVeryFirstConnect`, `Minimum_HoldsWithoutAnyPreviousLogin` |
-| `Pinned` nicht prüfen | `AWeakerServerOnTheSecondConnect_IsRefused`, `TheRefusalHappensBeforeThePasswordGoesOut`, `Pinned_RefusesTheWeakerAndAllowsTheStronger` |
-| gar nichts anheften | sechs Tests |
-| `Strongest` nimmt den ersten bekannten statt den stärksten | `Strongest_ReadsTheRankingAndNotTheOrder`, `AStrongerServerOnTheSecondConnect_IsAccepted` |
-| Anheftung auf Gleichheit statt auf Stärke prüfen | `AStrongerServerOnTheSecondConnect_IsAccepted`, `Pinned_RefusesTheWeakerAndAllowsTheStronger` |
-| Prüfung hinter den SASL-Austausch schieben | `TheRefusalHappensBeforeThePasswordGoesOut` und zwei weitere |
-| Setzer nimmt einen unbekannten Mechanismusnamen an | `AnUnknownMinimum_IsRefusedAtTheSetter`, `Minimum_RefusesAnUnknownName` |
+| do not check `Minimum` | `TheMinimumHoldsOnTheVeryFirstConnect`, `Minimum_HoldsWithoutAnyPreviousLogin` |
+| do not check `Pinned` | `AWeakerServerOnTheSecondConnect_IsRefused`, `TheRefusalHappensBeforeThePasswordGoesOut`, `Pinned_RefusesTheWeakerAndAllowsTheStronger` |
+| pin nothing at all | six tests |
+| `Strongest` takes the first known instead of the strongest | `Strongest_ReadsTheRankingAndNotTheOrder`, `AStrongerServerOnTheSecondConnect_IsAccepted` |
+| check the pinning on equality instead of on strength | `AStrongerServerOnTheSecondConnect_IsAccepted`, `Pinned_RefusesTheWeakerAndAllowsTheStronger` |
+| push the check behind the SASL exchange | `TheRefusalHappensBeforeThePasswordGoesOut` and two others |
+| the setter accepts an unknown mechanism name | `AnUnknownMinimum_IsRefusedAtTheSetter`, `Minimum_RefusesAnUnknownName` |
 
-Die vierte ist die, die kein Integrationstest hätte finden können: Der
-Testserver kündigt vom stärksten zum schwächsten an, und dort sieht „nimm den
-ersten" genauso aus wie „nimm den stärksten". Sichtbar wird der Unterschied
-erst, wenn ein Server nachrüstet und den neuen Mechanismus hinten anhängt —
-was `AStrongerServerOnTheSecondConnect_IsAccepted` nachstellt, aber erst,
-nachdem der Unit-Test danach gefragt hatte.
+The fourth is the one no integration test could have found: the test server
+announces from the strongest to the weakest, and there "take the first" looks
+exactly like "take the strongest". The difference becomes visible only when a
+server retrofits and hangs the new mechanism on at the back — which
+`AStrongerServerOnTheSecondConnect_IsAccepted` reproduces, but only after the
+unit test had asked after it.
 
-Die letzte ist die stillste: Ein unbekannter Name hat die Stärke 0, und eine
-Untergrenze von 0 verlangt gar nichts. Ein Tippfehler in
-`MinimumSaslMechanism` hätte lautlos das Gegenteil dessen bewirkt, was der
-Aufrufer hinschrieb — deshalb weist der Setzer ihn ab, statt ihn zu nehmen.
+The last is the quietest: an unknown name has the strength 0, and a lower bound
+of 0 demands nothing at all. A typing error in `MinimumSaslMechanism` would have
+effected silently the opposite of what the caller wrote down — this is why the
+setter refuses it instead of taking it.
 
-Nicht erschlagen, und zwar nachweislich unerreichbar: das Anheften *vor* die
-Anmeldung zu ziehen. Es bräuchte eine gescheiterte Anmeldung, der eine weitere
-folgt — aber jeder Authentifizierungsfehler unterdrückt den Reconnect, und das
-Passwort lässt sich nach dem Erzeugen der Verbindung nicht mehr ändern. Der
-angeheftete Wert wäre ohnehin derselbe, den `EnsureAcceptable` gerade
-durchgelassen hat.
+Not struck down, and demonstrably unreachable at that: to pull the pinning
+*before* the login. It would need a failed login followed by a further one — but
+every authentication error suppresses the reconnect, and the password cannot be
+changed any more after the creation of the connection. The pinned value would be
+the same one anyway that `EnsureAcceptable` has just let through.
 
-### D2. Der vergiftbare Caps-Cache ✅ — ein Hash, der erzeugt, aber nie geprüft wurde
+### D2. The poisonable caps cache ✅ — a hash that was created but never checked
 
-`ver` ist keine Kennung, die eine Entity sich aussucht, sondern der Hash über
-das, was sie auf disco#info antwortet. Dieser Client erzeugte ihn seit jeher
-korrekt — gegen den Testvektor aus XEP-0115 §5.2 belegt — und rechnete ihn bei
-fremden Antworten kein einziges Mal nach.
+`ver` is no identifier an entity chooses for itself, but the hash over what it
+answers to disco#info. This client has always created it correctly — shown
+against the test vector from XEP-0115 §5.2 — and did not recompute it a single
+time at foreign answers.
 
-Damit war der Cache von jedem vergiftbar, dessen Presence hier ankommt. Die
-Bewegung ist kurz: Der Angreifer kündigt in seiner Presence das
-`node#ver`-Paar eines verbreiteten Clients an und antwortet auf die folgende
-Abfrage mit einer Liste seiner Wahl. Unter diesem Paar liegt fortan seine
-Liste — und ausgeliefert wird sie an jeden weiteren Kontakt, der dasselbe Paar
-ankündigt, ohne dass der je gefragt würde. Der Angreifer bestimmt damit, was
-dieser Client über Dritte glaubt: welche Verschlüsselung sie können, ob sie
-Empfangsbestätigungen verstehen, was sich ihnen schicken lässt.
+With that the cache was poisonable by everybody whose presence arrives here. The
+movement is short: the attacker announces in their presence the `node#ver` pair
+of a widespread client and answers the following query with a list of their
+choice. Under this pair lies their list from then on — and it is handed out to
+every further contact that announces the same pair, without that one ever being
+asked. The attacker thereby determines what this client believes about third
+parties: which encryption they can do, whether they understand receipts, what can
+be sent to them.
 
-Die Rechnung lag schon da, nur nicht erreichbar: `CalculateVerificationString`
-las fest aus `LocalIdentities`/`LocalFeatures`. Sie ist jetzt als
-`VerificationString(identities, features)` über beliebige Angaben anwendbar —
-mehr brauchte es nicht, um aus einem erzeugten Wert einen geprüften zu machen.
+The computation lay there already, only not reachable:
+`CalculateVerificationString` read fixedly out of `LocalIdentities`/
+`LocalFeatures`. It is now applicable over arbitrary information as
+`VerificationString(identities, features)` — no more than that was needed to make
+a checked value out of a created one.
 
-Drei Gründe führen dazu, dass ein Eintrag nicht abgelegt wird, und sie sind
-nicht dasselbe:
+Three reasons lead to an entry not being laid down, and they are not the same:
 
-| Grund | Was er bedeutet |
+| Reason | What it means |
 |---|---|
-| Kein `hash`-Attribut | Altform vor XEP-0115 1.4; `ver` ist dort eine Versionsnummer und gar kein Hash |
-| Unbekannter Algorithmus | Nachrechnen lässt sich nur `sha-1` |
-| Datenformular in der Antwort | XEP-0128 geht in den `ver`-Wert ein, diese Rechnung kennt es noch nicht |
-| Hash passt nicht | Die Fälschung |
+| No `hash` attribute | Old form before XEP-0115 1.4; `ver` is a version number there and no hash at all |
+| Unknown algorithm | Recomputed can be only `sha-1` |
+| Data form in the answer | XEP-0128 goes into the `ver` value, this computation does not know it yet |
+| Hash does not fit | The forgery |
 
-Nur der letzte ist ein Angriff. Die anderen drei sind Unvermögen — eigenes oder
-das der Gegenstelle —, und der Unterschied gehört ins Protokoll: Über
-`OnCapsRejected` geht der Grund im Klartext hinaus. Gemeldet wird die Antwort
-in allen vier Fällen trotzdem über `OnCapsDiscovered`; sie ist das, was diese
-Entity über sich sagt, und genau das ergäbe auch eine gewöhnliche
-disco#info-Abfrage. Verweigert wird nur das Bündeln.
+Only the last is an attack. The other three are inability — our own or that of
+the far side —, and the difference belongs into the protocol: over
+`OnCapsRejected` the reason goes out in plain text. Reported is the answer in all
+four cases all the same over `OnCapsDiscovered`; it is what this entity says
+about itself, and exactly that would come out of an ordinary disco#info query as
+well. Refused is only the bundling.
 
-Neun Mutationen, alle erschlagen. Zwei davon sind die, um die es geht:
+Nine mutations, all struck down. Two of them are the ones it is about:
 
-- **Warnen und trotzdem ablegen** — der klassische halbe Fix. Fünf Tests fallen
-  aus, weil `GetCachedInfo` den Eintrag findet.
-- **Die Aufrufstelle lässt das `hash`-Attribut fallen.** Erschlagen allein von
-  `CapsOfARealContact_AreVerifiedAndCached`. Ohne diesen Test hätte diese
-  Mutation überlebt, und mit ihr wäre der Cache dauerhaft leer geblieben, ohne
-  dass irgendetwas rot geworden wäre — die Prüfung hätte weiter funktioniert,
-  nur eben immer mit dem Ergebnis „nicht prüfbar". Der Test war eigens gegen
-  diese Lücke geschrieben und belegt nebenbei, dass unser eigenes `ver` zu
-  unserer eigenen disco#info-Antwort passt.
+- **Warn and lay down all the same** — the classic half fix. Five tests fall out,
+  because `GetCachedInfo` finds the entry.
+- **The calling place drops the `hash` attribute.** Struck down by
+  `CapsOfARealContact_AreVerifiedAndCached` alone. Without this test this mutation
+  would have survived, and with it the cache would have stayed empty for good
+  without anything having gone red — the check would have gone on working, only
+  always with the result "not checkable". The test was written expressly against
+  this gap and shows incidentally that our own `ver` fits our own disco#info
+  answer.
 
-Eine Mutation überlebte zunächst und deckte dabei etwas auf: die Prüfung auf
-ein fehlendes `hash`-Attribut ist für die Entscheidung redundant — `null` ist
-ohnehin nicht `sha-1`, der nächste Zweig fängt sie also mit. Sie trägt allein
-die genauere Begründung. Damit stand die Wahl, sie zu streichen oder die
-Begründung zu prüfen; der Test prüft sie jetzt. Ein Zweig, dessen einziger
-Zweck eine Aussage ist, muss über diese Aussage abgesichert sein — sonst ist er
-Zierde.
+One mutation survived at first and uncovered something in doing so: the check for
+a missing `hash` attribute is redundant for the decision — `null` is not `sha-1`
+anyway, so the next branch catches it along. It carries the more precise reason
+alone. With that stood the choice of striking it or checking the reason; the test
+now checks it. A branch whose only purpose is a statement has to be secured over
+this statement — otherwise it is decoration.
 
-### D3. Der Verification String, vollständig ✅ — und vier Regeln, die nichts prüften
+### D3. The verification string, complete ✅ — and four rules that checked nothing
 
-D2 machte aus einem erzeugten Hash einen geprüften. Damit wurde erst sichtbar,
-was an der Rechnung fehlte: Sie ging über Identitäten und Features, und
-XEP-0115 §5.1 lässt noch zwei Dinge einfliessen — das `xml:lang` einer
-Identität und die XEP-0128-Datenformulare. Beides fiel vorher nie auf, weil ein
-Wert, den niemand nachrechnet, auch nicht falsch sein kann. Nach D2 war die
-Folge konkret: Jede Gegenstelle, die ihren Namen in einer Sprache führt oder
-ihre Software-Angaben veröffentlicht, wurde abgelehnt — nicht als Fälscher,
-aber eben auch nicht geglaubt.
+D2 made a checked hash out of a created one. Only with that did it become visible
+what was missing from the computation: it went over identities and features, and
+XEP-0115 §5.1 lets two more things flow in — the `xml:lang` of an identity and
+the XEP-0128 data forms. Neither ever came out before, because a value nobody
+recomputes cannot be wrong either. After D2 the consequence was concrete: every
+far side that carries its name in a language or publishes its software
+information was refused — not as a forger, but not believed either.
 
-Beides ist jetzt drin, und der Beweis dafür ist nicht selbstgemacht: XEP-0115
-§5.3 druckt genau dafür einen zweiten Vektor ab („Complex Generation Example",
-zwei Identitäten, die sich nur in `xml:lang` und Name unterscheiden, plus ein
-softwareinfo-Formular mit einem mehrwertigen Feld). Er wird exakt reproduziert,
-und wie beim einfachen Vektor prüft ein zweiter Test, dass der abgedruckte
-`ver`-Wert wirklich der SHA-1-Hash des abgedruckten S-Strings ist.
+Both are in now, and the proof for it is not self-made: XEP-0115 §5.3 prints a
+second vector for exactly that ("Complex Generation Example", two identities that
+differ only in `xml:lang` and name, plus a softwareinfo form with a multi-valued
+field). It is reproduced exactly, and as at the simple vector a second test checks
+that the printed `ver` value really is the SHA-1 hash of the printed S string.
 
-Dazu kommen die drei Ungültigkeitsregeln aus §5.4: dieselbe Identität zweimal,
-dasselbe Feature zweimal, zwei Formulare mit demselben `FORM_TYPE` oder ein
-`FORM_TYPE` mit mehreren Werten. Das ist keine Formstrenge. Der Verification
-String entsteht dadurch, dass eine Antwort in *genau eine* Zeichenkette
-überführt wird; wo Doppelungen stehen, gibt es mehr als eine — und damit lässt
-sich zu einem gegebenen Hash eine zweite Antwort bauen. Der mehrwertige
-`FORM_TYPE` ist der deutlichste Fall: Das Feld selbst wird nicht mit angehängt,
-der zweite Wert verschwindet also spurlos aus der Rechnung.
+To that come the three rules of invalidity from §5.4: the same identity twice,
+the same feature twice, two forms with the same `FORM_TYPE` or a `FORM_TYPE` with
+several values. That is no formal strictness. The verification string arises
+through an answer being carried over into *exactly one* string; where duplications
+stand, there is more than one — and with that a second answer can be built to a
+given hash. The multi-valued `FORM_TYPE` is the clearest case: the field itself is
+not appended along, so the second value disappears without trace from the
+computation.
 
-Vierzehn Mutationen. Zehn fielen sofort. **Die vier Regeln aus §5.4 überlebten
-alle vier** — und der Grund ist die Sorte Selbsttäuschung, für die dieses
-Verfahren da ist: Mein Test kündigte einen `ver`-Wert an, zu dem die
-mehrdeutige Antwort ohnehin nicht passte. Also erschlug sie schon der
-Hash-Vergleich, und die Regeln, um die es ging, liefen nie. Der Test kündigt
-jetzt den Wert an, den die mehrdeutige Antwort *wirklich* ergibt — womit nur
-noch diese Regeln sie aufhalten können. Danach fielen alle vier.
+Fourteen mutations. Ten fell at once. **The four rules from §5.4 all four
+survived** — and the reason is the sort of self-deception this procedure is there
+for: my test announced a `ver` value the ambiguous answer did not fit anyway. So
+the comparison of the hash struck it down already, and the rules it was about
+never ran. The test now announces the value the ambiguous answer *really* yields —
+with which only these rules can still stop it. After that all four fell.
 
-Ein Test, der einen Angriff nachstellt, muss den Angriff auch gelingen lassen
-bis zu der Stelle, die ihn abfangen soll. Sonst prüft er den Wachposten davor.
+A test that reproduces an attack has to let the attack succeed as far as the
+place that is to catch it. Otherwise it checks the sentry in front of it.
 
-Und einer, der ohne Mutationsdurchgang gar nicht entstanden wäre:
-`RespondInfoAsync` gibt das `xml:lang` einer Identität aus — geprüft hat das
-nichts, weil die eigene Identität keines trägt. Der Weg dorthin führt über zwei
-Dateien: Ankündigung und Antwort. Stimmen sie nicht überein, ist dieser Client
-für jeden, der nach §5.4 prüft, ein Lügner.
-`AnIdentityWithXmlLang_SurvivesTheRoundTrip` lässt beide gegeneinander laufen.
+And one that would not have arisen at all without a mutation pass:
+`RespondInfoAsync` gives out the `xml:lang` of an identity — checked that was by
+nothing, because our own identity carries none. The way there leads over two
+files: announcement and answer. Do they not agree, then this client is a liar for
+everybody who checks under §5.4.
+`AnIdentityWithXmlLang_SurvivesTheRoundTrip` lets both run against each other.
 
-### D4. SASLprep, vollständig ✅ — Tabellen, die man nicht abschreibt
+### D4. SASLprep, complete ✅ — tables one does not copy out
 
-Die Vorbereitung von Benutzername und Passwort bestand aus einer Zeile: NFKC.
-Das ist einer von vier Schritten. Es fehlten die Abbildungen (ein weiches
-Trennzeichen im Passwort blieb stehen, statt zu verschwinden), die
-Verbotstabellen (ein Steuerzeichen ging durch) und die Bidi-Prüfung ganz.
+The preparation of user name and password consisted of one line: NFKC. That is
+one of four steps. Missing were the mappings (a soft hyphen in the password
+stayed standing instead of disappearing), the prohibition tables (a control
+character went through) and the bidi check entirely.
 
-Die Folge war nicht, dass jemand hereinkam, der nicht sollte, sondern das
-Gegenteil: Ein Passwort ausserhalb von ASCII wurde hier anders vorbereitet als
-bei Prosody oder ejabberd, und die Anmeldung scheiterte, ohne dass jemand hätte
-sagen können warum. Dasselbe getippte Passwort, zwei verschiedene Schlüssel.
+The consequence was not that somebody got in who should not, but the opposite: a
+password outside of ASCII was prepared differently here than at Prosody or
+ejabberd, and the login failed without anybody being able to say why. The same
+typed password, two different keys.
 
-Dazu kam eine zweite Fassung derselben Kurzfassung: Client (`SCRAMAuthenticator`)
-und Server (`XMPPCredentials`) normalisierten jeder für sich. Zwei Kopien
-desselben Verfahrens sind zwei Gelegenheiten auseinanderzulaufen; jetzt ist es
-eine.
+To that came a second version of the same abridgement: client
+(`SCRAMAuthenticator`) and server (`XMPPCredentials`) each normalised for
+themselves. Two copies of the same procedure are two opportunities to run apart;
+now it is one.
 
-**Die Tabellen sind nicht abgeschrieben, sondern erzeugt.** RFC 3454 führt rund
-neunhundert Codepoint-Bereiche, davon allein 396 für die in Unicode 3.2 nicht
-zugewiesenen und 360 für die linksläufigen Zeichen. Ein Tippfehler darin wäre
-praktisch nicht zu finden — er fällt erst auf, wenn ein bestimmtes Zeichen in
-einem Passwort vorkommt, und dann als Anmeldung, die grundlos scheitert.
-`tools/stringprep/generate.py` liest den RFC und schreibt
-`Jabber/Auth/StringPrepTables.cs`; wer die Tabellen anzweifelt, lässt ihn
-laufen und vergleicht.
+**The tables are not copied out but generated.** RFC 3454 carries about nine
+hundred code point ranges, of those 396 alone for the ones not assigned in
+Unicode 3.2 and 360 for the right-to-left characters. A typing error in it would
+be practically impossible to find — it comes out only when a particular character
+appears in a password, and then as a login that fails without a reason.
+`tools/stringprep/generate.py` reads the RFC and writes
+`Jabber/Auth/StringPrepTables.cs`; whoever doubts the tables lets it run and
+compares.
 
-Dass die Tabellen auf Unicode 3.2 festgeschrieben sind, ist dabei kein
-Rückstand, sondern der Sinn der Sache — und
-`UnassignedCodePoints_AreRefused` belegt es an U+0221, den .NET längst als
-lateinischen Kleinbuchstaben kennt und RFC 3454 nicht.
+That the tables are fixed to Unicode 3.2 is in doing so no backlog but the point
+of the thing — and `UnassignedCodePoints_AreRefused` shows it at U+0221, which
+.NET has long known as a Latin small letter and RFC 3454 does not.
 
-Elf Mutationen, zehn sofort erschlagen. Die elfte ist die lehrreiche: **der
-Client darf PLAIN unvorbereitet schicken, und alles blieb grün.** Der Grund ist,
-dass der Server vorbereitet, was bei ihm ankommt — die Anmeldung gelingt also
-so oder so, und mein Test sah nur auf sie. Gedeckt war damit die Server-Hälfte,
-nicht die des Clients. Gegen einen Server, der sich auf die Vorbereitung des
-Clients verlässt, wären wir aufgelaufen, ohne dass ein Test es gemerkt hätte.
-Jetzt prüft der Test, was auf der Leitung steht, statt was am Ende dabei
-herauskommt.
+Eleven mutations, ten struck down at once. The eleventh is the instructive one:
+**the client may send PLAIN unprepared, and everything stayed green.** The reason
+is that the server prepares what arrives at it — the login succeeds one way or
+the other, and my test looked only at it. Covered with that was the server half,
+not the one of the client. Against a server that relies on the preparation of the
+client we would have run aground without a test having noticed it. Now the test
+checks what stands on the wire instead of what comes out at the end.
 
-Zweimal in Folge derselbe Fehler in meinen eigenen Tests: in D3 liess ich den
-Angriff zu früh scheitern, hier den Nachweis über die falsche Hälfte laufen.
-Beides sind Tests, die auf das Ergebnis sehen statt auf den Weg — und beide
-hätten ohne Mutationsdurchgang bestanden.
+Twice in a row the same error in my own tests: in D3 I let the attack fail too
+early, here I let the proof run over the wrong half. Both are tests that look at
+the result instead of at the way — and both would have passed without a mutation
+pass.
 
-Am Rande, aber nicht nebensächlich: `Verify` fängt eine misslungene
-Vorbereitung ab und meldet einen Fehlversuch. Was in einem
-PLAIN-`<auth/>` steht, bestimmt die Gegenstelle; ein Steuerzeichen darin darf
-nicht den Server umwerfen.
+By the way, but not incidental: `Verify` catches a failed preparation and reports
+a failed attempt. What stands in a PLAIN `<auth/>` is determined by the far side;
+a control character in it may not knock the server over.
 
-### D5. JIDs nach RFC 7622 ✅ — und die Nachricht auf dem falschen Gerät
+### D5. JIDs under RFC 7622 ✅ — and the message on the wrong device
 
-Der Vergleich zweier JIDs lief überall über `OrdinalIgnoreCase` auf der ganzen
-Zeichenkette. Nach RFC 7622, Abschnitt 3.4 sind aber nur Local- und Domainpart
-von der Schreibweise unabhängig, der Resourcepart nicht.
+The comparison of two JIDs ran everywhere over `OrdinalIgnoreCase` on the whole
+string. Under RFC 7622, section 3.4 however only the local and the domain part
+are independent of the spelling, the resource part is not.
 
-Der Fehler war nicht theoretisch, und er hatte eine hässliche Form. Die
-Resource-Vergabe im Server hat immer schon ordinal verglichen — `Handy` und
-`handy` waren für sie zwei verschiedene Geräte, und die zweite Anmeldung kam
-deshalb durch statt als Konflikt abgewiesen zu werden. Nur das *Nachschlagen*
-einer Sitzung tat es nicht. Der Server nahm also zwei Geräte an und stellte
-danach beiden den Verkehr desselben zu: Die Nachricht landete auf dem falschen,
-und beim Absender sah alles nach Erfolg aus.
+The error was not theoretical, and it had an ugly shape. The giving out of
+resources in the server has always compared ordinally — `Mobile` and `mobile`
+were two different devices for it, and the second login therefore got through
+instead of being refused as a conflict. Only the *looking up* of a session did
+not do it. The server therefore accepted two devices and afterwards delivered the
+traffic of the same one to both: the message landed on the wrong one, and at the
+sender everything looked like success.
 
-`JidUtilities` ist jetzt eine Umsetzung von RFC 7622 statt einer Zeile
-`ToLowerInvariant`: zerlegen in der Reihenfolge aus Abschnitt 3.2, jeden Teil
-nach seinem PRECIS-Profil vorbereiten, Höchstlängen in Oktetten, vergleichen
-Teil für Teil. Geprüft gegen beide Beispieltabellen aus Abschnitt 3.5.
+`JidUtilities` is now an implementation of RFC 7622 instead of one line
+`ToLowerInvariant`: split up in the order from section 3.2, prepare each part
+after its PRECIS profile, maximum lengths in octets, compare part by part.
+Checked against both tables of examples from section 3.5.
 
-Die Klassenzugehörigkeit eines Codepoints ist angenähert — aus Unicode-Kategorie
-und Kompatibilitätszerlegung statt aus den abgeleiteten Eigenschaften nach
-RFC 8264. Das ist im README benannt, samt dem, was dadurch aussen vor bleibt.
+The class membership of a code point is approximated — out of the Unicode
+category and the compatibility decomposition instead of out of the derived
+properties under RFC 8264. That is named in the README, together with what stays
+outside because of it.
 
-Eine Abweichung ist bewusst und hat einen eigenen Test, damit sie eine Stelle
-hat, an der sie auffällt: Beispiel 18 (führendes Leerzeichen im Resourcepart)
-wird angenommen. Die Tabelle führt es als Nicht-JID, aber im Regelteil steht
-nichts dergleichen — das OpaqueString-Profil lässt Leerzeichen zu. Für einen
-Router ist Annehmen die vorsichtigere Wahl: Eine Adresse zurückzuweisen, die
-andere Server für gültig halten, verliert Nachrichten, und zwar unsere.
+One deviation is deliberate and has a test of its own, so that it has a place at
+which it comes out: example 18 (a leading space in the resource part) is
+accepted. The table carries it as a non-JID, but in the part with the rules
+nothing of the kind stands — the OpaqueString profile allows spaces. For a router
+accepting is the more careful choice: to refuse an address other servers hold to
+be valid loses messages, and ours at that.
 
-Zwölf Mutationen, neun sofort erschlagen. **Drei überlebten, und alle drei aus
-demselben Grund: Der Testfall traf schon eine frühere Regel.**
+Twelve mutations, nine struck down at once. **Three survived, and all three for
+the same reason: the test case already hit an earlier rule.**
 
-| Mutation | Warum sie zuerst überlebte |
+| Mutation | Why it survived at first |
 |---|---|
-| Am letzten statt am ersten `/` trennen | Mein Beispiel hatte nur einen Schrägstrich |
-| Kompatibilitätszeichen im Localpart zulassen | Die römische Vier fällt schon über ihre Kategorie |
-| Leeren Resourcepart zulassen | Beispiel 19 hat *beide* Teile leer; der Localpart wird zuerst geprüft |
+| Split at the last instead of at the first `/` | My example had only one slash |
+| Allow compatibility characters in the local part | The Roman four falls over its category already |
+| Allow an empty resource part | Example 19 has *both* parts empty; the local part is checked first |
 
-Das ist dieselbe Sorte Selbsttäuschung wie in D3 und D4, jetzt zum dritten Mal
-und in drei Ausprägungen gleichzeitig. Der gemeinsame Nenner ist inzwischen
-klar zu benennen: **Ein Beispiel aus einer Spezifikation ist noch kein Test.**
-Die Tabellen sind zum Vorführen gebaut, nicht zum Trennen — eine Zeile darf
-gern gegen drei Regeln zugleich verstossen. Ein Test, der eine bestimmte Regel
-absichern soll, braucht einen Fall, der genau *diese* eine verletzt.
+That is the same sort of self-deception as in D3 and D4, now for the third time
+and in three forms at once. The common denominator can be named clearly by now:
+**an example out of a specification is no test yet.** The tables are built for
+demonstrating, not for separating — a line may happily offend against three rules
+at once. A test that is to secure a particular rule needs a case that violates
+exactly *this* one.
 
-Behoben mit `juliet@example.com/foo/bar` (der Fall, den Abschnitt 3.4 selbst
-nennt), der Ligatur ﬁ (ein Kleinbuchstabe, der kompatibel in „fi" zerfällt) und
-den beiden leeren Teilen je für sich.
+Fixed with `juliet@example.com/foo/bar` (the case section 3.4 names itself), the
+ligature ﬁ (a small letter that decomposes compatibly into "fi") and the two
+empty parts each for itself.
 
-### D6. Die eigenen erweiterten Angaben ✅ — und ein Fenster, das der Test selbst aufriss
+### D6. Our own extended information ✅ — and a window the test itself tore open
 
-Fremde XEP-0128-Formulare las dieser Client seit D3; eigene lieferte er keine.
-`DiscoManager.LocalForms` schliesst die Lücke, und `DiscoForm.SoftwareInfo`
-baut den üblichen Fall aus XEP-0232.
+Foreign XEP-0128 forms this client has read since D3; own ones it delivered none.
+`DiscoManager.LocalForms` closes the gap, and `DiscoForm.SoftwareInfo` builds the
+usual case from XEP-0232.
 
-Zwei Dinge daran sind Entscheidungen und keine Selbstverständlichkeiten:
+Two things about it are decisions and no matters of course:
 
-- **Die Liste fängt leer an.** Was dort steht, erfährt jeder Kontakt ungefragt,
-  und Software, Fassung und Betriebssystem sind genau die Angaben, aus denen
-  sich ein Gerät wiedererkennen lässt. Eine Vorgabe, die etwas veröffentlicht,
-  wäre eine Vorgabe gegen den Nutzer. `WithoutOwnForms_NothingIsAnnounced` hält
-  das fest.
-- **Nicht Angegebenes wird kein leeres Feld.** „Ich sage nichts über mein
-  Betriebssystem" und „mein Betriebssystem heisst Leerstring" sind zwei
-  verschiedene Aussagen; nur die erste ist gemeint, und die zweite ergäbe einen
-  anderen Hash.
+- **The list starts empty.** What stands there every contact learns unasked, and
+  software, version and operating system are exactly the pieces of information
+  from which a device can be recognised again. A default that publishes something
+  would be a default against the user. `WithoutOwnForms_NothingIsAnnounced` holds
+  that fast.
+- **What is not given becomes no empty field.** "I say nothing about my operating
+  system" and "my operating system is called the empty string" are two different
+  statements; only the first is meant, and the second would yield a different
+  hash.
 
-Sieben Mutationen. Sechs fielen sofort — darunter beide Hälften, die
-zusammengehören: Formular nicht in die Antwort (der Hash stimmt dann nicht) und
-Formular nicht in den Hash (die Antwort stimmt dann nicht). Beide Male wären
-wir für jede prüfende Gegenstelle ein Fälscher gewesen, bei völlig ehrlicher
-Auskunft.
+Seven mutations. Six fell at once — among them both halves that belong together:
+the form not into the answer (the hash does not fit then) and the form not into
+the hash (the answer does not fit then). Both times we would have been a forger
+for every checking far side, at completely honest information.
 
-Die siebte überlebte zunächst und ist wieder dieselbe Sorte: „nicht angegeben
-wird zu leerem Feld", angewandt auf `software` — ein Feld, das mein Test immer
-füllte. Geprüft war die Regel nur an dem einen Feld, das ich weggelassen hatte.
-Jetzt prüft ein Test alle vier einzeln.
+The seventh survived at first and is again the same sort: "not given becomes an
+empty field", applied to `software` — a field my test always filled. Checked was
+the rule only at the one field I had left out. Now one test checks all four
+singly.
 
-**Und ein Fund, der nicht aus dem Mutationsdurchgang kam, sondern aus einem
-einzelnen roten Lauf:** `OwnDataForm_SurvivesTheRoundTrip` schlug einmal unter
-etwa fünf Läufen fehl. Die Ursache ist kein Fehler im Code, sondern eine
-Eigenschaft des Protokolls, die der Test selbst herbeigeführt hat. Alice ändert
-ihre Auskunft nach dem Verbinden und schickt eine neue Presence; zwischen
-beidem liegt ein Fenster, in dem der alte `ver`-Wert angekündigt ist und schon
-die neue Antwort gegeben würde. Wer darin fragt, bekommt zu Recht eine
-Abweichung gemeldet — genau das, was D2 eingebaut hat.
+**And a find that did not come out of the mutation pass, but out of a single red
+run:** `OwnDataForm_SurvivesTheRoundTrip` failed once in about five runs. The
+cause is no error in the code, but a property of the protocol the test itself
+brought about. Alice changes her information after connecting and sends a new
+presence; between the two lies a window in which the old `ver` value is announced
+and the new answer would already be given. Whoever asks in it gets a deviation
+reported rightly — exactly what D2 built in.
 
-Der Test wartet jetzt, bis die neue Presence beim Server steht, bevor Bob
-dazukommt. Derselbe Fenstergriff steckte seit D3 in
-`AnIdentityWithXmlLang_SurvivesTheRoundTrip`, ohne je aufzufallen; er ist
-mitbehoben.
+The test now waits until the new presence stands at the server before Bob comes
+along. The same grip into the window had sat in
+`AnIdentityWithXmlLang_SurvivesTheRoundTrip` since D3 without ever coming out; it
+is fixed along.
 
-Das ist der Nachtrag zu der Regel aus D5: Ein Testaufbau kann eine Lage
-herstellen, die es im gemeinten Ablauf gar nicht gibt — und dann ist nicht der
-Code zu ändern, sondern der Aufbau.
+That is the addendum to the rule from D5: a test setup can produce a situation
+that does not exist at all in the intended course of events — and then it is not
+the code that is to be changed, but the setup.
 
-### D7. Roster-Versionierung ✅ — und zwei Tests, die sich selbst betrogen
+### D7. Roster versioning ✅ — and two tests that deceived themselves
 
-RFC 6121, Abschnitt 2.6: Der Client nennt die Fassung, die er
-zwischengespeichert hat, und bekommt ein leeres Ergebnis, wenn sie noch
-stimmt. Der Roster ist das Grösste, was beim Anmelden über die Leitung geht,
-und er ändert sich selten.
+RFC 6121, section 2.6: the client names the version it has cached, and gets an
+empty result when it still holds. The roster is the biggest thing that goes over
+the wire at the login, and it changes rarely.
 
-Die Fassung ist **gerechnet, nicht gezählt** — ein Streuwert über den Inhalt.
-Ein Zähler müsste mit dem Konto gespeichert werden und überstünde einen
-Neustart nur, wenn jemand daran denkt; der Streuwert braucht keinen Speicher
-und bleibt auch dann richtig, wenn jemand den Roster an der Datei vorbei
-ändert. Er hat zudem eine Eigenschaft, die ein Zähler nicht hat: Geht der
-Roster von A nach B und zurück nach A, ist die Fassung wieder die alte — und
-das ist richtig, denn der Zwischenstand des Clients stimmt ja wieder.
+The version is **computed, not counted** — a hash over the content. A counter
+would have to be stored with the account and would survive a restart only if
+somebody thinks of it; the hash needs no store and stays right even when somebody
+changes the roster past the file. It moreover has a property a counter does not
+have: does the roster go from A to B and back to A, then the version is the old
+one again — and that is right, for the intermediate state of the client is right
+again after all.
 
-Alles hängt an einer Feinheit, die leicht falsch herauskommt: „unverändert" ist
-ein Ergebnis **ganz ohne** `<query/>`. Ein `<query/>` ohne Kinder heisst
-dagegen „dein Roster ist leer". Wer beides verwechselt, löscht dem Nutzer die
-Kontaktliste — die Mutation, die genau das tut, steht als M2 in der Liste.
+Everything hangs on a subtlety that easily comes out wrong: "unchanged" is a
+result **entirely without** a `<query/>`. A `<query/>` without children means on
+the other hand "your roster is empty". Whoever confuses the two deletes the
+contact list of the user — the mutation that does exactly that stands as M2 in the
+list.
 
-**Ein Fund noch vor dem Mutationsdurchgang.** Der erste Testlauf war rot, weil
-der Server das `ver` mit `Attr` las — und `Attr` ist auf das Wurzelelement
-verankert. Das Attribut sitzt aber am `<query/>`, nicht am `<iq/>`. Die Prüfung
-sah vollkommen richtig aus und las immer `null`; ohne den Test wäre die
-Versionierung serverseitig wirkungslos geblieben, ohne dass irgendetwas
-aufgefallen wäre. Jetzt gibt es `QueryAttr`, und der Kommentar dort nennt die
-Falle beim Namen.
+**A find even before the mutation pass.** The first test run was red, because the
+server read the `ver` with `Attr` — and `Attr` is anchored on the root element.
+The attribute sits however at the `<query/>`, not at the `<iq/>`. The check looked
+completely right and always read `null`; without the test the versioning would
+have stayed without effect on the server side without anything having come out.
+Now there is `QueryAttr`, and the comment there names the trap by its name.
 
-Dreizehn Mutationen, alle erschlagen — Ankündigung, leeres Ergebnis, Fassung im
-Ergebnis, Fassung im Push, Übernahme auf beiden Wegen, der Verzicht ohne
-Ankündigung, und je ein Feld, das aus der Rechnung fällt.
+Thirteen mutations, all struck down — announcement, empty result, version in the
+result, version in the push, taking over on both ways, the doing without an
+announcement, and one field each that falls out of the computation.
 
-**Zwei Tests haben sich dabei selbst betrogen, und der zweite Betrug war meine
-Reparatur des ersten.**
+**Two tests deceived themselves in doing so, and the second deception was my
+repair of the first.**
 
-`ARosterPush_CarriesTheNewVersion` schlug unter Volllast gelegentlich fehl.
-Ursache: `AddContactAsync` ist zweierlei — ein Roster-Set und ein
-`subscribe` —, also kommen *zwei* Pushes. Der Test hielt beim ersten an und
-verglich dann gegen einen Serverstand, der schon weitergelaufen war.
+`ARosterPush_CarriesTheNewVersion` failed occasionally under full load. Cause:
+`AddContactAsync` is two things — a roster set and a `subscribe` —, so *two*
+pushes come. The test stopped at the first and then compared against a server
+state that had already run on.
 
-Meine erste Reparatur — auf Übereinstimmung warten statt auf Änderung — war
-schlimmer als der Fehler: Am Anfang stehen beide Seiten beim leeren Roster,
-sind also bereits einig. Die Wartebedingung war erfüllt, bevor irgendetwas
-geschehen war, und der Test schlug danach *immer* fehl. Richtig ist beides
-zusammen: geändert **und** einig.
+My first repair — wait for agreement instead of for a change — was worse than the
+error: at the start both sides stand at the empty roster, so they are in agreement
+already. The waiting condition was fulfilled before anything had happened, and
+the test *always* failed afterwards. Right is both together: changed **and** in
+agreement.
 
-Das ist die dritte Ausprägung derselben Sache in vier Commits, und sie hat
-jetzt einen Namen verdient: **Eine Wartebedingung, die der Anfangszustand schon
-erfüllt, wartet nicht.**
+That is the third form of the same thing in four commits, and it has now earned a
+name: **a waiting condition the initial state already fulfils does not wait.**
 
-Nebenbei aufgefallen und nicht behoben: Ein voller Roster wird in den
-zwischengespeicherten hineingemischt statt ihn zu ersetzen. Ein Kontakt, der
-bei abgemeldetem Client entfernt wurde, bleibt damit stehen. Das ist ein
-eigener Fehler mit eigener Gegenprobe und steht unter „Später".
+Noticed by the way and not fixed: a full roster is mixed into the cached one
+instead of replacing it. A contact removed while the client was signed off
+thereby stays standing. That is an error of its own with a counter-check of its
+own and stands under "Later".
 
-### D8. Der Kontakt, den man nicht loswird ✅
+### D8. The contact one does not get rid of ✅
 
-Aufgefallen bei D7, jetzt behoben: Das Ergebnis einer Roster-Anfrage wurde in
-den zwischengespeicherten Roster *hineingemischt*. Es ist aber der Stand und
-keine Ergänzung (RFC 6121, Abschnitt 2.1.4) — was nicht darin steht, gibt es
-nicht mehr.
+Noticed at D7, fixed now: the result of a roster query was *mixed into* the cached
+roster. It is however the state and no addition (RFC 6121, section 2.1.4) — what
+does not stand in it does not exist any more.
 
-Der Weg zum Schaden ist alltäglich: Ein Kontakt wird an einem anderen Gerät
-gelöscht, während dieses hier abgemeldet ist. Beim nächsten Anmelden schickt
-der Server ihn nicht mehr — und niemand nimmt ihn heraus. Er kommt zurück und
-lässt sich von diesem Gerät aus nicht mehr entfernen: Ein Löschversuch erzeugt
-einen Push mit `subscription='remove'`, der Eintrag verschwindet, und beim
-übernächsten Anmelden ist er wieder da. Im laufenden Betrieb fällt nichts auf,
-weil dort immer der Push kommt.
+The way to the damage is everyday: a contact is deleted at another device while
+this one here is signed off. At the next login the server does not send them any
+more — and nobody takes them out. They come back and cannot be removed from this
+device any more: an attempt to delete creates a push with `subscription='remove'`,
+the entry disappears, and at the login after next it is there again. In running
+operation nothing comes out, because there the push always comes.
 
-`Roster.ReplaceAll` heisst so, wie es sich verhält, und wird ausschliesslich
-für das Ergebnis gerufen — nie für einen Push. Das ist der Punkt, an dem die
-Sache kippen könnte: Auf dem Draht sehen beide gleich aus, ein `<query/>` mit
-`<item/>`. Wer den Push genauso behandelte, löschte bei *jeder* Änderung den
-gesamten übrigen Roster. Dafür steht `ARosterPush_DoesNotReplaceTheWholeRoster`
-da, und die zugehörige Mutation M5 ist die einzige, die genau diesen einen Test
-umwirft.
+`Roster.ReplaceAll` is called what it behaves like and is called exclusively for
+the result — never for a push. That is the point at which the thing could tip
+over: on the wire both look the same, a `<query/>` with `<item/>`. Whoever treated
+the push the same way deleted the whole remaining roster at *every* change. That
+is what `ARosterPush_DoesNotReplaceTheWholeRoster` stands there for, and the
+belonging mutation M5 is the only one that knocks over exactly this one test.
 
-Fünf Mutationen, alle erschlagen.
+Five mutations, all struck down.
 
-Zwei Anläufe brauchte der Push-Test allerdings, und beide Male lag es daran,
-dass ich die Änderung an der falschen Stelle auslöste: Ein Eingriff am Konto
-vorbei (`SetRosterEntry`) erzeugt keinen Push, ein `AddContactAsync` erzeugt
-gleich zwei. Gebraucht wird genau ein Roster-Set vom Client — dann kommt genau
-ein Push mit genau einem Element. Auch das gehört zu der Regel aus D5: Der
-Aufbau muss die Lage herstellen, die geprüft werden soll, und nicht eine, die
-ihr ähnlich sieht.
+Two attempts the push test needed however, and both times it was down to my
+triggering the change at the wrong place: an intervention past the account
+(`SetRosterEntry`) creates no push, an `AddContactAsync` creates two at once.
+Needed is exactly one roster set from the client — then comes exactly one push
+with exactly one element. That too belongs to the rule from D5: the setup has to
+produce the situation that is to be checked, and not one that looks like it.
 
-**Ein bestehender Test musste dafür angefasst werden**, und das ist erwähnenswert,
-weil es nach einer bequemen Anpassung aussieht. `RosterPushAfterBind_IsApplied`
-liess den Server in der Aufbauphase einen Kontakt pushen, den sein eigener
-Roster nicht enthielt. Danach kommt das Ergebnis, und das Ergebnis ist der
-Stand — der Kontakt verschwand also wieder, und der Test wurde rot.
+**An existing test had to be touched for that**, and that is worth mentioning
+because it looks like a convenient adjustment. `RosterPushAfterBind_IsApplied` let
+the server push a contact in the setup phase that its own roster did not contain.
+After that comes the result, and the result is the state — the contact therefore
+disappeared again, and the test went red.
 
-Nicht der Test war zu streng, sondern sein Server war unmöglich: XMPP liefert
-auf einem Stream der Reihe nach, ein Push *vor* dem Ergebnis ist damit älter
-als das Ergebnis. Ein Server, der einen Eintrag ankündigt, den er selbst nicht
-führt, widerspricht sich. Der Kontakt steht jetzt auch im Roster des Kontos;
-geprüft wird weiterhin dasselbe, nämlich dass eine Stanza aus der Aufbauphase
-nicht verlorengeht.
+Not the test was too strict, but its server was impossible: XMPP delivers in order
+on a stream, a push *before* the result is thereby older than the result. A server
+that announces an entry it does not itself carry contradicts itself. The contact
+now stands in the roster of the account as well; checked is still the same thing,
+namely that a stanza from the setup phase does not get lost.
 
-Aufgefallen ist das erst im vollen Durchlauf — die gefilterten Läufe während
-der Arbeit enthielten diesen Test nicht. Drei volle Läufe hintereinander,
-jeder mit demselben Fehlschlag: kein Flackern, sondern ein Regressionsfehler,
-und ohne den vollen Durchlauf wäre er mitgegangen.
+That came out only in the full pass — the filtered runs during the work did not
+contain this test. Three full runs in a row, each with the same failure: no
+flickering, but a regression, and without the full pass it would have gone along.
 
-### D9. Das Nachsenden fragt nach ✅ — und die Notlösung aus D7 fällt weg
+### D9. The resending asks afterwards ✅ — and the stopgap from D7 falls away
 
-In D7 wurde `TheResumedCountPreventsADoubleDelivery` einmal unter Volllast rot.
-Ich habe damals die Wartezeit verlängert und offen vermerkt, dass die Ursache
-nicht gefunden ist. Sie ist es jetzt, und die Wartezeit war die falsche
-Antwort.
+In D7 `TheResumedCountPreventsADoubleDelivery` went red once under full load. I
+lengthened the waiting time back then and noted openly that the cause is not
+found. It is now, and the waiting time was the wrong answer.
 
-`ResendUnackedAsync` schickt nach einer Wiederaufnahme alles Offene noch einmal
-hinaus — und fragte danach nach nichts. Das `<resumed h='…'/>` hat die
-Warteschlange nur bis zum Stand des Servers geleert; was darüber hinaus offen
-war, wartete auf ein `<a/>`, das von selbst nie kam. Der Server bestätigt, wenn
-er gefragt wird, und gefragt hat allein der Keepalive.
+`ResendUnackedAsync` sends everything open out once again after a resumption —
+and asked after nothing afterwards. The `<resumed h='…'/>` has emptied the queue
+only as far as the state of the server; what was open beyond that waited for an
+`<a/>` that never came of itself. The server acknowledges when it is asked, and
+asked has the keepalive alone.
 
-Damit gab es zwei Fassungen desselben Fehlers:
+With that there were two versions of the same error:
 
-- **Keepalive an** (die Vorgabe): Die Warteschlange bleibt bis zum nächsten
-  `<r/>` stehen, also bis zu 25 Sekunden. Ärgerlich, aber begrenzt.
-- **Keepalive aus**: Sie bleibt für immer stehen. Und bei jeder weiteren
-  Wiederaufnahme geht alles darin noch einmal hinaus.
+- **Keepalive on** (the default): the queue stays standing until the next `<r/>`,
+  that is, up to 25 seconds. Annoying, but bounded.
+- **Keepalive off**: it stays standing for ever. And at every further resumption
+  everything in it goes out once again.
 
-Warum das nur unter Last auffiel: Ob nach dem `<resumed/>` überhaupt etwas
-offen bleibt, hängt davon ab, ob der Server beim Abriss schon alles verarbeitet
-hatte. Bei ruhiger Maschine hatte er das — und die Warteschlange war ohne
-Zutun leer.
+Why that came out only under load: whether anything stays open at all after the
+`<resumed/>` depends on whether the server had already processed everything at
+the break. On a quiet machine it had — and the queue was empty without any doing.
 
-**Der Test, der es hätte zeigen können, hat es verdeckt.** In R7 stand in
-`StanzasLostInFlight_GoOutAgainAfterResumption` ein `RequestAckAsync` von Hand.
-Ich hatte es dort hingeschrieben, weil die Warteschlange sonst nicht leer wurde
-— und genau das war der Befund, den ich als Testbedarf gelesen habe statt als
-Fehler. Der Aufruf ist weg; ohne die Korrektur ist der Test rot, mit ihr grün.
+**The test that could have shown it covered it up.** In R7 there stood a
+`RequestAckAsync` by hand in `StanzasLostInFlight_GoOutAgainAfterResumption`. I
+had written it there because the queue did not become empty otherwise — and
+exactly that was the finding I read as a need of the test instead of as an error.
+The call is gone; without the correction the test is red, with it green.
 
-Zwei Mutationen, beide von diesem Test erschlagen: gar nicht nachfragen, und
-vor dem Nachsenden fragen statt danach. Die zweite ist die feinere — ein `<r/>`
-vor den nachgesendeten Stanzas holt eine Bestätigung über den Stand *davor*,
-und die Warteschlange bleibt genauso stehen.
+Two mutations, both struck down by this test: do not ask afterwards at all, and
+ask before the resending instead of after it. The second is the finer one — an
+`<r/>` before the resent stanzas fetches an acknowledgement about the state
+*before*, and the queue stays standing just the same.
 
-Die verlängerte Frist aus D7 steht wieder auf dem Vorgabewert.
+The lengthened deadline from D7 stands at the default again.
 
-Die Lehre ist unbequemer als die aus D3 bis D5. Dort haben Tests etwas nicht
-gemessen; hier hat ein Test einen echten Fehler **umschifft**, und ich habe die
-Umschiffung selbst geschrieben und im Commit sogar begründet. Wenn ein Test
-eine Handreichung braucht, damit er durchläuft, ist die erste Frage nicht, wie
-man sie am besten formuliert, sondern warum er sie braucht.
+The lesson is more uncomfortable than the ones from D3 to D5. There tests measured
+something not; here a test **steered round** a real error, and I wrote the
+steering round myself and even gave reasons for it in the commit. When a test
+needs a helping hand so that it runs through, the first question is not how best
+to formulate it, but why it needs it.
 
-**Ein zweiter, davon unabhängiger Wettlauf** kam bei der Prüfung ans Licht und
-ist mitbehoben: `TheClientResumesInsteadOfBindingAnew` wurde in einem von vier
-vollen Läufen rot, mit der Meldung „der Stream wurde neu ausgehandelt". Das
-traf zu und sagte über den geprüften Code nichts. Ursache ist die Reihenfolge
-zwischen zwei Uhren: Der Client kommt nach seiner Reconnect-Frist wieder, der
-Server legt die abgerissene Sitzung in seinem eigenen Takt ab. Ist er noch
-nicht so weit, findet das `<resume/>` nichts vor und der Client bindet neu —
-richtig gehandelt, nur nicht das, was der Test prüfen wollte.
+**A second race independent of that** came to light at the check and is fixed
+along: `TheClientResumesInsteadOfBindingAnew` went red in one of four full runs,
+with the message "the stream was negotiated anew". That held true and said nothing
+about the checked code. The cause is the order between two clocks: the client
+comes back after its reconnect period, the server lays the broken-off session
+aside at a beat of its own. Is it not that far yet, then the `<resume/>` finds
+nothing before it and the client binds anew — acted rightly, only not what the
+test wanted to check.
 
-`KillAndAwaitParked` wartet jetzt an den drei Stellen, an denen eine gelungene
-Wiederaufnahme die Voraussetzung ist, auf `ResumableStreamCount > 0`. Schlägt
-es doch fehl, steht der Grund in der Meldung.
+`KillAndAwaitParked` now waits for `ResumableStreamCount > 0` at the three places
+at which a successful resumption is the precondition. Does it fail all the same,
+then the reason stands in the message.
 
-Ob dieser Wettlauf schon vorher bestand, ist offen: Vier Läufe auf dem Stand
-von D8 blieben grün, vier mit der Korrektur ergaben einen roten — bei einem
-einzigen Ereignis lässt sich das nicht auseinanderhalten. Ein Zusammenhang mit
-dem zusätzlichen `<r/>` ist nicht zu erkennen (es wird als Nonza nicht
-mitgezählt und geht erst nach dem Start der Empfangsschleife hinaus),
-ausgeschlossen ist er damit aber nicht.
+Whether this race existed before already is open: four runs on the state of D8
+stayed green, four with the correction yielded one red — at a single event that
+cannot be told apart. A connection with the additional `<r/>` cannot be seen (as a
+nonza it is not counted along and goes out only after the start of the receiving
+loop), but it is not ruled out with that.
 
-### D10. Warten auf ein Ereignis statt auf Stille ✅
+### D10. Waiting for an event instead of for silence ✅
 
-`IqWithoutId_IsNotAnswered` war der dritte wackelige Test dieser Reihe und der
-einzige, dessen Wackeln von Anfang an in der Anlage steckte: Er wartete eine
-Sekunde darauf, dass die Zahl der vom Client empfangenen Rahmen *überhaupt*
-nicht steigt. Damit zählte er alles mit, was mit dem geprüften IQ nichts zu tun
-hatte — jeden Aufbaurahmen, der noch unterwegs war —, und unter Last war
-irgendwann einer darunter.
+`IqWithoutId_IsNotAnswered` was the third flaky test of this series and the only
+one whose flakiness sat in the arrangement from the start: it waited a second for
+the number of frames received by the client *not to rise at all*. With that it
+counted along everything that had nothing to do with the checked IQ — every setup
+frame that was still on its way —, and under load one of them was among it at some
+point.
 
-Ein negativer Nachweis braucht keine Wartezeit, wenn es ein Ereignis gibt, an
-dem man ihn festmachen kann. Auf einem Stream wird der Reihe nach verarbeitet:
-Nach dem IQ ohne `id` geht jetzt ein zweites hinaus, das beantwortet werden
-*muss*. Ist dessen Antwort da, hat der Client das erste bereits in der Hand
-gehabt und sich entschieden — und dann genügt die Feststellung, dass kein
-`type='error'` dabei ist. Kein `WaitUntil` über eine Sekunde, keine
-Lastabhängigkeit, und der Test ist nebenbei schneller.
+A negative proof needs no waiting time when there is an event it can be fastened
+to. On a stream things are processed in order: after the IQ without an `id` a
+second one now goes out that *has* to be answered. Is its answer there, then the
+client has already had the first in hand and decided — and then the finding that
+no `type='error'` is among it suffices. No `WaitUntil` over a second, no dependence
+on load, and the test is faster by the way.
 
-Eine Mutation, erschlagen: die Prüfung auf das fehlende `id` fallen lassen und
-mit `id=''` antworten.
+One mutation, struck down: drop the check for the missing `id` and answer with
+`id=''`.
 
-Zwei der drei Wackelkandidaten aus D7 bis D9 waren echte Fehler im Code, dieser
-ist einer in der Testanlage. Die Regel dahinter: **Wer prüfen will, dass etwas
-ausbleibt, braucht ein Ereignis, nach dem es ausgeblieben sein muss.** Eine
-Frist ist dafür nur ein Ersatz, und ein schlechter.
+Two of the three flaky candidates from D7 to D9 were real errors in the code, this
+one is one in the arrangement of the test. The rule behind it: **whoever wants to
+check that something stays out needs an event after which it must have stayed
+out.** A deadline is only a substitute for that, and a poor one.
 
-Bei der Absicherung kam ein vierter dazu, der hier ausdrücklich <b>nicht</b>
-behoben ist: `AStolenId_DoesNotHandOverTheStream` lief in einem von sieben
-Läufen in die Zeitüberschreitung beim Warten auf `ResumableStreamCount == 1` —
-der Server hatte die abgerissene Sitzung binnen zehn Sekunden nicht abgelegt.
-Alice hat dort `maxReconnectAttempts: 0`, kommt also nicht zurück und kann den
-Eintrag nicht selbst wieder abräumen; eine Erklärung habe ich nicht. Nach D9
-wäre eine längere Frist genau die falsche Antwort, und eine Vermutung
-aufzuschreiben wäre schlechter als die offene Frage. Steht unter „Später".
-*(Nachtrag: in D11 gefunden — es war kein Testfehler.)*
+At the securing a fourth came along that is expressly <b>not</b> fixed here:
+`AStolenId_DoesNotHandOverTheStream` ran into the timeout in one of seven runs at
+the waiting for `ResumableStreamCount == 1` — the server had not laid the
+broken-off session aside within ten seconds. Alice has `maxReconnectAttempts: 0`
+there, so she does not come back and cannot clear the entry away herself; an
+explanation I do not have. After D9 a longer deadline would be exactly the wrong
+answer, and to write down a supposition would be worse than the open question.
+Stands under "Later".
+*(Addendum: found in D11 — it was no test error.)*
 
 ### D11. Die Wiederaufnahme gehört dem Stream, nicht der Presence ✅
 
