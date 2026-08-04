@@ -2303,531 +2303,512 @@ with exactly two wanted exceptions — the server of the base, which is guarded 
 the following line, and the auxiliary variable of the test that checks the return
 of `Watched`.
 
-### D20. Eine Zusage, die endet ✅ — Abschnitt 4.6.3, Regel 2
-
-Der offene Punkt aus D17: Wird eine Resource unverfügbar, geht die Abmeldung auch
-an die Empfänger ihrer gerichteten Presence.
-
-Die Regel schliesst eine Lücke, die sonst niemandem auffällt. Wer einem Fremden
-seine Anwesenheit zeigt, steht deswegen **nicht** in dessen Roster — und bekäme
-ohne diesen Weg nie ein Ende. Der Fremde führte die Resource für immer als
-anwesend. Und das ist der Regelfall, nicht die Ausnahme: Ein Gespräch mit
-jemandem, der nicht im Roster steht, beginnt nach Abschnitt 5.1 genau damit. Seit
-D17 hängt an derselben Liste ausserdem, wer diese Resource überhaupt etwas fragen
-darf (Abschnitt 8.5.3.1) — eine Zusage, die nie endet, wäre damit doppelt
-unangenehm.
-
-**Zwei Wege führen in die Unverfügbarkeit, und der zweite ist der häufigere.** Die
-eigene Abmeldung des Clients, und der Verbindungsabriss, bei dem der Server sie in
-seinem Namen erzeugt (Abschnitt 4.5.2). Ein Client verschwindet meist, ohne sich
-zu verabschieden; ginge die Abmeldung nur an den Roster, bliebe genau dann der
-Fremde zurück.
-
-**Die Roster-Einschränkung ist keine Formsache.** Wer mit `from` oder `both` im
-Roster steht, bekommt die Abmeldung schon über die gewöhnliche Verteilung. Der RFC
-grenzt Regel 2 aus demselben Grund auf Entitäten ein, die *nicht* so im Roster
-stehen — käme sie zweimal, käme ein Client durcheinander, der Presence zählt statt
-sie zu ersetzen.
-
-**Der Klammerzusatz fällt mit der Liste zusammen.** „if the user has not yet sent
-directed unavailable presence to that entity": Eine gerichtete Abmeldung nimmt den
-Empfänger aus der Liste (Abschnitt 4.6.1), und was nicht darin steht, wird nicht
-benachrichtigt. Zwei Vorschriften, eine Umsetzung — und ein Test, der beide
-zugleich hält.
-
-**Herausgeben und Leeren in einem Aufruf**, `TakeDirectedPresenceTargets`. Das ist
-der Kern des Entwurfs: Abschnitt 4.6.1 verlangt das Leeren beim Abmelden, Regel 2
-verlangt, die Abmeldung vorher an genau diese Empfänger zu schicken. Wären es zwei
-Aufrufe, liesse sich der zweite vergessen — so kommt niemand an die Empfänger,
-ohne die Liste zu leeren, und niemand leert sie, ohne sie in der Hand zu halten.
-
-Damit ist auch eine Nachlässigkeit aus D17 behoben: Das Leeren stand dort in
-`RecordPresence`, also **vor** der Stelle, die die Liste braucht — und der Weg
-über den Verbindungsabriss leerte sie überhaupt nicht. Ein Fremder durfte eine
-abgerissene Resource weiter befragen.
-
-Sechs Mutationen, alle erschlagen — eine erst im zweiten Anlauf, und sie ist die
-lehrreiche: **die Liste bei *jeder* Presence abzuholen statt nur bei der
-Abmeldung.** Kein Test überlebte das nicht, weil keiner nach der gerichteten
-Presence noch eine gewöhnliche schickte — die Reihenfolge, die im Betrieb die
-Regel ist. Ein Client meldet bei jedem Wechsel auf „abwesend" eine neue Presence;
-wer dabei die Liste leert, nimmt dem Gegenüber mitten im Gespräch beides, die
-Abmeldung am Ende und das Fragerecht.
-
-Die Lehre dazu: **Meine Tests liessen den Client je Abschnitt genau eine Sache
-tun, und die Mutation lebte in der Lücke zwischen den Abschnitten.** Ein Test, der
-nur die Reihenfolge prüft, die er selbst gebaut hat, prüft nicht die, die
-vorkommt.
-
-Ein eigenes Fixture, `DirectedPresenceTests`. Zuerst standen die Tests in
-`IqDeliveryRulesTests`, weil die Liste dort entstanden war — sie prüfen aber die
-Zustellung von Presence und nicht die von IQ, und ein Test gehört dorthin, wovon
-er handelt.
-
-### D21. Wer geht, verliert seinen Platz ✅ — und eine Begründung, die falsch war
-
-Der letzte offene Punkt an Abschnitt 4.6: der SOLL-Teil von 4.6.1. Wer dem Nutzer
-eine Abmeldung schickt, verschwindet aus dessen Liste gerichteter Presence. Damit
-ist der Abschnitt vollständig.
-
-**Die beiden Hälften des Satzes sehen ähnlich aus und meinen Gegenteiliges.** Das
-MUSS betrifft den *eigenen* Widerruf — „any entity **to which** the user sends
-directed unavailable presence" —, das SOLL die Gegenrichtung: „any entity that
-**sends** unavailable presence **to** the user". Der andere geht, und damit ist die
-vorübergehende Beziehung ebenfalls zu Ende. Sichtbar wird es über Abschnitt
-8.5.3.1: Ohne diesen Weg behielte ein Rückkehrer sein Fragerecht, obwohl ihm
-niemand mehr etwas gezeigt hat.
-
-Angesehen wird der **Empfang** und nicht das Senden, denn genau so ist die Regel
-formuliert. Der Aufruf steht deshalb in `RouteToAsync` — der einen Weiche, durch
-die jede Stanza an eine hiesige Adresse läuft — und zusätzlich in den zwei
-Broadcast-Schleifen, die unmittelbar an die Sitzung senden.
-
-**Und hier lag der lehrreiche Fehler, diesmal nicht im Code, sondern in meiner
-Begründung.** Zwei Mutationen überlebten: die beiden Broadcast-Schleifen. Ich
-hatte in den Code geschrieben, das Vergessen sei für sie ohne sichtbare Folge —
-„wer im Roster steht, behält sein Fragerecht über den Roster". Das war falsch, weil
-ich die beiden Roster-Hälften verwechselt hatte:
-
-- Dass Alices Abmeldung Bob über die gewöhnliche Verteilung erreicht, entscheidet
-  **Alices** Roster: Dort steht Bob mit `from`.
-- Ob Alice Bob etwas fragen darf, entscheidet **Bobs** Roster.
-
-Bei einem einseitigen Roster — Alices Hälfte gefüllt, Bobs leer — kommt die
-Abmeldung also an, während das Fragerecht allein an der Liste hängt. Der Weg ist
-sehr wohl beobachtbar. Zwei neue Tests, beide Mutationen erschlagen.
-
-Die Lehre ist unangenehmer als die üblichen: **Eine plausibel klingende Begründung
-für „nicht beobachtbar" verdient dieselbe Prüfung wie der Code.** Hätte ich sie
-stehen gelassen, wären zwei benannte Ausnahmen in der Liste gelandet — mit einem
-Argument, das schon beim Aufschreiben nicht stimmte. Der Mutationsdurchgang hat
-nicht den Code widerlegt, sondern den Kommentar.
-
-Sieben Mutationen, alle erschlagen.
-
-### D22. Der Stream endet ✅ — eine Entscheidung, die anders gefallen ist
-
-D18 hat den Fehlschlag beim Verarbeiten eines Frames sichtbar gemacht und das
-Weitermachen ausdrücklich als **Entscheidung** vermerkt, nicht als Lücke. Die
-Entscheidung ist nun anders gefallen: Der Stream endet mit
-`<internal-server-error/>`.
-
-Der Grund ist der Zustand. Was der Frame ändern sollte, ist halb geändert, und
-niemand weiss, wie weit — der Client rechnet mit einem Zustand, den der Server
-nicht mehr hat. Ausgerechnet der Fehler, der am wahrscheinlichsten Zustand
-hinterlässt, blieb der einzige ohne Folgen. Abschnitt 4.9.1.1 lässt danach auch
-keine Wahl: „Stream-level errors are unrecoverable."
-
-Und der Client verliert dabei nichts: `internal-server-error` gilt als
-wiederholbar, er baut den Stream neu auf und beginnt mit einem Zustand, über den
-beide Seiten sich einig sind. Das ist mehr, als ihm ein weiterlaufender Stream mit
-halb verarbeiteter Stanza gibt.
-
-**Drei Schritte, und der mittlere ist der, den man über WebSocket vergisst.**
-Stream-Fehler, dann `<close/>` (RFC 7395, Abschnitt 3.6 — es steht für das
-`</stream:stream>`), dann die Verbindung. Ohne das `<close/>` sieht der Client
-einen Socket, der ohne Abschied zufällt, und das ist ein Netzwerkausfall und kein
-beendeter Stream. Genau diese Zeile überlebte zunächst eine Mutation: Der
-Stream-Fehler war ja schon draussen, und `OnStreamError` feuerte auch ohne sie.
-Jetzt prüft der Test den Rahmen auf dem Draht.
-
-**Ein Test hat sein Gegenteil ersetzt, und das ist kein Widerspruch.**
-`TheConnectionSurvivesAReportedFailure` hielt in D18 fest, dass der Stream
-weiterläuft — richtig für die damalige Entscheidung. An seiner Stelle steht jetzt
-`TheStreamEndsWithInternalServerError`. Was von ihm bleibt, ist die zweite Hälfte
-seiner Aussage: Der gescheiterte Frame darf auch nicht auf einem Umweg doch noch
-zugestellt werden; die steht nun als eigener Test.
-
-**Ein zweiter Test brauchte eine Korrektur, und der Grund ist lehrreich.**
-`ASecondServer_IsWatchedThroughWatched` wartete auf die Meldung zu einem
-*bestimmten* Frame. Seit der Stream nach dem ersten Fehlschlag endet, hängt es am
-Zufall, welcher Frame das ist — die eigene Nachricht oder ein `<a/>` des Stream
-Managements. Der Test prüfte damit die Reihenfolge der Frames statt die
-Verdrahtung und wartet jetzt auf *irgendeine* Meldung; von einem anderen Server
-kann sie nicht kommen. **Ein Test, der genauer hinsieht als nötig, prüft
-irgendwann etwas anderes als gemeint.**
-
-Sechs Mutationen, alle erschlagen — eine erst im zweiten Anlauf (das `<close/>`).
-
-Nicht behoben und vermerkt: `SendStreamErrorAsync` schickt weiterhin nur den
-Fehler, ohne zu schliessen. Abschnitt 4.9.1.1 verlangt beides, und die
-Unterscheidung zu `FailStreamAsync` ist eine Bequemlichkeit für die Aufrufer in
-`S2SStream` und in den Tests. *(Der Halbsatz über `S2SStream` war falsch — siehe
-D23.)*
-
-### D23. Eine Wahl, die es nicht gibt ✅
-
-Der Punkt aus D22: `SendStreamErrorAsync` schickte den Stream-Fehler, ohne den
-Stream zu schliessen. Abschnitt 4.9.1.1 verlangt beides, und zwar in einem Zug.
-
-**Erst die Bestandsaufnahme, und sie hat meinen eigenen Vermerk widerlegt.** In
-D22 hatte ich geschrieben, die Trennung sei „eine Bequemlichkeit für die Aufrufer
-in `S2SStream` und in den Tests". `S2SStream` hat eine **eigene** Methode
-gleichen Namens und ruft die der Sitzung nie — und die eigene schliesst den Stream
-seit immer (`MarkClosed`). Die Sitzungs-Variante war die einzige Ausnahme im
-Haus, und ausgerechnet sie trug denselben Namen wie die richtige Fassung daneben.
-Das war die eigentliche Falle.
-
-Übrig blieben zwei Aufrufer, beide Tests — und beide holten das Schliessen
-unmittelbar danach mit `session.Kill()` von Hand nach. **Es gab also keinen
-einzigen Aufrufer, der die Trennung brauchte.** Eine Wahl, die niemand trifft,
-sollte die Schnittstelle nicht anbieten.
-
-Deshalb keine dritte Methode, sondern eine weniger: `SendStreamErrorAsync` tut
-jetzt beides, und `FailStreamAsync` aus D22 ist wieder weg. Damit heissen die
-gleichnamigen Methoden in `XMPPSession` und `S2SStream` nicht nur gleich, sie tun
-auch dasselbe.
-
-Die zwei Tests sind um ihr `Kill()` leichter — und wahrer: Sie stellen jetzt einen
-regelkonformen Server nach und nicht einen, der einen Fehler schickt und danach
-getrennt den Socket wegzieht.
-
-Drei Mutationen, alle erschlagen. Die aufschlussreiche ist die erste: Dass das
-Schliessen wirklich geschieht, hält kein eigener Test, sondern
-`RecoverableStreamError_IsReportedButAllowsReconnect` — ein Reconnect setzt
-voraus, dass die Verbindung weg ist. Der Test stand lange da und hat seinen
-zweiten Zweck erst jetzt bekommen.
-
-**Die Lehre steht schon in D19 und wiederholt sich hier wörtlich:** Eine Liste,
-die man aus dem Kopf schreibt, ist keine Bestandsaufnahme. Damals waren es neun
-Fixtures statt elf, diesmal ein Aufrufer, den es nicht gab. Beide Male hätte ein
-`grep` gereicht, und beide Male stand die falsche Angabe erst einmal im
-Repository.
-
-### D24. Die Probe gehört dem Server ✅ — und zwei Tests, die nichts prüften
-
-Der letzte Punkt an Abschnitt 8.5: Presence von einem anderen Server. Für
-verfügbare und unverfügbare Presence tut `RouteToAsync` bereits das Richtige — an
-einen Bare-JID alle Resourcen (8.5.2.1.2), an eine Full-JID die passende
-(8.5.3.1), sonst still ins Leere (8.5.1 und 8.5.3.2.2). Der Fehler steckte
-woanders: **bei der Probe.**
-
-Alle vier Abschnitte verweisen für `type='probe'` auf Abschnitt 4.3: Der Server
-beantwortet sie selbst. Von der Gegenstelle kommend ging sie ins Routing und
-landete beim Client — der bekam eine Stanza zu sehen, die nicht für ihn bestimmt
-ist, und die fragende Gegenstelle bekam nie eine Antwort. Für einen hiesigen
-Client wurde die Probe seit jeher beantwortet; dieselbe Asymmetrie wie bei
-Nachricht (D15) und IQ (D16), und die letzte ihrer Art.
-
-**Und die Gegenrichtung war ebenso kaputt, was ich vorher nicht wusste.** Der
-lokale Probe-Zweig griff für *jedes* Ziel, fand für eine fremde Adresse kein
-Konto und kehrte zurück — eine Probe an einen Kontakt auf einem anderen Server
-verliess diesen Server also nie. Abschnitt 4.3.1 lässt den Server des Nutzers die
-Probe hinausschicken; jetzt tut er das.
-
-Aufgefallen ist das nur, weil ein Test scheiterte, den ich für richtig hielt.
-
-**Zwei Tests haben bestanden, ohne zu prüfen, was ihr Name sagt — und beide aus
-demselben Grund.** Mein neuer Test wartete darauf, dass Alice Bobs Zustand sieht,
-nachdem sie eine Probe geschickt hat. Er bestand auch, bevor es die Umsetzung
-gab. Der Grund ist ein Wettlauf: Bobs *erste* Presence wird verarbeitet, während
-der Test den Roster-Eintrag setzt. Trifft sie ihn schon an, geht sie über die
-gewöhnliche Verteilung an Alice — und der Test sieht Bobs Zustand, ohne dass je
-eine Probe beantwortet wurde. Er wartet jetzt erst darauf, dass Bobs erste
-Presence verarbeitet ist, und setzt den Roster danach.
-
-Derselbe Wettlauf steckte im **vorhandenen** lokalen Probe-Test aus S-Zeiten:
-`atBobs.Clear()` räumt weg, was die Anmeldung mitbringt — kommt es verspätet an,
-zählt es als Antwort auf die Probe. Auch er bestünde bei einem Server, der Proben
-gar nicht beantwortet. Er wartet jetzt erst auf die Zustellung der Anmeldung und
-leert danach.
-
-Sechs Mutationen, alle erschlagen — zwei davon erst nach diesen beiden
-Testkorrekturen.
-
-**Und eine Selbstkorrektur, die hierher gehört:** Auf dem Weg dahin habe ich das
-Mutationsskript verdächtigt, weil dieselbe Mutation einmal als erschlagen und
-einmal als überlebend gemeldet wurde, und ihm einen Zeitstempel-Fehler
-unterstellt. Das war falsch — die Schwankung kam aus dem Wettlauf im Test. Ein
-Werkzeug, das zweimal verschieden antwortet, ist ein naheliegender Verdächtiger;
-naheliegend ist nicht dasselbe wie schuldig, und die Messung hat es geklärt, nicht
-die Vermutung.
-
-Nicht behoben und vermerkt: Eine Probe an ein unbekanntes Konto bleibt
-unbeantwortet. Abschnitt 8.5.1 stellt `<unsubscribed/>` und Schweigen frei;
-Schweigen verrät nicht, ob es das Konto gibt, und dabei bleibt es.
-
-### D25. Weder Frage noch Antwort ✅ — Abschnitt 8.2.3, Regel 2
-
-Der Punkt aus D16: Eine IQ-Stanza ohne `type` oder mit einem anderen Wert als
-`get`, `set`, `result`, `error` bekommt `<bad-request/>`. Der eigentliche Inhalt
-der Regel steckt in ihrem Nebensatz — sie verpflichtet „the recipient **or an
-intermediate router**". Bei jeder anderen Stanza darf ein Server durchreichen und
-den Empfänger urteilen lassen; hier nicht. Der Grund liegt in der Natur von IQ:
-Ein Frage-Antwort-Paar hängt an `type` und `id`, und was keinen der vier Werte
-trägt, ist weder Frage noch Antwort. Reicht jeder es weiter, wandert es durch das
-Netz, und der Absender erfährt nie, was daraus wurde.
-
-**Der Bestand war in drei Rollen verschieden falsch, und nur eine davon war
-Schweigen.** An die Serveradresse gerichtet fiel die Stanza hinten aus
-`HandleIqAsync` heraus. An eine fremde Domain ging sie hinaus — die Rolle des
-Routers, ungeprüft. Und an einen hiesigen Empfänger wurde sie **zugestellt**:
-`DeliverIqLocallyAsync` fragte nur, ob der Typ `result` oder `error` ist, und
-behandelte alles übrige als Anfrage. Der Empfänger bekam damit etwas vorgelegt,
-worauf er nach Regel 3 antworten müsste und worauf keine Antwort passt. Das war
-der schlimmste der drei Fälle und zugleich der, der am ordentlichsten aussah.
-
-Die Prüfung steht deshalb an beiden Eingängen ganz vorn — in `HandleIqAsync` vor
-der Zustellweiche, in `AcceptFromRemoteAsync` vor allen Zustellzweigen. Ein Test
-hält genau diese Stelle fest: `AnIqToTheServerItselfWithoutAType_IsRefused`
-bestünde nicht, wenn die Prüfung im Zustellweg sässe, denn was an den Server
-selbst geht, kommt dort nie vorbei.
-
-**Und der Client hat dieselbe Regel in der anderen Rolle.** Er ist „the
-recipient", und er tat gar nichts: Die Zuordnung zu einer offenen Frage nimmt nur
-`result` und `error`, der Fallback am Ende fragt nach `get` oder `set` — ein
-fünfter Wert fiel stillschweigend hindurch. Gegen diesen Server käme so etwas nie
-bei ihm an; gegen eine fremde Implementierung ohne Regel 2 sehr wohl.
-
-Die vier Werte stehen deshalb **einmal** im Haus, in `Jabber/Common/IqTypes.cs`.
-Zwei Aufzählungen könnten auseinanderlaufen, und die Wirkung wäre still: Ein
-Wert, den die eine Seite kennt und die andere nicht, käme je nach Weg durch oder
-nicht.
-
-**Zwei Entscheidungen, die keine Förmlichkeiten sind.**
-
-Die Ablehnung geht auch **ohne `id`** hinaus und trägt dann keine. Das ist
-bewusst anders als bei `RespondUnhandledIq`, das ohne `id` schweigt, und der
-Unterschied liegt im Inhalt: Ein `<service-unavailable/>` beantwortet eine Frage,
-und eine Antwort ohne `id` lässt sich keiner zuordnen — sie nützt niemandem.
-`<bad-request/>` sagt etwas über die Stanza selbst, nämlich dass ihre Form nicht
-stimmt, und das kann der Absender auch ohne Zuordnung brauchen; zumal die
-fehlende `id` nach Regel 1 selbst dazugehört. Ein leeres `id=''` wäre der
-schlechteste Ausgang — es gehört zu keiner Frage und sähe aus, als gehörte es zu
-einer.
-
-Absender ist **dieser Server**, nicht der gemeinte Empfänger.
-`<service-unavailable/>` antwortet im Namen des Empfängers, weil der Server dort
-für ihn geantwortet hat; hier hat er die Stanza gar nicht erst angenommen. Ein
-Empfänger als Absender behauptete, jemand habe hineingesehen.
-
-**Ein Kommentar wurde durch die Änderung falsch, und das ist die D21-Lehre in
-ihrer harmloseren Form.** In `DeliverIqLocallyAsync` stand „oder ein unbekannter
-Wert, den dieser Weg wie eine Anfrage behandelt, weil eine Antwort mehr taugt als
-Schweigen". Das war richtig, solange es keine Prüfung davor gab, und mit ihr
-beschreibt es einen Fall, der dort nicht mehr ankommt. Anders als in D21 war die
-Begründung nicht schon beim Schreiben falsch — sie ist es geworden. Ein Kommentar
-altert mit dem Code darunter, und beim Ändern gehört er mitgelesen.
-
-Siebzehn Mutationen — je eine für jeden der vier Werte, die Prüfung an jedem der
-drei Eingänge, die Antwort selbst, die beiden Attribute und die Fehlerart auf
-beiden Seiten.
-
-**Drei Nachträge aus dem Werkzeug, alle zum selben Thema — eine Messung, die
-nicht misst, was sie zu messen vorgibt.**
-
-Der Rücksetz-Check des Mutationsskripts prüfte gegen `HEAD`. Für eine **neue,
-noch nicht getrackte** Datei zeigt `git diff` nie etwas, und die Prüfung meldete
-deshalb auch nach einer sauberen Rücksetzung „PRUEFEN" — ausgerechnet bei der
-einen Datei, die dieser Commit neu anlegt. Er vergleicht jetzt den Streuwert
-gegen die Sicherung, und das ist die Frage, um die es geht: Steht wieder das da,
-was vor der Mutation dastand?
-
-Und die zweite Mutation lief 35 Minuten und musste abgebrochen werden. Fällt
-`set` aus der Liste, bleibt das Resource Binding unbeantwortet — und
-`ConnectAsync` wartet darauf **ohne eigene Frist**. Ein hängender Lauf ist kein
-Ergebnis: Er sagt nicht, ob die Mutation überlebt hat, sondern nur, dass niemand
-mehr antwortet. Die betroffenen Läufe bekommen jetzt `--blame-hang`, das daraus
-einen Fehlschlag macht. Dass ein Client ohne Frist auf das Binding wartet, steht
-unter „Später" — hier fiel es nur auf, weil eine Mutation den Fall erzeugt hat,
-den ein Test nie erzeugt.
-
-Und der dritte, der schlimmste: Nachdem ich den hängenden Lauf abgeschossen
-hatte, blieb ein `testhost` zurück und **sperrte die Test-DLL**. Der nächste
-`dotnet test` scheiterte damit nicht im Lauf, sondern schon im *Bau* (MSB3027) —
-und das Skript filterte die Ausgabe auf „Fehler:" und „Bestanden!", fand nichts
-und schrieb nichts. Sechs Mutationen sahen dadurch aus wie erledigt und waren
-gar nicht gemessen. Aufgefallen ist es nur, weil eine Zeile ohne Urteil neben
-Zeilen mit Urteil stand.
-
-Zwei Änderungen daraus, und die erste ist die wichtigere: Findet das Skript keine
-Zusammenfassung, gibt es die Rohausgabe aus, statt zu schweigen. **Ein Lauf ohne
-Urteil darf nicht aussehen wie ein bestandener.** Und vor jedem Lauf räumt es
-übriggebliebene `testhost`-Prozesse weg.
-
-Die sechs sind wiederholt worden. Alle siebzehn Mutationen sind erschlagen.
-
-**Und der vierte Nachtrag ist der lehrreichste, weil er kein Werkzeugfehler war,
-sondern meiner.** Eine Mutation entfernt `result` aus der Liste. Ich habe ihren
-Lauf auf **einen einzelnen Test** verengt — aus Vorsicht gegen einen Hänger wie
-bei `set`. Ergebnis: bestanden, 21 Sekunden. Der Mutant hatte überlebt.
-
-Nur stimmte die Vorsicht nicht. `set` hängt, weil der **Server** das Binding
-ablehnt; `result` betrifft beim Client nur den Empfangspfad, und der
-Verbindungsaufbau läuft daran vorbei — was die 21 Sekunden selbst bewiesen
-haben. Die Verengung war also nicht nur unnötig, sie hatte genau den Test
-entfernt, der die Mutation erschlägt: `TheFourKnownTypes_ReachTheResource` mit
-dem Wert `result`. Mit dem vollen Filter fällt sie mit fünf Fehlern.
-
-Damit hat ein *überlebender* Mutant eine fünfte Bedeutung bekommen, die in D14
-bis D24 noch nicht vorkam: **Der Lauf hat den Test nicht ausgeführt, der ihn
-erschlägt.** Die vier bekannten Bedeutungen — fehlende Prüfung, überflüssiger
-Code, ein Test mit einer Reihenfolge, die nicht vorkommt, eine falsche Begründung
-— setzen alle voraus, dass gemessen wurde, was gemessen werden sollte. Ein
-verengter Filter verletzt genau diese Voraussetzung, und er tut es lautlos: Der
-Lauf meldet „bestanden", nicht „nicht geprüft".
-
-Der Preis für die Ehrlichkeit war hier hoch: Der volle Lauf brauchte 18 Minuten,
-weil mit abgelehntem `result` fast jeder Test in seine Wartezeit läuft. Er war
-ihn wert. Eine Abkürzung, die die Antwort ändert, ist keine Abkürzung.
-
-### D26. Die Weiche riet ✅ — ein Name ist kein Präfix
-
-Der Punkt aus D25, und er war grösser als sein Anlass. Die Weiche für eingehende
-Rahmen verglich Präfixe: `StartsWith("<iq")` trifft auch `<iqbogus/>`,
-`StartsWith("<presence")` auch `<presence-probe/>`, `StartsWith("<open")` auch
-`<opencast/>`.
-
-**Aufgefallen ist es am harmlosesten der drei Fälle.** In D25 fing der Server an,
-einer IQ-Stanza mit unbrauchbarem Typ zu antworten — und antwortete damit auch
-einem `<iqbogus/>`, also einem Element, das gar keine IQ-Stanza ist. Die
-Nachlässigkeit war vorher genauso da, nur tat sie nichts Sichtbares. Eine
-Prüfung, die anfängt zu antworten, macht die Weiche davor zum ersten Mal
-beobachtbar.
-
-Der eigentliche Schaden lag woanders: **Ein `<presence-probe/>` lief in die
-Presence-Behandlung und galt dort als Anwesenheit.** Die liest ein fehlendes
-`type` als „ist da" — ein Mensch wurde seinen Kontakten als online gemeldet, weil
-sein Element zufällig mit denselben acht Zeichen beginnt. Eine Aussage über einen
-Menschen, hergeleitet aus einem Zeichenkettenvergleich. Und ein `<opencast/>`
-zählte als Stream-Eröffnung.
-
-**Das Wissen war im Haus und lag an der falschen Stelle.**
-`StreamManagementManager.IsCountableStanza` liest den Elementnamen seit jeher
-vollständig, samt Behandlung des Namensraum-Präfixes — sie beantwortet nur eine
-andere Frage (zählt der Rahmen für XEP-0198?) und stand deshalb der Weiche nie
-zur Verfügung. Der Leser steht jetzt als `StanzaElement` in `Jabber/Common/`, und
-`IsCountableStanza` ruft ihn auf.
-
-Eine Stelle bleibt bewusst eigenständig: `XMPPSession.IsStanza`. Dort steht seit
-langem der Vermerk, die Serverseite sei **absichtlich** unabhängig vom Client
-implementiert — benutzten beide dieselbe Hilfsfunktion, prüften die Tests, die
-die zwei Zähler gegeneinander halten, beide Seiten mit derselben Logik, und ein
-gemeinsamer Denkfehler bliebe unentdeckt. Der Vermerk trägt, der Präfixvergleich
-trug nicht: `<iqbogus/>` zählte auf der Serverseite mit und beim Client nicht.
-Ausgerechnet die zwei Zähler, die gleich laufen müssen, wären auseinandergelaufen.
-Sie liest den Namen jetzt über einen regulären Ausdruck — ein anderer Weg als
-drüben, dieselbe Antwort — und ein neuer Test hält beide auf derselben Antwort,
-ohne sie auf denselben Weg zu zwingen.
-
-**Und was die Weiche nicht kennt, beendet jetzt den Stream** — RFC 6120,
-Abschnitt 4.9.3.24: „a first-level child of the stream that is not supported by
-the server". Bisher fiel so ein Rahmen stillschweigend hinten heraus, und das war
-die bequeme Antwort und die schlechtere: Wer etwas schickt, das dieser Server
-nicht kennt, wartet sonst auf eine Antwort, die nie kommt.
-
-**Genau diese Strenge hat einen Test umgebracht, und der Fall ist der
-interessanteste des Punktes.** `SendLockTests` schickt 200 Rahmen mit je 40 kB,
-um den Sende-Lock des Clients und die Unversehrtheit der Rahmen zu messen. Als
-Nutzlast diente ein erfundenes `<p/>` — **weil** es unbekannt ist und der Server
-nichts damit tut. Der Gedanke war richtig: Der Rahmen soll folgenlos sein, damit
-der Test misst, was er messen will. Der Weg dorthin trug nicht mehr, denn
-„unbekannt" ist seit diesem Punkt nicht mehr folgenlos: Der erste der 200 Rahmen
-riss die Verbindung für die übrigen 199.
-
-Folgenlos ist jetzt anders erreicht — ein `iq` vom Typ `result` ohne Empfänger,
-also eine Antwort an den Server auf nichts. Regel 4 aus Abschnitt 8.2.3 verbietet,
-darauf zu antworten; sie wird angenommen, aufgezeichnet und fallen gelassen.
-Dieselbe Folgenlosigkeit, mit einem Element, das es im Protokoll gibt.
-
-Beim Umbau kam noch etwas heraus, das der alte Rahmen verdeckt hatte: Der Client
-setzt auf jede **Stanza** den Namensraum `jabber:client` (RFC 7395, Abschnitt
-3.3.3). Das `<p/>` bekam ihn nie, weil es keine Stanza ist — der neue Rahmen
-kommt also anders an, als er abgeschickt wurde. Der Test legt die Reihenfolge der
-Attribute deshalb nicht mehr fest, wohl aber den Rahmen als Ganzes, und das ist
-genau seine Frage.
-
-**Nicht geändert wurde der S2S-Stream.** Er bekommt dieselbe Lesung des
-Elementnamens, aber nicht die neue Endgültigkeit. Der Unterschied ist keine
-Bequemlichkeit, sondern eine Frage der Kenntnis: Auf dem Client-Stream sprechen
-beide Seiten dasselbe, dort steht eine fremde Implementierung gegenüber, und was
-Prosody oder ejabberd sonst noch schicken, ist **nicht erhoben**. Einen Stream
-abzubrechen, weil man ein Element nicht kennt, wäre gegenüber ihnen eine Wette.
-Das steht unter „Später" — zu messen, nicht zu vermuten.
-
-Nebenbei fällt dort eine Verzweigung weg: `<stream:features/>` und `<features/>`
-waren zwei Zweige und sind ein Element; welches Präfix an den Streams-Namensraum
-gebunden ist, steht dem Server frei (Abschnitt 4.8.1).
-
-**Und noch einmal das Thema von D25, diesmal am gröbsten.** Eine Mutation hing —
-ohne `iq` gibt es kein Resource Binding, und der Client wartet ohne eigene Frist
-(derselbe Punkt wie in D25, zum zweiten Mal). Ich habe die `testhost`-Prozesse
-abgeschossen. Das beendet den laufenden `dotnet test`, **nicht das Skript
-darüber**: Der alte Durchgang lief mit der nächsten Mutation weiter, während der
-neue schon mutierte. Zwei Skripte schrieben dieselben Dateien, und die Zahlen
-gingen sichtbar auseinander — 14 Tests hier, 20 dort, für dieselbe Frage.
-
-Der Hash-Vergleich gegen die Sicherung hat danach eine Datei gefunden, die noch
-eine Mutation trug. **Genau dafür ist er da**, und er war es, der den Baum vor
-einem Commit mit angewandter Mutation bewahrt hat — nicht meine Aufmerksamkeit.
-
-Die Lehre ist nicht „besser aufpassen", sondern: Wer einen Prozess abschiesst,
-muss wissen, wer sein Elternteil ist. Ein Kindprozess zu beenden sieht aus wie
-ein Abbruch und ist nur eine Unterbrechung — der Auftrag darüber läuft weiter,
-und ab da misst niemand mehr, was er zu messen glaubt.
-
-Sechzehn Mutationen, alle erschlagen — zehn am Leser, sechs an der Weiche und an
-den beiden Zählern. Die zehn am Leser laufen ohne Netz und brauchen zusammen
-weniger als eine Minute; die Weiche kostet ihre Zeit, weil sie einen Server
-verlangt. Suite: 685 Tests, 0 Fehler, 7 übersprungen, gegen Prosody und
-ejabberd.
-
-### D27. Erst messen, dann streng werden ✅
-
-Der Punkt aus D26, und er war ausdrücklich als **Messung** vermerkt und nicht als
-Änderung: Der S2S-Stream liess ein unbekanntes Element liegen, während die
-Client-Verbindung es seit D26 mit `<unsupported-stanza-type/>` abweist. Der Grund
-für das Zögern stand dabei — auf dem Client-Stream sprechen beide Seiten dasselbe,
-auf dem S2S-Stream steht eine fremde Implementierung gegenüber, und was Prosody
-und ejabberd dort sonst noch schicken, war nicht erhoben. Einen Stream
-abzubrechen, weil man ein Element nicht kennt, wäre eine Wette gewesen.
-
-**Also zuerst der Fühler.** An die Stelle, an der ein Rahmen durch alle Zweige
-fällt, kam eine befristete Aufzeichnung — jeder unbekannte Rahmen mit Richtung
-und Domain in eine Datei. Dann der volle Lauf gegen beide Gegenstellen.
-
-Ergebnis: **kein einziger Rahmen.** 685 Tests, Dialback, SASL-EXTERNAL, Bidi,
-Stream Management, TCP und WebSocket — nichts fiel durch.
-
-**Zwei Dinge haben diese Messung erst brauchbar gemacht, und beide wären leicht
-zu übergehen gewesen.**
-
-Der erste Versuch lief nur gegen Prosody: ejabberd war zwischendurch
-weggefallen, und 15 statt 7 übersprungene Tests haben es verraten. Ohne die
-bekannte Grundlinie hätte „nichts gefunden" wie ein Ergebnis ausgesehen und wäre
-die halbe Messung gewesen. Ebenso die Richtung: Die eingehenden Tests laufen nur
-**innerhalb** von WSL, und genau dort wählt der fremde Server an und spricht
-zuerst. Sie sind einzeln nachgeholt worden.
-
-Und dann die Frage, die den Rest wertlos gemacht hätte: **Schlägt der Fühler
-überhaupt an?** Über die gesamte Sammlung hat er kein einziges Mal ausgelöst —
-das ist genau das Bild, das ein kaputter Fühler auch abgibt. Belegt hat es erst
-der neue Test: Er speist drei unbekannte Elemente ein, und der Fühler hat alle
-drei aufgezeichnet. Ein Nachweis über eine Abwesenheit ist nur so viel wert wie
-der Nachweis, dass die Anwesenheit sichtbar gewesen wäre.
-
-Damit ist die Strenge belegt statt vermutet, und der S2S-Stream hält jetzt
-dieselbe Regel wie die Client-Verbindung. Der volle Lauf gegen beide
-Gegenstellen ist zugleich die stehende Gegenprobe: Schickt eine von ihnen doch
-etwas Unbekanntes, stirbt der Stream und die Föderationstests fallen.
-
-**Eine Zeile aus D26 war dabei zu weit gegriffen.** Dort beendete *jeder* Rahmen
-den Stream, den die Weiche nicht zuordnen konnte — auch ein leerer. Abschnitt
-4.9.3.24 spricht aber von „a first-level child of the stream that is not
-supported", und ein leerer Rahmen ist kein Kind, das nicht unterstützt wird; er
-ist kein Kind. Über TCP fällt das nicht auf, weil `SkipProlog` im Zerleger
-Leerraum, XML-Deklarationen und Kommentare ohnehin schluckt — und Leerraum als
-Keepalive ist auf einem Stream ausdrücklich erlaubt (Abschnitt 4.6.1). Über
-WebSocket wird jeder Frame durchgereicht, und dort hätte ein leerer Frame die
-Verbindung gekostet. Beide Wege unterscheiden jetzt.
-
-Fünf Mutationen, alle erschlagen. Drei davon brachen zuerst ab, und der Abbruch
-war eine Fundstelle: `S2SStream.cs` hat **LF**-Zeilenenden, das Repository ist
-gemischt, und ein mehrzeiliges Suchmuster passte deshalb nur zufällig. Das
-Mutationsskript versucht jetzt beide Varianten — und behält beim Zurückschreiben
-die vorgefundene Kodierung, statt einer LF-Datei stillschweigend ein BOM zu
-verpassen. Immerhin war dieser Fehlschlag laut; die drei stillen aus D25 waren
-teurer.
+### D20. A promise that ends ✅ — section 4.6.3, rule 2
+
+The open point from D17: does a resource become unavailable, then the sign-off
+goes to the recipients of its directed presence as well.
+
+The rule closes a gap that nobody notices otherwise. Whoever shows a stranger
+their presence does **not** stand in that one's roster because of it — and without
+this way would never get an end. The stranger would carry the resource as present
+for ever. And that is the rule, not the exception: a conversation with somebody
+who does not stand in the roster begins under section 5.1 with exactly that. Since
+D17 who may ask this resource anything at all hangs on the same list as well
+(section 8.5.3.1) — a promise that never ends would thereby be doubly unpleasant.
+
+**Two ways lead into unavailability, and the second is the more frequent one.**
+The client's own sign-off, and the break of the connection, at which the server
+creates it in their name (section 4.5.2). A client mostly disappears without
+taking its leave; did the sign-off go only to the roster, then it would be exactly
+then that the stranger stayed behind.
+
+**The restriction to the roster is no formality.** Whoever stands in the roster
+with `from` or `both` gets the sign-off over the ordinary distribution already.
+The RFC narrows rule 2 to entities that do *not* stand in the roster that way for
+the same reason — came it twice, a client that counts presence instead of
+replacing it would get confused.
+
+**The addition in brackets coincides with the list.** "if the user has not yet
+sent directed unavailable presence to that entity": a directed sign-off takes the
+recipient out of the list (section 4.6.1), and what does not stand in it is not
+notified. Two prescriptions, one implementation — and a test that holds both at
+once.
+
+**Giving out and emptying in one call**, `TakeDirectedPresenceTargets`. That is
+the core of the design: section 4.6.1 demands the emptying at the signing off,
+rule 2 demands sending the sign-off to exactly these recipients beforehand. Were
+they two calls, the second could be forgotten — this way nobody gets at the
+recipients without emptying the list, and nobody empties it without holding it in
+hand.
+
+With that a negligence from D17 is fixed as well: the emptying stood there in
+`RecordPresence`, that is, **before** the place that needs the list — and the way
+over the break of the connection did not empty it at all. A stranger was allowed to
+go on asking a broken-off resource.
+
+Six mutations, all struck down — one only at the second attempt, and it is the
+instructive one: **to fetch the list at *every* presence instead of only at the
+sign-off.** No test survived that not, because none sent an ordinary presence after
+the directed one — the order that is the rule in operation. A client reports a new
+presence at every change to "away"; whoever empties the list in doing so takes both
+from the other side in the middle of the conversation, the sign-off at the end and
+the right to ask.
+
+The lesson to that: **my tests let the client do exactly one thing per section, and
+the mutation lived in the gap between the sections.** A test that checks only the
+order it has built itself does not check the one that occurs.
+
+A fixture of its own, `DirectedPresenceTests`. At first the tests stood in
+`IqDeliveryRulesTests`, because the list had arisen there — they check however the
+delivery of presence and not the one of IQ, and a test belongs where what it is
+about is.
+
+### D21. Whoever goes loses their place ✅ — and a reason that was wrong
+
+The last open point at section 4.6: the SHOULD part of 4.6.1. Whoever sends the
+user a sign-off disappears from that one's list of directed presence. With that the
+section is complete.
+
+**The two halves of the sentence look similar and mean the opposite.** The MUST
+concerns our *own* revocation — "any entity **to which** the user sends directed
+unavailable presence" —, the SHOULD the counter-direction: "any entity that
+**sends** unavailable presence **to** the user". The other one goes, and with that
+the temporary relationship is at an end as well. It becomes visible over section
+8.5.3.1: without this way a returner would keep their right to ask although nobody
+has shown them anything any more.
+
+Looked at is the **receiving** and not the sending, for exactly so the rule is
+formulated. The call therefore stands in `RouteToAsync` — the one switch through
+which every stanza to a local address runs — and additionally in the two broadcast
+loops that send directly to the session.
+
+**And here lay the instructive error, this time not in the code but in my
+reasoning.** Two mutations survived: the two broadcast loops. I had written into
+the code that the forgetting is without a visible consequence for them — "whoever
+stands in the roster keeps their right to ask over the roster". That was wrong,
+because I had confused the two roster halves:
+
+- That Alice's sign-off reaches Bob over the ordinary distribution is decided by
+  **Alice's** roster: Bob stands there with `from`.
+- Whether Alice may ask Bob anything is decided by **Bob's** roster.
+
+At a one-sided roster — Alice's half filled, Bob's empty — the sign-off therefore
+arrives while the right to ask hangs on the list alone. The way is very well
+observable. Two new tests, both mutations struck down.
+
+The lesson is more unpleasant than the usual ones: **a plausible-sounding reason
+for "not observable" deserves the same check as the code.** Had I left it standing,
+two named exceptions would have landed in the list — with an argument that did not
+hold even at the writing down. The mutation pass refuted not the code but the
+comment.
+
+Seven mutations, all struck down.
+
+### D22. The stream ends ✅ — a decision that has been taken differently
+
+D18 made the failure at the processing of a frame visible and noted the going on
+expressly as a **decision**, not as a gap. The decision has now been taken
+differently: the stream ends with `<internal-server-error/>`.
+
+The reason is the state. What the frame was to change is half changed, and nobody
+knows how far — the client reckons with a state the server no longer has. Of all
+errors the one that most probably leaves state behind stayed the only one without
+consequences. Section 4.9.1.1 leaves no choice afterwards either: "Stream-level
+errors are unrecoverable."
+
+And the client loses nothing in doing so: `internal-server-error` counts as
+repeatable, it builds the stream anew and begins with a state both sides are in
+agreement about. That is more than a stream running on with a half-processed stanza
+gives it.
+
+**Three steps, and the middle one is the one one forgets over WebSocket.** Stream
+error, then `<close/>` (RFC 7395, section 3.6 — it stands for the
+`</stream:stream>`), then the connection. Without the `<close/>` the client sees a
+socket that falls shut without a farewell, and that is a network failure and no
+ended stream. Exactly this line survived a mutation at first: the stream error was
+out already, and `OnStreamError` fired without it as well. Now the test checks the
+frame on the wire.
+
+**A test has replaced its opposite, and that is no contradiction.**
+`TheConnectionSurvivesAReportedFailure` held fast in D18 that the stream runs on —
+right for the decision of back then. In its place there now stands
+`TheStreamEndsWithInternalServerError`. What remains of it is the second half of
+its statement: the failed frame may not be delivered on a detour after all; that
+now stands as a test of its own.
+
+**A second test needed a correction, and the reason is instructive.**
+`ASecondServer_IsWatchedThroughWatched` waited for the report about a *particular*
+frame. Since the stream ends after the first failure, it hangs on chance which
+frame that is — our own message or an `<a/>` of the stream management. The test
+thereby checked the order of the frames instead of the wiring and now waits for
+*any* report; from another server it cannot come. **A test that looks more closely
+than necessary checks something other than meant at some point.**
+
+Six mutations, all struck down — one only at the second attempt (the `<close/>`).
+
+Not fixed and noted: `SendStreamErrorAsync` still sends only the error, without
+closing. Section 4.9.1.1 demands both, and the distinction to `FailStreamAsync` is
+a convenience for the callers in `S2SStream` and in the tests. *(The half-sentence
+about `S2SStream` was wrong — see D23.)*
+
+### D23. A choice that does not exist ✅
+
+The point from D22: `SendStreamErrorAsync` sent the stream error without closing
+the stream. Section 4.9.1.1 demands both, and in one go at that.
+
+**First the stocktaking, and it refuted my own note.** In D22 I had written that
+the separation is "a convenience for the callers in `S2SStream` and in the tests".
+`S2SStream` has a method of **its own** with the same name and never calls the one
+of the session — and its own has always closed the stream (`MarkClosed`). The
+session variant was the only exception in the house, and of all things it carried
+the same name as the right version beside it. That was the actual trap.
+
+Left over were two callers, both tests — and both made up for the closing directly
+afterwards with `session.Kill()` by hand. **There was therefore not a single caller
+that needed the separation.** A choice nobody takes should not be offered by the
+interface.
+
+This is why no third method, but one fewer: `SendStreamErrorAsync` now does both,
+and `FailStreamAsync` from D22 is gone again. With that the methods of the same
+name in `XMPPSession` and `S2SStream` are not only called the same, they do the
+same as well.
+
+The two tests are lighter by their `Kill()` — and truer: they now reproduce a
+rule-conformant server and not one that sends an error and afterwards pulls the
+socket away separately.
+
+Three mutations, all struck down. The revealing one is the first: that the closing
+really happens is held by no test of its own, but by
+`RecoverableStreamError_IsReportedButAllowsReconnect` — a reconnect presupposes
+that the connection is gone. The test stood there for a long time and has got its
+second purpose only now.
+
+**The lesson stands in D19 already and repeats itself here word for word:** a list
+one writes out of one's head is no stocktaking. Back then it was nine fixtures
+instead of eleven, this time a caller that did not exist. Both times a `grep` would
+have sufficed, and both times the wrong statement stood in the repository first.
+
+### D24. The probe belongs to the server ✅ — and two tests that checked nothing
+
+The last point at section 8.5: presence from another server. For available and
+unavailable presence `RouteToAsync` already does the right thing — to a bare JID
+all resources (8.5.2.1.2), to a full JID the matching one (8.5.3.1), otherwise
+silently into the void (8.5.1 and 8.5.3.2.2). The error sat elsewhere: **at the
+probe.**
+
+All four sections refer for `type='probe'` to section 4.3: the server answers it
+itself. Coming from the far side it went into the routing and landed at the client
+— that one got to see a stanza that is not meant for it, and the asking far side
+never got an answer. For a local client the probe has always been answered; the
+same asymmetry as at message (D15) and IQ (D16), and the last of its kind.
+
+**And the counter-direction was just as broken, which I did not know beforehand.**
+The local probe branch took hold for *every* target, found no account for a foreign
+address and returned — a probe to a contact on another server therefore never left
+this server. Section 4.3.1 lets the server of the user send the probe out; now it
+does that.
+
+That came out only because a test failed that I held to be right.
+
+**Two tests passed without checking what their name says — and both for the same
+reason.** My new test waited for Alice to see Bob's state after she has sent a
+probe. It passed even before the implementation existed. The reason is a race: Bob's
+*first* presence is processed while the test sets the roster entry. Does it already
+find it there, then it goes to Alice over the ordinary distribution — and the test
+sees Bob's state without a probe ever having been answered. It now waits first for
+Bob's first presence to be processed and sets the roster afterwards.
+
+The same race sat in the **existing** local probe test from the S times:
+`atBobs.Clear()` clears away what the login brings along — arrives it late, it
+counts as an answer to the probe. It too would pass at a server that does not
+answer probes at all. It now waits first for the delivery of the login and empties
+afterwards.
+
+Six mutations, all struck down — two of them only after these two corrections of
+tests.
+
+**And a self-correction that belongs here:** on the way there I suspected the
+mutation script, because the same mutation was reported once as struck down and
+once as surviving, and imputed a timestamp error to it. That was wrong — the
+fluctuation came out of the race in the test. A tool that answers differently twice
+is an obvious suspect; obvious is not the same as guilty, and the measurement
+cleared it up, not the supposition.
+
+Not fixed and noted: a probe to an unknown account stays unanswered. Section 8.5.1
+leaves `<unsubscribed/>` and silence free; silence does not betray whether the
+account exists, and at that it stays.
+
+### D25. Neither question nor answer ✅ — section 8.2.3, rule 2
+
+The point from D16: an IQ stanza without a `type` or with a value other than `get`,
+`set`, `result`, `error` gets `<bad-request/>`. The actual content of the rule sits
+in its subordinate clause — it obliges "the recipient **or an intermediate
+router**". At every other stanza a server may hand through and let the recipient
+judge; here not. The reason lies in the nature of IQ: a question-answer pair hangs
+on `type` and `id`, and what carries none of the four values is neither question
+nor answer. Does everybody hand it on, then it wanders through the network, and the
+sender never learns what became of it.
+
+**The stock was wrong differently in three roles, and only one of them was
+silence.** Directed at the server address the stanza fell out at the back of
+`HandleIqAsync`. To a foreign domain it went out — the role of the router,
+unchecked. And to a local recipient it was **delivered**: `DeliverIqLocallyAsync`
+asked only whether the type is `result` or `error` and treated everything else as a
+request. The recipient thereby got something put before them that they would have
+to answer under rule 3 and to which no answer fits. That was the worst of the three
+cases and at the same time the one that looked the most orderly.
+
+The check therefore stands right at the front at both entrances — in `HandleIqAsync`
+before the delivery switch, in `AcceptFromRemoteAsync` before all delivery branches.
+A test holds exactly this place fast:
+`AnIqToTheServerItselfWithoutAType_IsRefused` would not pass if the check sat in the
+delivery way, for what goes to the server itself never comes past there.
+
+**And the client has the same rule in the other role.** It is "the recipient", and
+it did nothing at all: the assignment to an open question takes only `result` and
+`error`, the fallback at the end asks for `get` or `set` — a fifth value fell
+through silently. Against this server something like that would never arrive at it;
+against a foreign implementation without rule 2 very well.
+
+The four values therefore stand **once** in the house, in `Jabber/Common/IqTypes.cs`.
+Two enumerations could run apart, and the effect would be silent: a value the one
+side knows and the other does not would get through or not depending on the way.
+
+**Two decisions that are no formalities.**
+
+The refusal goes out **without an `id`** as well and then carries none. That is
+deliberately different from `RespondUnhandledIq`, which keeps silent without an
+`id`, and the difference lies in the content: a `<service-unavailable/>` answers a
+question, and an answer without an `id` can be assigned to none — it is of use to
+nobody. `<bad-request/>` says something about the stanza itself, namely that its
+form is not right, and the sender can use that without an assignment as well; all
+the more as the missing `id` belongs to it itself under rule 1. An empty `id=''`
+would be the worst outcome — it belongs to no question and would look as though it
+belonged to one.
+
+The sender is **this server**, not the intended recipient. `<service-unavailable/>`
+answers in the name of the recipient, because the server has answered for them
+there; here it did not accept the stanza in the first place. A recipient as sender
+would claim that somebody had looked in.
+
+**A comment became wrong through the change, and that is the D21 lesson in its more
+harmless form.** In `DeliverIqLocallyAsync` there stood "or an unknown value that
+this way treats like a request, because an answer is of more use than silence". That
+was right as long as there was no check before it, and with it it describes a case
+that does not arrive there any more. Unlike in D21 the reason was not already wrong
+at the writing — it has become so. A comment ages with the code under it, and at
+changing it belongs read along.
+
+Seventeen mutations — one each for each of the four values, the check at each of
+the three entrances, the answer itself, the two attributes and the type of error on
+both sides.
+
+**Three addenda out of the tool, all on the same theme — a measurement that does not
+measure what it gives out that it measures.**
+
+The reset check of the mutation script checked against `HEAD`. For a **new, not yet
+tracked** file `git diff` never shows anything, and the check therefore reported
+"CHECK" even after a clean reset — of all things at the one file this commit newly
+creates. It now compares the hash against the backup, and that is the question it is
+about: does what stood there before the mutation stand there again?
+
+And the second mutation ran 35 minutes and had to be broken off. Falls `set` out of
+the list, then the resource binding stays unanswered — and `ConnectAsync` waits for
+it **without a deadline of its own**. A hanging run is no result: it does not say
+whether the mutation survived, but only that nobody answers any more. The affected
+runs now get `--blame-hang`, which makes a failure out of it. That a client waits
+for the binding without a deadline stands under "Later" — here it came out only
+because a mutation produced the case a test never produces.
+
+And the third, the worst: after I had shot down the hanging run, a `testhost`
+stayed behind and **locked the test DLL**. The next `dotnet test` thereby failed not
+in the run but in the *build* already (MSB3027) — and the script filtered the output
+for "Error:" and "Passed!", found nothing and wrote nothing. Six mutations thereby
+looked as though they were settled and were not measured at all. It came out only
+because a line without a verdict stood beside lines with a verdict.
+
+Two changes out of that, and the first is the more important: finds the script no
+summary, then it gives out the raw output instead of keeping silent. **A run without
+a verdict may not look like a passed one.** And before every run it clears away
+`testhost` processes left over.
+
+The six have been repeated. All seventeen mutations are struck down.
+
+**And the fourth addendum is the most instructive, because it was no error of the
+tool but mine.** One mutation removes `result` from the list. I narrowed its run to
+**a single test** — out of caution against a hanger like at `set`. Result: passed,
+21 seconds. The mutant had survived.
+
+Only the caution did not hold. `set` hangs because the **server** refuses the
+binding; `result` concerns at the client only the receiving path, and the building
+of the connection runs past it — which the 21 seconds themselves have proved. The
+narrowing was therefore not only unnecessary, it had removed exactly the test that
+strikes the mutation down: `TheFourKnownTypes_ReachTheResource` with the value
+`result`. With the full filter it falls with five errors.
+
+With that a *surviving* mutant has got a fifth meaning that did not yet appear in
+D14 to D24: **the run did not execute the test that strikes it down.** The four
+known meanings — a missing check, superfluous code, a test with an order that does
+not occur, a wrong reason — all presuppose that what was to be measured was
+measured. A narrowed filter violates exactly this precondition, and it does it
+silently: the run reports "passed", not "not checked".
+
+The price for the honesty was high here: the full run needed 18 minutes, because
+with `result` refused almost every test runs into its waiting time. It was worth it.
+A shortcut that changes the answer is no shortcut.
+
+### D26. The switch guessed ✅ — a name is no prefix
+
+The point from D25, and it was bigger than its occasion. The switch for incoming
+frames compared prefixes: `StartsWith("<iq")` hits `<iqbogus/>` as well,
+`StartsWith("<presence")` `<presence-probe/>` as well, `StartsWith("<open")`
+`<opencast/>` as well.
+
+**It came out at the most harmless of the three cases.** In D25 the server began to
+answer an IQ stanza with an unusable type — and thereby answered an `<iqbogus/>` as
+well, that is, an element that is no IQ stanza at all. The negligence was there
+just the same before, only it did nothing visible. A check that begins to answer
+makes the switch before it observable for the first time.
+
+The actual damage lay elsewhere: **a `<presence-probe/>` ran into the presence
+handling and counted there as presence.** That reads a missing `type` as "is
+there" — a human was reported to their contacts as online because their element
+happens to begin with the same eight characters. A statement about a human, derived
+from a comparison of strings. And an `<opencast/>` counted as the opening of a
+stream.
+
+**The knowledge was in the house and lay at the wrong place.**
+`StreamManagementManager.IsCountableStanza` has always read the element name
+completely, together with the handling of the namespace prefix — it answers only a
+different question (does the frame count for XEP-0198?) and was therefore never at
+the disposal of the switch. The reader now stands as `StanzaElement` in
+`Jabber/Common/`, and `IsCountableStanza` calls it.
+
+One place stays deliberately independent: `XMPPSession.IsStanza`. There the note has
+stood for a long time that the server side is **deliberately** implemented
+independently of the client — used both the same helper function, then the tests
+that hold the two counters against each other would check both sides with the same
+logic, and a shared error of thought would stay undiscovered. The note holds, the
+comparison of prefixes did not: `<iqbogus/>` counted along on the server side and
+not at the client. Of all things the two counters that have to run alike would have
+run apart. It now reads the name over a regular expression — a different way than
+over there, the same answer — and a new test holds both at the same answer without
+forcing them onto the same way.
+
+**And what the switch does not know now ends the stream** — RFC 6120, section
+4.9.3.24: "a first-level child of the stream that is not supported by the server".
+Until now such a frame fell out silently at the back, and that was the convenient
+answer and the poorer one: whoever sends something this server does not know
+otherwise waits for an answer that never comes.
+
+**Exactly this strictness killed a test, and the case is the most interesting of
+the point.** `SendLockTests` sends 200 frames with 40 kB each, to measure the send
+lock of the client and the integrity of the frames. As a payload an invented `<p/>`
+served — **because** it is unknown and the server does nothing with it. The thought
+was right: the frame is to be without consequence so that the test measures what it
+wants to measure. The way there no longer carried, for "unknown" has not been
+without consequence since this point: the first of the 200 frames broke the
+connection for the remaining 199.
+
+Without consequence is now achieved differently — an `iq` of type `result` without
+a recipient, that is, an answer to the server about nothing. Rule 4 from section
+8.2.3 forbids answering it; it is accepted, recorded and dropped. The same
+consequencelessness, with an element that exists in the protocol.
+
+At the rebuilding something else came out that the old frame had covered up: the
+client sets the namespace `jabber:client` on every **stanza** (RFC 7395, section
+3.3.3). The `<p/>` never got it, because it is no stanza — the new frame therefore
+arrives differently than it was sent off. The test therefore no longer lays down the
+order of the attributes, but it does lay down the frame as a whole, and that is
+exactly its question.
+
+**Not changed was the S2S stream.** It gets the same reading of the element name,
+but not the new finality. The difference is no convenience but a question of
+knowledge: on the client stream both sides speak the same, there a foreign
+implementation stands opposite, and what Prosody or ejabberd otherwise send is **not
+surveyed**. To break a stream off because one does not know an element would be a
+bet against them. That stands under "Later" — to be measured, not to be supposed.
+
+Incidentally a branching falls away there: `<stream:features/>` and `<features/>`
+were two branches and are one element; which prefix is bound to the streams
+namespace is up to the server (section 4.8.1).
+
+**And once again the theme of D25, this time at its coarsest.** One mutation hung —
+without `iq` there is no resource binding, and the client waits without a deadline
+of its own (the same point as in D25, for the second time). I shot the `testhost`
+processes down. That ends the running `dotnet test`, **not the script above it**:
+the old pass ran on with the next mutation while the new one was already mutating.
+Two scripts wrote the same files, and the numbers went visibly apart — 14 tests
+here, 20 there, for the same question.
+
+The comparison of hashes against the backup afterwards found a file that still
+carried a mutation. **Exactly for that it is there**, and it was that which saved
+the tree from a commit with an applied mutation — not my attention.
+
+The lesson is not "pay better attention", but: whoever shoots a process down has to
+know who its parent is. To end a child process looks like a breaking off and is only
+an interruption — the order above it runs on, and from then on nobody measures any
+more what they believe they are measuring.
+
+Sixteen mutations, all struck down — ten at the reader, six at the switch and at the
+two counters. The ten at the reader run without a net and need less than a minute
+together; the switch costs its time, because it demands a server. Suite: 685 tests,
+0 errors, 7 skipped, against Prosody and ejabberd.
+
+### D27. Measure first, then become strict ✅
+
+The point from D26, and it was noted expressly as a **measurement** and not as a
+change: the S2S stream left an unknown element lying while the client connection has
+refused it with `<unsupported-stanza-type/>` since D26. The reason for the
+hesitation stood with it — on the client stream both sides speak the same, on the
+S2S stream a foreign implementation stands opposite, and what Prosody and ejabberd
+otherwise send there was not surveyed. To break a stream off because one does not
+know an element would have been a bet.
+
+**So first the feeler.** At the place at which a frame falls through all branches
+came a recording with a deadline — every unknown frame with direction and domain
+into a file. Then the full run against both far sides.
+
+Result: **not a single frame.** 685 tests, dialback, SASL EXTERNAL, bidi, stream
+management, TCP and WebSocket — nothing fell through.
+
+**Two things made this measurement usable in the first place, and both would have
+been easy to pass over.**
+
+The first attempt ran only against Prosody: ejabberd had fallen away in between,
+and 15 instead of 7 skipped tests betrayed it. Without the known baseline "found
+nothing" would have looked like a result and would have been half the measurement.
+Likewise the direction: the incoming tests run only **inside** WSL, and exactly
+there the foreign server dials and speaks first. They have been made up for singly.
+
+And then the question that would have made the rest worthless: **does the feeler
+respond at all?** Across the whole suite it did not set off a single time — that is
+exactly the picture a broken feeler gives as well. Shown it was only by the new
+test: it feeds three unknown elements in, and the feeler recorded all three. A proof
+about an absence is worth only as much as the proof that the presence would have
+been visible.
+
+With that the strictness is shown instead of supposed, and the S2S stream now holds
+the same rule as the client connection. The full run against both far sides is at
+the same time the standing counter-check: does one of them send something unknown
+after all, then the stream dies and the federation tests fall.
+
+**One line from D26 reached too far in doing so.** There *every* frame ended the
+stream that the switch could not assign — an empty one as well. Section 4.9.3.24
+speaks however of "a first-level child of the stream that is not supported", and an
+empty frame is no child that is not supported; it is no child. Over TCP that does
+not come out, because `SkipProlog` in the splitter swallows whitespace, XML
+declarations and comments anyway — and whitespace as a keepalive is expressly
+allowed on a stream (section 4.6.1). Over WebSocket every frame is handed through,
+and there an empty frame would have cost the connection. Both ways now
+distinguish.
+
+Five mutations, all struck down. Three of them broke off at first, and the breaking
+off was a find: `S2SStream.cs` has **LF** line endings, the repository is mixed, and
+a multi-line search pattern therefore fitted only by chance. The mutation script now
+tries both variants — and keeps the encoding it found at the writing back, instead
+of silently giving an LF file a BOM. At least this failure was loud; the three
+silent ones from D25 were dearer.
 
 ### D28. Ein Abbruch ist kein Verstoss ✅ — Abschnitt 6.4.4
 
