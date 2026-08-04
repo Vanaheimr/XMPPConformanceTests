@@ -4778,534 +4778,490 @@ could be decided.
 
 ---
 
-### D64. Zwei Ratschen, sieben Überlebende ✅ — OMEMO, Etappe 3 von 7
+### D64. Two ratchets, seven survivors ✅ — OMEMO, stage 3 of 7
 
-Das Herzstück. Die symmetrische Ratsche läuft mit jeder Nachricht und gibt
-**Forward Secrecy** — wer den heutigen Zustand stiehlt, kann gestern nicht mehr
-lesen. Die Diffie-Hellman-Ratsche läuft bei jedem Richtungswechsel und gibt
-**Break-in Recovery** — wer den Zustand gestohlen hat, verliert ihn wieder,
-sobald die beiden einmal in beide Richtungen geschrieben haben.
+The heart of the thing. The symmetric ratchet runs with every message and gives
+**forward secrecy** — whoever steals today's state can no longer read yesterday.
+The Diffie-Hellman ratchet runs at every change of direction and gives
+**break-in recovery** — whoever has stolen the state loses it again as soon as the
+two have written in both directions once.
 
-**Fehler sind hier still, und deshalb sehen die Tests anders aus.** Eine
-Ratsche, die nicht weiterläuft, verschlüsselt weiterhin einwandfrei — sie tut
-es nur immer wieder mit demselben Schlüssel. Ein Test, der „hin und zurück
-ergibt den Klartext" prüft, bestünde auch dann. Geprüft wird deshalb
-zusätzlich, dass Geheimtexte sich *unterscheiden*, dass Schlüssel
-*verschwinden* und dass eine Nachricht an falscher Stelle *abgewiesen* wird.
+**Errors are silent here, and this is why the tests look different.** A ratchet
+that does not run on still encrypts perfectly — it just does it again and again
+with the same key. A test that checks "there and back yields the plain text" would
+pass even then. Checked is therefore additionally that ciphertexts *differ*, that
+keys *disappear* and that a message in the wrong place is *refused*.
 
-**Und trotzdem überlebten sieben von zwanzig Mutationen den ersten Lauf.**
-Das ist der wichtigste Befund dieser Reihe, denn drei davon waren nicht bloss
-Interop-Fragen, sondern Aufhebungen der Sicherheit:
+**And seven of twenty mutations survived the first run all the same.** That is the
+most important finding of this series, for three of them were not merely questions
+of interoperation but abolitions of the security:
 
-- **`mk` und `ck` aus derselben Konstante.** Dann ist der
-  Nachrichtenschlüssel zugleich der nächste Kettenschlüssel: Wer eine einzige
-  Nachricht mitliest, rechnet die ganze weitere Kette aus. **Aus Forward
-  Secrecy wird ihr genaues Gegenteil.**
-- **Wurzel und Kette aus derselben Hälfte** der 64 abgeleiteten Byte. Dann ist
-  der Wurzelschlüssel bekannt, sobald ein Kettenschlüssel es ist.
-- **Salz und Eingabematerial der Wurzelkette vertauscht.**
+- **`mk` and `ck` out of the same constant.** Then the message key is at the same
+  time the next chain key: whoever reads along a single message computes the whole
+  further chain. **Out of forward secrecy becomes its exact opposite.**
+- **Root and chain out of the same half** of the 64 derived bytes. Then the root
+  key is known as soon as a chain key is.
+- **Salt and input material of the root chain swapped.**
 
-Der Grund ist immer derselbe und inzwischen der rote Faden dieses Vorhabens:
-**beide Seiten rechnen mit derselben Funktion und kommen weiterhin überein.**
-Bei D62 und D63 kostete das nur die Verständigung mit fremden Clients — hier
-kostet es die Eigenschaft, um derentwillen es das ganze Verfahren gibt.
+The reason is always the same and by now the red thread of this undertaking:
+**both sides compute with the same function and still agree.** At D62 and D63 that
+cost only the understanding with foreign clients — here it costs the property for
+whose sake the whole procedure exists.
 
-Das Gegenmittel ist dasselbe wie zweimal zuvor: **die Vorschrift ein zweites
-Mal wörtlich hinschreiben.** Dafür sind `DeriveRootChain`, `AdvanceChain` und
-`Material` jetzt einzeln greifbar und werden gegen ein zweites HKDF gehalten.
+The remedy is the same as twice before: **write the prescription down a second time
+literally.** For that `DeriveRootChain`, `AdvanceChain` and `Material` are now
+individually within reach and are held against a second HKDF.
 
-**Zwei eigene Testfehler kamen dabei ans Licht, und beide sind lehrreicher als
-der Code:**
+**Two test errors of my own came to light in doing so, and both are more
+instructive than the code:**
 
-- `TheChainConstants_AreDistinct` **prüfte gar nichts.** Er rechnete
-  `HMAC(ck,0x01)` und `HMAC(ck,0x02)` im Test selbst nach und stellte fest,
-  dass sie sich unterscheiden — über den Quelltext sagte er kein Wort. Er
-  hätte auch bestanden, wenn die Implementierung beide Male `0x01` genommen
-  hätte. **Ein Test, der die Vorschrift nachrechnet statt den Code zu fragen,
-  ist eine Verdopplung der Vorschrift und keine Prüfung.**
-- `ATamperedMessage_IsRefused` **vergiftete sich selbst.** Drei Fälle
-  nacheinander auf demselben Ratchet-Paar — aber eine *abgewiesene* Nachricht
-  verändert den Zustand trotzdem: Es wurde vorgespult, ein Schlüssel ist
-  verbraucht. Der dritte Fall, die fremde Beigabe, hätte die HMAC-Mutation
-  erschlagen, warf aber aus einem ganz anderen Grund. Jeder Fall bekommt jetzt
-  ein frisches Paar.
+- `TheChainConstants_AreDistinct` **checked nothing at all.** It recomputed
+  `HMAC(ck,0x01)` and `HMAC(ck,0x02)` in the test itself and established that they
+  differ — about the source it said not a word. It would have passed even if the
+  implementation had taken `0x01` both times. **A test that recomputes the
+  prescription instead of asking the code is a doubling of the prescription and no
+  check.**
+- `ATamperedMessage_IsRefused` **poisoned itself.** Three cases one after another
+  on the same pair of ratchets — but a *refused* message changes the state all the
+  same: it was wound forward, a key is used up. The third case, the foreign
+  associated data, would have struck the HMAC mutation down but threw for a quite
+  different reason. Every case now gets a fresh pair.
 
-**Die Obergrenze der übersprungenen Schlüssel hat ihren eigenen Beweis
-geliefert.** Ohne sie stürzte der Testhost ab — nicht ein Test schlug fehl,
-der ganze Prozess starb an einer einzigen Nachricht mit `n = 4000000000` und
-hinterliess ein **32 GB grosses Absturzabbild**. Genau das ist der Angriff:
-Ein Fremder braucht weder Schlüssel noch Zugang, nur diese eine Zahl. Der
-Lauf meldete dabei zunächst „Bestanden, 4 von 13" — und das ist die Falle aus
-D54 in Reinform: **Ein Lauf, der vier von dreizehn Tests meldet, ist kein
-bestandener Lauf.** Nachgesehen, wo er starb, statt die Zusammenfassung zu
-glauben.
+**The upper bound of the skipped keys has delivered its own proof.** Without it the
+test host crashed — not one test failed, the whole process died at a single message
+with `n = 4000000000` and left a **crash dump of 32 GB** behind. Exactly that is the
+attack: a stranger needs neither keys nor access, only this one number. The run
+reported "passed, 4 of 13" in doing so — and that is the trap from D54 in its purest
+form: **a run that reports four of thirteen tests is no passed run.** Looked up
+where it died instead of believing the summary.
 
-Nebenbei hat sich die Kodierung des Nachrichtenkopfes nach vorn gezogen,
-obwohl sie zu Etappe 4 gehört: Die Beigabe der Verschlüsselung ist
-`ad ‖ OMEMOMessage.proto(header)` (Abschnitt 4.3). Mit einer provisorischen
-Kodierung wäre der Ratchet gegen etwas geprüft worden, das später ersetzt wird.
-Protocol Buffers von Hand, und der Grund ist nicht Sparsamkeit: Diese Bytes
-müssen **bitgenau reproduzierbar** sein, und eine Bibliothek, die Felder
-umsortiert oder Vorgabewerte weglässt, wäre hier keine Hilfe, sondern eine
-Fehlerquelle, die niemand sieht.
+Incidentally the encoding of the message header has drawn itself forward although
+it belongs to stage 4: the associated data of the encryption is
+`ad ‖ OMEMOMessage.proto(header)` (section 4.3). With a provisional encoding the
+ratchet would have been checked against something that is replaced later. Protocol
+Buffers by hand, and the reason is not thrift: these bytes have to be **reproducible
+bit for bit**, and a library that reorders fields or leaves defaults out would be no
+help here but a source of errors nobody sees.
 
-20 Mutationen, alle erschlagen — sechs davon erst, nachdem die Tests
-nachgebessert waren, und eine dadurch, dass sie den Prozess umbringt.
+20 mutations, all struck down — six of them only after the tests had been improved,
+and one through its killing the process.
 
 ---
 
-### D65. Drei Byte, die niemand gesehen hätte ✅ — OMEMO, Etappe 4 von 7
+### D65. Three bytes nobody would have seen ✅ — OMEMO, stage 4 of 7
 
-Das Drahtformat: die drei Protobuf-Nachrichten, das
-`<encrypted/>`-Element und die SCE-Hülle aus XEP-0420.
+The wire format: the three protobuf messages, the `<encrypted/>` element and the
+SCE envelope from XEP-0420.
 
-**Der wichtigste Fund kam diesmal beim Lesen, nicht durch eine Mutation.**
-Abschnitt 4.3 sagt, der HMAC laufe über `ad ‖ OMEMOMessage.proto` — „after
-ciphertext is added to the proto". In D64 hing der Geheimtext **roh hinter dem
-Kopf**; verlangt ist er als Feld 4 *innerhalb* der kodierten Nachricht. Der
-Unterschied sind drei Byte, Feldkennung `22` und Längenangabe, und **beide
-Seiten dieses Hauses hätten ihn nie bemerkt.** Gegen einen fremden Client hätte
-keine einzige Prüfsumme gestimmt.
+**The most important find came this time at the reading, not through a mutation.**
+Section 4.3 says the HMAC runs over `ad ‖ OMEMOMessage.proto` — "after ciphertext is
+added to the proto". In D64 the ciphertext hung **raw behind the header**; demanded
+it is as field 4 *inside* the encoded message. The difference is three bytes, field
+tag `22` and the length — and **both sides of this house would never have noticed
+it.** Against a foreign client not a single checksum would have been right.
 
-Damit ist es zum vierten Mal dieselbe Familie: D62 der Info-String, D63 die
-Beigabe, D64 die Wurzelkette, jetzt die Einbettung. **Alle vier haben
-gemeinsam, dass die eigenen Tests sie nicht finden konnten** — nicht weil sie
-schlecht waren, sondern weil ein Test zwischen „richtig" und „auf beiden
-Seiten gleich falsch" grundsätzlich nicht unterscheidet, solange beide Seiten
-derselbe Code sind.
+With that it is the same family for the fourth time: D62 the info string, D63 the
+associated data, D64 the root chain, now the embedding. **All four have in common
+that our own tests could not find them** — not because they were poor, but because a
+test does not distinguish in principle between "right" and "equally wrong on both
+sides" as long as both sides are the same code.
 
-**Drei Entscheidungen im Format:**
+**Three decisions in the format:**
 
-- **Der HMAC steht ausserhalb der Nachricht.** Stünde er darin, prüfte er sich
-  selbst mit; deshalb die Hülle `OMEMOAuthenticatedMessage` — innen die
-  Nachricht, aussen ihre Beglaubigung.
-- **`kex='false'` wird nicht geschrieben.** Abschnitt 4.5 gibt dem Attribut
-  diesen Vorgabewert, und ein ausgeschriebener Vorgabewert reist bei jeder
-  Nachricht an jedes Gerät mit, ohne je etwas zu bedeuten.
-- **Der Schlüssel wird über JID *und* Gerätekennung gesucht.** Die Kennung ist
-  eine Zufallszahl je Gerät; zwei Konten können dieselbe tragen. Wer nur nach
-  ihr suchte, nähme unter Umständen den Eintrag eines fremden Kontos und
-  scheiterte an einer Entschlüsselung, deren Grund er nicht sieht.
+- **The HMAC stands outside the message.** Stood it inside, it would check itself
+  along; this is why the envelope `OMEMOAuthenticatedMessage` — inside the message,
+  outside its attestation.
+- **`kex='false'` is not written.** Section 4.5 gives the attribute this default,
+  and a written-out default travels along at every message to every device without
+  ever meaning anything.
+- **The key is looked up over the JID *and* the device id.** The id is a random
+  number per device; two accounts can carry the same one. Whoever looked it up by
+  that alone would under some circumstances take the entry of a foreign account and
+  fail at a decryption whose reason they do not see.
 
-Bei der SCE-Hülle ist die Begründung wichtiger als der Code. **Verschlüsselt
-wird nicht der Text, sondern eine ganze Stanza-Hülle.** Wer nur den `<body/>`
-verschlüsselt, lässt Chat States, Empfangsbestätigungen und Korrekturvermerke
-im Klartext stehen — der Inhalt wäre geschützt, das Gespräch nicht. Der
-Absender steht **innerhalb** der Hülle, weil er aussen von jedem änderbar ist;
-ohne diesen Abgleich liesse sich ein Geheimtext abfangen und unter fremdem
-Namen weiterreichen. Und das `<rpad/>` ist keine Zierde: Ohne es verrät die
-Länge des Geheimtextes die Länge der Nachricht, und bei „ja" und „nein" ist das
-der ganze Inhalt.
+At the SCE envelope the reasoning is more important than the code. **Encrypted is
+not the text, but a whole stanza envelope.** Whoever encrypts only the `<body/>`
+leaves chat states, receipts and notes of correction standing in plain text — the
+content would be protected, the conversation not. The sender stands **inside** the
+envelope, because outside it is changeable by anybody; without this comparison a
+ciphertext could be intercepted and handed on under a foreign name. And the
+`<rpad/>` is no decoration: without it the length of the ciphertext betrays the
+length of the message, and at "yes" and "no" that is the whole content.
 
-19 Mutationen, alle erschlagen — **die beiden Überlebenden des ersten Laufs
-waren wieder Fehler in meinen Tests**, und beide von der stillen Sorte:
+19 mutations, all struck down — **the two survivors of the first run were again
+errors in my tests**, and both of the silent sort:
 
-- Die Prüfung der MAC-Länge liess sich entfernen, ohne dass etwas geschah: Mein
-  Testfall packte zufällige Bytes als innere Nachricht ein, und die scheiterten
-  schon beim Protobuf-Lesen. **Der Test bestand also aus dem falschen Grund.**
-  Jetzt steht dort eine sonst einwandfreie Nachricht — und eine Gegenprobe, die
-  fehlschlägt, wenn der Fall gar nicht mehr durchkommt.
-- Die Suche nach `kex='false'` im ausgegebenen XML konnte **nie** zutreffen:
-  `XElement.ToString` schreibt Attribute mit doppelten Anführungszeichen. Der
-  Test bestand immer, auch als die Mutation den Vorgabewert ausschrieb. Gefragt
-  wird jetzt das Attribut selbst.
+- The check of the length of the MAC could be removed without anything happening:
+  my test case packed random bytes in as the inner message, and those failed at the
+  protobuf reading already. **The test therefore passed for the wrong reason.** Now
+  there stands an otherwise perfect message there — and a counter-check that fails
+  if the case does not get through at all any more.
+- The search for `kex='false'` in the emitted XML could **never** hold:
+  `XElement.ToString` writes attributes with double quotation marks. The test always
+  passed, even when the mutation wrote the default out. Asked is now the attribute
+  itself.
 
-Beide sind dieselbe Lehre wie in D64: **Ein Test, der eine Zeichenfolge im
-Ausgabetext sucht oder einen Fehlerfall über einen anderen Fehler herstellt,
-prüft nicht, was sein Name behauptet.** Gefunden hat es die Mutation, nicht das
-Lesen.
+Both are the same lesson as in D64: **a test that looks for a string in the output
+text or produces an error case over a different error does not check what its name
+claims.** Found it the mutation did, not the reading.
 
 ---
 
-### D66. Der Server antwortet für einen Abwesenden ✅ — OMEMO, Etappe 5 von 7
+### D66. The server answers for somebody absent ✅ — OMEMO, stage 5 of 7
 
-Die erste Etappe seit vier, die wieder XMPP prüft statt Kryptographie — und
-damit die erste, bei der ein Durchlauf mehr aussagt als eine nachgerechnete
-Vorschrift.
+The first stage in four that checks XMPP again instead of cryptography — and thereby
+the first at which a pass says more than a recomputed prescription.
 
-**Dafür hat der Testserver PEP bekommen** (XEP-0163, als Teilmenge:
-veröffentlichen, abrufen, benachrichtigen). Ohne das wäre O5 gar nicht prüfbar
-gewesen: Prosody und ejabberd erreichen wir nur über S2S, nie als eigenen
-Heimatserver, und unser Client spricht ausschliesslich WebSocket. Was fehlt,
-steht im Quelltext — keine Knotenkonfiguration, keine Zugriffsmodelle, keine
-gefilterten Benachrichtigungen über XEP-0115.
+**For that the test server has got PEP** (XEP-0163, as a subset: publish, fetch,
+notify). Without that O5 would not have been checkable at all: Prosody and ejabberd
+we reach only over S2S, never as our own home server, and our client speaks
+exclusively WebSocket. What is missing stands in the source — no configuration of
+nodes, no access models, no notifications filtered over XEP-0115.
 
-**Die wichtigste Entscheidung: PEP wird vor der Weiterleitung behandelt.** Eine
-Anfrage an `bob@domain` sieht aus wie eine Anfrage an Bob und ginge sonst an
-seine Sitzung — dann wäre ein Bundle nur abrufbar, solange Bob online ist, und
-genau dafür gibt es PEP nicht. **Der Server antwortet stellvertretend für einen
-Menschen, der gerade nicht da ist**, und das ist die ganze Zusage dieser
-Etappe.
+**The most important decision: PEP is handled before the forwarding.** A request to
+`bob@domain` looks like a request to Bob and would otherwise go to his session — then
+a bundle would be fetchable only as long as Bob is online, and exactly for that PEP
+does not exist. **The server answers as a stand-in for a human who is not there at
+the moment**, and that is the whole promise of this stage.
 
-**Ein alter Fehler kam dabei ans Licht, und er lag nicht im neuen Code.**
-PubSub-Benachrichtigungen wurden ausschliesslich in `ProcessIq` behandelt. In
-der Praxis kommen sie als `<message type='headline'/>` — die Hälfte gab es
-nicht, obwohl der Kommentar daneben seit jeher „kann als message oder iq
-kommen" behauptete. Aufgefallen ist es erst, als mit OMEMO zum ersten Mal
-jemand auf eine Benachrichtigung *angewiesen* war; dieselbe halb verdrahtete
-Ecke wie in D38.
+**An old error came to light in doing so, and it did not lie in the new code.**
+PubSub notifications were handled exclusively in `ProcessIq`. In practice they come
+as `<message type='headline'/>` — half of it did not exist although the comment
+beside it has always claimed "can come as message or iq". It came out only when with
+OMEMO somebody was *dependent* on a notification for the first time; the same
+half-wired corner as in D38.
 
-21 Mutationen, alle erschlagen — **sechs überlebten den ersten Lauf, und fünf
-davon waren echte Lücken**, keine Gleichwertigkeiten:
+21 mutations, all struck down — **six survived the first run, and five of them were
+real gaps**, no equivalences:
 
-- **Ein leeres `<spk/>` kam durch.** Leeres Base64 ist gültiges Base64 und
-  ergibt ein Feld von null Byte; daraus wäre weiter unten eine Ausnahme aus der
-  Kurvenarithmetik geworden, mit einer Meldung, die niemandem sagt, dass ein
-  Bundle unbrauchbar war. Jetzt werden die Längen geprüft, dort wo sie zählen.
-- **Die Eintragskennung `current` liess sich umbenennen** — zum fünften Mal die
-  Familie „beide Seiten benutzen dieselbe Konstante und finden sich weiterhin".
-- **Die Eintragskennung beim Abrufen liess sich übergehen.** Mit einem
-  veröffentlichten Gerät dasselbe Ergebnis; mit zweien bekommt der Absender das
-  **falsche Bundle** und verschlüsselt für ein Telefon, das gar nicht mitliest.
-- **Eine Ablehnung des Servers galt als Erfolg** — genau der Rückgabewert,
-  dessentwegen diese Methoden überhaupt einen haben.
-- Ein leerer Knoten wurde als leeres Ergebnis statt als `<item-not-found/>`
-  beantwortet.
+- **An empty `<spk/>` got through.** Empty Base64 is valid Base64 and yields a field
+  of zero bytes; further down an exception out of the curve arithmetic would have
+  become of it, with a message that says to nobody that a bundle was unusable. Now
+  the lengths are checked, where they count.
+- **The item id `current` could be renamed** — for the fifth time the family "both
+  sides use the same constant and still find each other".
+- **The item id at the fetching could be passed over.** With one published device the
+  same result; with two the sender gets the **wrong bundle** and encrypts for a
+  telephone that is not reading along at all.
+- **A refusal of the server counted as a success** — exactly the return value for
+  whose sake these methods have one at all.
+- An empty node was answered as an empty result instead of as `<item-not-found/>`.
 
-**Und ein Testfehler, der eine eigene Lehre trägt:** Mein Test für „eine fremde
-Geräteliste löst keinen Wiedereintrag aus" prüfte, ob Alices Liste unverändert
-blieb. Das war wertlos — **der Server weist fremde Knoten ohnehin ab**, also
-blieb sie auch dann sauber, wenn Bobs Client es versuchte. Gefragt werden muss,
-ob der Prüfling etwas geschickt hat, nicht ob sein Nachbar es abgewehrt hat.
-**Ein Test, der die Wirkung an der falschen Stelle misst, prüft die falsche
-Sicherung.**
+**And a test error that carries a lesson of its own:** my test for "a foreign device
+list sets off no re-entry" checked whether Alice's list stayed unchanged. That was
+worthless — **the server refuses foreign nodes anyway**, so it stayed clean even
+when Bob's client tried it. What has to be asked is whether the thing under test
+sent something, not whether its neighbour fended it off. **A test that measures the
+effect at the wrong place checks the wrong safeguard.**
 
-Nebenbei hat eine Nullable-Warnung des Kompilers einen vertauschten Parameter
-gefangen, bevor irgendein Test lief: ein JID an der Stelle der Fehlerbedingung.
+Incidentally a nullable warning of the compiler caught a swapped parameter before
+any test ran: a JID in the place of the error condition.
 
 ---
 
-### D67. Ein Lauf gegen eine rote Grundlinie ✅ — OMEMO, Etappe 6 von 7
+### D67. A run against a red baseline ✅ — OMEMO, stage 6 of 7
 
-Der Sitzungsspeicher. **Ohne ihn ist jede Wiederverbindung ein
-Vertrauensbruch:** Ein neuer IdentityKey bedeutet einen neuen Fingerabdruck,
-und jeder Vergleich, den irgendein Mensch je angestellt hat, ist damit wertlos.
-Ein Client, der bei jedem Start neue Schlüssel erzeugt, sieht für seine
-Kontakte aus wie ein Angreifer — jedes Mal.
+The session store. **Without it every reconnection is a breach of trust:** a new
+IdentityKey means a new fingerprint, and every comparison any human has ever made is
+thereby worthless. A client that creates new keys at every start looks to its
+contacts like an attacker — every time.
 
-Die Prüfung ist bei jedem Test dieselbe: **neu starten und weitermachen.** Ein
-Speicher, der ablegt und wieder herausgibt, ist noch keiner — er muss so viel
-ablegen, dass die Gegenstelle vom Neustart nichts merkt. Geprüft wird deshalb
-nicht, ob der Zustand gleich aussieht, sondern ob das Gespräch weitergeht.
+The check is the same at every test: **restart and go on.** A store that lays down
+and gives out again is not one yet — it has to lay down so much that the far side
+notices nothing of the restart. Checked is therefore not whether the state looks the
+same, but whether the conversation goes on.
 
-**Der abgelöste Signed PreKey wird jetzt aufgehoben** — genau einer. Das stand
-seit D63 aus, ausdrücklich aufgeschoben, weil es ohne Speicher eine Zusage
-gewesen wäre, die niemand hält. Jeder weitere aufgehobene Schlüssel nähme ein
-Stück von dem zurück, wofür es den Wechsel gibt.
+**The replaced signed PreKey is now kept** — exactly one. That had been outstanding
+since D63, expressly postponed because without a store it would have been a promise
+nobody keeps. Every further kept key would take back a piece of what the change
+exists for.
 
-**Die Signatur wird mitgenommen und nicht neu gerechnet.** XEdDSA mischt Zufall
-in jede — die neue sähe anders aus als die veröffentlichte, und das Bundle im
-PEP-Knoten wäre mit dem Gerät uneins.
+**The signature is taken along and not computed anew.** XEdDSA mixes randomness into
+every one — the new one would look different from the published one, and the bundle
+in the PEP node would be at odds with the device.
 
-**Ein geänderter IdentityKey wird gemeldet und nie stillschweigend
-übernommen.** Dafür gibt es zwei Erklärungen — neu aufgesetztes Gerät oder
-jemand dazwischen — und von aussen sind sie nicht zu unterscheiden. Der alte
-Vermerk bleibt samt Vertrauensentscheidung stehen; wer ihn überschriebe, machte
-aus einer bestätigten Identität eine unbestätigte, und die Warnung wäre nach
-dem ersten Ansehen fort.
+**A changed IdentityKey is reported and never taken over silently.** There are two
+explanations for it — a newly set up device or somebody in between — and from outside
+they cannot be told apart. The old note stays standing together with the decision of
+trust; whoever overwrote it would make an unconfirmed identity out of a confirmed
+one, and the warning would be gone after the first looking.
 
-**Eine unlesbare Datei wirft, statt frisch zu starten.** Der bequeme Weg wäre
-hier der gefährliche: Aus einem behebbaren Lesefehler würde ein stiller Wechsel
-des eigenen Fingerabdrucks, und die alte Datei wäre beim ersten Ablegen
-überschrieben.
+**An unreadable file throws instead of starting fresh.** The convenient way would be
+the dangerous one here: out of a recoverable error of reading would become a silent
+change of our own fingerprint, and the old file would be overwritten at the first
+laying down.
 
-## Der eigentliche Fund: ein Mutationslauf, der nichts gemessen hat
+## The actual find: a mutation run that measured nothing
 
-**Der erste O6-Mutationslauf meldete zwanzig von zwanzig erschlagen — und war
-wertlos.** Die Änderung am Signed PreKey hatte einen bestehenden X3DH-Test
-gebrochen, der genau das Gegenteil festhielt („jeder ausser dem aktuellen wird
-abgewiesen"). Dieser Test lief im Mutationsfilter mit. **Damit meldete jeder
-Lauf „Fehler", ob die Mutation nun etwas erschlug oder nicht.**
+**The first O6 mutation run reported twenty of twenty struck down — and was
+worthless.** The change at the signed PreKey had broken an existing X3DH test that
+held exactly the opposite fast ("every one except the current is refused"). This test
+ran along in the mutation filter. **With that every run reported "error", whether the
+mutation struck something down or not.**
 
-Aufgefallen ist es nur, weil eine einzelne Mutation mir zu bequem tot war — die
-Nebendatei beim Schreiben. Einzeln laufen lassen: sie überlebt. Und drei Läufe
-der *unveränderten* Grundlinie zeigten dann dreimal denselben Fehlschlag.
+It came out only because a single mutation was too conveniently dead for me — the
+side file at the writing. Let it run singly: it survives. And three runs of the
+*unchanged* baseline then showed the same failure three times.
 
-Das ist die Falle aus D54 in neuer Gestalt. Damals mass ein grüner Lauf nichts,
-weil Tests sich selbst übersprangen; hier mass ein roter Lauf nichts, weil er
-schon vorher rot war. **Ein Mutationslauf ohne grüne Grundlinie kann nicht
-zwischen „meine Mutation wurde gefunden" und „hier war schon vorher etwas
-kaputt" unterscheiden.** Die Grundlinie gehört vor jeden Batch geprüft, nicht
-angenommen.
+That is the trap from D54 in a new shape. Back then a green run measured nothing
+because tests skipped themselves; here a red run measured nothing because it was red
+before already. **A mutation run without a green baseline cannot distinguish between
+"my mutation was found" and "something was broken here before already".** The
+baseline belongs checked before every batch, not assumed.
 
-Gegen die grüne Grundlinie neu gemessen: **20 Mutationen, 19 erschlagen.** Zwei
-der drei Überlebenden waren echte Lücken und haben je einen Test erzwungen —
-der abgelöste Signed PreKey überlebte den Neustart nicht, und eine zweimal
-abgelegte Sitzung wurde danebengelegt statt ersetzt. Der zweite Fall wäre der
-schlimmste Schaden gewesen, den dieser Speicher anrichten kann: Nach einem
-Neustart stünde die Ratsche auf einem alten Stand, und alles seitdem wäre für
-beide Seiten unlesbar, ohne erkennbaren Grund.
+Measured anew against the green baseline: **20 mutations, 19 struck down.** Two of
+the three survivors were real gaps and each forced a test — the replaced signed
+PreKey did not survive the restart, and a session laid down twice was laid down
+beside instead of replaced. The second case would have been the worst damage this
+store can do: after a restart the ratchet would stand at an old state, and everything
+since then would be unreadable for both sides, without a recognisable reason.
 
-**Der eine echte Überlebende, benannt statt weggeredet:** Das Schreiben über
-eine Nebendatei lässt sich durch ein direktes Schreiben ersetzen, ohne dass ein
-Test etwas sagt. Der Unterschied zeigt sich nur bei einem Absturz **mitten im
-Schreiben**, und den stellt diese Sammlung nicht her. Er ist damit nicht
-gleichwertig, sondern ungeprüft — und das ist ein Unterschied, der hier
-aufgeschrieben gehört.
+**The one real survivor, named instead of talked away:** the writing over a side file
+can be replaced by a direct writing without a test saying anything. The difference
+shows itself only at a crash **in the middle of the writing**, and that this suite
+does not produce. It is thereby not equivalent, but unchecked — and that is a
+difference that belongs written down here.
 
-**Und eine Sache steht ausdrücklich da, statt durch ein beruhigendes Verfahren
-ersetzt zu werden:** Die Datei ist nicht verschlüsselt. Sie enthält den
-geheimen IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer sie liest,
-liest die Gespräche mit. Eine Verschlüsselung mit einem Schlüssel, der
-danebenläge, wäre keine — und einen, den ein Mensch eingibt, gibt es in dieser
-Anwendung nicht. Ein Test hält es fest, damit wer es ändert, die Bemerkung
-mitändern muss.
+**And one thing stands there expressly instead of being replaced by a soothing
+procedure:** the file is not encrypted. It contains the secret IdentityKey, all
+PreKeys and every chain key; whoever reads it reads the conversations along. An
+encryption with a key that lay beside it would be none — and one a human enters does
+not exist in this application. A test holds it fast so that whoever changes it has to
+change the remark along.
 
 ---
 
-### D68. Die erste verschlüsselte Nachricht ✅ — OMEMO, Etappe 7 von 7
+### D68. The first encrypted message ✅ — OMEMO, stage 7 of 7
 
-Alles zusammengeführt: Alice schaltet ein, schreibt, Bob liest. Dazwischen
-liegen Schlüsselerzeugung, PEP-Veröffentlichung, Bundle-Abruf, X3DH, Ratchet,
-Protobuf, SCE und der Speicher — und der Test fasst keines davon einzeln an.
+Everything brought together: Alice switches on, writes, Bob reads. In between lie the
+creation of keys, PEP publication, fetching of the bundle, X3DH, ratchet, protobuf,
+SCE and the store — and the test touches none of them individually.
 
-**Der Test ist erst durch das etwas wert, was er ausschliesst:** Der Klartext
-darf in keiner Stanza vorkommen, die der Server gesehen hat. Dazu eine
-Gegenprobe, dass überhaupt eine OMEMO-Stanza über die Leitung ging — ohne sie
-bestünde er auch dann, wenn gar nichts gesendet würde.
+**The test is worth something only through what it excludes:** the plain text may
+appear in no stanza the server has seen. To that a counter-check that an OMEMO stanza
+went over the wire at all — without it it would pass even if nothing were sent.
 
-**Drei Entscheidungen beim Verdrahten:**
+**Three decisions at the wiring:**
 
-- **Ein Gerät ohne abrufbares Bundle wird übersprungen und genannt.** Nicht zu
-  senden machte einen Menschen durch ein einziges kaputtes Gerät unerreichbar.
-  Unverschlüsselt zu senden wäre die schlimmste der drei Antworten: Der
-  Absender glaubt dann, verschlüsselt zu haben — und wer ein Bundle
-  unerreichbar macht, bekommt den Klartext.
-- **Ohne eingeschaltetes OMEMO wird geworfen.** Eine Ausnahme ist laut, eine
-  unverschlüsselt gesendete Nachricht ist es nicht.
-- **Blind Trust Before Verification als Vorgabe**, mit Begründung: Ein
-  Verfahren, das vor der ersten Nachricht einen Fingerabdruckvergleich
-  verlangt, wird nicht benutzt — und unbenutzte Verschlüsselung schützt
-  niemanden.
+- **A device without a fetchable bundle is skipped and named.** Not to send would
+  make a human unreachable through a single broken device. To send unencrypted would
+  be the worst of the three answers: the sender then believes they have encrypted —
+  and whoever makes a bundle unreachable gets the plain text.
+- **Without OMEMO switched on it throws.** An exception is loud, a message sent
+  unencrypted is not.
+- **Blind trust before verification as the default**, with a reason: a procedure that
+  demands a comparison of fingerprints before the first message is not used — and
+  unused encryption protects nobody.
 
-## Der schwächste Mutationslauf der Reihe
+## The weakest mutation run of the series
 
-**Acht von vierzehn überlebten den ersten Durchgang** — mit Abstand das
-schlechteste Ergebnis dieser sieben Etappen. Der Grund ist lehrreich: Die
-Ende-zu-Ende-Tests sind **breit, aber stumpf**. Sie prüfen, dass es
-funktioniert, nicht warum. Ein Gespräch zwischen zwei Clients läuft auch dann
-durch, wenn die halbe Sorgfalt fehlt.
+**Eight of fourteen survived the first pass** — by far the poorest result of these
+seven stages. The reason is instructive: the end-to-end tests are **broad but blunt**.
+They check that it works, not why. A conversation between two clients runs through
+even when half the care is missing.
 
-Sechs der acht waren echte Lücken, und jede hat einen Test erzwungen:
+Six of the eight were real gaps, and each forced a test:
 
-- **Zwei Nachrichten hintereinander ohne Antwort dazwischen.** Im
-  Wechselgespräch fällt ein fehlendes Ablegen der Sitzung nicht auf — das
-  Entschlüsseln der Antwort legt sie ohnehin ab. Erst zwei Nachrichten in Folge
-  zeigen, ob das *Senden* seinen Fortschritt behält.
-- **Das eigene zweite Gerät liest mit, das sendende nicht.** Beides hängt an
-  derselben Zeile, und die Mutationen sind in beide Richtungen durchgekommen.
-- **Der Absender steht in der Hülle** — und wird abgeglichen. Solange die
-  Auskunft nur mitgeführt und nicht bis zum Aufrufer gereicht wurde, war die
-  Prüfung nicht zu belegen.
-- Verbrauchter PreKey sofort im Speicher, geänderter IdentityKey stoppt die
-  Nachricht, und das Einschalten ergänzt die Geräteliste statt sie zu
-  überschreiben.
+- **Two messages one after another without an answer in between.** In an exchange a
+  missing laying down of the session does not come out — the decrypting of the answer
+  lays it down anyway. Only two messages in a row show whether the *sending* keeps
+  its progress.
+- **Our own second device reads along, the sending one does not.** Both hang on the
+  same line, and the mutations got through in both directions.
+- **The sender stands in the envelope** — and is compared. As long as the information
+  was only carried along and not passed as far as the caller, the check could not be
+  shown.
+- Used-up PreKey at once in the store, a changed IdentityKey stops the message, and
+  the switching on adds to the device list instead of overwriting it.
 
-**Zwei Funde, die kein Mutationslauf hervorgebracht hat, sondern die neuen
-Tests selbst:**
+**Two finds no mutation run brought out, but the new tests themselves:**
 
-- **Über Carbons eintreffende OMEMO-Nachrichten wurden nicht entschlüsselt.**
-  Genau so sieht ein zweites eigenes Gerät, was das erste geschrieben hat — der
-  Schlüsseleintrag war da, die Nachricht kam an, und niemand sah sie an, weil
-  sie im `<forwarded/>` steckt. Dieselbe Familie wie „nur direkte Kinder" aus
-  D59, D60 und D65, nur andersherum: Dort durfte man **nicht** hineinschauen,
-  hier **muss** man es.
-- Mein eigener Test griff die falsche Stanza: Die erste mit `urn:xmpp:omemo:2`
-  ist eine PEP-Veröffentlichung und keine Nachricht.
+- **OMEMO messages arriving over carbons were not decrypted.** Exactly like that a
+  second device of our own sees what the first has written — the key entry was there,
+  the message arrived, and nobody looked at it, because it sits in the `<forwarded/>`.
+  The same family as "only direct children" from D59, D60 and D65, only the other way
+  round: there one may **not** look in, here one **has to**.
+- My own test grabbed the wrong stanza: the first with `urn:xmpp:omemo:2` is a PEP
+  publication and no message.
 
-**Ein Test musste einen Umweg nehmen, und der Grund gehört aufgeschrieben.**
-„Das Einschalten ergänzt die Geräteliste" lässt sich mit zwei echten Clients
-nicht prüfen: Verdrängt das zweite Gerät das erste, bemerkt das erste die
-PEP-Benachrichtigung und trägt sich sofort wieder ein (D66) — der Endzustand
-stimmt wieder, und der Test sieht nichts. Jetzt steht dort ein Eintrag für ein
-Gerät, **das es gar nicht gibt**: Es kann sich nicht wehren, und damit bleibt
-sichtbar, was das Einschalten tut.
+**One test had to take a detour, and the reason belongs written down.** "The
+switching on adds to the device list" cannot be checked with two real clients: does
+the second device displace the first, then the first notices the PEP notification and
+enters itself again at once (D66) — the end state is right again, and the test sees
+nothing. Now there stands an entry there for a device **that does not exist at all**:
+it cannot defend itself, and thereby what the switching on does stays visible.
 
-**Der letzte Überlebende verlangte, den Angriff wirklich zu bauen.** Alice
-schreibt an Bob und Mallory zugleich; Mallory reicht dieselbe
-`<encrypted/>`-Stanza unverändert an Bob weiter, unter ihrem eigenen Namen.
-Bobs Eintrag ist unangetastet, der Ratchet-Schritt geht auf, die Prüfsumme
-stimmt — **alles kryptographisch einwandfrei**. Nur steht innen „von Alice" und
-aussen „von Mallory". Genau dafür gibt es die Beigabe aus XEP-0420, und erst
-dieser Test belegt sie.
+**The last survivor demanded really building the attack.** Alice writes to Bob and
+Mallory at the same time; Mallory hands the same `<encrypted/>` stanza on to Bob
+unchanged, under her own name. Bob's entry is untouched, the ratchet step works out,
+the checksum is right — **everything cryptographically perfect**. Only inside it says
+"from Alice" and outside "from Mallory". Exactly for that the associated data from
+XEP-0420 exists, and only this test shows it.
 
-14 Mutationen, alle erschlagen — sechs davon erst nach dem Nachschärfen.
+14 mutations, all struck down — six of them only after the sharpening.
 
-**Was diese Reihe nicht kann, steht jetzt im README:** Gegen keinen fremden
-OMEMO-Client geprüft; der Sitzungsspeicher unverschlüsselt; die Punktarithmetik
-nicht gegen Zeitmessung gehärtet; kein MUC und damit keine
-Gruppenverschlüsselung; kein Zeitplan für den Wechsel des Signed PreKey.
+**What this series cannot do now stands in the README:** checked against no foreign
+OMEMO client; the session store unencrypted; the point arithmetic not hardened
+against timing; no MUC and thereby no group encryption; no schedule for the change of
+the signed PreKey.
 
 ---
 
-### D69. Eine Gegenstelle, die niemand hier geschrieben hat ✅ — OMEMO gegen die Referenz
+### D69. A far side nobody here wrote ✅ — OMEMO against the reference
 
-Sieben Etappen lang stand dieselbe Grenze im README: **gegen keinen fremden
-Client geprüft.** Und siebenmal war der Befund derselbe — der Info-String
-(D62), die Beigabe (D63), die Wurzelkette (D64), die Einbettung des
-Geheimtexts (D65), die Eintragskennung (D66). **Jedes Mal hätten sich zwei
-Clients dieses Hauses bestens verstanden und kein einziger fremder.**
+Seven stages long the same limit stood in the README: **checked against no foreign
+client.** And seven times the finding was the same — the info string (D62), the
+associated data (D63), the root chain (D64), the embedding of the ciphertext (D65),
+the item id (D66). **Every time two clients of this house would have understood each
+other perfectly and not a single foreign one.**
 
-Der Grund ist keine Nachlässigkeit, sondern eine Eigenschaft der Anordnung:
-**Sind beide Seiten derselbe Code, kommen sie auch dann überein, wenn beide
-gleich falsch rechnen.** Ein Test kann das grundsätzlich nicht unterscheiden.
+The reason is no negligence but a property of the arrangement: **are both sides the
+same code, then they agree even when both compute equally wrongly.** A test cannot
+distinguish that in principle.
 
-Jetzt gibt es die Gegenstelle: **python-omemo (Syndace)**, die
-Referenzimplementierung für `urn:xmpp:omemo:2` — dieselbe Fassung, die wir
-sprechen. Und zwar in beide Richtungen:
+Now the far side exists: **python-omemo (Syndace)**, the reference implementation for
+`urn:xmpp:omemo:2` — the same version we speak. And in both directions at that:
 
-- **Sie nimmt unser Bundle an.** Dabei prüft sie unsere Signatur über den
-  Signed PreKey mit ihrer eigenen Vorstellung davon, worüber sie geht. **Damit
-  ist die ungeprüfte Annahme aus D63 entschieden** — in Montgomery-Form
-  unterschrieben, und die Lesart stimmt.
-- **Wir lesen, was sie schreibt.** In einem Zug geprüft: Bundle-Kodierung,
-  Reihenfolge der vier Diffie-Hellman, Info-String von X3DH, `0xFF`-Vorspann,
-  Beigabe aus beiden IdentityKeys, Ratchet-Anfang, Info-Strings von
-  Wurzelkette und Nachrichtenschlüssel, die Konstanten `0x01`/`0x02`,
-  Protobuf-Feldnummern, Einbettung des Geheimtexts, Kürzung des HMAC,
-  Ableitung der Nutzlast.
-- **Sie liest, was wir schreiben.** Die Richtung, die darüber entscheidet, ob
-  uns jemand lesen kann — und die man am ehesten vergisst, weil ihr Ausbleiben
-  wie Schweigen aussieht: Wer nie eine Antwort bekommt, weiss nicht, ob niemand
-  schreiben wollte oder niemand lesen konnte.
+- **It accepts our bundle.** In doing so it checks our signature over the signed
+  PreKey with its own idea of what it goes over. **With that the unchecked assumption
+  from D63 is decided** — signed in Montgomery form, and the reading is right.
+- **We read what it writes.** Checked in one go: encoding of the bundle, order of the
+  four Diffie-Hellmans, info string of X3DH, `0xFF` prefix, associated data out of
+  both IdentityKeys, beginning of the ratchet, info strings of the root chain and the
+  message key, the constants `0x01`/`0x02`, protobuf field numbers, embedding of the
+  ciphertext, truncation of the HMAC, derivation of the payload.
+- **It reads what we write.** The direction that decides whether anybody can read us
+  — and the one most easily forgotten, because its staying out looks like silence:
+  whoever never gets an answer does not know whether nobody wanted to write or nobody
+  could read.
 
-**Jeder einzelne Punkt dieser Liste war zuvor eine überlebende Mutation oder
-ein Fund beim Lesen.** Drei Tests hätten alle fünf gefunden.
+**Every single point of this list was previously a surviving mutation or a find at
+the reading.** Three tests would have found all five.
 
-## Ohne etwas am System zu verändern
+## Without changing anything on the system
 
-`sudo` verlangt ein Passwort, und das gebe ich nicht ein. Also anders: Wheels
-sind Zip-Dateien. Elf Pakete geholt und entpackt, `PYTHONPATH` davor — **kein
-pip, kein venv, kein sudo.** Für einen Testaufbau ist das sogar besser als eine
-Installation: reproduzierbar, und es bleibt nichts zurück. Das Skript liegt bei
-(`Orakel/hole_orakel.py`).
+`sudo` demands a password, and that I do not enter. So differently: wheels are zip
+files. Eleven packages fetched and unpacked, `PYTHONPATH` in front of it — **no pip,
+no venv, no sudo.** For a test setup that is even better than an installation:
+reproducible, and nothing stays behind. The script comes with it
+(`Oracle/fetch_oracle.py`).
 
-Zwei Stolpersteine unterwegs, beide festgehalten: **`cffi` gehört dazu**, auch
-wenn es nicht danach aussieht — ohne es findet XEdDSA seine native Bibliothek
-nicht und fällt auf eine Variante zurück, die einen Browser erwartet. Und
-**pydantic pinnt `pydantic-core` exakt**; wer von jedem Paket das neueste
-nimmt, bekommt zwei, die nicht zueinander passen. Das ist die Arbeit, die pip
-sonst macht.
+Two stumbling blocks along the way, both held fast: **`cffi` belongs to it**, even if
+it does not look like it — without it XEdDSA does not find its native library and
+falls back on a variant that expects a browser. And **pydantic pins `pydantic-core`
+exactly**; whoever takes the newest of every package gets two that do not fit
+together. That is the work pip otherwise does.
 
-Die Tests **überspringen sich selbst**, wenn das Orakel nicht da ist — wie die
-gegen Prosody und ejabberd. Ein Lauf ohne WSL soll nicht rot sein, nur weniger
-aussagen.
+The tests **skip themselves** when the oracle is not there — like the ones against
+Prosody and ejabberd. A run without WSL is not to be red, only to say less.
 
-## Was auch jetzt nicht geprüft ist
+## What is not checked even now
 
-Und das gehört genauso deutlich hin wie das Ergebnis: Die **SCE-Hülle** bleibt
-aussen vor — python-omemo überlässt sie der Anwendung, und eine Hülle, die ich
-im Orakel selbst baute, wäre keine fremde Prüfung, sondern dieselbe Annahme
-zweimal. Ebenso wenig geprüft: das `<encrypted/>`-Element, die PEP-Knoten, ein
-Gespräch über mehrere Nachrichten — und ein echter Client über eine echte
-Verbindung erst recht nicht.
+And that belongs there just as clearly as the result: the **SCE envelope** stays
+outside — python-omemo leaves it to the application, and an envelope I built in the
+oracle myself would be no foreign check, but the same assumption twice. Just as
+little checked: the `<encrypted/>` element, the PEP nodes, a conversation over
+several messages — and a real client over a real connection all the less.
 
 ---
 
-### D70. Eine Zusage, die etwas bewirkt ✅ — der Server lernt Abonnements
+### D70. A confirmation that has an effect ✅ — the server learns subscriptions
 
-Der Anlass ist die Frage nach der ausgehenden Korrelation (Punkt unter
-„Optional", seit D38). Bevor ein Client lernen kann, Antworten auszuwerten,
-muss es Antworten geben, die etwas sagen: **Dieser Server sagte auf jedes
-`subscribe` `<service-unavailable/>`** — er kannte die Anfrage nicht. Wer nur
-Absagen kennt, kann nicht zeigen, dass er eine Zusage richtig liest.
+The occasion is the question about the outgoing correlation (a point under
+"optional", since D38). Before a client can learn to evaluate answers, there have to
+be answers that say something: **this server said `<service-unavailable/>` to every
+`subscribe`** — it did not know the request. Whoever knows only refusals cannot show
+that they read a confirmation rightly.
 
-Also erst der Server. XEP-0060, Abschnitte 6.1 und 6.2: `<subscribe/>` und
-`<unsubscribe/>` mit `subid`, den drei Ablehnungen des XEP —
-`<item-not-found/>` für einen Knoten, den es nicht gibt, `<invalid-jid/>`, wenn
-jemand einen anderen anmelden will, `<not-subscribed/>` und `<invalid-subid/>`
-beim Abbestellen.
+So the server first. XEP-0060, sections 6.1 and 6.2: `<subscribe/>` and
+`<unsubscribe/>` with a `subid`, with the three refusals of the XEP —
+`<item-not-found/>` for a node that does not exist, `<invalid-jid/>` when somebody
+wants to sign another up, `<not-subscribed/>` and `<invalid-subid/>` at the
+cancelling.
 
-**Und mit Wirkung, nicht bloss mit Antwort.** Ein Abonnement, das nirgends
-wirkt, wäre genau die Zusage ohne Deckung, für die in D57 ein nie ausgelöstes
-Ereignis gestrichen wurde. Bisher bekam eine PEP-Benachrichtigung, wer ohnehin
-Presence bekam — damit war „abonnieren" nur ein anderes Wort für „im Roster
-stehen", und für einen fremden Knoten gab es überhaupt keinen Weg. Jetzt gehen
-die Meldungen an **eine** Liste aus beiden Quellen; wer über beide in Frage
-kommt, bekommt sie trotzdem einmal.
+**And with an effect, not merely with an answer.** A subscription that takes effect
+nowhere would be exactly the promise without backing for which an event never set off
+was struck in D57. Until now a PEP notification was got by whoever got presence
+anyway — with that "to subscribe" was only another word for "to stand in the roster",
+and for a foreign node there was no way at all. Now the reports go to **one** list out
+of both sources; whoever comes into question over both gets them once all the same.
 
-Die schärfste der neuen Prüfungen ist die auf den `jid`, und zwar in beide
-Richtungen: Ein fremdes Abonnement **anzulegen** ist lästig — jemand bekäme
-Meldungen, die er nie bestellt hat, von einem Knoten, dessen Namen er nicht
-kennt. Ein fremdes zu **beenden** ist ein Entzug: Der Betroffene bekäme nichts
-mehr und merkte es nicht, denn Ausbleiben sieht aus wie Ruhe.
+The sharpest of the new checks is the one on the `jid`, and in both directions at
+that: **to create** a foreign subscription is a nuisance — somebody would get reports
+they never ordered, from a node whose name they do not know. **To end** a foreign one
+is a deprivation: the one concerned would get nothing more and would not notice it,
+for a staying out looks like quiet.
 
-Genau diese zweite Prüfung war zuerst ungeprüft: **eine von vierzehn Mutationen
-überlebte**, die weggenommene JID-Prüfung beim Abbestellen. Der nachgezogene
-Test prüft beides — die Absage *und* dass Carols Abonnement danach noch trägt.
-Nur die Absage zu prüfen liesse eine Umsetzung durch, die erst abmeldet und
-sich dann beschwert.
+Exactly this second check was unchecked at first: **one of fourteen mutations
+survived**, the removed JID check at the cancelling. The added test checks both — the
+refusal *and* that Carol's subscription still carries afterwards. To check only the
+refusal would let an implementation through that first signs off and then complains.
 
-Zwölf Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 962 bestanden,
-7 übersprungen.
+Twelve tests, fourteen mutations, all struck down. Full run: 962 passed, 7 skipped.
 
-**Was der Server weiterhin nicht kann** und was damit auch der Client nie zu
-sehen bekommt: mehrere gleichzeitige Abonnements desselben JIDs auf denselben
-Knoten — dafür gibt es die `subid` überhaupt. Sie wird trotzdem vergeben und
-geprüft, denn sie benennt ein Abonnement eindeutig; nur der Fall, der sie
-unentbehrlich macht, tritt hier nicht ein.
+**What the server still cannot do** and what the client thereby never gets to see:
+several simultaneous subscriptions of the same JID to the same node — that is what
+the `subid` exists for in the first place. It is given out and checked all the same,
+for it names a subscription unambiguously; only the case that makes it indispensable
+does not occur here.
 
 ---
 
-### D71. Erst die Antwort, dann die Buchführung ✅ — die ausgehende Korrelation
+### D71. First the answer, then the bookkeeping ✅ — the outgoing correlation
 
-Der Punkt stand seit D38 unter „Optional", und der Fehler war die ganze Zeit
-derselbe: `PubSubSubscribeAsync` verschickte die Anfrage und trug das
-Abonnement **in derselben Zeile** ein. Ein abgelehntes stand danach als
-bestehendes da, und der Aufrufer erfuhr es nie.
+The point had stood under "optional" since D38, and the error was the same the whole
+time: `PubSubSubscribeAsync` sent the request off and entered the subscription **in
+the same line**. A refused one afterwards stood there as an existing one, and the
+caller never learned it.
 
-**Es ist dieselbe Sorte Fehler wie die fünf aus der OMEMO-Reihe, nur ohne
-Kryptographie: eine Behauptung über etwas, das niemand nachgesehen hat.** Sie
-fällt lange nicht auf, weil sie im guten Fall stimmt.
+**It is the same sort of error as the five from the OMEMO series, only without
+cryptography: a claim about something nobody has looked up.** It does not come out
+for a long time, because in the good case it is right.
 
-Jetzt geht jede der sechs Anfragen über `SendIqAsync`, jede mit eigener
-Kennung — bis hierher trugen alle `subscribe` dieselbe feste `pubsub-sub`, was
-folgenlos war, solange niemand zuordnete, und beim ersten Zuordnen die zweite
-Anfrage mit der Antwort auf die erste versorgt hätte. Eingetragen wird nach dem
-`result`, gelöscht ebenfalls: **Wer den Eintrag vor der Antwort löscht, macht
-denselben Fehler andersherum** und verwirft die Meldungen eines Abonnements,
-das noch besteht.
+Now each of the six requests goes over `SendIqAsync`, each with an id of its own —
+up to here all `subscribe` carried the same fixed `pubsub-sub`, which was without
+consequence as long as nobody assigned anything, and at the first assigning would
+have supplied the second request with the answer to the first. Entered it is after
+the `result`, deleted likewise: **whoever deletes the entry before the answer makes
+the same error the other way round** and discards the reports of a subscription that
+still exists.
 
-Vom Ergebnis bleibt, was nur der Dienst weiss: die `subid`. Sie geht beim
-Abbestellen mit — vorgeschrieben ist sie erst bei mehreren Abonnements auf
-denselben Knoten, aber sie benennt auch das eine eindeutig.
+Of the result there remains what only the service knows: the `subid`. It goes along
+at the cancelling — prescribed it is only at several subscriptions to the same node,
+but it names the one unambiguously as well.
 
-`PubSubGetItemsAsync` hatte dieselbe Krankheit in ihrer klarsten Form: Sie
-verschickte die Anfrage und war fertig. Die Antwort kam an, gehörte niemandem
-und fiel aus dem Empfang heraus — **die Einträge, um die es ging, hat nie
-jemand gesehen.** Jetzt gibt sie sie zurück.
+`PubSubGetItemsAsync` had the same illness in its clearest form: it sent the request
+off and was finished. The answer arrived, belonged to nobody and fell out of the
+receiving — **the items it was about nobody ever saw.** Now it gives them back.
 
-## Ein Abonnement, das nichts einbrachte
+## A subscription that brought nothing in
 
-Dabei kam der Fund dieser Etappe heraus: **Der Spoofing-Schutz verwarf jede
-PEP-Meldung.** Er verglich den Absender mit dem PubSub-Dienst der Domain — eine
-PEP-Meldung kommt aber nach XEP-0163 vom Konto selbst. Aufgefallen ist es nie,
-weil bis zu diesem Punkt niemand ein Abonnement hatte, dessen Meldungen jemand
-erwartete; OMEMO geht seinen eigenen Weg.
+In doing so the find of this stage came out: **the protection against spoofing
+discarded every PEP report.** It compared the sender with the PubSub service of the
+domain — a PEP report however comes under XEP-0163 from the account itself. It never
+came out because up to this point nobody had a subscription whose reports anybody
+expected; OMEMO goes its own way.
 
-Ein bestätigtes Abonnement erlaubt jetzt zusätzlich den, bei dem es besteht —
-**und zwar für seinen Knoten, nicht überhaupt.** Wer bei Bob den Wetterknoten
-abonniert hat, hat nicht erlaubt, dass Bob Meldungen über jeden erdachten
-anderen schickt. Genau dafür ist die Adresse in der Buchführung die, an die
-*gefragt* wurde, und nicht das `from` der Antwort: Sonst könnte eine
-Gegenstelle sich selbst zur Quelle erklären.
+A confirmed subscription now additionally allows the one at whom it exists — **and
+for its node at that, not in general.** Whoever has subscribed to the weather node at
+Bob has not allowed Bob to send reports about every other one one might think of.
+Exactly for that the address in the bookkeeping is the one that was *asked*, and not
+the `from` of the answer: otherwise a far side could declare itself the source.
 
-## Drei Mutationen, die einen Zufall aufdeckten
+## Three mutations that uncovered a coincidence
 
-Von fünfzehn Mutationen überlebten drei, und alle drei zeigten auf dieselbe
-Lücke: **Antworten, die ein wohlerzogener Server nicht gibt.** Ein `result`
-ohne Zusage, eine Zusage ohne Knoten, ein Zustand, den dieser Client nicht
-kennt. Gegen den eigenen Server kommt so etwas nie — die Ablehnung hing also
-nicht an einer Entscheidung, sondern daran, dass in einer Fehlerantwort
-zufällig keine Zusage steht.
+Of fifteen mutations three survived, and all three pointed at the same gap:
+**answers a well-behaved server does not give.** A `result` without a confirmation, a
+confirmation without a node, a state this client does not know. Against our own
+server such a thing never comes — the refusal therefore hung not on a decision but on
+there happening to be no confirmation in an error answer.
 
-Prüfbar wurden sie über einen Testschalter: `AnswerPepRequests` lässt den
-Server schweigen, damit der Test selbst den Dienst spielen kann — wie
-`AnswerPings` für XEP-0199. Er trägt zugleich den Fall, den man am ehesten
-falsch behandelt, weil er sich nicht meldet: **Schweigen ist keine Zusage.**
+Checkable they became over a test switch: `AnswerPepRequests` lets the server keep
+silent so that the test can play the service itself — like `AnswerPings` for
+XEP-0199. It carries at the same time the case one most easily handles wrongly,
+because it does not report itself: **silence is no confirmation.**
 
-Siebzehn Tests, fünfzehn Mutationen, alle erschlagen. Voller Lauf: 977
-bestanden, 7 übersprungen.
+Seventeen tests, fifteen mutations, all struck down. Full run: 977 passed, 7 skipped.
 
 ---
 
