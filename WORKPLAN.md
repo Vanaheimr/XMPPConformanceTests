@@ -2810,243 +2810,232 @@ tries both variants — and keeps the encoding it found at the writing back, ins
 of silently giving an LF file a BOM. At least this failure was loud; the three
 silent ones from D25 were dearer.
 
-### D28. Ein Abbruch ist kein Verstoss ✅ — Abschnitt 6.4.4
+### D28. An abort is no offence ✅ — section 6.4.4
 
-Der Punkt aus D26: Ein `<abort/>` aus der SASL-Aushandlung bekam seit D26 einen
-Stream-Fehler. Wörtlich war das nicht falsch — der Server unterstützte das
-Element nicht, und Abschnitt 4.9.3.24 passt auf jedes Element, das er nicht
-kennt. Es war die schlechtere von zwei Antworten.
+The point from D26: an `<abort/>` out of the SASL negotiation got a stream error
+since D26. Word for word that was not wrong — the server did not support the
+element, and section 4.9.3.24 fits every element it does not know. It was the
+poorer of two answers.
 
-**Der Unterschied ist keine Feinheit.** Der Abbruch ist ein *vorgesehener*
-Schritt der Aushandlung, kein Protokollverstoss: Abschnitt 6.4.4 sieht ihn
-ausdrücklich vor und verlangt `<failure><aborted/></failure>`. Wer ihn mit dem
-Ende des Streams beantwortet, zwingt den Client zu einer neuen Verbindung für
-etwas, das der RFC innerhalb der bestehenden vorsieht.
+**The difference is no subtlety.** The abort is an *intended* step of the
+negotiation, no offence against the protocol: section 6.4.4 provides for it
+expressly and demands `<failure><aborted/></failure>`. Whoever answers it with the
+end of the stream forces the client to a new connection for something the RFC
+provides for within the existing one.
 
-Der halbe SCRAM-Austausch wird dabei verworfen, und das ist der eigentliche
-Inhalt eines Abbruchs. Bliebe er liegen, liesse er sich mit einer später
-nachgeschobenen `<response/>` noch zu Ende führen — der Abbruch wäre dann eine
-Höflichkeitsfloskel und keine Aussage. Ein eigener Test hält das fest.
+The half SCRAM exchange is discarded in doing so, and that is the actual content
+of an abort. Would it stay lying, it could be carried to the end with a
+`<response/>` pushed in later — the abort would then be a polite formula and no
+statement. A test of its own holds that fast.
 
-**Der S2S-Stream hatte dieselbe Lücke, und die ist meine eigene aus D27.** Vor
-der Strenge blieb ein `<abort/>` dort liegen, danach beendete es den Stream.
-Dieselbe Antwort ist nachgezogen — mit einem Unterschied: Zu verwerfen ist
-nichts, weil SASL-EXTERNAL ein einziger Zug ist und keinen halben Austausch
-kennt. Und wer selbst angewählt hat, beantwortet keinen Abbruch; er wäre der,
-der ihn schickt.
+**The S2S stream had the same gap, and it is my own from D27.** Before the
+strictness an `<abort/>` stayed lying there, after it, it ended the stream. The
+same answer has been drawn along — with one difference: there is nothing to
+discard, because SASL EXTERNAL is a single move and knows no half exchange. And
+whoever has dialled themselves answers no abort; they would be the one who sends
+it.
 
-**Die Lehre gehört zu D26 und D27 und schliesst sie ab:** Wer eine Weiche streng
-macht, erbt jede Antwort, die sie noch nicht kennt. Vorher fiel Unbekanntes
-stillschweigend hinten heraus, und jede fehlende Antwort war eine Lücke ohne
-Folgen; danach ist jede fehlende Antwort ein beendeter Stream. Die Strenge war
-richtig — aber sie verwandelt Unterlassungen in Schäden, und die Liste dessen,
-was noch fehlt, gehört ab da abgearbeitet und nicht nur geführt.
+**The lesson belongs to D26 and D27 and closes them:** whoever makes a switch
+strict inherits every answer it does not yet know. Before, the unknown fell out
+silently at the back, and every missing answer was a gap without consequences;
+afterwards every missing answer is an ended stream. The strictness was right — but
+it turns omissions into damage, and the list of what is still missing belongs
+worked through from then on and not merely kept.
 
-Geprüft wird über einen rohen `ClientWebSocket` nach dem Vorbild aus
-`WebSocketFederationTests`: Der Abbruch gehört **mitten** in die Aushandlung, und
-dort führt der richtige Client sein eigenes Gespräch. Nur von Hand lässt sich ein
-halb begonnener SCRAM-Austausch überhaupt herstellen.
+Checked over a raw `ClientWebSocket` after the model from
+`WebSocketFederationTests`: the abort belongs **in the middle** of the
+negotiation, and there the real client holds its own conversation. Only by hand
+can a half-begun SCRAM exchange be produced at all.
 
-Fünf Mutationen, alle erschlagen — zwei davon erst nach einer Korrektur an den
-Tests.
+Five mutations, all struck down — two of them only after a correction to the
+tests.
 
-Die eine war eine Lücke: Für die Gegenrichtung — ein Initiator, der einen
-Abbruch bekommt — gab es keinen Test. Statt sie als bekannten Überlebenden zu
-vermerken, ist der Test nachgetragen.
+The one was a gap: for the counter-direction — an initiator that gets an abort —
+there was no test. Instead of noting it as a known survivor, the test is added.
 
-**Die andere ist die lehrreichere, und sie ist wieder die Falle aus D20 und
-D24.** Die Mutation lässt den halben SCRAM-Austausch nach dem Abbruch stehen —
-und mein Test dafür bestand trotzdem. Er schob nach dem Abbruch eine
-**unsinnige** `<response/>` nach und prüfte auf `not-authorized`. Nur ergibt
-eine unsinnige Antwort `not-authorized`, ob der Austausch nun verworfen wurde
-oder nicht: Beide Welten geben dieselbe Antwort, und der Test prüfte nichts.
+**The other is the more instructive, and it is again the trap from D20 and D24.**
+The mutation lets the half SCRAM exchange stand after the abort — and my test for
+it passed all the same. It pushed a **nonsensical** `<response/>` in after the
+abort and checked for `not-authorized`. Only a nonsensical answer yields
+`not-authorized` whether the exchange was discarded or not: both worlds give the
+same answer, and the test checked nothing.
 
-Erst eine Antwort, die **durchginge**, trennt die Fälle. Sie wird jetzt mit dem
-echten `SCRAMAuthenticator` des Clients gebaut — mit ihr führte der liegen
-gebliebene Austausch zu `<success/>`, mit verworfenem zu einer Absage. Der Test
-prüft seitdem auch, dass **kein** `<success/>` kommt, und das ist die Hälfte, um
-die es eigentlich geht.
+Only an answer that **would get through** separates the cases. It is now built
+with the real `SCRAMAuthenticator` of the client — with it the exchange left lying
+led to `<success/>`, with a discarded one to a refusal. The test has since also
+checked that **no** `<success/>` comes, and that is the half it is actually about.
 
-Das Muster wiederholt sich damit zum dritten Mal, und es ist immer dasselbe:
-Ein Test stellt eine Lage her, in der die richtige und die falsche Fassung
-dasselbe antworten. Er sieht dann aus wie ein Nachweis und ist keiner. Die
-Gegenprobe dafür ist billig und gehört zur Gewohnheit — **welche Antwort gäbe
-der Server ohne diese Zeile?** Ist es dieselbe, prüft der Test die Zeile nicht.
+The pattern thereby repeats itself for the third time, and it is always the same:
+a test produces a situation in which the right and the wrong version answer the
+same. It then looks like a proof and is none. The counter-check for it is cheap
+and belongs to the habit — **which answer would the server give without this
+line?** Is it the same, then the test does not check the line.
 
-### D29. Ein bekannter Namensraum macht das Element nicht bekannt ✅
+### D29. A known namespace does not make the element known ✅
 
-Die letzte Stelle im Haus, an der ein Rahmen noch stillschweigend hinten
-herausfiel: Der Zweig für XEP-0198 prüfte den **Namensraum** und liess alles
-darin fallen, was er nicht kannte.
+The last place in the house at which a frame still fell out silently at the back:
+the branch for XEP-0198 checked the **namespace** and dropped everything in it
+that it did not know.
 
-Abschnitt 4.9.3.24 nennt ausdrücklich beides — „because the receiving entity
-does not understand the namespace **or** because the receiving entity does not
-understand the element name for the applicable namespace". Der zweite Halbsatz
-ist genau dieser Fall, und er war der einzige, der noch offen stand.
+Section 4.9.3.24 names both expressly — "because the receiving entity does not
+understand the namespace **or** because the receiving entity does not understand
+the element name for the applicable namespace". The second half-sentence is
+exactly this case, and it was the only one that still stood open.
 
-**Der interessantere der beiden geprüften Fälle ist nicht das erfundene
-Element, sondern `<enabled/>`.** Das ist ein *richtiges* Element aus XEP-0198 —
-nur schickt es der Server an den Client und nicht umgekehrt. Bekannt heisst
-nicht „bekannt in dieser Richtung", und ein Zweig, der nur den Namensraum
-ansieht, kann diesen Unterschied gar nicht machen.
+**The more interesting of the two checked cases is not the invented element but
+`<enabled/>`.** That is a *real* element from XEP-0198 — only the server sends it
+to the client and not the other way round. Known does not mean "known in this
+direction", and a branch that looks only at the namespace cannot make this
+difference at all.
 
-Umgesetzt ist es als Rückgabewert statt als zweiter Prüfung: Der Zweig sagt
-jetzt, ob er zuständig war, und was er nicht kennt, fällt weiter nach unten und
-bekommt dieselbe Antwort wie jedes andere unbekannte Element. Eine zweite Liste
-der bekannten Namen neben der ersten wäre die naheliegende Lösung gewesen und
-die schlechtere — zwei Aufzählungen, die auseinanderlaufen können, für eine
-Frage, die der Zweig ohnehin schon beantwortet.
+Implemented it is as a return value instead of as a second check: the branch now
+says whether it was responsible, and what it does not know falls further down and
+gets the same answer as every other unknown element. A second list of the known
+names beside the first would have been the obvious solution and the poorer one —
+two enumerations that can run apart, for a question the branch answers already
+anyway.
 
-Sechs Mutationen, alle erschlagen — je eine für jeden der vier Zweige, die
-Weiche selbst und den Rückfall am Ende. Eine davon erst nach einem
-nachgetragenen Test, und die ist der eigentliche Fund dieses Punktes.
+Six mutations, all struck down — one each for each of the four branches, the
+switch itself and the fallback at the end. One of them only after an added test,
+and that is the actual find of this point.
 
-**Der `<a/>`-Zweig war von keinem Test erreicht.** Die Mutation erklärte ihn für
-unzuständig — womit die Bestätigung des Clients seit dieser Änderung den Stream
-beendet hätte —, und kein einziger Test fiel darüber. Über eine echte Verbindung
-hat nie ein Client ein `<a/>` an den Server geschickt: Geprüft war nur der
-Zähler für sich, in `StanzaCountingTests`, nie sein Weg durch den Server.
+**The `<a/>` branch was reached by no test.** The mutation declared it not
+responsible — with which the acknowledgement of the client would have ended the
+stream since this change —, and not a single test fell over it. Over a real
+connection a client has never sent an `<a/>` to the server: checked was only the
+counter for itself, in `StanzaCountingTests`, never its way through the server.
 
-**Die Lücke ist älter als die Zeile, die sie sichtbar gemacht hat.** Der Zweig
-gab vorher nichts zurück; ob er lief, war von aussen nicht zu sehen. Erst der
-Rückgabewert hat ihn beobachtbar gemacht — und eine Mutation daran konnte
-überhaupt erst auffallen. Ein Zweig, dessen Wirkung niemand beobachtet, sieht
-aus wie einer, den niemand braucht.
+**The gap is older than the line that made it visible.** The branch gave nothing
+back before; whether it ran was not to be seen from outside. Only the return value
+made it observable — and a mutation on it could come out in the first place. A
+branch whose effect nobody observes looks like one nobody needs.
 
-Das ist dasselbe Muster wie in D26, nur andersherum: Dort machte eine neue
-Antwort eine alte Nachlässigkeit sichtbar, hier macht ein neuer Rückgabewert
-eine alte Testlücke sichtbar. **Beobachtbarkeit ist keine Nebenwirkung einer
-Änderung, sondern manchmal ihr grösserer Teil.**
+That is the same pattern as in D26, only the other way round: there a new answer
+made an old negligence visible, here a new return value makes an old gap in the
+tests visible. **Observability is no side effect of a change, but sometimes its
+greater part.**
 
-**Und der Punkt aus D25 hat heute zum vierten Mal zugeschlagen.** Jede Mutation,
-die die Aushandlung zerbricht — `set` aus der Typliste (D25), `iq` aus der
-Weiche (D26), `<abort/>` ohne Antwort, `<enable/>` als unbehandelt (hier) —,
-lässt den Lauf **hängen** statt scheitern: `XMPPConnection.ConnectAsync` wartet
-ohne eigene Frist auf eine Antwort, die nie kommt. Viermal derselbe Befund aus
-vier verschiedenen Richtungen ist kein Zufall mehr, sondern eine Eigenschaft.
+**And the point from D25 has struck for the fourth time today.** Every mutation
+that breaks the negotiation — `set` out of the list of types (D25), `iq` out of
+the switch (D26), `<abort/>` without an answer, `<enable/>` as unhandled (here) —
+lets the run **hang** instead of fail: `XMPPConnection.ConnectAsync` waits without
+a deadline of its own for an answer that never comes. Four times the same finding
+from four different directions is no coincidence any more, but a property.
 
-Der Umgang damit ist inzwischen eingespielt und hat selbst zwei Lehren gekostet:
-`--blame-hang` macht aus dem Hänger einen Fehlschlag, und **der Filter bleibt
-dabei unverändert** — eine Verengung hat in D25 aus einem erschlagenen Mutanten
-einen überlebenden gemacht. Abgeschossen wird das Skript und nicht der
-Testprozess; in D26 lief sonst der alte Durchgang neben dem neuen weiter.
-Beim Abbruch hier trug die Datei wieder eine Mutation, und gefunden hat sie —
-zum zweiten Mal — der Hash-Vergleich gegen die Sicherung und nicht meine
-Aufmerksamkeit.
+The handling of it is practised by now and has itself cost two lessons:
+`--blame-hang` makes a failure out of the hanger, and **the filter stays unchanged
+in doing so** — a narrowing made a surviving mutant out of a struck-down one in
+D25. Shot down is the script and not the test process; in D26 the old pass would
+otherwise have run on beside the new one. At the breaking off here the file again
+carried a mutation, and found it — for the second time — the comparison of hashes
+against the backup and not my attention.
 
-Damit ist die Reihe D26 bis D29 abgeschlossen: Erst riet die Weiche (D26), dann
-wurde sie streng (D26, D27), dann kamen die Antworten nach, die sie durch die
-Strenge schuldig wurde (D28, D29). **Der Bogen ist die eigentliche Lehre.** Eine
-Nachlässigkeit, die nichts tut, kostet nichts — bis eine Verschärfung daneben
-sie in einen Schaden verwandelt. Wer verschärft, übernimmt damit auch alles,
-was vorher folgenlos fehlte.
+With that the series D26 to D29 is closed: first the switch guessed (D26), then it
+became strict (D26, D27), then came the answers it owed through the strictness
+(D28, D29). **The arc is the actual lesson.** A negligence that does nothing costs
+nothing — until a tightening beside it turns it into damage. Whoever tightens
+thereby takes on everything as well that was missing without consequence before.
 
-### D30. Schweigen kommt nicht an ✅ — und mein Vermerk war falsch
+### D30. Silence does not arrive ✅ — and my note was wrong
 
-Der Punkt, der heute fünfmal zugeschlagen hat: Jede Mutation, die die
-Aushandlung zerbricht, liess den Lauf **hängen** statt scheitern. Fünfmal
-derselbe Befund aus fünf Richtungen ist keine Beobachtung mehr, sondern eine
-Eigenschaft.
+The point that has struck five times today: every mutation that breaks the
+negotiation let the run **hang** instead of fail. Five times the same finding from
+five directions is no observation any more, but a property.
 
-**Und die erste Handlung war, den eigenen Vermerk zu widerlegen.** Er lautete
-seit D25: „`ConnectAsync` wartet ohne eigene Frist auf die Antwort zum Resource
-Binding". Das Binding hat sehr wohl eine Frist — `SendIqAsync` setzt sie seit
-jeher, zehn Sekunden. Ohne Frist waren die **Lese-Schritte** davor: Stream-Kopf,
-Features und jede SASL-Runde gehen über `ReceiveStanzaAsync`, und das wartete
-allein auf dem Token des Aufrufers.
+**And the first act was to refute my own note.** It read since D25:
+"`ConnectAsync` waits without a deadline of its own for the answer to the resource
+binding". The binding does very well have a deadline — `SendIqAsync` has always
+set it, ten seconds. Without a deadline were the **reading steps** before it:
+stream header, features and every SASL round go over `ReceiveStanzaAsync`, and
+that waited on the token of the caller alone.
 
-Dieselbe Lehre wie in D19 und D23, diesmal an einer Diagnose statt an einer
-Liste: Ein aus dem Kopf geschriebener Vermerk ist keine Bestandsaufnahme. Hätte
-ich ihn geglaubt, hätte ich eine Frist an eine Stelle gesetzt, die schon eine
-hat, und den Fehler behalten.
+The same lesson as in D19 and D23, this time at a diagnosis instead of at a list:
+a note written out of one's head is no stocktaking. Had I believed it, I would have
+put a deadline at a place that has one already, and kept the error.
 
-**Was ein Fehlschlag nicht herstellt, ist Schweigen.** Ein Fehler kommt an, ein
-geschlossener Socket kommt an — beides bringt die Aushandlung zum Abschluss.
-Schweigen kommt nicht an. Deshalb liess sich der Fall mit keinem der
-vorhandenen Testschalter nachstellen, und deshalb gibt es jetzt
-`XMPPServer.AnswerStreamOpen`: eine Gegenstelle, die die Verbindung annimmt und
-dann nichts mehr sagt. Kein erfundener Fall — ein Server hinter einer
-Zustandstabelle, die den Rückweg vergessen hat, verhält sich genau so, und es
-ist der unangenehmste Ausgang von allen, weil der Aufrufer nie erfährt, dass
-etwas nicht stimmt.
+**What a failure does not produce is silence.** An error arrives, a closed socket
+arrives — both bring the negotiation to a conclusion. Silence does not arrive.
+This is why the case could be reproduced with none of the existing test switches,
+and this is why there is now `XMPPServer.AnswerStreamOpen`: a far side that accepts
+the connection and then says nothing more. No invented case — a server behind a
+state table that has forgotten the way back behaves exactly like that, and it is
+the most unpleasant outcome of all, because the caller never learns that something
+is not right.
 
-Die Frist gilt dem **Schritt** und nicht dem einzelnen Lesevorgang: Ein Rahmen,
-der in Stücken ankommt, darf zusammen nicht länger brauchen als einer am Stück.
-Und sie nennt, worauf gewartet wurde — „auf den Stream-Kopf", „auf die
-SCRAM-Challenge". Eine abgelaufene Frist ohne diese Angabe verschiebt die Suche
-nur: Der Aufrufer weiss dann, dass etwas nicht kam, aber nicht, was. Genau daran
-habe ich heute mehrfach Zeit verloren.
+The deadline holds for the **step** and not for the single reading: a frame that
+arrives in pieces may not take longer together than one in one piece. And it names
+what was waited for — "for the stream header", "for the SCRAM challenge". An
+expired deadline without this information only shifts the search: the caller then
+knows that something did not come, but not what. On exactly that I have lost time
+several times today.
 
-Vier Mutationen, alle erschlagen — die Frist selbst, beide Hälften der Meldung
-und der neue Testschalter. Eine brach zuerst ab, weil **PowerShell 5.1 ein
-Skript ohne BOM in der ANSI-Codepage liest** und das „ü" im Suchmuster
-verstümmelt ankam. Die Mutationsskripte tragen jetzt ein BOM. Immerhin war
-dieser Fehlschlag laut; die stillen aus D25 waren teurer.
+Four mutations, all struck down — the deadline itself, both halves of the message
+and the new test switch. One broke off at first because **PowerShell 5.1 reads a
+script without a BOM in the ANSI code page** and the "ü" in the search pattern
+arrived mangled. The mutation scripts now carry a BOM. At least this failure was
+loud; the silent ones from D25 were dearer.
 
-**Ein zweiter Irrtum steckte im eigenen Test.** Er erwartete zuerst eine
-Ausnahme aus `ConnectAsync` — die kommt nicht, weil `ConnectInternalAsync` jeden
-Verbindungsfehler abfängt und über `OnError` und den Zustand meldet. Das ist die
-Bauart des Hauses und war nie der Mangel: Der Mangel war, dass der Aufruf **gar
-nicht zurückkam**. Geprüft wird jetzt die Rückkehr und die Meldung. Ob ein
-stillschweigend zurückkehrendes `ConnectAsync` eine gute Schnittstelle ist, ist
-eine andere Frage, betrifft jeden Aufrufer und steht unter „Später".
+**A second error of mine sat in my own test.** It expected an exception out of
+`ConnectAsync` at first — that does not come, because `ConnectInternalAsync`
+catches every error of connecting and reports over `OnError` and the state. That is
+the build of the house and was never the defect: the defect was that the call **did
+not come back at all**. Checked is now the returning and the report. Whether a
+silently returning `ConnectAsync` is a good interface is another question, concerns
+every caller and stands under "Later".
 
-### D31. Ein Aufruf, der nichts sagt ✅
+### D31. A call that says nothing ✅
 
-Der Punkt aus D30, und er war ausdrücklich als **Entwurfsentscheidung** vermerkt
-und nicht als Fehler: `ConnectAsync` kehrte bei einem gescheiterten Aufbau
-stillschweigend zurück. Der Fehler ging an `OnError` und an den Zustand — wer
-nichts abonniert hatte, sah zwischen gelungen und gescheitert keinen
-Unterschied und arbeitete auf einer Verbindung weiter, die es nicht gibt.
+The point from D30, and it was noted expressly as a **decision of design** and not
+as an error: `ConnectAsync` returned silently at a failed setup. The error went to
+`OnError` and to the state — whoever had subscribed to nothing saw no difference
+between succeeded and failed and went on working on a connection that does not
+exist.
 
-Dasselbe Übel wie in D30, eine Ebene höher: **Dort kam gar keine Antwort, hier
-kommt eine, die nichts sagt.**
+The same evil as in D30, one level higher: **there no answer came at all, here
+comes one that says nothing.**
 
-Ein Rückgabewert hätte es nicht behoben. Einen kann man ignorieren, und ein
-ignorierter Rückgabewert ist wieder Schweigen — genau die Eigenschaft, um die es
-geht. Also wirft der Aufruf.
+A return value would not have fixed it. One can be ignored, and an ignored return
+value is silence again — exactly the property it is about. So the call throws.
 
-**Geworfen wird der ursprüngliche Fehler**, nicht eine Hülle darum: Ein falsches
-Passwort bleibt eine `AuthenticationException`, eine Zeitüberschreitung eine
-`XMPPProtocolException`, und der Aufrufer unterscheidet sie, ohne in einer
-Meldung zu lesen. Der Stapel bleibt der des Fehlers und nicht der dieser Stelle.
+**Thrown is the original error**, not a shell around it: a wrong password stays an
+`AuthenticationException`, a timeout an `XMPPProtocolException`, and the caller
+distinguishes them without reading in a message. The stack stays the one of the
+error and not the one of this place.
 
-**Und nur der ausdrückliche Aufruf wirft.** Der Wiederverbindungsversuch im
-Hintergrund läuft durch dieselbe `ConnectInternalAsync`, hat aber keinen
-Aufrufer, dem er etwas schulden könnte; er meldet weiterhin über Ereignisse.
-Deshalb steht die Entscheidung in `ConnectAsync` und nicht dort, wo der Fehler
-entsteht — der Unterschied ist nicht die Art des Fehlers, sondern ob jemand auf
-eine Antwort wartet.
+**And only the express call throws.** The attempt at reconnecting in the background
+runs through the same `ConnectInternalAsync`, but has no caller it could owe
+anything to; it still reports over events. This is why the decision stands in
+`ConnectAsync` and not where the error arises — the difference is not the type of
+the error, but whether somebody is waiting for an answer.
 
-**Der Preis war messbar, und er ist der eigentliche Ertrag.** Elf Tests fielen,
-und es waren genau die elf, die einen erwarteten Fehlschlag prüfen: falsches
-Passwort, unbekanntes Konto, verfälschte Serversignatur, abgelehntes Zertifikat,
-abgelehntes Binding, Downgrade-Schutz. Alle elf standen auf einem blossen
-`await` und den Zusicherungen danach — was nur ging, weil der Aufruf schwieg.
+**The price was measurable, and it is the actual yield.** Eleven tests fell, and it
+was exactly the eleven that check an expected failure: wrong password, unknown
+account, falsified server signature, refused certificate, refused binding,
+protection against downgrade. All eleven stood on a mere `await` and the assurances
+after it — which was possible only because the call kept silent.
 
-Sie laufen jetzt über einen gemeinsamen Helfer, `FailingConnectAsync`, der die
-Erwartung ausdrücklich macht: **hier muss es scheitern.** Damit prüfen die elf
-eine Zusicherung mehr als vorher — dass der Fehlschlag überhaupt beim Aufrufer
-ankommt. Der Radius einer Entwurfsänderung ist selten nur Aufwand; hier war er
-die Liste der Stellen, die von der stillen Rückkehr gelebt haben.
+They now run over a common helper, `FailingConnectAsync`, that makes the
+expectation express: **here it has to fail.** With that the eleven check one
+assurance more than before — that the failure arrives at the caller at all. The
+radius of a change of design is seldom only effort; here it was the list of the
+places that lived off the silent returning.
 
-Fünf Mutationen, vier erschlagen. Die fünfte ist eine **benannte Ausnahme**: Das
-Zurücksetzen von `_lastConnectError` zu Beginn ist heute unbeobachtbar. Gelesen
-wird das Feld nur, wenn der Zustand nicht `Connected` ist — und dorthin führt
-kein Weg, der nicht vorher durch einen der beiden `catch` gelaufen wäre, die es
-frisch setzen. Die Zeile bleibt trotzdem stehen: Sie verhindert, dass ein
-künftiger Pfad, der ohne `catch` scheitert, einen Fehler von vorgestern wirft.
-Vorkehrung, nicht Wirkung — wie die Abkürzung über die leere Offline-Ablage aus
-D14.
+Five mutations, four struck down. The fifth is a **named exception**: the resetting
+of `_lastConnectError` at the beginning is unobservable today. The field is read
+only when the state is not `Connected` — and there leads no way there that would
+not have run through one of the two `catch` before that set it freshly. The line
+stays standing all the same: it prevents a future path that fails without a `catch`
+from throwing an error from the day before yesterday. A precaution, no effect —
+like the shortcut over the empty offline store from D14.
 
-### D32. Der Fehlschlag ohne Namen hatte einen ✅
+### D32. The failure without a name had one ✅
 
-Der offene Punkt aus D29: Ein Vollauf meldete **einen** Fehlschlag, der nächste
-gleiche Lauf war grün, und der Name steckte in der weggeworfenen Ausgabe.
+The open point from D29: one full run reported **one** failure, the next identical
+run was green, and the name sat in the output that was thrown away.
 
-Wiederfinden liess er sich nicht — wiederholen schon. Drei Vollläufe unter den
-Bedingungen von damals (ejabberd weg, 16 übersprungen), diesmal vollständig
-mitgeschnitten. Der erste Lauf hatte ihn:
+Find it again could not be done — repeat it could. Three full runs under the
+conditions of back then (ejabberd gone, 16 skipped), this time recorded completely.
+The first run had it:
 
 ```
 Fehler AnAckFromTheClient_IsProcessedAndClearsTheQueue
@@ -3054,289 +3043,270 @@ Fehler AnAckFromTheClient_IsProcessedAndClearsTheQueue
   But was:  3
 ```
 
-**Es war mein eigener Test aus D29** — der, der die Lücke im `<a/>`-Zweig
-geschlossen hat. Er stand seit einem Tag im Baum, und der unerklärte Fehlschlag
-kam im selben Durchgang; der Verdacht lag also nahe und war trotzdem nur ein
-Verdacht, bis der Mitschnitt ihn benannt hat.
+**It was my own test from D29** — the one that closed the gap in the `<a/>` branch.
+It had stood in the tree for a day, and the unexplained failure came in the same
+pass; the suspicion was therefore obvious and was nevertheless only a suspicion
+until the recording named it.
 
-**Der Fehler ist ein Massfehler und kein Wettlauf im üblichen Sinn.** Der Test
-prüfte: „nach der Bestätigung sind weniger Stanzas offen als vorher". Eine
-Bestätigung sagt aber nichts über eine *Anzahl*. Sie sagt: **alles bis zu dieser
-Folgenummer ist erledigt.** Was danach hereinkommt — Bobs Presence, ein paar
-Millisekunden später —, lässt die Warteschlange wieder wachsen, und die Anzahl
-steigt, obwohl die Bestätigung genau das Richtige getan hat.
+**The error is an error of measurement and no race in the usual sense.** The test
+checked: "after the acknowledgement fewer stanzas are open than before". An
+acknowledgement however says nothing about a *number*. It says: **everything up to
+this sequence number is settled.** What comes in afterwards — Bob's presence, a
+few milliseconds later — lets the queue grow again, and the number rises although
+the acknowledgement did exactly the right thing.
 
-Geprüft wird jetzt die Folgenummer: keine offene Stanza mit `Seq <= h`. Damit
-darf nach der Bestätigung ankommen, was will.
+Checked is now the sequence number: no open stanza with `Seq <= h`. With that
+whatever wants may arrive after the acknowledgement.
 
-**Und die Gegenprobe war der wichtigere Teil.** Ein entflockter Test wird leicht
-zu einem, der nichts mehr prüft — die bequemste Art, einen Wackelkandidaten
-loszuwerden, ist, ihm die Zusicherung zu nehmen. Deshalb lief die Mutation aus
-D29 (`<a/>` gilt als unbehandelt) noch einmal gegen die neue Fassung: Sie fällt
-weiterhin. Entflockt, nicht entschärft.
+**And the counter-check was the more important part.** A de-flaked test easily
+becomes one that checks nothing any more — the most convenient way to get rid of a
+flaky candidate is to take its assurance away from it. This is why the mutation
+from D29 (`<a/>` counts as unhandled) ran once more against the new version: it
+still falls. De-flaked, not defused.
 
-**Die Bestätigungsläufe haben dann einen zweiten, anderen Wackelkandidaten
-gezeigt** — und diesmal lag der Mitschnitt sofort vor:
-`AFailureWhileHandlingAFrame_IsReported` meldete
+**The confirming runs then showed a second, different flaky candidate** — and this
+time the recording lay ready at once: `AFailureWhileHandlingAFrame_IsReported`
+reported
 
 ```
 Expected: String containing "ausloeser"
 But was:  "<presence xmlns='jabber:client'><c xmlns='...caps' .../></presence>"
 ```
 
-Derselbe Massfehler in anderer Gestalt. Der Test legt den Fehlschalter um und
-schickt einen Rahmen; genommen hat er dann die **erste** Meldung überhaupt — und
-das war gelegentlich die automatische Anmelde-Presence des Clients, die noch
-unterwegs war, als der Schalter umging. Was zuerst gemeldet wird, entscheidet
-der Zeitverlauf; was der Test wissen will, ist eine andere Frage. Gesucht wird
-jetzt die Meldung **zum eigenen Rahmen**.
+The same error of measurement in a different shape. The test throws the switch for
+failure and sends a frame; taken it then had the **first** report at all — and that
+was occasionally the automatic login presence of the client, which was still on its
+way when the switch was thrown. What is reported first is decided by the passing of
+time; what the test wants to know is another question. Sought is now the report
+**about our own frame**.
 
-Beide Male dieselbe Gegenprobe: Ein entflockter Test wird leicht zu einem, der
-nichts mehr prüft, und die bequemste Art, einen Wackler loszuwerden, ist, ihm
-die Zusicherung zu nehmen. Deshalb lief gegen jede neue Fassung die Mutation,
-die sie halten soll — `<a/>` gilt als unbehandelt (D29) und der Frame wird nicht
-mitgemeldet (D18). Beide fallen weiterhin.
+Both times the same counter-check: a de-flaked test easily becomes one that checks
+nothing any more, and the most convenient way to get rid of a flaky one is to take
+its assurance away from it. This is why against every new version the mutation ran
+that it is to hold — `<a/>` counts as unhandled (D29) and the frame is not reported
+along (D18). Both still fall.
 
-Zwei Dinge zur Arbeitsweise, beide selbstverschuldet: Ich habe die Testdatei
-geändert, **während** der zweite Jagdlauf lief — dessen Ergebnis war damit
-wertlos, und ich habe die Jagd abgebrochen statt es zu verwenden. Das ist
-dieselbe Nachlässigkeit wie in D26, nur ohne Schaden, weil sie diesmal sofort
-auffiel. Und der Fund selbst hängt allein daran, dass Vollläufe seit D29
-vollständig in eine Datei gehen: **Ein Fehlschlag ohne Namen ist einer, den man
-nicht wiederfindet** — die Regel, die aus dem Fall entstanden ist, hat den Fall
-gelöst.
+Two things about the way of working, both my own fault: I changed the test file
+**while** the second hunting run was going — its result was thereby worthless, and
+I broke the hunt off instead of using it. That is the same negligence as in D26,
+only without damage, because this time it came out at once. And the find itself
+hangs solely on full runs going completely into a file since D29: **a failure
+without a name is one that cannot be found again** — the rule that arose out of the
+case has solved the case.
 
-**Und eine Zahl, die nachdenklich macht:** In sieben Vollläufen an diesem Abend
-fielen zwei verschiedene Tests je einmal. Beide waren Massfehler in Tests, die
-ich selbst geschrieben habe, beide entstanden dadurch, dass etwas Nebenläufiges
-— eine Presence — zwischen Messung und Prüfung geriet. Der Verdacht liegt nahe,
-dass es nicht die letzten sind; die Jagd bleibt deshalb ein wiederholbares
-Werkzeug und keine einmalige Aktion.
+**And a number that gives pause:** in seven full runs on this evening two different
+tests fell once each. Both were errors of measurement in tests I wrote myself, both
+arose through something concurrent — a presence — getting between measuring and
+checking. The suspicion is obvious that they are not the last; the hunt therefore
+stays a repeatable tool and no one-off action.
 
-### D33. Eine Vermutung, die nicht trug ✅
+### D33. A supposition that did not hold ✅
 
-Der letzte offene Wackelkandidat, aus D16: `TheStreamSurvivesABrokenConnection`
-gegen einen Fremdserver scheiterte in einem von vier Vollläufen mit einer
-Zeitüberschreitung, allein aber vier von vier Mal grün. Der Vermerk nannte einen
-Verdacht — „15 Sekunden für Wiederverbindung samt Wiederaufnahme sind unter Last
-des vollen Laufs mit exponentiellem Backoff knapp" — und die ausdrückliche
-Auflage, **vor** einer Änderung der Wartezeit zu klären, ob wirklich der Backoff
-bremst.
+The last open flaky candidate, from D16: `TheStreamSurvivesABrokenConnection`
+against a foreign server failed in one of four full runs with a timeout, on its own
+however green four out of four times. The note named a suspicion — "15 seconds for
+reconnecting together with resumption are tight under the load of the full run with
+exponential backoff" — and the express obligation to clear up **before** a change
+of the waiting time whether the backoff really slows things down.
 
-**Geklärt ist jetzt, dass der Verdacht nicht trägt.** Zwanzig gezielte
-Durchgänge, vierzig Ausführungen gegen beide Gegenstellen, jede einzelne
-zwischen **519 und 669 Millisekunden** — eine Verteilung ohne jeden Ausreisser,
-bei einer Frist von 15 Sekunden. Das ist rund fünfundzwanzigfache Luft und kein
-knappes Budget. Die Frist bleibt deshalb unverändert; sie zu erhöhen hätte einen
-Befund vorgetäuscht, den es nicht gibt.
+**Cleared up is now that the suspicion does not hold.** Twenty targeted passes,
+forty executions against both far sides, every single one between **519 and 669
+milliseconds** — a distribution without any outlier, at a deadline of 15 seconds.
+That is about twenty-five-fold air and no tight budget. The deadline therefore stays
+unchanged; to raise it would have feigned a finding that does not exist.
 
-Wiederholen liess sich der Fehlschlag nicht — auch nicht in den sieben
-Vollläufen aus D32. Möglich ist, dass D30 ihn nebenbei beseitigt hat: Vor D30
-konnte ein Lese-Schritt der Aushandlung **unbegrenzt** hängen, und ein
-Wiederverbindungsversuch, der dort steckenblieb, hätte genau dieses Bild
-ergeben — Frist abgelaufen, kein Fortschritt. Das ist eine Erklärung, die zum
-Symptom passt, und kein Nachweis; sie steht hier als das, was sie ist.
+Repeat the failure could not be done — not in the seven full runs from D32 either.
+Possible is that D30 removed it along the way: before D30 a reading step of the
+negotiation could hang **without a bound**, and an attempt at reconnecting that got
+stuck there would have yielded exactly this picture — deadline expired, no progress.
+That is an explanation that fits the symptom, and no proof; it stands here as what
+it is.
 
-**Was bleibt, ist die Vorsorge, und die ist der eigentliche Ertrag.** Beim
-Scheitern sagte die Meldung bisher nur „Zeitüberschreitung beim Warten auf: den
-wiederaufgenommenen Stream" — nichts darüber, wie weit der Client gekommen ist.
-Genau daran ist der Fall in D16 gescheitert. Der Zähler schreibt jetzt den
-Verlauf mit: jeden Zustandswechsel und jeden gemeldeten Fehler. Erzwungen
-nachgestellt sieht das so aus:
+**What remains is the precaution, and that is the actual yield.** At the failing the
+message until now said only "timeout at the waiting for: the resumed stream" —
+nothing about how far the client had got. On exactly that the case in D16 failed.
+The counter now records the history: every change of state and every reported error.
+Forced and reproduced it looks like this:
 
 ```
-Der Stream wurde binnen 15 Sekunden nicht wieder aufgenommen.
-Verlauf: Connected->Disconnected
+The stream was not resumed within 15 seconds.
+History: Connected->Disconnected
 ```
 
-— und man sieht sofort, dass der Client es nicht einmal versucht hat. Bei einem
-echten Vorfall stünde dort die ganze Kette samt Fehlern.
+— and one sees at once that the client did not even try. At a real incident the
+whole chain together with errors would stand there.
 
-**Ein Fehlschlag, der sich selbst erklärt, kostet einmal Schreibarbeit; einer,
-der es nicht tut, kostet jedes Mal eine Untersuchung.** In D29 hat mich das eine
-verlorene Diagnose gekostet, in D16 eine, die sechzehn Punkte lang offen blieb.
+**A failure that explains itself costs writing work once; one that does not costs
+an investigation every time.** In D29 that cost me one lost diagnosis, in D16 one
+that stayed open for sixteen points.
 
-Nebenbei aufgeräumt: Beim Ergänzen des `using` hatte ich ein CRLF in eine
-LF-Datei geschrieben — genau die Vermischung, auf die ich in D26 noch geprüft
-und die ich diesmal selbst erzeugt hatte. Aufgefallen ist sie, weil das
-Suchmuster für die Gegenprobe nicht passte; die Datei ist wieder durchgehend LF.
+Cleared up by the way: at the adding of the `using` I had written a CRLF into an LF
+file — exactly the mixing I had checked for in D26 and had this time produced
+myself. It came out because the search pattern for the counter-check did not fit;
+the file is thoroughly LF again.
 
-### D34. Eine Fabrik, die nichts bauen kann ✅
+### D34. A factory that cannot build anything ✅
 
-`XMPPConnection.CreateTcp` erzeugte eine `tcp://`-URI, die `ClientWebSocket`
-ablehnt. Der Vermerk stand seit langem und liess zwei Wege offen: echt
-implementieren oder entfernen.
+`XMPPConnection.CreateTcp` created a `tcp://` URI that `ClientWebSocket` refuses.
+The note had stood for a long time and left two ways open: implement it really or
+remove it.
 
-**Die Bestandsaufnahme hat die Entscheidung vorbereitet, nicht ersetzt.** Die
-Methode hat **null Aufrufer** — nicht in den Tests, nicht in `Program.cs`,
-nirgends. Sie ist öffentliche Oberfläche, die dokumentiert nicht funktioniert,
-und ihr eigener Kommentar sagte das seit jeher: „NICHT funktionsfähig".
+**The stocktaking prepared the decision, did not replace it.** The method has **zero
+callers** — not in the tests, not in `Program.cs`, nowhere. It is public surface that
+demonstrably does not work, and its own comment said that always: "NOT functional".
 
-Der Umfang der Alternative war ebenso zu messen: Der Client fasst den WebSocket
-an **neun** Stellen unmittelbar an — Verbinden, Senden, die beiden
-Empfangspfade, Abbruch. Ein echter TCP-Transport verlangt also eine
-Transportabstraktion, dazu clientseitiges STARTTLS und die TCP-Rahmung. Die
-Bausteine gibt es (`XmlStreamSplitter`, STARTTLS), aber auf der S2S-Seite und
-für `jabber:server` geformt. Das ist ein eigenes Vorhaben und keine Reparatur.
+The extent of the alternative was likewise to be measured: the client touches the
+WebSocket directly at **nine** places — connecting, sending, the two receiving paths,
+breaking off. A real TCP transport therefore demands an abstraction of the
+transport, to that STARTTLS on the client side and the TCP framing. The building
+blocks exist (`XmlStreamSplitter`, STARTTLS), but on the S2S side and shaped for
+`jabber:server`. That is an undertaking of its own and no repair.
 
-Entfernt. **Eine öffentliche Methode, die nicht funktionieren kann, ist
-schlechter als keine** — sie sieht aus wie ein Angebot, kostet den Aufrufer
-einen Versuch und liefert einen Gegenstand, der beim ersten Gebrauch scheitert.
-Solange niemand sie ruft, ist das Entfernen der billigste ehrliche Schritt.
+Removed. **A public method that cannot work is worse than none** — it looks like an
+offer, costs the caller an attempt and delivers an object that fails at the first
+use. As long as nobody calls it, removing it is the cheapest honest step.
 
-Der TCP-Transport bleibt unter „Später" stehen, jetzt mit dem gemessenen Umfang
-und dem Prüfziel: Prosody lauscht auf 127.0.0.1:5222, ein echter Transport wäre
-also gegen eine fremde Gegenstelle nachweisbar.
+The TCP transport stays standing under "Later", now with the measured extent and
+the goal of the check: Prosody listens on 127.0.0.1:5222, so a real transport would
+be provable against a foreign far side.
 
-**Ohne Mutationstest, und das ist hier kein Versäumnis.** Es kommt keine
-Verhaltenszeile hinzu, die man umdrehen könnte; die Prüfung einer Entfernung ist
-die Frage, ob jemand sie gebraucht hat, und die beantworten Übersetzer und
-Vollauf. Beide sagen nein.
+**Without a mutation test, and that is no omission here.** No line of behaviour is
+added that one could turn round; the check of a removal is the question whether
+somebody used it, and that the compiler and the full run answer. Both say no.
 
-### D35. Zahlen sagen nie, was fehlt ✅
+### D35. Numbers never say what is missing ✅
 
-Beim Prüflauf zu D34 fiel ein dritter Wackelkandidat auf —
-`NonzasDoNotAdvanceTheCount` gegen Prosody, ein Fehlschlag in einem Vollauf:
+At the check run to D34 a third flaky candidate came out —
+`NonzasDoNotAdvanceTheCount` against Prosody, one failure in one full run:
 
 ```
 Wir haben Nonzas mitgezählt.  Expected: 6  But was: 8
 ```
 
-Zwei ausgehende Stanzas mehr, als der Test geschickt hat. **Welche zwei, sagt
-die Zahl nicht** — und damit stand ich vor derselben Sackgasse wie in D16 und
-D29.
+Two outgoing stanzas more than the test has sent. **Which two, the number does not
+say** — and with that I stood before the same dead end as in D16 and D29.
 
-Eine naheliegende Erklärung ist geprüft und **widerlegt**: Der Test schickt an
-sich selbst, die Nachrichten kommen also zurück, und der Verdacht lag auf einer
-automatischen Antwort des Clients. Die verlangt aber ein `<request/>`
-(XEP-0184) oder ein `<markable/>` (XEP-0333) im Rahmen, und die Testnachrichten
-tragen nur einen `<body>`. Sie lösen nichts aus. Ein Verdacht, der sich in fünf
-Minuten widerlegen lässt, ist die billigste Art, ihn loszuwerden.
+An obvious explanation is checked and **refuted**: the test sends to itself, so the
+messages come back, and the suspicion lay on an automatic answer of the client. That
+however demands a `<request/>` (XEP-0184) or a `<markable/>` (XEP-0333) in the
+frame, and the test messages carry only a `<body>`. They set nothing off. A
+suspicion that can be refuted in five minutes is the cheapest way of getting rid of
+it.
 
-Reproduzieren liess er sich nicht: zwanzig Ausführungen gegen beide
-Gegenstellen, alle grün, mit sehr enger Streuung. Genau die Lage aus D33 — und
-deshalb dieselbe Antwort. Der Test schneidet jetzt mit, **was tatsächlich
-hinausgeht**, und legt es der Meldung bei. Beim nächsten Vorfall stehen die zwei
-überzähligen Stanzas im Klartext da, statt dass wieder nur eine Zahl bleibt.
+Reproduce it could not be done: twenty executions against both far sides, all green,
+with a very narrow spread. Exactly the situation from D33 — and therefore the same
+answer. The test now records **what actually goes out** and attaches it to the
+message. At the next incident the two supernumerary stanzas stand there in plain
+text, instead of only a number remaining again.
 
-Damit ist das dreimal dasselbe Muster in einer Sitzung: D16, D29 und jetzt hier.
-**Eine Zusicherung über eine Zahl sagt, dass etwas nicht stimmt, und nie was.**
-Wo der Gegenstand billig mitzuschreiben ist — der Verlauf, der Rahmen, der
-Mitschnitt —, gehört er in die Meldung, und zwar bevor der erste Fehlschlag
-kommt und nicht danach.
+With that it is three times the same pattern in one session: D16, D29 and now here.
+**An assurance about a number says that something is not right, and never what.**
+Where the object is cheap to record along — the history, the frame, the recording —
+it belongs in the message, and before the first failure comes and not after it.
 
-### D36. Die Auskunft hängt nicht daran, wer fragt ✅
+### D36. The information does not hang on who asks ✅
 
-Der Punkt aus D16: Eine IQ-Anfrage von einer Gegenstelle an die **eigene
-Serveradresse** — Ping, disco#info — blieb unbeantwortet, obwohl RFC 6120,
-Abschnitt 8.2.3, Regel 3 eine Antwort verlangt. Sie ging ins Routing, fand dort
-für die Domain keine Sitzung und verschwand.
+The point from D16: an IQ request from a far side to our **own server address** —
+ping, disco#info — stayed unanswered although RFC 6120, section 8.2.3, rule 3
+demands an answer. It went into the routing, found no session there for the domain
+and disappeared.
 
-**Der Grund für die Lücke war die Bauform, nicht das Wissen.** Die Antworten gab
-es längst — sie standen mitten in `HandleIqAsync` und schrieben unmittelbar in
-eine Client-Sitzung. Damit waren sie an einen Client gebunden, und eine
-Gegenstelle hat keinen.
+**The reason for the gap was the build, not the knowledge.** The answers existed
+long since — they stood in the middle of `HandleIqAsync` and wrote directly into a
+client session. With that they were bound to a client, and a far side has none.
 
-Also getrennt, was verschieden ist: `AnswerAboutSelf` **baut** die Antwort und
-verschickt sie nicht. Der hiesige Client bekommt sie über seine Sitzung, die
-Gegenstelle über `RouteToAsync` — **der Rückweg ist der einzige Unterschied.**
-Was dieser Server kann, ist für beide dasselbe, und es zweimal aufzuschreiben
-hiesse, zwei Auskünfte über dieselbe Sache zu führen, die auseinanderlaufen
-können.
+So separated what is different: `AnswerAboutSelf` **builds** the answer and does not
+send it. The local client gets it over its session, the far side over `RouteToAsync`
+— **the way back is the only difference.** What this server can do is the same for
+both, and to write it down twice would mean keeping two pieces of information about
+the same thing that can run apart.
 
-**Was nicht mitgewandert ist, ist die eigentliche Arbeit an diesem Punkt.**
-Binding, Legacy Session, Carbons und der Roster stehen ebenfalls in
-`HandleIqAsync` — aber sie ändern den Zustand *einer Sitzung* oder gehören einem
-Konto. Sie bleiben, wo sie sind, und damit für eine Gegenstelle unerreichbar:
-Ein fremder Server, der nach unserem Roster fragt, bekommt
-`<service-unavailable/>` wie für jede andere unbekannte Anfrage. Die Trennlinie
-verläuft nicht zwischen „beantwortbar" und „nicht beantwortbar", sondern
-zwischen **Auskunft über den Server** und **Zustand einer Sitzung**.
+**What has not wandered along is the actual work at this point.** Binding, legacy
+session, carbons and the roster likewise stand in `HandleIqAsync` — but they change
+the state of *one session* or belong to an account. They stay where they are, and
+thereby unreachable for a far side: a foreign server that asks after our roster gets
+`<service-unavailable/>` like for every other unknown request. The dividing line
+does not run between "answerable" and "not answerable", but between **information
+about the server** and **state of a session**.
 
-Der Rückfall wandert mit: Was der Server nicht kennt, bekommt auch von der
-Gegenstelle einen Fehler statt Schweigen. Regel 3 kennt keine dritte
-Möglichkeit, und Schweigen lässt den Frager bis in seine Zeitüberschreitung
-warten, ohne je zu erfahren, ob die Frage überhaupt ankam.
+The fallback wanders along: what the server does not know gets an error from the far
+side as well instead of silence. Rule 3 knows no third possibility, and silence lets
+the one asking wait into their timeout without ever learning whether the question
+arrived at all.
 
-Und Regel 4 gilt weiter: Auf ein `result` oder `error` an die Serveradresse
-folgt nichts. Ein eigener Test hält das fest — ohne ihn wäre der nächste Schritt
-ein Server, der jede Stanza an seine Adresse beantwortet, und zwei davon
-schöben sich gegenseitig Meldungen zu.
+And rule 4 still holds: on a `result` or `error` to the server address nothing
+follows. A test of its own holds that fast — without it the next step would be a
+server that answers every stanza to its address, and two of them would push reports
+back and forth to each other.
 
-**Ein Test aus D16 hat diese Änderung vorhergesagt und musste ihr weichen.**
-`AnIqToTheServersOwnAddress_IsNotClaimedByTheUserPath` hielt fest, dass die
-Anfrage unbeantwortet bleibt, und nannte das ausdrücklich „eine offene Stelle
-und keine Absicht". Seine eigentliche Aussage bleibt erhalten: Der
-Nutzer-Zustellweg darf die Serveradresse nicht anfassen — er antwortete auf
-alles mit `<service-unavailable/>`, auf einen Ping also auch. Ein `result` kann
-er gar nicht erzeugen, und genau daran ist die Verwechslung zu erkennen. Der
-Test prüft jetzt das `result` statt des Schweigens.
+**A test from D16 predicted this change and had to give way to it.**
+`AnIqToTheServersOwnAddress_IsNotClaimedByTheUserPath` held fast that the request
+stays unanswered and called that expressly "an open place and no intention". Its
+actual statement remains: the delivery way for users may not touch the server
+address — it answered everything with `<service-unavailable/>`, so a ping as well. A
+`result` it cannot produce at all, and exactly by that the confusion can be
+recognised. The test now checks the `result` instead of the silence.
 
-Sechs Mutationen, alle erschlagen — eine davon erst im zweiten Anlauf, und der
-Grund ist **zum zweiten Mal** derselbe wie in D25.
+Six mutations, all struck down — one of them only at the second attempt, and the
+reason is **for the second time** the same as in D25.
 
-Die Mutation nimmt dem hiesigen Client die Selbstauskunft weg. Über meinen
-Filter — die vier Fixtures, die mit diesem Punkt zu tun haben — **überlebte
-sie**: Dass ein Client den Server anpingt und eine Auskunft bekommt, steht in
-anderen Fixtures, und die waren nicht dabei. Über die ganze Sammlung fällt sie
-mit sechs Fehlern.
+The mutation takes the information about itself away from the local client. Over my
+filter — the four fixtures that have to do with this point — **it survived**: that a
+client pings the server and gets information stands in other fixtures, and those
+were not among them. Over the whole suite it falls with six errors.
 
-Der Fehler ist nicht, den Filter eng zu wählen — das spart echte Zeit —, sondern
-einem **überlebenden** Mutanten zu glauben, ohne den Filter zu prüfen. Ein
-erschlagener Mutant ist auch mit engem Filter erschlagen; ein überlebender sagt
-erst dann etwas, wenn die Tests, die ihn erschlagen könnten, überhaupt gelaufen
-sind. Das gehört zur fünften Bedeutung aus D25 und ist ihre praktische Form:
-**Bei jedem Überlebenden zuerst den Filter verdächtigen, nicht den Test.**
+The error is not to choose the filter narrow — that saves real time —, but to
+believe a **surviving** mutant without checking the filter. A struck-down mutant is
+struck down with a narrow filter too; a surviving one says something only when the
+tests that could strike it down have run at all. That belongs to the fifth meaning
+from D25 and is its practical form: **at every survivor suspect the filter first,
+not the test.**
 
 ---
 
-### D37. Ein Vorschlag, der von sich selbst abrät ⛔ — XEP-0013 entfällt
+### D37. A proposal that advises against itself ⛔ — XEP-0013 falls away
 
-XEP-0013 („Flexible Offline Message Retrieval") stand als nächster Punkt an. Es
-wird **nicht umgesetzt**, und der Grund steht im Dokument selbst: Die XSF führt
-es als **Deprecated** — Fassung 1.3, Stand 2021-05-04, mit dem Satz
-„Implementation of the protocol described herein is not recommended."
+XEP-0013 ("Flexible Offline Message Retrieval") stood next as a point. It is **not
+implemented**, and the reason stands in the document itself: the XSF carries it as
+**Deprecated** — version 1.3, state 2021-05-04, with the sentence "Implementation of
+the protocol described herein is not recommended."
 
-Gebracht hätte es die andere Hälfte der Ablage aus D14. Heute entscheidet der
-Server, wann die aufbewahrten Nachrichten kommen: bei der nächsten
-nicht-negativen verfügbaren Presence, alle auf einmal, und mit dem Herausgeben
-ist die Ablage leer (`TakeOfflineMessages`). XEP-0013 hätte diese Entscheidung
-dem Client gegeben — hineinsehen, bevor man abholt, einzelne Nachrichten gezielt
-lesen oder wegwerfen, den Rest liegen lassen.
+It would have brought the other half of the store from D14. Today the server decides
+when the kept messages come: at the next non-negative available presence, all at
+once, and with the giving out the store is empty (`TakeOfflineMessages`). XEP-0013
+would have given this decision to the client — look in before fetching, read or
+throw away single messages on purpose, leave the rest lying.
 
-Der Preis wäre nicht die Auflistung gewesen. `OfflineMessage` trägt heute
-`Stanza` und `StoredAt`, **keinen Bezeichner** — XEP-0013 spricht jede
-aufbewahrte Nachricht über ein `node`-Attribut an, das über einen Neustart
-hinweg dasselbe bleiben muss. Das hätte den Datensatz, die Ablage in
-`XMPPAccount` und die Persistenz in `FileAccountStore` erfasst. Der teure Teil
-liegt aber woanders: Ein Client, der die Ablage selbst verwaltet, darf sie nicht
-gleichzeitig zugeschickt bekommen. Die automatische Nachlieferung hätte also
-abschaltbar werden müssen, abhängig davon, ob der Client sich vor seiner ersten
-Presence gemeldet hat. Das ist ein zweiter Zustand im Anmeldeweg, genau an der
-Stelle, an der D14 hängt.
+The price would not have been the listing. `OfflineMessage` today carries `Stanza`
+and `StoredAt`, **no identifier** — XEP-0013 addresses every kept message over a
+`node` attribute that has to stay the same across a restart. That would have covered
+the record, the store in `XMPPAccount` and the persistence in `FileAccountStore`. The
+expensive part lies elsewhere however: a client that manages the store itself may not
+get it sent at the same time. The automatic handing in later would therefore have had
+to become switchable, depending on whether the client has reported before its first
+presence. That is a second state in the way of logging in, at exactly the place D14
+hangs on.
 
-Diesen Umbau für ein Dokument zu machen, das von seiner Umsetzung abrät, wäre
-falsch herum: Der Aufwand fiele an, und geblieben wäre ein Protokoll, das kein
-neuer Client mehr sprechen wird.
+To do this rebuilding for a document that advises against its implementation would be
+the wrong way round: the effort would arise, and what would remain is a protocol no
+new client will speak any more.
 
-**Einen Nachfolger benennt XEP-0013 nicht.** Es verweist nur auf „the protocol
-that supersedes this one (if any)". In der Praxis übernimmt XEP-0313 (Message
-Archive Management) das gezielte Nachlesen — aber nur die eine Hälfte, und mit
-einem anderen Begriff: Ein Archiv ist keine Ablage. Es enthält auch, was
-zugestellt wurde, und es leert sich nicht durchs Lesen. Die zweite Hälfte —
-„schick mir beim Anmelden nicht alles zu" — steht dort nicht. Wer sie will,
-braucht sie zusätzlich. Sollte das je anstehen, ist es ein eigener Punkt und
-nicht dieser.
+**A successor XEP-0013 does not name.** It refers only to "the protocol that
+supersedes this one (if any)". In practice XEP-0313 (Message Archive Management)
+takes over the targeted reading up — but only the one half, and with a different
+term: an archive is no store. It also contains what was delivered, and it does not
+empty itself through the reading. The second half — "do not send me everything at the
+logging in" — does not stand there. Whoever wants it needs it in addition. Should
+that ever be due, it is a point of its own and not this one.
 
-Was bleibt, ist der Weg aus D14: RFC 6121, Abschnitt 8.5.2.2.1, und XEP-0160.
-Beide sind aktuell, beide sind umgesetzt, und beide reichen für einen Client,
-der die Nachrichten schlicht haben will.
+What remains is the way from D14: RFC 6121, section 8.5.2.2.1, and XEP-0160. Both are
+current, both are implemented, and both suffice for a client that simply wants to
+have the messages.
 
-Ein Fund bleibt auch: **Dass `OfflineMessage` keinen Bezeichner hat, ist keine
-Lücke, sondern eine Folge.** Solange niemand eine einzelne aufbewahrte Nachricht
-ansprechen kann, gibt es nichts zu benennen. Der Bezeichner fehlt genau so
-lange, wie er nicht gebraucht wird — er wäre die erste Zeile, die ein Protokoll
-ändern müsste, das einzelne Nachrichten adressiert.
+A find remains as well: **that `OfflineMessage` has no identifier is no gap but a
+consequence.** As long as nobody can address a single kept message, there is nothing
+to name. The identifier is missing exactly as long as it is not needed — it would be
+the first line a protocol would have to change that addresses single messages.
 
 ---
 
