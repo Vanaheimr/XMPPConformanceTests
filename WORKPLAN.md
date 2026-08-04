@@ -3823,515 +3823,489 @@ Four mutations, all struck down, without sharpening.
 
 ---
 
-### D48. Der Transport, den niemand vermisst 🕓 — TCP wird optional
+### D48. The transport nobody misses 🕓 — TCP becomes optional
 
-Der TCP-Transport für den Client wandert von „Später" nach „Optional". Der
-Umfang ist seit D34 gemessen und hat sich nicht geändert; **was sich geändert
-hat, ist die Einsicht, dass niemand darauf wartet.** Dieser Client spricht XMPP
-über WebSocket, und alle drei Server, gegen die er läuft — Prosody, ejabberd,
-der eigene Testserver — bieten das an.
+The TCP transport for the client wanders from "Later" to "optional". The extent
+has been measured since D34 and has not changed; **what has changed is the insight
+that nobody is waiting for it.** This client speaks XMPP over WebSocket, and all
+three servers it runs against — Prosody, ejabberd, our own test server — offer
+that.
 
-Damit gilt für ihn, was in D38 die Liste begründet hat: nicht falsch, nicht
-dringend, und ohne Anwendungsfall auch nicht prüfbar. Ein Transport, den kein
-Aufrufer benutzt, liesse sich nur gegen einen ausgedachten Ablauf messen — und
-das ist genau die Sorte Test, die ihre eigene Erfindung prüft.
+With that what gave the list its reason in D38 holds for it: not wrong, not
+urgent, and without a use case not checkable either. A transport no caller uses
+could only be measured against an invented course of events — and that is exactly
+the sort of test that checks its own invention.
 
-**Der Rückweg steht dabei, wie bei jedem Punkt dieser Liste:** ein Server, den
-dieser Client erreichen soll und der keinen WebSocket-Endpunkt anbietet. Dann
-gibt es den Anwendungsfall und mit ihm die Gegenprobe — Prosody hört in dieser
-Umgebung auf 127.0.0.1:5222.
+**The way back stands with it, as at every point of this list:** a server this
+client is to reach that offers no WebSocket endpoint. Then the use case exists and
+with it the counter-check — Prosody listens on 127.0.0.1:5222 in this environment.
 
-Damit ist „Später → Transport" leer. Was dort bleibt, sind zwei Punkte der
-Testsammlung, drei am Server und die Struktur.
+With that "Later → transport" is empty. What stays there are two points of the
+test suite, three at the server and the structure.
 
 ---
 
-### D49. Die Zahl, die niemand gemessen hat ✅ — das `h` im `<failed/>`
+### D49. The number nobody measured ✅ — the `h` in the `<failed/>`
 
-Der Punkt hiess „XEP-0198 `<resume/>` beantworten" und stand seit dem 26. Juli
-unter „Später → Server". **R1 hat ihn am 28. Juli erledigt**, R2 und R3 haben
-die Wiederaufnahme danach gegen den eigenen Server und gegen Prosody geprüft —
-die Liste hat es nur nie erfahren. Ein erledigter Punkt, der stehenbleibt, ist
-nicht bloss Papier: Er verdeckt, was von ihm wirklich noch offen war.
+The point was called "answer the XEP-0198 `<resume/>`" and had stood under
+"Later → server" since 26 July. **R1 settled it on 28 July**, R2 and R3 checked the
+resumption afterwards against our own server and against Prosody — the list only
+never learned it. A settled point that stays standing is not merely paper: it
+covers up what of it really was still open.
 
-Offen war die **Abweisung**. Der Server antwortete auf jedes gescheiterte
-`<resume/>` mit
+Open was the **refusal**. The server answered every failed `<resume/>` with
 
 ```xml
 <failed xmlns='urn:xmpp:sm:3' h='0'><item-not-found .../></failed>
 ```
 
-und das `h` darin war keine Auskunft, sondern eine Behauptung: *„Von allem, was
-du geschickt hast, ist nichts angekommen."* Nach XEP-0198, Abschnitt 5, ist das
-Attribut freiwillig („MAY also include") und meint eine Messung — wie weit der
-Server auf dem alten Stream gekommen war. Gemessen hat hier nichts.
+and the `h` in it was no information but a claim: *"Of everything you have sent,
+nothing has arrived."* Under XEP-0198, section 5, the attribute is voluntary ("MAY
+also include") and means a measurement — how far the server had got on the old
+stream. Measured nothing had here.
 
-**Folgenlos war es nur, weil auch niemand zuhörte.** `ProcessFailed()` nahm den
-Rahmen gar nicht erst entgegen und erklärte jede unbestätigte Stanza für
-verloren. Beide Fehler zusammen ergaben ein stimmiges Bild — die falsche Zahl
-wurde von niemandem gelesen, und der Client kam ohne sie aus, weil er sowieso
-alles für verloren hielt. Genau so überleben Fehler paarweise.
+**Without consequence it was only because nobody was listening either.**
+`ProcessFailed()` did not take the frame in at all and declared every unacknowledged
+stanza lost. Both errors together yielded a coherent picture — the wrong number was
+read by nobody, and the client got by without it because it held everything to be
+lost anyway. Exactly that way errors survive in pairs.
 
-Was jetzt gilt, sind drei Fälle statt einem:
+What holds now are three cases instead of one:
 
-- **Unbekannte Kennung** — kein `h`. Der Normalfall nach einem Neustart oder
-  nachdem der Abräumer da war: Der Server weiss nichts und sagt nichts.
-- **Fremdes Konto** — kein `h`. Die Zahl verriete, dass es diesen Stream gibt
-  und wie viel über ihn gelaufen ist; aus einem geratenen Versuch würde eine
-  Sonde. Auskunft bekommt nur, wer ohnehin Zugriff hätte — dieselbe Grenze wie
-  bei der Übernahme selbst (R2).
-- **Abgelaufen, aber noch da** — das echte `h`. Der Fall, den der Abschnitt
-  ausdrücklich nennt („an earlier session that has timed out").
+- **Unknown identifier** — no `h`. The normal case after a restart or after the
+  clearer has been there: the server knows nothing and says nothing.
+- **Foreign account** — no `h`. The number would betray that this stream exists and
+  how much has run over it; out of a guessed attempt would become a probe.
+  Information gets only whoever would have access anyway — the same limit as at the
+  taking over itself (R2).
+- **Expired but still there** — the real `h`. The case the section names expressly
+  ("an earlier session that has timed out").
 
-Auf der Client-Seite liest `ProcessFailed(xml)` den Stand jetzt über
-`ProcessAck` — dieselbe Modulo-Arithmetik wie bei jedem `<a h='…'/>`, denn zwei
-Auffassungen derselben Rechnung sind eine zu viel. Verloren ist danach nur, was
-**darüber hinaus** offen war. Das ist kein Schönheitsfehler: Abschnitt 4
-empfiehlt, Verlorenes erneut zu schicken — auf der alten Grundlage stellte das
-alles ein zweites Mal zu.
+On the client side `ProcessFailed(xml)` now reads the state over `ProcessAck` — the
+same modulo arithmetic as at every `<a h='…'/>`, for two understandings of the same
+computation are one too many. Lost afterwards is only what was open **beyond** it.
+That is no blemish: section 4 recommends sending the lost again — on the old basis
+that delivered everything a second time.
 
-**Ein Testschalter, und diesmal einer, der gebraucht wird.**
-`SweepResumableStreams` hält den Abräumer an. Ohne ihn ist der dritte Fall nur
-im Wettlauf zu treffen: Der Durchgang geht im Sekundentakt, und was er abgeräumt
-hat, weiss der Server nicht mehr — das Fenster ist im Betrieb höchstens eine
-Sekunde breit.
+**A test switch, and this time one that is needed.** `SweepResumableStreams` stops
+the clearer. Without it the third case can only be hit in a race: the pass goes at
+the beat of a second, and what it has cleared away the server no longer knows — the
+window is at most a second wide in operation.
 
-**Die Mutation, die zuerst überlebt hat, war genau dieser Schalter.** Mit den
-üblichen 200 ms Wartezeit kam der Rückkehrer dem Abräumer schlicht zuvor, und
-beide neuen Tests bestanden auch dann, wenn der Schalter wirkungslos war — sie
-gewannen ein Rennen, das sie gar nicht hätten laufen sollen. Drei Sekunden
-Wartezeit später ist der Fall herbeigeführt statt erhofft, und die Mutation
-fällt.
+**The mutation that survived at first was exactly this switch.** With the usual
+200 ms of waiting time the returner simply got ahead of the clearer, and both new
+tests passed even when the switch was without effect — they won a race they should
+not have run at all. Three seconds of waiting time later the case is brought about
+instead of hoped for, and the mutation falls.
 
-Sieben Mutationen, alle erschlagen: `h='0'` statt Weglassen, `h` nie genannt,
-`h` auch an ein fremdes Konto, Frist nicht geprüft, Client liest den Stand
-nicht, Rahmen erreicht den Client-Manager nicht, Abräumer nicht anzuhalten. Die
-ersten sechs sind nach der Teständerung noch einmal gelaufen — ein Urteil über
-eine Fassung, die es nicht mehr gibt, ist keines (siehe D44).
+Seven mutations, all struck down: `h='0'` instead of leaving out, `h` never named,
+`h` to a foreign account as well, deadline not checked, client does not read the
+state, frame does not reach the client manager, clearer not stoppable. The first
+six have run once more after the change to the tests — a verdict about a version
+that no longer exists is none (see D44).
 
-Am Server bleiben damit zwei Punkte: SCRAM anbieten und Stanza-Fehler auch dort
-erzeugen, wo es keinen Schalter dafür gibt.
+At the server two points thereby remain: offer SCRAM, and create stanza errors
+where there is no switch for it as well.
 
 ---
 
-### D50. Ein Konto, das es nicht gibt ✅ — und eine Quelle, die nichts sagt
+### D50. An account that does not exist ✅ — and a source that says nothing
 
-Wieder ein Punkt, der älter war als seine Erledigung: „SCRAM anbieten, damit der
-SCRAM-Pfad des Clients integrativ geprüft wird". **S2 hat das getan** — der
-Server bietet SCRAM-SHA-256, SCRAM-SHA-1 und PLAIN an, der Client nimmt von
-sich aus den stärksten, und damit läuft die gesamte Suite über SCRAM-SHA-256.
-Es steht sogar wörtlich in S2 („zum ersten Mal integrativ geprüft"). Die Liste
-hat es wieder nicht erfahren.
+Again a point that was older than its settling: "offer SCRAM so that the SCRAM path
+of the client is checked integratively". **S2 did that** — the server offers
+SCRAM-SHA-256, SCRAM-SHA-1 and PLAIN, the client takes the strongest by itself, and
+with that the whole suite runs over SCRAM-SHA-256. It even stands word for word in
+S2 ("checked integratively for the first time"). The list again did not learn it.
 
-Offen war etwas, das S2 selbst notiert hatte:
+Open was something S2 had noted itself:
 
-> Ein unbekanntes Konto wird abgelehnt, bevor der Austausch beginnt. Damit
-> verrät der Server, ob es ein Konto gibt; **RFC 5802 §7** empfiehlt, mit einem
-> erfundenen Salt weiterzumachen.
+> An unknown account is refused before the exchange begins. With that the server
+> betrays whether an account exists; **RFC 5802 §7** recommends carrying on with a
+> made-up salt.
 
-**Die Quellenangabe stimmt nicht.** RFC 5802 §7 ist die formale Syntax, und der
-RFC empfiehlt an keiner Stelle ein erfundenes Salt — er führt in eben dieser
-Syntax sogar ein `unknown-user` als Fehlerwert und überlässt es dem Server, ob
-er den echten Grund durch `other-error` ersetzt. Die Empfehlung, die gemeint
-war, steht woanders und ist deutlicher: **RFC 6120 §13.11, „Directory
-Harvesting"** — „not reveal whether or not an account exists at a server when an
-entity attempts to authenticate". Ein Satz, der zweimal falsch zitiert dastand
-(im WORKPLAN und in `UnknownUser_DoesNotStart`), belegt nichts; er sieht nur so
-aus.
+**The source given is not right.** RFC 5802 §7 is the formal syntax, and the RFC
+recommends a made-up salt in no place — in this very syntax it even carries an
+`unknown-user` as an error value and leaves it to the server whether it replaces
+the real reason by `other-error`. The recommendation that was meant stands elsewhere
+and is clearer: **RFC 6120 §13.11, "Directory Harvesting"** — "not reveal whether or
+not an account exists at a server when an entity attempts to authenticate". A
+sentence that stood there wrongly cited twice (in the work plan and in
+`UnknownUser_DoesNotStart`) shows nothing; it only looks like it.
 
-**Der Fehlerwert war nie das Problem.** Beide Fälle bekamen schon vorher
-`<not-authorized/>`, und §6.5.10 deckt beide ausdrücklich ab: „this might
-include, but is not limited to, the case in which the user does not exist".
-Verraten hat der **Ablauf**:
+**The error value was never the problem.** Both cases got `<not-authorized/>`
+before already, and §6.5.10 covers both expressly: "this might include, but is not
+limited to, the case in which the user does not exist". Betrayed the **course of
+events** did:
 
-| | erste Nachricht | zweite Nachricht |
+| | first message | second message |
 |---|---|---|
-| Konto vorhanden, Passwort falsch | `<challenge/>` | `<failure/>` |
-| Konto nicht vorhanden | `<failure/>` | — |
+| Account present, password wrong | `<challenge/>` | `<failure/>` |
+| Account not present | `<failure/>` | — |
 
-Eine Runde Unterschied, und eine Namensliste ist in einem Durchgang sortiert.
+One round of difference, and a list of names is sorted in one pass.
 
-Jetzt läuft der Austausch auch für einen unbekannten Namen zu Ende, mit
-**erfundenen Zugangsdaten aus dem Benutzernamen und einem Serverschlüssel**.
-Drei Eigenschaften, und jede davon hat ihren eigenen Test, weil jede für sich
-allein die Massnahme aushebelt:
+Now the exchange runs to the end for an unknown name as well, with **made-up
+credentials out of the user name and a server key**. Three properties, and each of
+them has a test of its own, because each on its own defeats the measure:
 
-- **gleichbleibend** — ein Salt, das bei jedem Versuch anders ausfällt, ist
-  selbst die Auskunft; das eines echten Kontos steht fest. Zweimal fragen
-  genügte.
-- **je Name verschieden** — ein festes, eingebautes Salt wäre die schlechteste
-  Lösung von allen: Zwei Namen mit demselben Salt gibt es unter echten Konten
-  nicht.
-- **nicht vorherzusagen** — der Serverschlüssel ist zufällig, sonst rechnet der
-  Fragende die erfundenen Salts selbst nach und sortiert wie zuvor.
+- **constant** — a salt that turns out differently at every attempt is itself the
+  information; the one of a real account stands fast. Asking twice would suffice.
+- **different per name** — a fixed, built-in salt would be the worst solution of
+  all: two names with the same salt do not exist among real accounts.
+- **not to be predicted** — the server key is random, otherwise the one asking
+  recomputes the made-up salts themselves and sorts as before.
 
-Dazu Iterationszahl und Salt-Länge wie bei einem echten Konto; beides steht
-offen in der server-first-message.
+To that iteration count and length of salt as at a real account; both stand openly
+in the server-first-message.
 
-**Was das nicht leistet, steht dabei:** Über einen Neustart hinweg wechseln die
-erfundenen Salts, die echten nicht — der Serverschlüssel lebt im Prozess. Ein
-dauerhafter gehörte in den Kontenspeicher. Und **PLAIN** bleibt unberührt: Dort
-ist der Ablauf ohnehin in beiden Fällen derselbe, es unterscheidet sich nur die
-Laufzeit (ein echtes Konto rechnet PBKDF2, ein unbekanntes nicht). Das zu
-schliessen wäre leicht, ein Test dafür aber würde die Maschine messen und nicht
-den Code — deshalb hier benannt und nicht heimlich mitgemacht.
+**What that does not achieve stands with it:** across a restart the made-up salts
+change, the real ones do not — the server key lives in the process. A lasting one
+would belong in the account store. And **PLAIN** stays untouched: there the course
+of events is the same in both cases anyway, only the running time differs (a real
+account computes PBKDF2, an unknown one does not). To close that would be easy, but
+a test for it would measure the machine and not the code — this is why it is named
+here and not silently gone along with.
 
-Sieben Mutationen, sechs erschlagen: sofort scheitern, Salt zufällig, Salt für
-alle gleich, Iterationszahl abweichend, Salt kürzer, Sicherung gegen eine
-Anmeldung ohne Konto entfernt. **Die siebte überlebt und soll es:** Die
-erfundenen *Schlüssel* hängen ebenfalls am Namen, und das kann kein Test
-bemerken — sie erreichen die Leitung nie. Über den StoredKey läuft nur der
-Vergleich, und die server-final-message, in der der ServerKey steckt, gibt es
-nur bei einer geglückten Anmeldung, die es hier nie gibt. Die Ableitung bleibt
-trotzdem: Sie kostet nichts und ist die Konstruktion, die man verteidigen kann.
+Seven mutations, six struck down: fail at once, salt random, salt the same for all,
+iteration count deviating, salt shorter, safeguard against a login without an
+account removed. **The seventh survives and is meant to:** the made-up *keys* hang
+on the name as well, and no test can notice that — they never reach the wire. Over
+the StoredKey only the comparison runs, and the server-final-message, in which the
+ServerKey sits, exists only at a successful login, which here never exists. The
+derivation stays all the same: it costs nothing and is the construction one can
+defend.
 
-Der eine Test, den es dazu doch gibt, musste sich den Fall borgen:
-`AValidProof_IsNotEnoughWithoutAnAccount` schiebt dem Austausch die **echten**
-Zugangsdaten als erfundene unter. Der Beweis stimmt dann — und wird trotzdem
-abgewiesen, weil kein Konto dahintersteht.
+The one test that does exist for it had to borrow the case:
+`AValidProof_IsNotEnoughWithoutAnAccount` slips the **real** credentials to the
+exchange as made-up ones. The proof is then right — and is refused all the same,
+because no account stands behind it.
 
-Am Server bleibt damit ein Punkt: Stanza-Fehler auch dort erzeugen, wo es
-keinen Schalter dafür gibt.
+At the server one point thereby remains: create stanza errors where there is no
+switch for it as well.
 
 ---
 
-### D51. Eine Adresse, die keine ist ✅ — `<jid-malformed/>`
+### D51. An address that is none ✅ — `<jid-malformed/>`
 
-Der letzte Punkt der Serverliste, und wieder war er zur Hälfte längst erledigt:
-Der Server erzeugt seit D26 bis D50 eine ganze Reihe von Stanza-Fehlern von
-sich aus — `<bad-request/>` für einen unbekannten IQ-Typ, `<service-unavailable/>`
-für einen unzustellbaren Empfänger und für ein `groupchat` an ein Konto,
-`<remote-server-not-found/>` für eine unerreichbare Domain, `<item-not-found/>`
-für einen unbekannten disco-Knoten. Die Schalter sind längst nicht mehr die
-einzige Quelle.
+The last point of the server list, and again it was long since settled by half:
+the server has created a whole row of stanza errors of its own accord since D26 to
+D50 — `<bad-request/>` for an unknown IQ type, `<service-unavailable/>` for an
+undeliverable recipient and for a `groupchat` to an account,
+`<remote-server-not-found/>` for an unreachable domain, `<item-not-found/>` for an
+unknown disco node. The switches have long since not been the only source.
 
-**Eine Bedingung fehlte vollständig, und zwar die, für die alles bereitlag.**
-`<jid-malformed/>` (RFC 6120, Abschnitt 8.3.3.8) kam im ganzen Server nicht vor
-— das Wort stand an genau einer Stelle im Quelltext, im Kommentar von
-`JidFormatException`. Und die Prüfung dahinter gibt es seit **D42 bis D45
-vollständig**: RFC 7622 mit PRECIS, IDNA2008, der Bidi-Regel und den
-kontextabhängigen Regeln aus Anhang A, gegen die Tabellen der UCD gerechnet.
+**One condition was missing completely, and it was the one everything lay ready
+for.** `<jid-malformed/>` (RFC 6120, section 8.3.3.8) did not appear in the whole
+server — the word stood at exactly one place in the source, in the comment of
+`JidFormatException`. And the check behind it has existed **completely since D42 to
+D45**: RFC 7622 with PRECIS, IDNA2008, the bidi rule and the context-dependent rules
+from appendix A, computed against the tables of the UCD.
 
-Der Server hat sie nie gefragt. `JidUtilities` kam in `XMPPServer.cs` genau
-einmal vor, in `AreEqual` beim Vergleich zweier Full-JIDs. Was hereinkam, ging
-in die Zustellung, und ein unmöglicher Empfänger sah dort aus wie ein
-abwesender: Der Absender bekam Schweigen oder eine Ablage, aus der ihn nie
-jemand abholt.
+The server never asked it. `JidUtilities` appeared in `XMPPServer.cs` exactly once,
+in `AreEqual` at the comparison of two full JIDs. What came in went into the
+delivery, and an impossible recipient looked there like an absent one: the sender
+got silence or a store nobody ever fetches them out of.
 
-**Das ist zum dritten Mal dasselbe Muster.** In D43 war die IDNA-Prüfung fertig
-und im JID nicht verdrahtet, in D45 die kontextabhängigen Regeln. Eine geprüfte
-Regel ohne Aufrufer ist keine halbe Regel, sondern keine — und sie fällt
-niemandem auf, weil ihre eigenen Tests grün sind.
+**That is the same pattern for the third time.** In D43 the IDNA check was finished
+and not wired in the JID, in D45 the context-dependent rules. A checked rule without
+a caller is no half rule, but none — and nobody notices it, because its own tests
+are green.
 
-Die Prüfung sitzt **vor der Weiche**, an einer Stelle für alle drei Arten: Jeder
-Zweig dahinter stellt seine eigenen Fragen, und diese gehört keinem von ihnen.
-Drei Grenzen dazu, jede mit einem Test:
+The check sits **before the switch**, at one place for all three types: every branch
+behind it puts its own questions, and this one belongs to none of them. Three limits
+to that, each with a test:
 
-- **Kein `to` ist kein falsches `to`.** Eine Stanza ohne Adresse ist an den
-  Server gerichtet (§8.1.1.1), und ungerichtete Presence trägt nie eine. Die
-  Mutation, die beides gleich behandelt, legt die halbe Sammlung lahm — ohne
-  Presence gilt keine Sitzung als verfügbar.
-- **Auf einen Fehler folgt kein Fehler** (§8.3.1). Verworfen wird die Stanza
-  trotzdem: zustellbar ist sie ja nicht.
-- **Absender der Ablehnung ist der Server**, nicht der gemeinte Empfänger.
-  `<service-unavailable/>` antwortet im Namen eines Empfängers, weil der Server
-  dort für ihn geantwortet hat; hier gibt es keinen — die Adresse ist keine,
-  also hat niemand hineingesehen.
+- **No `to` is no wrong `to`.** A stanza without an address is directed at the
+  server (§8.1.1.1), and undirected presence never carries one. The mutation that
+  treats both alike lames half the suite — without presence no session counts as
+  available.
+- **On an error no error follows** (§8.3.1). Discarded the stanza is all the same:
+  deliverable it is not after all.
+- **The sender of the refusal is the server**, not the intended recipient.
+  `<service-unavailable/>` answers in the name of a recipient, because the server
+  has answered for them there; here there is none — the address is none, so nobody
+  has looked in.
 
-Fünf unmögliche Adressen im Test, und jede aus einem anderen Grund: `alice@`
-fällt schon einem Vergleich auf zwei leere Zeichenketten auf, `alice@-localhost`
-erst der Labelregel aus RFC 5891, `al ice@localhost` nur der
-PRECIS-IdentifierClass. Eine einzige liesse offen, wie weit die Prüfung reicht.
+Five impossible addresses in the test, and each for a different reason: `alice@`
+comes out at a comparison against two empty strings already, `alice@-localhost` only
+at the label rule from RFC 5891, `al ice@localhost` only at the PRECIS
+IdentifierClass. A single one would leave open how far the check reaches.
 
-**Die Lücke, die mir selbst auffiel:** Kein Test hielt fest, dass die
-abgewiesene Stanza auch wirklich endet. Eine Prüfung, die antwortet und danach
-trotzdem zustellt, wäre von der richtigen nicht zu unterscheiden gewesen —
-`ARefusedStanza_IsNotDeliveredAnyway` schickt deshalb an `bob@…/`: kein JID,
-aber der Teil davor gehört einem angemeldeten Konto, und über den Weg für
-Bare-JIDs käme es bei Bob an.
+**The gap that came out to me myself:** no test held fast that the refused stanza
+really ends as well. A check that answers and afterwards delivers all the same would
+not have been distinguishable from the right one —
+`ARefusedStanza_IsNotDeliveredAnyway` therefore sends to `bob@…/`: no JID, but the
+part before it belongs to a logged-in account, and over the way for bare JIDs it
+would arrive at Bob.
 
-Sieben Mutationen, keine übersteht den Lauf:
+Seven mutations, none survives the run:
 
-| | Mutation | erschlagen von |
+| | Mutation | struck down by |
 |---|---|---|
-| X1 | die Prüfung entfällt | 8 Tests |
-| X2 | eine fehlende Adresse gilt als falsche | siehe unten |
-| X3 | Fehlerart `cancel` statt `modify` | die fünf unmöglichen Adressen |
-| X4 | Absender ist der gemeinte Empfänger | dieselben fünf |
-| X5 | auch eine Fehler-Stanza wird beantwortet | `AnErrorStanza_IsNotAnsweredWithAnError` |
-| X6 | abgewiesen, aber trotzdem weitergereicht | `ARefusedStanza_IsNotDeliveredAnyway` |
-| X7 | die `id` der Anfrage geht verloren | `AnIqToANonJid_KeepsItsId` |
+| X1 | the check falls away | 8 tests |
+| X2 | a missing address counts as a wrong one | see below |
+| X3 | error type `cancel` instead of `modify` | the five impossible addresses |
+| X4 | the sender is the intended recipient | the same five |
+| X5 | an error stanza is answered as well | `AnErrorStanza_IsNotAnsweredWithAnError` |
+| X6 | refused, but handed on all the same | `ARefusedStanza_IsNotDeliveredAnyway` |
+| X7 | the `id` of the request gets lost | `AnIqToANonJid_KeepsItsId` |
 
-**X2 wird nicht von einer Zusicherung erschlagen, sondern vom Hänger-Schutz** —
-und das ist selbst der Befund. Gilt eine fehlende Adresse als falsche, wird
-jede ungerichtete Presence abgewiesen; keine Sitzung wird je verfügbar, und der
-Verbindungsaufbau des Clients wartet darauf **ohne eigene Frist**. Der erste
-Lauf stand deshalb 74 Minuten, bis ich ihn abgebrochen habe; mit
-`--blame-hang-timeout 3m` bricht der Testlauf nach drei Minuten mit einem
-Hangdump ab. Durchgehen könnte die Mutation nie — bestanden ist etwas anderes
-als abgestürzt —, aber gemessen hat sie kein Test.
+**X2 is struck down not by an assurance but by the protection against hangers** —
+and that is itself the finding. Does a missing address count as a wrong one, then
+every undirected presence is refused; no session ever becomes available, and the
+building of the connection of the client waits for it **without a deadline of its
+own**. The first run therefore stood for 74 minutes until I broke it off; with
+`--blame-hang-timeout 3m` the test run breaks off after three minutes with a hang
+dump. Get through the mutation never could — passed is something other than crashed
+—, but measured it no test did.
 
-**Zwei Lehren aus dem Abbruch, beide teuer bezahlt:**
+**Two lessons out of the breaking off, both dearly paid:**
 
-1. *Der Hänger-Schutz gehört an jede Mutation, nicht nur an die, von der man
-   ihn erwartet.* Das Skript hat den Schalter seit M2 und ich hatte ihn nicht
-   gesetzt.
-2. *Ein abgebrochener Mutationslauf lässt den Quelltext mutiert zurück.*
-   `mutate.ps1` setzt erst zurück, wenn `dotnet test` zurückkommt — wird es
-   abgeschossen, steht die Mutation noch da. Die Sicherung vom Mutationszeitpunkt
-   hat sie eingefangen; ohne die Prüfung „ist meine Zeile wieder da" wäre sie
-   in den Commit gewandert. Genau das war schon einmal die Ursache in D39, nur
-   andersherum.
+1. *The protection against hangers belongs on every mutation, not only on the one
+   one expects it from.* The script has had the switch since M2 and I had not set
+   it.
+2. *A broken-off mutation run leaves the source mutated behind.* `mutate.ps1` only
+   resets when `dotnet test` comes back — is it shot down, then the mutation still
+   stands there. The backup from the moment of the mutation caught it; without the
+   check "is my line there again" it would have wandered into the commit. Exactly
+   that was already once the cause in D39, only the other way round.
 
-Nebenbei: Der Hangdump legt 219 MB unter `Jabber.Tests/TestResults/` ab, und
-das Verzeichnis stand in keinem `.gitignore`. Ein `git add -A` hätte ihn
-mitgenommen. Steht jetzt drin.
+Incidentally: the hang dump lays 219 MB down under `Jabber.Tests/TestResults/`, and
+the directory stood in no `.gitignore`. A `git add -A` would have taken it along.
+Stands in it now.
 
 ---
 
-### D52. Schweigen ist auch eine Antwort ✅ — der stillschweigend verworfene Fall
+### D52. Silence is an answer too ✅ — the silently discarded case
 
-Der erste der beiden Funde aus D51. In `StoreOfflineOrRefuseAsync` stand:
+The first of the two finds from D51. In `StoreOfflineOrRefuseAsync` there stood:
 
 ```csharp
 if (GetAccount(BareOf(to)) is not { } account)
     return;
 ```
 
-Eine Nachricht an ein Konto, das es nicht gibt, verschwand. RFC 6121,
-Abschnitt 8.5.1 erlaubt das ausdrücklich — für einen unbekannten Empfänger
-steht `<service-unavailable/>` **oder** Schweigen zur Wahl.
+A message to an account that does not exist disappeared. RFC 6121, section 8.5.1
+allows that expressly — for an unknown recipient `<service-unavailable/>` **or**
+silence stand to the choice.
 
-**Frei ist die Wahl trotzdem nicht.** Sie muss dieselbe sein wie für ein
-vorhandenes Konto, das gerade nicht zusieht, sonst beantwortet sie eine ganz
-andere Frage: *Gibt es dieses Konto?* Und zwar auf dem bequemsten Weg, den es
-gibt — eine Nachricht schicken und hinsehen, ob etwas zurückkommt. Das ist
-dieselbe Frage wie in D50, nur ohne Anmeldung.
+**Free the choice is nevertheless not.** It has to be the same as for an existing
+account that is just not watching, otherwise it answers a quite different question:
+*does this account exist?* And on the most convenient way there is — send a message
+and look whether something comes back. That is the same question as in D50, only
+without a login.
 
-Auseinander fiel sie, sobald die Ablage nicht annahm:
+Apart it fell as soon as the store did not accept:
 
-| | Ablage an | Ablage aus oder voll |
+| | store on | store off or full |
 |---|---|---|
-| Konto vorhanden, abwesend | Schweigen (abgelegt) | `<service-unavailable/>` |
-| Konto nicht vorhanden | Schweigen (verworfen) | **Schweigen** |
+| Account present, absent | silence (stored) | `<service-unavailable/>` |
+| Account not present | silence (discarded) | **silence** |
 
-In der rechten Spalte steht die Auskunft. Auf einem Server ohne Offline-Ablage
-ist jede Namensliste in einem Durchgang sortiert.
+In the right-hand column stands the information. On a server without an offline
+store every list of names is sorted in one pass.
 
-**Gefragt wird deshalb nicht mehr „gibt es ein Konto", sondern „würde die
-Ablage es annehmen".** Für ein unbekanntes ist die Ablage leer, und eine leere
-nimmt an, solange überhaupt etwas hineinpasst:
+**Asked is therefore no longer "is there an account", but "would the store accept
+it".** For an unknown one the store is empty, and an empty one accepts as long as
+anything fits in it at all:
 
 ```csharp
 account?.StoreOfflineMessage(…) ?? MaxStoredOfflineMessages > 0
 ```
 
-**Der zweite Summand ist der Punkt.** Ein schlichtes `?? true` wäre 99 von 100
-Fällen richtig und im hundertsten falsch: Bei `MaxStoredOfflineMessages = 0`
-nimmt auch eine leere Ablage nichts an, das vorhandene Konto bekommt einen
-Fehler — und das unbekannte hätte wieder geschwiegen. `AFullStore_RefusesForBothAlike`
-hält genau das fest, und die Mutation `?? true` stirbt daran.
+**The second summand is the point.** A plain `?? true` would be right in 99 out of
+100 cases and wrong in the hundredth: at `MaxStoredOfflineMessages = 0` an empty
+store accepts nothing either, the existing account gets an error — and the unknown
+one would have kept silent again. `AFullStore_RefusesForBothAlike` holds exactly
+that fast, and the mutation `?? true` dies at it.
 
-Die wichtigere Gegenprobe ist aber `WithTheStore_NeitherRecipientIsTold`: „Antworte
-für Unbekannte einfach immer" wäre die naheliegende Lösung und träfe **genau
-daneben** — bei eingeschalteter Ablage, also der Vorgabe, bekäme dann das
-vorhandene Konto Schweigen und das unbekannte einen Fehler. Die Frage wäre
-wieder beantwortet, nur andersherum. Der Test war der einzige der drei, der von
-Anfang an grün war; ohne ihn wäre die Verschlimmbesserung nicht aufgefallen.
+The more important counter-check however is `WithTheStore_NeitherRecipientIsTold`:
+"just always answer for unknown ones" would be the obvious solution and would hit
+**exactly beside it** — at a switched-on store, that is, at the default, the
+existing account would then get silence and the unknown one an error. The question
+would be answered again, only the other way round. The test was the only one of the
+three that was green from the start; without it the improvement that made it worse
+would not have come out.
 
-Vier Mutationen, alle erschlagen: wieder stillschweigend verwerfen, `?? true`,
-`?? false`, und die abgeschaltete Ablage nicht mehr fragen.
+Four mutations, all struck down: discard silently again, `?? true`, `?? false`, and
+no longer ask the switched-off store.
 
-Angelegt wird für den unbekannten Empfänger nichts — der Test sieht nach.
-Nachgereicht wird ihm auch nie etwas; das ist der Unterschied zwischen „tut so,
-als sei abgelegt worden" und „legt ab", und er fällt niemandem auf, weil es das
-Konto nicht gibt.
-
----
-
-### D53. Dieselbe Prüfung, andere Tür ✅ — `<jid-malformed/>` über die Grenze
-
-Der zweite Fund aus D51. Die Prüfung des `to` galt nur für Stanzas von
-Clients; was über `AcceptFromRemoteAsync` von einer Gegenstelle kam, wurde auf
-Herkunft und Zuständigkeit geprüft und dann zugestellt. **Dort trifft sie den
-wahrscheinlicheren Fall:** Den eigenen Client schreibt dieselbe Bibliothek, die
-fremde Implementierung nicht.
-
-**Beim Hinsehen hatte das `from` dieselbe Lücke, und die ist die ernstere.**
-`DomainOf("al ice@left.example")` liefert brav `left.example`, die
-Zuständigkeitsprüfung ist zufrieden, und eine Stanza mit einer Absenderadresse,
-die keine ist, läuft durch. Bruchstücke zu vergleichen und das Ergebnis „fremde
-Domain" zu nennen ist keine Prüfung.
-
-Die beiden Fälle wiegen verschieden schwer, und darin liegt die eigentliche
-Entscheidung:
-
-- **`MalformedSender`** geht denselben Weg wie `ForeignSender`: RFC 6120,
-  Abschnitt 8.1.1.1 nennt beides ein ungültiges `from`, der Stream endet mit
-  `<invalid-from/>`. Der Grund trägt genauso — wer einmal etwas ohne Adresse
-  schickt, tut es beim nächsten Versuch wieder.
-- **`MalformedRecipient`** kostet nur die eine Stanza, dazu ein
-  `<jid-malformed/>` zurück an den Absender. Das ist ein Tippfehler in einer
-  Adresse und keine Aussage darüber, wer da spricht. Risse er die Föderation
-  ab, wäre die Prüfung schlimmer als ihr Nutzen — `AMalformedRecipient_DropsOnlyThatStanza`
-  hält die Grenze fest.
-
-**Die Reihenfolge ist selbst eine Aussage** und hat deshalb einen eigenen
-Testfall. Bei `bob@-right.example` ist schon die Domain keine; `IsLocal` hielte
-sie für die einer dritten Partei. Stünde die Prüfung dahinter, wäre die Stanza
-richtig abgewiesen und **falsch begründet** — der Absender suchte den Fehler an
-der falschen Stelle. Die Mutation, die genau das tut, stirbt an diesem Fall und
-an keinem anderen.
-
-Der Fehlerrahmen aus D51 ist dabei zu **einer** Fassung zusammengezogen
-(`JidMalformedError`). Zwei Buchstabierungen hätten sich nur in Kleinigkeiten
-unterschieden, und genau die wären der Unterschied gewesen, den niemand
-bemerkt: Ein Client, der über die Grenze eine andere Fehlerart bekommt als im
-eigenen Haus, hat zwei Fälle zu behandeln, wo es einen gibt.
-
-Sieben Mutationen, alle erschlagen: Absender nicht geprüft, Empfänger nicht
-geprüft, Empfänger erst nach der Zuständigkeitsfrage, Fehler-Stanza wird
-beantwortet, Ablehnung nennt den Empfänger als Absender, unmöglicher Absender
-beendet den Stream nicht mehr, und — die Gegenrichtung — jede Ablehnung beendet
-den Stream.
-
-Eine Beobachtung am Rande, die beim nächsten Mal Zeit spart: In den
-Mutationsläufen standen **11 übersprungene** Tests statt der gewohnten 7. Kein
-Rätsel, sondern die fehlenden Umgebungsvariablen `JABBER_*_CERTS` — `mutate.ps1`
-gibt sie nicht weiter. Für diese Mutationen war es folgenlos (keine davon
-betrifft die fremden Gegenstellen), aber eine Mutation im S2S-Transport wäre
-dort gegen weniger Tests gemessen worden, als der Name der Sammlung verspricht.
+Created for the unknown recipient is nothing — the test looks. Handed in later
+nothing ever is to them either; that is the difference between "acts as though
+something had been stored" and "stores", and nobody notices it, because the account
+does not exist.
 
 ---
 
-### D54. Eine Wache, an die niemand denken muss ✅
+### D53. The same check, a different door ✅ — `<jid-malformed/>` over the border
 
-Der Punkt lautete: *Die Verdrahtung der Wache ist eine mechanische Eigenschaft
-und von keinem Test gehalten. Nähme jemand in einem einzelnen Fixture das
-`AssertClean()` heraus, fiele es nicht auf.* Gesichert war sie durch eine
-Quelltextprüfung von Hand — „kein `new XMPPServer(` ohne `Watched(…)`" (D19),
-39 Erzeugungsstellen in 17 Dateien.
+The second find from D51. The check of the `to` held only for stanzas from clients;
+what came over `AcceptFromRemoteAsync` from a far side was checked on origin and
+responsibility and then delivered. **There it hits the more probable case:** our own
+client is written by the same library, the foreign implementation is not.
 
-**Nicht abgesichert, sondern abgeschafft.** Ein Test, der prüft, dass jedes
-Fixture die beiden Zeilen schreibt, wäre nur eine zweite Stelle gewesen, an der
-dasselbe Vergessen möglich ist: Er hätte den Quelltext gelesen und nichts
-gemessen, und für das Fixture von morgen hätte er nichts getan.
+**On looking, the `from` had the same gap, and that is the more serious one.**
+`DomainOf("al ice@left.example")` obediently delivers `left.example`, the check of
+responsibility is satisfied, and a stanza with a sender address that is none runs
+through. To compare fragments and to call the result "foreign domain" is no check.
 
-Stattdessen meldet jeder `XMPPServer` seine Entstehung — ein `internal static
-event OnInstanceCreated`, ausgelöst am Ende des Konstruktors —, und ein
-`ITestAction` auf Assembly-Ebene hängt sich an jeden davon. Damit ist die Wache
-keine Eigenschaft mehr, die jemand herstellen muss, sondern eine, die von
-selbst gilt.
+The two cases weigh differently, and in that lies the actual decision:
 
-Drei Zeilen Produktivcode allein für die Testsammlung sind eine Entscheidung
-und keine Selbstverständlichkeit. Sie sind vertretbar, weil sie `internal`
-sind — nach aussen sagt der Server nichts zu —, und weil die Alternative war,
-sich weiter auf die Aufmerksamkeit von Menschen zu verlassen. Der Server trägt
-ohnehin ein Dutzend Testschalter; dies ist der erste, der nicht sein Verhalten
-ändert, sondern nur zusieht.
+- **`MalformedSender`** goes the same way as `ForeignSender`: RFC 6120, section
+  8.1.1.1 calls both an invalid `from`, the stream ends with `<invalid-from/>`. The
+  reason carries just the same — whoever once sends something without an address
+  does it again at the next attempt.
+- **`MalformedRecipient`** costs only the one stanza, to that a `<jid-malformed/>`
+  back to the sender. That is a typing error in an address and no statement about
+  who is speaking there. Did it break the federation off, the check would be worse
+  than its use — `AMalformedRecipient_DropsOnlyThatStanza` holds the limit fast.
 
-**Die Wache je Fixture bleibt.** `InternalErrorGuard` liefert `InternalErrors`
-für die Tests, die die Meldungen *ansehen* wollen. Was wegfällt, ist ihre
-Unverzichtbarkeit: Wer künftig `Watched(…)` oder `AssertClean()` vergisst,
-verliert nichts mehr. `Expect()` reicht die Absicht an die globale Wache
-weiter — sonst müsste ein Fixture zweimal sagen, dass sein Fehler gewollt ist,
-und die zweite Stelle wäre wieder eine zum Vergessen.
+**The order is itself a statement** and therefore has a test case of its own. At
+`bob@-right.example` the domain is already none; `IsLocal` would hold it to be that
+of a third party. Stood the check behind it, the stanza would be refused rightly and
+**given the wrong reason** — the sender would look for the error in the wrong place.
+The mutation that does exactly that dies at this case and at no other.
 
-**Der Test, ohne den das Ganze wertlos wäre:** dass die neue Wache auch
-*scheitern lässt*. Die schlimmste Fassung ist die, die alles aufnimmt und nie
-etwas daraus macht — sie sieht aus wie eine Sicherung, ist keine, und die
-Sammlung bleibt grün. Genau dieselbe Falle hat `InternalErrorGuard.Record`
-schon entschärft, und aus demselben Grund gibt es das Aufnehmen jetzt auch hier
-getrennt vom Anhängen.
+The frame of the error from D51 is drawn together into **one** version
+(`JidMalformedError`) in doing so. Two spellings would have differed only in small
+things, and exactly those would have been the difference nobody notices: a client
+that gets a different type of error over the border than in its own house has two
+cases to handle where there is one.
 
-Dazu die Trennung zwischen zwei Tests: Bliebe eine Meldung stehen, fiele es nur
-dem *nachfolgenden* Test auf — und welcher das ist, entscheidet der Testläufer.
-Der Test stellt den Übergang deshalb selbst nach: melden, scheitern lassen, den
-nächsten Test beginnen, nachsehen.
+Seven mutations, all struck down: sender not checked, recipient not checked,
+recipient only after the question of responsibility, error stanza is answered,
+refusal names the recipient as the sender, an impossible sender no longer ends the
+stream, and — the counter-direction — every refusal ends the stream.
 
-**Der erste volle Lauf mit scharfer Wache war sauber.** Die Quelltextregel aus
-D19 war also lückenlos eingehalten — nur eben von Hand. Sechs Mutationen, alle
-erschlagen: Entstehung nicht gemeldet, Wache macht aus dem Gemeldeten nichts,
-räumt zwischen zwei Tests nicht auf (24 Tests fallen mit), hängt sich an keinen
-Server, reicht die Absicht nicht weiter, und läuft einmal je Sammlung statt je
-Test.
-
-Die aufschlussreichste ist die dritte: **Eine fehlende Zeile schleppt jede
-Meldung in alle folgenden Tests.** Genau deshalb steht der Übergang zwischen
-zwei Tests als eigene Zusicherung da und nicht als Hoffnung auf die Reihenfolge
-des Testläufers. Und die fünfte zeigt die Kehrseite der neuen Reichweite: Ohne
-die Weitergabe von `Expect()` fallen die fünf Tests, die absichtlich einen
-internen Fehler auslösen — die Wache über alle Server sieht eben auch das, was
-gewollt ist.
-
-**Ein Lauf, der nichts gemessen hat, sah dabei aus wie ein bestandener.** Der
-erste Anlauf zum vollen Durchgang meldete `782 erfolgreich, 25 übersprungen` —
-grün. Die Gegenstellen liefen, die Zertifikatspfade waren lesbar; die
-Umgebungsvariablen hatten den Testprozess nur nicht erreicht, weil der Lauf
-über die Bash-Schale statt über PowerShell gestartet war. **Die Zahl der
-übersprungenen Tests ist das einzige, was die beiden unterscheidet** — 7 heisst
-„beide fremden Server standen", alles darüber heisst „die Föderation wurde
-nicht angefasst". Wiederholt, diesmal richtig: 800 grün, 7 übersprungen.
+An observation on the side that saves time next time: in the mutation runs there
+stood **11 skipped** tests instead of the usual 7. No riddle, but the missing
+environment variables `JABBER_*_CERTS` — `mutate.ps1` does not pass them on. For
+these mutations it was without consequence (none of them concerns the foreign far
+sides), but a mutation in the S2S transport would have been measured there against
+fewer tests than the name of the suite promises.
 
 ---
 
-### D55. Eine Zahl, wo eine Beziehung gemeint war ✅ — der Wackler ist erklärt
+### D54. A guard nobody has to think of ✅
 
-`NonzasDoNotAdvanceTheCount` gegen Prosody, aufgefallen in D34 als **ein**
-Fehlschlag in einem Vollauf und danach in zwanzig gezielten Ausführungen nicht
-zu wiederholen. Der Mitschnitt aus D35 wurde nie fällig — geklärt ist der Fall
-trotzdem, und zwar aus den beiden Zahlen, die schon im Protokoll standen:
+The point read: *the wiring of the guard is a mechanical property and held by no
+test. Would somebody take the `AssertClean()` out in a single fixture, it would not
+come out.* Secured it was by a check of the source by hand — "no `new XMPPServer(`
+without `Watched(…)`" (D19), 39 places of creation in 17 files.
+
+**Not secured, but abolished.** A test that checks that every fixture writes the two
+lines would have been only a second place at which the same forgetting is possible:
+it would have read the source and measured nothing, and for the fixture of tomorrow
+it would have done nothing.
+
+Instead every `XMPPServer` reports its arising — an `internal static event
+OnInstanceCreated`, set off at the end of the constructor —, and an `ITestAction` at
+the assembly level hangs itself on every one of them. With that the guard is no
+longer a property somebody has to produce, but one that holds of itself.
+
+Three lines of production code solely for the test suite are a decision and no
+matter of course. They are defensible because they are `internal` — outwards the
+server says nothing about it —, and because the alternative was to go on relying on
+the attention of humans. The server carries a dozen test switches anyway; this is
+the first that does not change its behaviour but only watches.
+
+**The guard per fixture stays.** `InternalErrorGuard` delivers `InternalErrors` for
+the tests that want to *look at* the reports. What falls away is its
+indispensability: whoever forgets `Watched(…)` or `AssertClean()` in future loses
+nothing any more. `Expect()` passes the intention on to the global guard —
+otherwise a fixture would have to say twice that its error is wanted, and the second
+place would again be one to forget.
+
+**The test without which the whole thing would be worthless:** that the new guard
+also *lets things fail*. The worst version is the one that takes everything in and
+never makes anything of it — it looks like a safeguard, is none, and the suite stays
+green. Exactly the same trap `InternalErrorGuard.Record` already defused, and for
+the same reason the taking in now exists separately from the hanging on here as
+well.
+
+To that the separation between two tests: would a report stay standing, it would
+come out only to the *following* test — and which one that is the test runner
+decides. The test therefore reproduces the transition itself: report, let it fail,
+begin the next test, look.
+
+**The first full run with a sharp guard was clean.** The rule about the source from
+D19 had therefore been kept without a gap — only by hand. Six mutations, all struck
+down: arising not reported, guard makes nothing of the reported, does not clear up
+between two tests (24 tests fall with it), hangs itself on no server, does not pass
+the intention on, and runs once per suite instead of per test.
+
+The most revealing is the third: **a missing line drags every report into all
+following tests.** Exactly for that the transition between two tests stands there as
+an assurance of its own and not as a hope about the order of the test runner. And
+the fifth shows the reverse side of the new reach: without the passing on of
+`Expect()` the five tests fall that set off an internal error on purpose — the guard
+over all servers sees what is wanted as well.
+
+**A run that measured nothing looked like a passed one in doing so.** The first
+attempt at the full pass reported `782 succeeded, 25 skipped` — green. The far sides
+were running, the certificate paths were readable; the environment variables had
+only not reached the test process, because the run had been started over the Bash
+shell instead of over PowerShell. **The number of skipped tests is the only thing
+that distinguishes the two** — 7 means "both foreign servers stood", everything
+above it means "the federation was not touched". Repeated, this time rightly: 800
+green, 7 skipped.
+
+---
+
+### D55. A number where a relation was meant ✅ — the flaky test is explained
+
+`NonzasDoNotAdvanceTheCount` against Prosody, come out in D34 as **one** failure in
+one full run and afterwards not to be repeated in twenty targeted executions. The
+recording from D35 never fell due — cleared up the case is all the same, and out of
+the two numbers that already stood in the log at that:
 
 ```
 Wir haben Nonzas mitgezählt.               Expected: 6  But was: 8
 Prosody hat andere Nonzas mitgezählt.      Expected: 8  But was: 6
 ```
 
-Der Ausgangsstand war 3, Prosody bestätigte **6** — also genau die drei
-Nachrichten des Tests, und keine einzige der sechs Nonzas. **Prosody hat
-richtig gezählt, und wir auch.** Bei uns standen nur zwei Stanzas mehr im
-Zähler, die dieser Test nicht geschickt hat und die nach Prosodys `<a/>`
-hinausgingen.
+The starting state was 3, Prosody acknowledged **6** — that is, exactly the three
+messages of the test, and not a single one of the six nonzas. **Prosody counted
+rightly, and we did too.** At our end there stood only two stanzas more in the
+counter that this test did not send and that went out after Prosody's `<a/>`.
 
-Damit ist die naheliegende Erklärung — „eine Seite zählt Nonzas mit" — genau
-die, die nicht zutrifft. Ein Client schickt von sich aus: Er beantwortet, was
-hereinkommt, und **wann** das geschieht, bestimmt nicht der Test. Die drei
-Nachrichten gehen an das eigene Konto und kommen zurück; was der Client
-daraufhin tut, fällt in das Fenster zwischen der Bestätigung und dem Ablesen
-des Zählers.
+With that the obvious explanation — "one side counts nonzas along" — is exactly the
+one that does not hold. A client sends of its own accord: it answers what comes in,
+and **when** that happens the test does not determine. The three messages go to our
+own account and come back; what the client does thereupon falls into the window
+between the acknowledgement and the reading of the counter.
 
-**Der Fehler lag im Test, nicht im Zähler.** Er prüfte „der Stand ist um genau
-drei gestiegen" — eine Zahl. Abschnitt 2 sagt aber keine Zahl, sondern eine
-Beziehung: *der Zähler steigt um die Stanzas und um nichts sonst.* Genau die
-steht jetzt da, gemessen gegen den Mitschnitt statt gegen die Absicht:
+**The error lay in the test, not in the counter.** It checked "the state has risen
+by exactly three" — a number. Section 2 however says no number, but a relation: *the
+counter rises by the stanzas and by nothing else.* Exactly that now stands there,
+measured against the recording instead of against the intention:
 
 ```csharp
-Assert.That(sm.OutboundCount - vorher, Is.EqualTo(Gezaehlt(hinaus)));
+Assert.That(sm.OutboundCount - before, Is.EqualTo(Counted(outgoing)));
 ```
 
-Drei ist nur noch die Untergrenze, damit überhaupt etwas gemessen wird, und
-eine vierte Zusicherung verlangt mindestens drei **Nonzas** im Ausgang — sonst
-prüfte der Test seine eigene Überschrift nicht.
+Three is only the lower bound any more, so that anything is measured at all, and a
+fourth assurance demands at least three **nonzas** in the outgoing — otherwise the
+test would not check its own heading.
 
-**Gezählt wird mit einer eigenen Fassung der Regel**, nicht mit
-`StreamManagementManager.IsCountableStanza`. Die ist die Funktion, deren
-Ergebnis hier geprüft wird; nähme der Test sie, verglich er eine Zahl mit sich
-selbst und bestünde auch dann, wenn sie falsch antwortet — dieselbe Trennung,
-aus der auch der Testserver eigenständig zählt.
+**Counted is with a version of the rule of its own**, not with
+`StreamManagementManager.IsCountableStanza`. That is the function whose result is
+checked here; took the test it, then it would compare a number with itself and would
+pass even when it answers wrongly — the same separation out of which the test server
+counts independently as well.
 
-Dazu ein Nachfrage-Anlauf statt eines einzigen `<r/>`: Was nach dem letzten
-`<r/>` hinausgeht, bliebe sonst für immer unbestätigt, und die Gleichheit der
-beiden Stände käme nie zustande. Drei Runden, jede mit eigener Nachfrage.
+To that a round of asking instead of a single `<r/>`: what goes out after the last
+`<r/>` would otherwise stay unacknowledged for ever, and the equality of the two
+states would never come about. Three rounds, each with an asking of its own.
 
-Vier Mutationen, alle erschlagen: ausgehend alles mitzählen, ausgehend nichts
-mitzählen, der Zähler springt um zwei, und nur `<message>` zählt. Die erste ist
-die eigentliche Probe — sie fällt in beiden Ableitungen, gegen Prosody wie
-gegen ejabberd.
+Four mutations, all struck down: count everything outgoing, count nothing outgoing,
+the counter jumps by two, and only `<message>` counts. The first is the actual
+probe — it falls in both derivations, against Prosody as against ejabberd.
 
-**Und das Werkzeug ist mitrepariert:** `mutate.ps1` reicht jetzt die
-`JABBER_*_CERTS` weiter (siehe die Beobachtung in D53). In allen Läufen dieses
-Eintrags stand `übersprungen: 0` — vorher wären es die Hälfte der Tests
-gewesen, und die Mutation hätte gegen die fremden Server gar nichts gemessen.
+**And the tool is repaired along:** `mutate.ps1` now passes the `JABBER_*_CERTS` on
+(see the observation in D53). In all runs of this entry there stood `skipped: 0` —
+before it would have been half the tests, and the mutation would have measured
+nothing at all against the foreign servers.
 
 ---
 
