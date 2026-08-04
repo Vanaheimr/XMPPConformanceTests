@@ -513,338 +513,326 @@ The XEP managers get their sending function injected as a `Func<string, Task>`
 and do not know the transport — they are thereby testable independently of
 `XMPPConnection`. The complete tree stands in the
 [README of Ratatoskr](../libs/Ratatoskr/README.md#project-structure).
-
 ## Tests
 
 ```bash
-# Die Konsolenausgabe - acht Tests
+# The console output - eight tests
 dotnet test ../Jabber.Tests/Jabber.Tests.csproj
 
-# Das Protokoll - der grosse Teil
+# The protocol - the large part
 dotnet test ../libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj
 ```
 
-NUnit in denselben Versionen wie `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter
-6.2.0, Test.Sdk 18.8.1). Die Fixtures sind nach Themen gegliedert; der Namespace
-bleibt dabei flach `org.GraphDefined.Vanaheimr.Ratatoskr.Tests`, die Ordner
-gliedern nur:
+NUnit in the same versions as `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter
+6.2.0, Test.Sdk 18.8.1). The fixtures are grouped by topic; the namespace stays
+flat throughout at `org.GraphDefined.Vanaheimr.Ratatoskr.Tests`, the folders
+only group:
 
 ```
 libs/Ratatoskr/RatatoskrTests/
-├── Infrastructure/     Basisklasse aller Fixtures, Wache gegen interne Fehler
-├── Common/             JIDs, Stanza-Namen, Namensraeume, IQ-Typen, XML-Splitter
-├── Auth/               SASL/SCRAM, Mechanismus-Politik, Konten und Zertifikate
-├── Streams/            Aushandlung, Binding, TLS, Fristen, Wiederverbindung
-├── StreamManagement/   XEP-0198: Zaehlen, Bestaetigen, Wiederaufnehmen
-├── Federation/         S2S: Dialback, SRV, TCP/WebSocket, fremde Server
-├── Routing/            Zustellregeln, mehrere Resourcen, Offline-Ablage
-├── Rosters/            Roster, Subscriptions, Versionierung, Push-Sicherheit
-├── Stanzas/            Aufbau, Parsen und Fehler einzelner Stanzas
-└── XEPs/               XEP-0115 Caps und die Nutzlasten der uebrigen XEPs
+├── Infrastructure/     base class of all fixtures, guard against internal errors
+├── Common/             JIDs, stanza names, namespaces, IQ types, XML splitter
+├── Auth/               SASL/SCRAM, mechanism policy, accounts and certificates
+├── Streams/            negotiation, binding, TLS, deadlines, reconnection
+├── StreamManagement/   XEP-0198: counting, acknowledging, resuming
+├── Federation/         S2S: dialback, SRV, TCP/WebSocket, foreign servers
+├── Routing/            delivery rules, several resources, offline store
+├── Rosters/            roster, subscriptions, versioning, push safety
+├── Stanzas/            building, parsing and errors of single stanzas
+└── XEPs/               XEP-0115 caps and the payloads of the other XEPs
 ```
 
-`Jabber.Tests` prueft nur noch die Konsolenausgabe — dass sie die Eingabezeile
-heil laesst, fuer Ereignisse **und** fuer das Protokoll. Die Kommandos selbst
-haben keine Tests.
+`Jabber.Tests` now checks only the console output — that it leaves the input
+line whole, for events **and** for the log. The commands themselves have no
+tests.
 
-**Die Zahl der uebersprungenen Tests ist die Gesundheitspruefung des Laufs.**
-Steht sie auf **7**, standen Prosody, ejabberd und das OMEMO-Orakel bereit; jede
-hoehere Zahl heisst, dass etwas gar nicht erst geprueft wurde. Die sieben, die
-auch im guten Fall stehen bleiben, sind keine Versaeumnisse, sondern eine Grenze
-der Umgebung: sechs brauchen den **eingehenden** Weg, den die Hyper-V-Firewall
-von WSL zum Windows-Host verwirft (siehe unten), und einer gilt nur im
-STARTTLS-Betrieb.
+**The number of skipped tests is the health check of the run.** If it stands at
+**7**, Prosody, ejabberd and the OMEMO oracle were ready; every higher number
+means that something was not checked at all. The seven that stay even in the
+good case are no omissions but a limit of the environment: six need the
+**incoming** way, which the Hyper-V firewall discards from WSL to the Windows
+host (see below), and one holds only in STARTTLS operation.
 
 ### XMPPServer
 
-`libs/Ratatoskr/Ratatoskr/Server/` enthält einen echten XMPP-Server: über
-WebSocket (RFC 7395) zu Clients, über TCP (RFC 6120) zu anderen Servern. Er lag
-bis D97 im Hauptprojekt, damit er beim Umzug in eine Bibliothek mitwandert —
-dieser Umzug ist erfolgt, und sein Namespace ist jetzt `…Ratatoskr.Server`. Er
-reicht so weit, dass sich mehrere echte `XMPPClient`-Instanzen gleichzeitig anmelden und
-miteinander sprechen:
+`libs/Ratatoskr/Ratatoskr/Server/` holds a real XMPP server: over WebSocket
+(RFC 7395) to clients, over TCP (RFC 6120) to other servers. Until D97 it lay
+in the main project so that it would travel along on the move into a library —
+that move has happened, and its namespace is now `…Ratatoskr.Server`. It goes
+far enough for several real `XMPPClient` instances to log in at the same time
+and talk to each other:
 
-- TLS: `wss://` mit einem selbst signierten Zertifikat, das der Konstruktor
-  erzeugt (RFC 6120 §5). `new XMPPServer(useTLS: false)` schaltet auf `ws://`
-  zurück, was für die Fehlersuche mit einem Mitschnitt gedacht ist
-- SASL: SCRAM-SHA-256, SCRAM-SHA-1 und PLAIN, in dieser Reihenfolge angeboten.
-  Welche Mechanismen es sein sollen, steuert `OfferedSaslMechanisms`; ein nicht
-  angebotener wird auch dann abgelehnt, wenn ein Client ihn versucht
-- Zugangsdaten nach RFC 5802 §3 — Salt, Iterationszahl, `StoredKey` und
-  `ServerKey` je Mechanismus. Kein Klartextpasswort, auch nicht für PLAIN:
-  das prüft, indem es aus dem angebotenen Passwort neu ableitet
-- Ein **unbekannter Benutzername** bekommt denselben Austausch wie ein
-  bekannter: erfundene Zugangsdaten aus dem Namen und einem Serverschlüssel —
-  je Name andere, für denselben Namen immer dieselben —, und die Abweisung
-  kommt erst am Beweis. Sonst stünde die Antwort auf „gibt es dieses Konto?"
-  im Ablauf, ganz gleich welches Fehlerwort dabei steht (RFC 6120 §13.11,
-  „Directory Harvesting")
-- Konten und Roster über `IXMPPAccountStore`: `InMemoryAccountStore` (Vorgabe)
-  oder `FileAccountStore` für einen Bestand, der den Neustart übersteht
-- Routing nach Domain: was nicht hierher gehört, geht über `IServerLinks`
-  hinaus; eine unerreichbare Domain wird mit `<remote-server-not-found/>`
-  beantwortet. `DirectServerLinks.Connect(a, b)` verbindet zwei Instanzen im
-  selben Prozess, ohne jedes Netz — für Tests, nicht für den Betrieb.
-  `WebSocketServerLinks.Connect(a, b)` tut dasselbe über einen echten
-  WebSocket-S2S-Stream (`S2SStream`, eigener Handshake nach RFC 7395 §3.4,
-  Subprotokoll `xmpp-server`): eine Absenderfälschung beendet dort nicht nur
-  die Zustellung, sondern den Stream und die Verbindung (RFC 6120 §8.1.1.1,
-  §4.9)
-- Zwei S2S-Transporte unter derselben Protokollschicht (`S2SStream`):
-  `WebSocketServerLinks` (RFC-7395-Rahmen, Subprotokoll `xmpp-server`, nur
-  zwischen Instanzen dieses Servers) und `TcpServerLinks`
-  (`jabber:server`-Streams über TCP nach RFC 6120 — der Weg zu ejabberd und
-  Prosody). Was sich unterscheidet, ist nur die Rahmung (`IS2SFraming`) und
-  dass TCP den Strom erst über `XmlStreamSplitter` in Elemente zerlegen muss
-- XEP-0288 Bidirectional Server-to-Server Streams: beide Richtungen über eine
-  Verbindung. Ohne die Erweiterung antwortet jede Seite über eine *eigene*
-  ausgehende Verbindung (RFC 6120 §4.1) — hinter NAT, hinter einer Firewall
-  oder ohne DNS-Eintrag geht die Antwort dann verloren, und zwar
-  stillschweigend. Zwei Schalter, weil es zwei Dinge sind:
-  `OfferBidirectionalStreams` kündigt sie auf eingehenden Verbindungen an,
-  `RequestBidirectionalStreams` erbittet sie auf ausgehenden. Über die
-  Rückrichtung geht nichts vor dem Ausweis der Gegenstelle und nichts für eine
-  fremde Domain. Auf beiden S2S-Transporten, gegen Prosody 13 und ejabberd
-  24.12 in beiden Richtungen geprüft.
+- TLS: `wss://` with a self-signed certificate the constructor creates
+  (RFC 6120 §5). `new XMPPServer(useTLS: false)` switches back to `ws://`,
+  which is meant for troubleshooting with a capture
+- SASL: SCRAM-SHA-256, SCRAM-SHA-1 and PLAIN, offered in that order. Which
+  mechanisms they are to be is steered by `OfferedSaslMechanisms`; one that was
+  not offered is refused even when a client tries it
+- Credentials under RFC 5802 §3 — salt, iteration count, `StoredKey` and
+  `ServerKey` per mechanism. No plaintext password, not even for PLAIN: that
+  one checks by deriving anew from the password offered
+- An **unknown user name** gets the same exchange as a known one: made-up
+  credentials from the name and a server key — different ones per name, always
+  the same ones for the same name — and the refusal comes only at the proof.
+  Otherwise the answer to "does this account exist?" would stand in the course
+  of events, no matter which error word came with it (RFC 6120 §13.11,
+  "directory harvesting")
+- Accounts and rosters over `IXMPPAccountStore`: `InMemoryAccountStore`
+  (default) or `FileAccountStore` for a stock that survives the restart
+- Routing by domain: what does not belong here goes out over `IServerLinks`; an
+  unreachable domain is answered with `<remote-server-not-found/>`.
+  `DirectServerLinks.Connect(a, b)` connects two instances in the same process,
+  without any network — for tests, not for operation.
+  `WebSocketServerLinks.Connect(a, b)` does the same over a real WebSocket S2S
+  stream (`S2SStream`, its own handshake under RFC 7395 §3.4, subprotocol
+  `xmpp-server`): a forged sender ends there not only the delivery but the
+  stream and the connection (RFC 6120 §8.1.1.1, §4.9)
+- Two S2S transports under the same protocol layer (`S2SStream`):
+  `WebSocketServerLinks` (RFC 7395 framing, subprotocol `xmpp-server`, only
+  between instances of this server) and `TcpServerLinks`
+  (`jabber:server` streams over TCP under RFC 6120 — the way to ejabberd and
+  Prosody). What differs is only the framing (`IS2SFraming`) and that TCP has
+  to break the stream into elements over `XmlStreamSplitter` first
+- XEP-0288 Bidirectional Server-to-Server Streams: both directions over one
+  connection. Without the extension each side answers over an *own* outgoing
+  connection (RFC 6120 §4.1) — behind NAT, behind a firewall or without a DNS
+  entry the answer is then lost, and silently at that. Two switches, because
+  they are two things: `OfferBidirectionalStreams` announces them on incoming
+  connections, `RequestBidirectionalStreams` asks for them on outgoing ones.
+  Over the way back nothing goes before the far side has identified itself and
+  nothing for a foreign domain. On both S2S transports, checked against Prosody
+  13 and ejabberd 24.12 in both directions.
 
-  Angekündigt werden **beide** Namensräume (`urn:xmpp:features:bidi` und
-  `urn:xmpp:bidi`), gelesen ebenfalls beide. Die XEP kennt für die Ankündigung
-  nur den ersten; ejabberd 24.12 legt in die Features das Freischalt-Element
-  und greift nur den zweiten auf. Beobachtet, nicht vermutet — mit nur der
-  XEP-Form nimmt es unsere Rückrichtung nicht. Eindeutig bleibt es trotzdem:
-  das Freischalt-Element heisst in beiden Lesarten `urn:xmpp:bidi`
-- Aufbewahrte Subscription-Anfragen (RFC 6121 §3.1.3): wer nicht verbunden ist,
-  bekommt seine Anfragen beim nächsten Anmelden — und bei jeder weiteren
-  Resource wieder, bis er zustimmt oder ablehnt. Aufbewahrt wird die
-  vollständige Stanza samt `<status/>`, je Absender genau eine, und mit einer
-  Obergrenze je Konto. Ein Roster-Eintrag entsteht dabei nicht: die Security
-  Warning des Abschnitts untersagt ihn vor der Zustimmung
-- Subscription-Pre-Approval (RFC 6121 §3.4): ein Kontakt lässt sich zulassen,
-  bevor er fragt; seine spätere Anfrage beantwortet der Server selbst und stellt
-  sie dem Nutzer gar nicht erst zu. Angekündigt als
-  `urn:xmpp:features:pre-approval`, clientseitig `PreApproveContactAsync`
-- Subscription-Handshake über die Domain-Grenze (RFC 6121 §3): jede Seite
-  pflegt ihre eigene Roster-Hälfte, und ein Antragsteller, der den Kontakt
-  ohnehin schon sehen darf, wird vom Server des Kontakts direkt beschieden
-  (§3.1.4)
-- SRV-Auflösung (RFC 6120 §3.2.1): Gegenstellen werden über
-  `_xmpp-server._tcp.<domain>` gefunden statt von Hand eingetragen, mit der
-  Reihenfolge aus RFC 2782. Ein Eintrag von Hand geht vor; das Zertifikat wird
-  gegen die gesuchte Domain geprüft, nie gegen den Rechnernamen aus dem
-  SRV-Eintrag
-- SASL-EXTERNAL auf der TCP-Strecke (XEP-0178): die Domain der Gegenstelle wird
-  über ihr TLS-Zertifikat belegt statt über eine Dialback-Rückfrage.
-  `CertificateIdentity` liest die dNSName-Einträge — bei vorhandener SAN zählt
-  der Common Name nicht mehr (RFC 6125 §6.4.4), Platzhalter gelten nicht
-- STARTTLS auf der TCP-Strecke (RFC 6120 §5.4), Vorgabe von `TcpTlsMode`. Wird
-  als `<required/>` angekündigt und ist es auch: wer die Verschlüsselung
-  ausschlägt oder gar nicht erst anbietet, bekommt keinen Stream — und keinen
-  unverschlüsselten
-- Dialback (XEP-0220) auf beiden S2S-Wegen: die Domain der Gegenstelle
-  wird belegt, nicht geglaubt. Der annehmende Server fragt dazu **nicht** den,
-  der sich ausweisen will, sondern die für diese Domain hinterlegte Adresse —
-  über eine eigene, kurzlebige Verbindung. Vor bestandenem Dialback trägt der
-  Stream keine Stanza
-- Resource Binding mit eindeutiger Resource je Verbindung
-- Routing von `message`, `presence` und `iq` zwischen den Sitzungen
-- Presence nur an Berechtigte (RFC 6121 §4): Kontakte mit `from` oder `both`
-  plus die eigenen weiteren Resourcen. Dazu Presence-Probes, das Nachliefern
-  des Kontaktzustands beim Anmelden und die Abmeldung beim Verbindungsende —
-  auch wenn sie abreisst und der Client selbst nichts mehr sagen kann (§4.5.2)
-- Subscription-Handshake (RFC 6121 §3): `subscribe`/`subscribed`/`unsubscribe`/
-  `unsubscribed` ändern die Roster **beider** Seiten und lösen Roster-Pushes
-  aus; `ask='subscribe'` hält eine offene Anfrage fest
-- XEP-0280 Carbons (`sent` und `received`) zwischen Resourcen eines Kontos
-- serverseitiger Roster mit Roster-Push
-- XEP-0163 Personal Eventing als Teilmenge: Ein Konto kann in PEP-Knoten
-  veröffentlichen, jeder kann sie abrufen, und Kontakte mit `from` oder `both`
-  werden benachrichtigt. **Der Server antwortet dabei für das Konto und nicht
-  der Client** — sonst wäre ein OMEMO-Bundle nur abrufbar, solange sein
-  Besitzer online ist. Was fehlt: Knotenkonfiguration, Zugriffsmodelle,
-  gefilterte Benachrichtigungen über XEP-0115
-- XEP-0060 §6.1/§6.2 Abonnements auf PEP-Knoten: `<subscribe/>` und
-  `<unsubscribe/>` mit `subid`, samt der Ablehnungen des XEP —
+  Announced are **both** namespaces (`urn:xmpp:features:bidi` and
+  `urn:xmpp:bidi`), and both are read as well. The XEP knows only the first for
+  the announcement; ejabberd 24.12 puts the enabling element into the features
+  and picks up only the second. Observed, not assumed — with the XEP form alone
+  it does not take our way back. Unambiguous it stays all the same: the
+  enabling element is called `urn:xmpp:bidi` in both readings
+- Kept subscription requests (RFC 6121 §3.1.3): whoever is not connected gets
+  their requests at the next login — and again at every further resource, until
+  they agree or refuse. What is kept is the complete stanza together with its
+  `<status/>`, exactly one per sender, and with an upper bound per account. No
+  roster entry comes about in doing so: the security warning of that section
+  forbids it before the agreement
+- Subscription pre-approval (RFC 6121 §3.4): a contact can be allowed before
+  they ask; their later request the server answers itself and does not deliver
+  it to the user at all. Announced as `urn:xmpp:features:pre-approval`, on the
+  client side `PreApproveContactAsync`
+- Subscription handshake across the domain border (RFC 6121 §3): each side
+  keeps its own half of the roster, and an applicant who may see the contact
+  anyway is answered directly by the server of the contact (§3.1.4)
+- SRV resolution (RFC 6120 §3.2.1): far sides are found over
+  `_xmpp-server._tcp.<domain>` instead of being entered by hand, with the order
+  from RFC 2782. An entry by hand takes precedence; the certificate is checked
+  against the domain that was sought, never against the host name from the SRV
+  entry
+- SASL EXTERNAL on the TCP route (XEP-0178): the domain of the far side is
+  shown over its TLS certificate instead of over a dialback query.
+  `CertificateIdentity` reads the dNSName entries — with a SAN present the
+  common name no longer counts (RFC 6125 §6.4.4), wildcards do not hold
+- STARTTLS on the TCP route (RFC 6120 §5.4), the default of `TcpTlsMode`. It is
+  announced as `<required/>` and is required: whoever declines the encryption
+  or does not offer it at all gets no stream — and no unencrypted one
+- Dialback (XEP-0220) on both S2S ways: the domain of the far side is shown,
+  not believed. For that the accepting server asks **not** the one who wants to
+  identify itself but the address on record for that domain — over a
+  short-lived connection of its own. Before a passed dialback the stream
+  carries no stanza
+- Resource binding with a unique resource per connection
+- Routing of `message`, `presence` and `iq` between the sessions
+- Presence only to those entitled (RFC 6121 §4): contacts with `from` or `both`
+  plus our own further resources. Along with presence probes, the handing in of
+  the contact state on login and the sign-off at the end of the connection —
+  even when it breaks and the client itself can say nothing more (§4.5.2)
+- Subscription handshake (RFC 6121 §3): `subscribe`/`subscribed`/`unsubscribe`/
+  `unsubscribed` change the rosters of **both** sides and set off roster pushes;
+  `ask='subscribe'` holds a pending request fast
+- XEP-0280 carbons (`sent` and `received`) between resources of one account
+- server-side roster with roster push
+- XEP-0163 Personal Eventing as a subset: an account can publish into PEP
+  nodes, anybody can fetch them, and contacts with `from` or `both` are
+  notified. **The server answers for the account and not the client** —
+  otherwise an OMEMO bundle would be fetchable only while its owner is online.
+  What is missing: node configuration, access models, filtered notifications
+  over XEP-0115
+- XEP-0060 §6.1/§6.2 subscriptions to PEP nodes: `<subscribe/>` and
+  `<unsubscribe/>` with a `subid`, together with the refusals of the XEP —
   `<item-not-found/>`, `<invalid-jid/>`, `<not-subscribed/>`,
-  `<invalid-subid/>`, `<subid-required/>`. **Ein Abonnent bekommt die
-  Benachrichtigungen auch ohne Presence-Berechtigung.** Den `jid` darf nur
-  setzen, wem er gehört — sonst könnte jeder jeden anmelden oder, schlimmer,
-  abmelden
-- Mehrere Abonnements desselben JIDs auf denselben Knoten: Jedes `subscribe`
-  legt eines an, zugestellt wird **je Abonnement** mit der SHIM-Kopfzeile
-  `SubID` (§12.20), und Abbestellen ohne `subid` wird bei mehreren abgewiesen.
-  Ein ausdrückliches Abonnement verdrängt die Presence-Zustellung, damit die
-  Zahl der Zustellungen nicht davon abhängt, wer nebenbei im Roster steht
-- XEP-0060 §8.1/§8.2 Knoten anlegen und konfigurieren: `<create/>` mit
-  optionalem Formular, `<configure/>` im `#owner`-Namensraum, und **nur der
-  Eigentümer**. Ein angelegter Knoten existiert, bevor etwas darin steht.
-  Wirksame Felder: `pubsub#max_items` (eine kleinere Grenze gilt sofort),
-  `pubsub#persist_items` (ein Knoten ohne Ablage meldet nur),
-  `pubsub#access_model` und `pubsub#roster_groups_allowed`. Angeboten werden
-  **alle fünf** Modelle — `open`, `presence`, `whitelist`, `roster` und
-  `authorize`; was kein Modellname ist, wird abgewiesen statt zu `open`
-  verkürzt
-- Das Zugriffsmodell wird durchgesetzt: `presence` sperrt beim Abrufen und beim
-  Abonnieren aus, wer die Presence des Eigentümers nicht sehen darf
-  (`<not-authorized/>` mit `<presence-subscription-required/>`); der Eigentümer
-  kommt immer an seinen Knoten. **Es verrät dabei, dass es den Knoten gibt** —
-  so sieht es XEP-0060 §6.5.3 vor, und für einen Knoten, dessen blosse Existenz
-  ein Geheimnis wäre, ist `presence` das falsche Mittel
-- XEP-0060 §7.1.5 `<publish-options/>`: Die Bedingungen einer Veröffentlichung
-  werden geprüft — der Knoten entsteht passend oder die Veröffentlichung wird
-  mit `<conflict/>` und `<precondition-not-met/>` abgewiesen. Damit hat die
-  Bedingung Wirkung, die OMEMO seit jeher mitschickt (XEP-0384 §5.2: ein Bundle
-  muss offen abrufbar sein)
-- XEP-0060 §4.1/§8.9 Rollen je Knoten: `publisher` darf in einen fremden Knoten
-  schreiben (die Meldung kommt trotzdem vom Eigentümer), `outcast` kommt an
-  keinen Knoten und **verliert bestehende Abonnements**, `member` kommt an
-  einen Knoten mit dem Zugriffsmodell `whitelist`. Der Eigentümer ist das Konto
-  und nicht umtragbar; `publish-only` wird abgewiesen statt angeboten.
-  Verwaltet werden die Rollen vom Eigentümer (§8.9), die eigenen listet §5.7
-- Drittes Zugriffsmodell `whitelist`: Herein kommt, wen der Eigentümer
-  ausdrücklich daraufgesetzt hat — `member` oder `publisher`. **Der Unterschied
-  zu `presence`:** Eine Presence-Berechtigung entsteht nebenbei, eine Liste
-  nicht. Der Ausschluss steht über beiden Modellen
-- XEP-0060 §5.6 `<subscriptions/>`: alle Abonnements des Fragenden über alle
-  Knoten, mit Kennung und Zustand, auf Wunsch auf einen Knoten eingeschränkt.
-  **Nur die eigenen** — wer fremde aufzählen dürfte, erführe, wer sich wofür
-  interessiert. Keine Abonnements sind eine leere Liste und kein Fehler
-- XEP-0060 §8.8 Die Abonnenten eines Knotens — **die Gegenrichtung zu §5.6 und
-  mit Absicht:** Dort werden fremde Abonnements verschwiegen, weil sie eine
-  Auskunft über Menschen wären; hier lautet die Frage nicht „wo hängt dieser
-  Mensch überall", sondern „wer hängt an meinem Knoten", und die beantwortet
-  der Server dem Eigentümer. Jeder Eintrag nennt seine Kennung, derselbe JID
-  also mehrfach — ohne sie liesse sich keines seiner Abonnements von dem
-  anderen unterscheiden. Entfernt wird mit `subscription='none'`: mit `subid`
-  genau eines, ohne `subid` alle dieses JIDs, denn der Eigentümer meint den
-  Menschen und nicht die Buchführung. Was niemand findet, wird nicht entfernt,
-  sondern abgewiesen. **Anmelden kann der Eigentümer nicht** — das ist genau
-  das, was §6.1.3.1 auf der anderen Seite verhindert, und der eigene Knoten
-  ändert nichts für den, dessen Postfach sich füllt. Ein `subscribed` für ein
-  bestehendes Abonnement ist trotzdem gültig: Eine Liste, die sich nicht
-  unverändert zurückschicken lässt, wäre kein Zustand
-- XEP-0060 §8.8.4 **Wer beendet wurde, ohne zu fragen, erfährt es** — eine
-  Meldung mit Knoten, JID und Kennung, und zwar **je erloschenem Abonnement
-  eine**: Käme auf ein `none` ohne `subid` nur eine, wüsste der Empfänger von
-  einer Kennung, dass sie erloschen ist, und von der anderen nichts. Ebenso
-  beim Ausschluss (§8.9.4) — dort ohne die Rolle zu nennen: was er an dem
-  Knoten ist, geht ihn nichts an, dass er ihn nicht mehr bekommt, schon.
-  Gemeldet wird, was geschehen ist, nicht was angewiesen wurde; eine
-  abgewiesene Anweisung meldet nichts ab. Ein `headline` und damit **nichts
-  für die Ablage** (XEP-0160): Wer offline war, erfährt es nicht — und findet
-  es beim nächsten Verbinden über §5.6, wo der Stand von jetzt steht und nicht
-  der von damals
-- XEP-0060 §4.5/§8.6 `authorize`: **Das einzige Modell, bei dem Abonnieren und
-  Hereinkommen zwei Dinge sind.** Jeder darf fragen — das Fragen ist der
-  Vorgang —, und die Antwort ist ein `pending`: die angenommene Frage und nicht
-  die Zusage. Bis zur Genehmigung kommt nichts an, weder über ein Abonnement
-  noch über die Presence, und abrufen lässt sich auch nichts. Der Eigentümer
-  bekommt den Antrag als Formular vorgelegt (§8.6.1, `pubsub#allow` steht auf
-  „nein" — ein Formular, das schon auf ja steht, macht aus dem Wegklicken eine
-  Zusage) und beantwortet ihn entweder damit (§8.6.2) oder über die
-  Abonnentenliste (§8.8.2). **Zwei Türen, ein Raum:** Die Liste ist die Sicht
-  eines Verwalters, das Formular die eines Menschen. Ein „nein" auf eine Frage
-  von vorhin beendet kein inzwischen zugesagtes Abonnement
-- XEP-0060 §7.2 `<retract/>`: Ein einzelner Eintrag wird zurückgenommen — von
-  dem, der auch veröffentlichen dürfte. **Wer schreiben darf, darf auch
-  zurücknehmen**; einen Publizierenden von fremden Einträgen fernzuhalten
-  hiesse, sich zu merken, wer welchen geschrieben hat, und ohne diese Ablage
-  wäre jede feinere Regel bloss behauptet. Ein Eintrag, den es nicht gibt, wird
-  mit `<item-not-found/>` abgewiesen, ein Knoten ohne Ablage mit
-  `<unsupported feature='persistent-items'/>` wie beim Leeren. **Die Meldung
-  geht denselben Weg wie eine Veröffentlichung** — je Abonnement, mit `subid`,
-  und ein stillgelegtes bleibt still: Eine Rücknahme ist eine Zustellung und
-  keine Nachricht über den Knoten. Der letzte zurückgenommene Eintrag lässt den
-  Knoten stehen
-- XEP-0060 §8.4/§8.5 Knoten löschen und leeren, beides nur für den Eigentümer.
-  **Gelöscht wird der Knoten, geleert nur sein Inhalt** — nach dem Leeren
-  veröffentlicht er weiter an dieselben Empfänger, nach dem Löschen an
-  niemanden. Ein gelöschter Knoten nimmt Einträge, Einstellungen, Abonnements
-  **und Rollen** mit: Blieben die Rollen stehen, erbte der nächste Knoten
-  desselben Namens eine Ausschlussliste, die niemand mehr sieht. Ein Knoten
-  ohne Ablage lässt sich nicht leeren (§8.5.3.2, `<unsupported
-  feature='persistent-items'/>`) — ein `result` wäre die Auskunft, es sei etwas
-  geleert worden. Beides wird gemeldet (§8.4.2/§8.5.2), und zwar **je
-  Abonnenten einmal und ohne `subid`**: Es endet nicht ein Abonnement, sondern
-  der Knoten; eine Kennung zu nennen hiesse, die anderen bestünden weiter. Eine
-  zweite Meldung nach §8.8.4 kommt deshalb nicht hinterher
-- XEP-0060 §6.3 Konfiguration je Abonnement als Datenformular (XEP-0004) mit
-  **genau einem Feld**: `pubsub#deliver` legt dieses eine Abonnement still,
-  ohne es zu beenden — und ein stillgelegtes fällt auch nicht auf die
-  Presence-Zustellung zurück. Ein Feld, das im Angebot nicht stand, wird
-  abgewiesen statt übergangen; ein `set` ohne Formular ebenso. Was der Server
-  nicht kann, bietet er nicht an: Ein `pubsub#digest`, das nichts bewirkt, wäre
-  eine Zusage ohne Deckung, und ausbleibende Zusammenfassungen sehen aus wie
-  Ruhe
-- XEP-0352 Client State Indication: Erklärt sich ein Client für inaktiv, hält
-  der Server zurück, was warten kann — Presence (nur die letzte je Full-JID),
-  Empfangsbestätigungen, Marker. Ein Chat State wird fallengelassen statt
-  aufgehoben, denn ein „schreibt gerade" von vorhin ist beim Nachliefern keine
-  verspätete Auskunft mehr, sondern eine falsche. Nachrichten mit Text, `iq`,
-  Fehler und Nonzas gehen unverändert sofort hinaus
-- XEP-0198 Stream Management mit **eigener, unabhängig implementierter**
-  Zählung — der Server benutzt bewusst nicht dieselbe Hilfsfunktion wie der
-  Client, sonst prüften die Tests beide Seiten mit derselben Logik
-- Stanza- und Stream-Fehler auf Zuruf: `StanzaErrorIq(…)` und
-  `session.SendStreamErrorAsync(condition)` — das Letztere beendet den Stream
-  auch, wie RFC 6120 §4.9.1.1 es verlangt: Fehler schicken, `<close/>` nach
-  RFC 7395 §3.6, Verbindung niederlegen
-- Offline-Ablage nach RFC 6121 §8.5.2.2.1 und XEP-0160, mit XEP-0203-Stempel;
-  `StoreOfflineMessages` schaltet auf den gleichrangig erlaubten Gegenweg um
-  (`<service-unavailable/>` an den Absender). Ein `chat` mit ausschliesslich
-  Tippstatus-Inhalt wird verworfen — die einzige Nachricht, die dieser Server
-  stillschweigend fallen lässt, und zwar weil ein Tippstatus nichts verspricht
-- `OnInternalError` meldet, wenn das Verarbeiten eines Frames mit einer Ausnahme
-  endet — samt Frame. Danach endet der Stream mit `<internal-server-error/>`
-  (RFC 6120 §4.9.3.8 und §4.9.1.1), gefolgt von `<close/>` nach RFC 7395 §3.6:
-  Was der Frame ändern sollte, ist halb geändert, und ein Stream, über dessen
-  Zustand die beiden Seiten verschiedene Vorstellungen haben, ist keiner mehr.
-  Die Testsammlung hängt an das Ereignis eine Wache, die jede Meldung als
-  Programmierfehler behandelt; `FailFrameHandling` erreicht den Weg absichtlich.
-  Sie hängt **nicht** mehr daran, dass ein Fixture sie anmeldet: Jeder Server
-  meldet seine Entstehung über `OnInstanceCreated` (internal), und die Wache
-  findet ihn von dort aus — auch in einem Fixture, das es morgen gibt (D54)
-- Schalter für Fehlerfälle: `CompleteCloseHandshake`, `RouteStanzas`,
+  `<invalid-subid/>`, `<subid-required/>`. **A subscriber gets the
+  notifications even without a presence permission.** Only the one it belongs
+  to may set the `jid` — otherwise anybody could sign anybody up or, worse,
+  sign them off
+- Several subscriptions of the same JID to the same node: every `subscribe`
+  creates one, delivery is **per subscription** with the SHIM header `SubID`
+  (§12.20), and unsubscribing without a `subid` is refused when there are
+  several. An express subscription displaces the presence delivery, so that the
+  number of deliveries does not depend on who happens to stand in the roster
+- XEP-0060 §8.1/§8.2 creating and configuring nodes: `<create/>` with an
+  optional form, `<configure/>` in the `#owner` namespace, and **only the
+  owner**. A created node exists before anything stands in it. Fields that take
+  effect: `pubsub#max_items` (a smaller limit holds at once),
+  `pubsub#persist_items` (a node without storage only notifies),
+  `pubsub#access_model` and `pubsub#roster_groups_allowed`. Offered are **all
+  five** models — `open`, `presence`, `whitelist`, `roster` and `authorize`;
+  what is no model name is refused instead of being shortened to `open`
+- The access model is enforced: `presence` locks out, on fetching and on
+  subscribing, whoever may not see the presence of the owner
+  (`<not-authorized/>` with `<presence-subscription-required/>`); the owner
+  always gets to their node. **It betrays that the node exists in doing so** —
+  that is how XEP-0060 §6.5.3 provides for it, and for a node whose bare
+  existence would be a secret, `presence` is the wrong means
+- XEP-0060 §7.1.5 `<publish-options/>`: the conditions of a publication are
+  checked — the node comes about to fit or the publication is refused with
+  `<conflict/>` and `<precondition-not-met/>`. With that the condition OMEMO
+  has always sent along has an effect (XEP-0384 §5.2: a bundle has to be openly
+  fetchable)
+- XEP-0060 §4.1/§8.9 roles per node: a `publisher` may write into a foreign
+  node (the event comes from the owner all the same), an `outcast` gets to no
+  node and **loses existing subscriptions**, a `member` gets to a node with the
+  access model `whitelist`. The owner is the account and cannot be moved;
+  `publish-only` is refused instead of offered. The roles are managed by the
+  owner (§8.9), our own are listed by §5.7
+- A third access model, `whitelist`: in comes whoever the owner has expressly
+  put on it — `member` or `publisher`. **The difference from `presence`:** a
+  presence permission comes about in passing, a list does not. The lockout
+  stands above both models
+- XEP-0060 §5.6 `<subscriptions/>`: all subscriptions of the one asking across
+  all nodes, with id and state, restricted to one node on request. **Only our
+  own** — whoever were allowed to enumerate foreign ones would learn who is
+  interested in what. No subscriptions are an empty list and no error
+- XEP-0060 §8.8 the subscribers of a node — **the other direction from §5.6 and
+  deliberately so:** there foreign subscriptions are kept quiet about, because
+  they would be information about human beings; here the question is not "where
+  does this human being hang everywhere" but "who hangs on my node", and that
+  one the server answers for the owner. Every entry names its id, so the same
+  JID several times — without it none of their subscriptions could be told from
+  the other. Removing goes with `subscription='none'`: with a `subid` exactly
+  one, without a `subid` all of that JID, for the owner means the human being
+  and not the books. What nobody finds is not removed but refused. **Sign
+  somebody up the owner cannot** — that is exactly what §6.1.3.1 prevents on
+  the other side, and one's own node changes nothing for the one whose inbox
+  fills up. A `subscribed` for an existing subscription is valid all the same:
+  a list that cannot be sent back unchanged would be no state
+- XEP-0060 §8.8.4 **whoever was ended without being asked learns of it** — an
+  event with node, JID and id, and **one per ended subscription**: if only one
+  came on a `none` without a `subid`, the receiver would know of one id that it
+  has ended and nothing of the other. Likewise on the lockout (§8.9.4) — there
+  without naming the role: what they are at that node is none of their
+  business, that they no longer get it, is. What is reported is what happened,
+  not what was instructed; a refused instruction signs nothing off. A
+  `headline` and thereby **nothing for the store** (XEP-0160): whoever was
+  offline does not learn of it — and finds it at the next connection over §5.6,
+  where the state of now stands and not the one of back then
+- XEP-0060 §4.5/§8.6 `authorize`: **the only model where subscribing and
+  getting in are two things.** Anybody may ask — the asking is the procedure —
+  and the answer is a `pending`: the accepted question and not the grant. Until
+  the approval nothing arrives, neither over a subscription nor over the
+  presence, and nothing can be fetched either. The owner is presented with the
+  application as a form (§8.6.1, `pubsub#allow` stands on "no" — a form that
+  already stands on yes turns clicking it away into a grant) and answers it
+  either with that (§8.6.2) or over the subscriber list (§8.8.2). **Two doors,
+  one room:** the list is the view of an administrator, the form that of a
+  human being. A "no" to a question from before ends no subscription granted in
+  the meantime
+- XEP-0060 §7.2 `<retract/>`: a single item is taken back — by the one who
+  would also be allowed to publish. **Whoever may write may also retract**; to
+  keep a publisher away from foreign items would mean remembering who wrote
+  which, and without that store every finer rule would merely be claimed. An
+  item that does not exist is refused with `<item-not-found/>`, a node without
+  storage with `<unsupported feature='persistent-items'/>` as with the
+  emptying. **The event goes the same way as a publication** — per
+  subscription, with a `subid`, and a silenced one stays quiet: a retraction is
+  a delivery and no message about the node. The last item retracted leaves the
+  node standing
+- XEP-0060 §8.4/§8.5 deleting and emptying nodes, both only for the owner.
+  **What is deleted is the node, what is emptied only its content** — after the
+  emptying it goes on publishing to the same receivers, after the deleting to
+  nobody. A deleted node takes items, settings, subscriptions **and roles**
+  along: if the roles stayed standing, the next node of the same name would
+  inherit a lockout list nobody sees any more. A node without storage cannot be
+  emptied (§8.5.3.2, `<unsupported feature='persistent-items'/>`) — a `result`
+  would be the information that something had been emptied. Both are reported
+  (§8.4.2/§8.5.2), and **once per subscriber and without a `subid`**: what ends
+  is not a subscription but the node; to name an id would mean the others go on
+  existing. A second event under §8.8.4 therefore does not follow
+- XEP-0060 §6.3 configuration per subscription as a data form (XEP-0004) with
+  **exactly one field**: `pubsub#deliver` silences this one subscription
+  without ending it — and a silenced one does not fall back on the presence
+  delivery either. A field that did not stand in the offer is refused instead
+  of passed over; a `set` without a form likewise. What the server cannot do it
+  does not offer: a `pubsub#digest` that has no effect would be a promise
+  without cover, and absent digests look like quiet
+- XEP-0352 Client State Indication: if a client declares itself inactive, the
+  server holds back what can wait — presence (only the last one per full JID),
+  delivery receipts, markers. A chat state is dropped instead of kept, for an
+  "is typing" from before is no longer a late piece of information on being
+  handed in later but a wrong one. Messages with text, `iq`, errors and nonzas
+  go out at once unchanged
+- XEP-0198 Stream Management with an **own, independently implemented**
+  counting — the server deliberately does not use the same helper as the
+  client, otherwise the tests would check both sides with the same logic
+- Stanza and stream errors on demand: `StanzaErrorIq(…)` and
+  `session.SendStreamErrorAsync(condition)` — the latter ends the stream as
+  well, as RFC 6120 §4.9.1.1 demands it: send the error, `<close/>` under
+  RFC 7395 §3.6, lay the connection down
+- Offline store under RFC 6121 §8.5.2.2.1 and XEP-0160, with an XEP-0203 stamp;
+  `StoreOfflineMessages` switches to the equally allowed counter-way
+  (`<service-unavailable/>` to the sender). A `chat` whose content is nothing
+  but a chat state is discarded — the only message this server drops in
+  silence, and that because a chat state promises nothing
+- `OnInternalError` reports when the processing of a frame ends with an
+  exception — together with the frame. After that the stream ends with
+  `<internal-server-error/>` (RFC 6120 §4.9.3.8 and §4.9.1.1), followed by
+  `<close/>` under RFC 7395 §3.6: what the frame was to change is half changed,
+  and a stream about whose state the two sides have different ideas is none any
+  more. The test collection hangs a guard on the event that treats every report
+  as a programming error; `FailFrameHandling` reaches the path deliberately.
+  It no longer hangs **on** a fixture registering it: every server reports its
+  creation over `OnInstanceCreated` (internal), and the guard finds it from
+  there — in a fixture that will exist tomorrow as well (D54)
+- Switches for error cases: `CompleteCloseHandshake`, `RouteStanzas`,
   `BroadcastPresence`, `DeliverCarbons`, `AnswerPings`,
   `OfferStreamManagement`, `AnswerAckRequests`, `SwallowClientStanzas`
-  (verwirft eingehende Stanzas, bevor sie gezählt werden — der einzige Weg zu
-  einer Stanza, die die Leitung verlässt und trotzdem nicht ankommt),
-  `SweepResumableStreams` (hält den Abräumer an — der einzige Weg zu einem
-  Stream, dessen Frist abgelaufen ist, während er noch dasteht),
+  (discards incoming stanzas before they are counted — the only way to a stanza
+  that leaves the wire and still does not arrive),
+  `SweepResumableStreams` (halts the sweeper — the only way to a stream whose
+  deadline has run out while it is still standing there),
   `FailPings`, `FailDiscoInfo`,
   `FailBind`, `SessionRequired`, `ConflictOnUsedResource`,
-  `CorruptScramSignature`, `OmitScramSignature` — die letzten beiden für die
-  Gegenprobe zur zweiten Hälfte von SCRAM: ein Server, der das Passwort nicht
-  kennt, kann die Serversignatur nicht erzeugen, und der Client muss die
-  Anmeldung dann verweigern
-- `DeliverAfterBind`: Frames, die der Server unmittelbar nach der Bind-Antwort
-  schickt — also mitten in die Aufbauphase des Clients hinein. `{jid}` darin
-  wird durch den gebundenen Full-JID ersetzt.
+  `CorruptScramSignature`, `OmitScramSignature` — the last two for the
+  cross-check to the second half of SCRAM: a server that does not know the
+  password cannot produce the server signature, and the client has to refuse
+  the login then
+- `DeliverAfterBind`: frames the server sends immediately after the bind answer
+  — that is, right into the setup phase of the client. A `{jid}` in them is
+  replaced by the bound full JID.
 
 ```csharp
 var alice = await ConnectClientAsync("alice");
 var bob   = await ConnectClientAsync("bob");
 
 bob.OnMessage += m => Console.WriteLine($"{m.FromBareJid}: {m.Body}");
-await alice.SendMessageAsync(bob.BareJid, "Hallo Bob!");
+await alice.SendMessageAsync(bob.BareJid, "Hello Bob!");
 ```
 
-Verbindungsabrisse simuliert `Server.KillAllSessions()`, einzelne Resourcen
-`Server.SessionOf(fullJid)!.Kill()`.
+Connection breaks are simulated by `Server.KillAllSessions()`, single resources
+by `Server.SessionOf(fullJid)!.Kill()`.
 
-Weil das Zertifikat selbst signiert ist, vertraut ihm kein Rechner. Der Client
-braucht deshalb eine eigene Prüfung; `Server.IsOwnCertificate` heftet den
-Fingerabdruck genau dieses Servers an:
+Because the certificate is self-signed, no machine trusts it. The client
+therefore needs a check of its own; `Server.IsOwnCertificate` pins the
+fingerprint of exactly this server:
 
 ```csharp
-var connection = new XMPPConnection(jid, passwort, Server.Uri)
+var connection = new XMPPConnection(jid, password, Server.Uri)
 {
     ServerCertificateValidator = Server.IsOwnCertificate
 };
 ```
 
-Eine Prüfung, die pauschal `true` liefert, wäre kürzer — sie nähme TLS aber die
-Authentifizierung und liesse die Tests auch gegen eine fremde Gegenstelle
-bestehen.
+A check that returns `true` across the board would be shorter — but it would
+take the authentication away from TLS and would let the tests pass against a
+foreign far side as well.
 
 #### Was dem Server zum Produktivbetrieb fehlt
 
