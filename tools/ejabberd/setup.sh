@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
-# Baut eine ejabberd-Gegenstelle fuer den Foederationslauf auf - ohne root.
+# Sets up an ejabberd far side for the federation run - without root.
 #
-# Warum ueberhaupt eine zweite: Prosody allein belegt, dass wir mit Prosody
-# koennen. Erst eine zweite, unabhaengig entstandene Implementierung trennt
-# "richtig" von "zufaellig deckungsgleich mit einer Auffassung". ejabberd ist
-# in Erlang geschrieben, hat einen anderen Werdegang und andere Vorlieben im
-# Handshake - genau darum ist es der interessante zweite Gegner.
+# Why a second one at all: Prosody alone shows that we can do Prosody. Only a
+# second, independently grown implementation tells "right" apart from "happens
+# to coincide with one reading". ejabberd is written in Erlang, has a
+# different history and different preferences in the handshake - which is
+# exactly why it is the interesting second opponent.
 #
-# Aufruf aus WSL (Debian) heraus:
+# Called from within WSL (Debian):
 #     bash tools/ejabberd/setup.sh
 #
-# Danach bedient ejabberd die Domain ejabberd.test auf 127.0.0.1:25269 mit
-# einem Zertifikat aus einer eigenen Test-CA. Die Testsammlung findet sie
-# ueber JABBER_EJABBERD_CERTS.
+# Afterwards ejabberd serves the domain ejabberd.test on 127.0.0.1:25269 with
+# a certificate from a test CA of its own. The test suite finds it over
+# JABBER_EJABBERD_CERTS.
 
 set -euo pipefail
 
@@ -23,59 +23,58 @@ ARCH_DIR="x86_64-linux-gnu"
 
 PEER_DOMAIN="ejabberd.test"
 
-# Dieselbe Zweiteilung wie beim Prosody-Aufbau: jabber.test fuer den
-# ausgehenden Lauf (die Adresse steht bei uns von Hand, es braucht kein DNS),
-# localhost fuer den eingehenden (damit *ejabberd* uns aufloesen kann, ohne
-# dass ein /etc/hosts-Eintrag und damit root noetig waere).
+# The same split in two as in the Prosody setup: jabber.test for the outgoing
+# run (the address stands at our end by hand, no DNS is needed), localhost for
+# the incoming one (so that *ejabberd* can resolve us, without an /etc/hosts
+# entry and thereby root being needed).
 LOCAL_DOMAIN="jabber.test"
 INBOUND_DOMAIN="localhost"
 
-# Beide Ports liegen neben denen des Prosody-Aufbaus, damit die zwei
-# Gegenstellen nebeneinander laufen koennen und kein Lauf versehentlich am
-# falschen Server haengt:
+# Both ports lie beside those of the Prosody setup, so that the two far sides
+# can run next to each other and no run hangs on the wrong server by accident:
 #
-#   25269 - hier horcht ejabberd.        (Prosody: 15269)
-#    5270 - hierhin waehlt ejabberd uns  (Prosody faellt auf 5269 zurueck)
+#   25269 - here ejabberd listens.       (Prosody: 15269)
+#    5270 - here ejabberd dials us       (Prosody falls back to 5269)
 #
-# Der zweite Wert ist nur deshalb frei waehlbar, weil ejabberd einen
-# ausdruecklichen Schalter dafuer hat: ohne SRV-Eintrag nimmt es
-# outgoing_s2s_port. Prosody kennt keinen und bleibt bei 5269.
+# The second value is freely choosable only because ejabberd has an express
+# switch for it: without an SRV entry it takes outgoing_s2s_port. Prosody
+# knows none and stays at 5269.
 PEER_S2S_PORT=25269
 INBOUND_PORT=5270
 
-# Der WebSocket-Endpunkt fuer den Client-Lauf (XEP-0198). 5443 ist ejabberds
-# Vorgabe; Prosody liegt auf 5281, beide koennen also nebeneinander stehen.
+# The WebSocket endpoint for the client run (XEP-0198). 5443 is ejabberd's
+# default; Prosody lies on 5281, so both can stand next to each other.
 WSS_PORT=5443
 
-# Zwei Konten: eines fuer den Client selbst, eines als Absender. Ohne den
-# zweiten laesst sich nicht pruefen, ob eine waehrend der Stoerung zugestellte
-# Nachricht nach der Wiederaufnahme nachkommt.
+# Two accounts: one for the client itself, one as a sender. Without the second
+# there is no checking whether a message handed in during the outage comes
+# after the resumption.
 TEST_USER="alice"
 TEST_USER2="bob"
 TEST_PASSWORD="geheim"
 
 mkdir -p "$PREFIX"/{debs,etc,logs,spool,certs} "$ROOT"
 
-# ---------------------------------------------------------------- Pakete ----
+# --------------------------------------------------------------- packages ---
 
-echo "== Pakete holen und auspacken"
+echo "== Fetching and unpacking the packages"
 cd "$PREFIX/debs"
 
-# ejabberd zieht die halbe Erlang-Laufzeit nach - einundvierzig Pakete. Statt
-# sie aufzuzaehlen und bei jedem Debian-Wechsel nachzupflegen, laesst sich der
-# Satz von apt selbst ausrechnen: --print-uris loest auf, ohne zu installieren.
+# ejabberd drags in half the Erlang runtime - forty-one packages. Instead of
+# listing them and maintaining that list at every change of Debian, the set
+# can be worked out by apt itself: --print-uris resolves without installing.
 apt-get install --print-uris -y --no-install-recommends ejabberd 2>/dev/null \
     | grep "^'http" | cut -d"'" -f2 > uris.txt
 
-echo "   $(wc -l < uris.txt) Pakete"
+echo "   $(wc -l < uris.txt) packages"
 wget -q -N -i uris.txt
 
 for f in ./*.deb; do dpkg-deb -x "$f" "$ROOT"; done
 
-# Debian verdrahtet ROOTDIR in den Erlang-Startskripten fest - und zwar in
-# allen drei Zweigen der Fallunterscheidung, auch in dem, der laut Quelltext
-# ERL_ROOTDIR beachten soll. Die Variable zu setzen sieht also aus, als
-# muesste es reichen, und tut nichts.
+# Debian wires ROOTDIR into the Erlang start scripts - and in all three
+# branches of the case distinction, including the one that according to the
+# source is meant to heed ERL_ROOTDIR. Setting that variable therefore looks
+# as if it ought to be enough, and does nothing.
 ERTS_DIR="$(basename "$(ls -d "$ROOT"/usr/lib/erlang/erts-* | head -1)")"
 
 for f in erl erlc escript dialyzer typer start_erl; do
@@ -84,10 +83,10 @@ for f in erl erlc escript dialyzer typer start_erl; do
         "$ROOT/usr/lib/erlang/bin/$f"
 done
 
-# ejabberdctl ist der Debian-Launcher und traegt drei Pfade und einen
-# Benutzernamen fest eingebaut. Der Benutzername ist der wichtigste Eingriff:
-# das Skript bricht mit "can only be run by root or the user ejabberd" ab,
-# bevor es irgendetwas tut.
+# ejabberdctl is the Debian launcher and carries three paths and a user name
+# built in. The user name is the most important intervention: the script
+# breaks off with "can only be run by root or the user ejabberd" before it
+# does anything at all.
 sed -i \
     -e "s|^ERL=\"/usr/bin/erl\"|ERL=\"$ROOT/usr/lib/erlang/bin/erl\"|" \
     -e "s|^EPMD=\"/usr/bin/epmd\"|EPMD=\"$ROOT/usr/lib/erlang/$ERTS_DIR/bin/epmd\"|" \
@@ -96,8 +95,8 @@ sed -i \
     "$ROOT/usr/sbin/ejabberdctl"
 chmod +x "$ROOT/usr/sbin/ejabberdctl"
 
-# Die uebrigen Pfade nimmt ejabberdctl aus der Umgebung: es setzt seine
-# Vorgaben mit ": ${VAR:=...}", was gesetzte Werte stehen laesst.
+# The remaining paths ejabberdctl takes from the environment: it sets its
+# defaults with ": ${VAR:=...}", which leaves values already set standing.
 cat > "$PREFIX/env.sh" <<ENV
 export LD_LIBRARY_PATH="$ROOT/usr/lib/$ARCH_DIR:\${LD_LIBRARY_PATH:-}"
 export PATH="$ROOT/usr/sbin:$ROOT/usr/lib/erlang/bin:\${PATH:-}"
@@ -109,14 +108,14 @@ ENV
 
 cp "$ROOT/etc/ejabberd/inetrc" "$PREFIX/etc/inetrc"
 
-# ------------------------------------------------------------ Zertifikate ---
+# ----------------------------------------------------------- certificates ---
 
-echo "== Test-CA und Zertifikate"
+echo "== Test CA and certificates"
 cd "$PREFIX/certs"
 
-# Eine eigene CA, nicht die des Prosody-Aufbaus: so bleibt jede Gegenstelle
-# fuer sich aufbaubar, und ein Lauf gegen die eine kann nicht stillschweigend
-# von einem Zertifikat der anderen leben.
+# A CA of its own, not the one from the Prosody setup: that way each far side
+# stays buildable by itself, and a run against the one cannot silently live
+# off a certificate of the other.
 if [ ! -f ca.crt ]; then
 
     openssl req -x509 -newkey rsa:2048 -keyout ca.key -out ca.crt -days 30 -nodes \
@@ -129,8 +128,8 @@ if [ ! -f ca.crt ]; then
         openssl req -newkey rsa:2048 -keyout "$d.key" -out "$d.csr" -nodes \
                 -subj "/CN=$d" 2>/dev/null
 
-        # clientAuth muss mit hinein: bei SASL-EXTERNAL legt der aufbauende
-        # Server sein Zertifikat als Klientzertifikat vor.
+        # clientAuth has to go in as well: with SASL EXTERNAL the connecting
+        # server presents its certificate as a client certificate.
         cat > "$d.ext" <<EXT
 subjectAltName=DNS:$d
 extendedKeyUsage=serverAuth,clientAuth
@@ -144,24 +143,24 @@ EXT
 
     done
 
-    # Unsere Seite laedt PKCS#12.
+    # Our side loads PKCS#12.
     for d in "$LOCAL_DOMAIN" "$INBOUND_DOMAIN"; do
         openssl pkcs12 -export -out "$d.pfx" -inkey "$d.key" -in "$d.crt" -passout pass:
     done
 
 fi
 
-# ejabberd erwartet Schluessel und Zertifikat in einer Datei.
+# ejabberd expects key and certificate in one file.
 for f in *.crt *.key; do sed -i 's/\r$//' "$f"; done
 cat "$PEER_DOMAIN.key" "$PEER_DOMAIN.crt" > "$PEER_DOMAIN.pem"
 chmod 600 ./*.key "$PEER_DOMAIN.pem"
 
-# ---------------------------------------------------------- Konfiguration ---
+# --------------------------------------------------------- configuration ---
 
-echo "== Konfiguration"
+echo "== Configuration"
 cat > "$PREFIX/etc/ejabberd.yml" <<CFG
-### ejabberd als Gegenstelle fuer den Foederationslauf. Erzeugt von
-### tools/ejabberd/setup.sh - Aenderungen hier gehen beim naechsten Lauf verloren.
+### ejabberd as a far side for the federation run. Generated by
+### tools/ejabberd/setup.sh - changes here are lost at the next run.
 
 hosts:
   - "$PEER_DOMAIN"
@@ -180,9 +179,9 @@ listen:
     ip: "127.0.0.1"
     module: ejabberd_s2s_in
 
-  ## Der Weg fuer unseren Client: er spricht XMPP ueber WebSocket (RFC 7395),
-  ## nicht ueber den rohen 5222er-Strom. Ohne diesen Handler gaebe es fuer ihn
-  ## keinen Weg herein.
+  ## The way in for our client: it speaks XMPP over WebSocket (RFC 7395), not
+  ## over the raw 5222 stream. Without this handler there would be no way in
+  ## for it.
   -
     port: $WSS_PORT
     ip: "127.0.0.1"
@@ -191,19 +190,19 @@ listen:
     request_handlers:
       /websocket: ejabberd_http_ws
 
-## "required", nicht "required_trusted": beides verlangt STARTTLS, aber nur
-## das zweite verlangt zusaetzlich eine gueltige Kette und wuerde damit
-## Dialback ausschliessen. So entscheidet unsere Seite, welches Verfahren zum
-## Zug kommt - legen wir ein Klientzertifikat vor, bietet ejabberd EXTERNAL an;
-## legen wir keines vor, bleibt Dialback.
+## "required", not "required_trusted": both demand STARTTLS, but only the
+## second demands a valid chain on top of it and would thereby rule dialback
+## out. This way our side decides which method comes into play - if we present
+## a client certificate, ejabberd offers EXTERNAL; if we present none,
+## dialback is left.
 s2s_use_starttls: required
 s2s_access: all
 s2s_dns_timeout: 5
 
-## Ohne SRV-Eintrag waehlt ejabberd diesen Port an. Prosody kennt keinen
-## solchen Schalter und faellt fest auf 5269 zurueck - deshalb kann unser
-## eingehender Listener hier auf einem eigenen Port stehen, und beide
-## Gegenstellen koennen nebeneinander laufen.
+## Without an SRV entry ejabberd dials this port. Prosody knows no such switch
+## and falls back firmly on 5269 - which is why our incoming listener can
+## stand on a port of its own here, and both far sides can run next to each
+## other.
 outgoing_s2s_port: $INBOUND_PORT
 
 acl:
@@ -220,24 +219,24 @@ modules:
   mod_roster: {}
   mod_version: {}
 
-  ## XEP-0220: ohne dieses Modul weist ejabberd jede Verbindung ab, die sich
-  ## nicht ueber ein Zertifikat ausweisen kann.
+  ## XEP-0220: without this module ejabberd refuses every connection that
+  ## cannot identify itself over a certificate.
   mod_s2s_dialback: {}
 
-  ## XEP-0288: erlaubt beide Richtungen ueber eine Verbindung. Ohne das Modul
-  ## beantwortet ejabberd eine eingehende Stanza ausschliesslich ueber eine
-  ## *eigene* ausgehende Verbindung - so sieht RFC 6120 Abschnitt 4.1 den
-  ## Stream, und so verhaelt sich jeder ausgewachsene Server.
+  ## XEP-0288: allows both directions over one connection. Without the module
+  ## ejabberd answers an incoming stanza exclusively over an *own* outgoing
+  ## connection - that is how RFC 6120 section 4.1 sees the stream, and how
+  ## every full-grown server behaves.
   mod_s2s_bidi: {}
 
-  ## XEP-0198 samt Wiederaufnahme. resume_timeout kurz genug, dass ein Test
-  ## den Verfall abwarten kann, lang genug fuer einen Reconnect.
+  ## XEP-0198 together with resumption. resume_timeout short enough for a test
+  ## to wait out the expiry, long enough for a reconnect.
   mod_stream_mgmt:
     resume_timeout: 60
     max_resume_timeout: 300
 CFG
 
-# ------------------------------------------------------------------ Start ---
+# ------------------------------------------------------------------ start ---
 
 echo "== Start"
 # shellcheck disable=SC1091
@@ -245,9 +244,9 @@ echo "== Start"
 
 "$ROOT/usr/sbin/ejabberdctl" stop >/dev/null 2>&1 || true
 
-# Abwarten, bis der Knoten wirklich weg ist: "stop" kehrt sofort zurueck, das
-# Herunterfahren laeuft noch. Ein zu frueher "start" scheitert dann mit
-# "node is already running" - und mit "set -e" endet damit dieses Skript.
+# Wait until the node is really gone: "stop" returns at once, the shutdown is
+# still running. A "start" that comes too early then fails with "node is
+# already running" - and with "set -e" that ends this script.
 for _ in $(seq 20); do
     "$ROOT/usr/sbin/ejabberdctl" status >/dev/null 2>&1 || break
     sleep 1
@@ -257,62 +256,62 @@ rm -f "$PREFIX/logs/ejabberd.log"
 
 "$ROOT/usr/sbin/ejabberdctl" start
 
-# Nicht "ejabberdctl started": das Warten laeuft ueber einen zweiten
-# Erlang-Knoten, der beim ersten Versuch noch keinen Namen im epmd findet und
-# dann nicht wartet, sondern hart abbricht - "Runtime terminating during boot".
-# Ein Warten von aussen kommt ohne diesen zweiten Knoten aus.
-gestartet=0
+# Not "ejabberdctl started": that waiting runs over a second Erlang node,
+# which on the first attempt finds no name in the epmd yet and then does not
+# wait but breaks off hard - "Runtime terminating during boot". Waiting from
+# the outside gets by without that second node.
+started=0
 for _ in $(seq 30); do
     if "$ROOT/usr/sbin/ejabberdctl" status 2>/dev/null | grep -q "is running"; then
-        gestartet=1
+        started=1
         break
     fi
     sleep 1
 done
 
-if [ "$gestartet" = 1 ]; then
+if [ "$started" = 1 ]; then
 
-    echo "   ejabberd laeuft."
+    echo "   ejabberd is running."
 
-    # Die Konten erst jetzt: ejabberdctl register geht ueber einen RPC-Aufruf
-    # in den laufenden Knoten, anders als Prosodys prosodyctl, das die Dateien
-    # direkt anfasst. Bei angehaltenem Server gaebe es hier nur ein "nodedown".
+    # The accounts only now: ejabberdctl register goes over an RPC call into
+    # the running node, unlike Prosody's prosodyctl, which touches the files
+    # directly. With the server stopped there would only be a "nodedown" here.
     for u in "$TEST_USER" "$TEST_USER2"; do
         "$ROOT/usr/sbin/ejabberdctl" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
             | grep -iv "^$" | head -1 || true
     done
 
     grep -q "Start accepting TLS connections at 127.0.0.1:$WSS_PORT" "$PREFIX/logs/ejabberd.log" \
-        && echo "   WebSocket-Endpunkt auf $WSS_PORT." \
-        || echo "   WARNUNG - kein WebSocket-Endpunkt auf $WSS_PORT; der XEP-0198-Lauf faellt aus."
+        && echo "   WebSocket endpoint on $WSS_PORT." \
+        || echo "   WARNING - no WebSocket endpoint on $WSS_PORT; the XEP-0198 run falls away."
 
 else
-    echo "   FEHLER - ejabberd ist nicht hochgekommen:"
+    echo "   ERROR - ejabberd has not come up:"
     tail -30 "$PREFIX/logs/ejabberd.log" 2>/dev/null
     exit 1
 fi
 
 cat <<DONE
 
-Fertig. ejabberd bedient $PEER_DOMAIN auf 127.0.0.1:$PEER_S2S_PORT (S2S) und
-wss://127.0.0.1:$WSS_PORT/websocket (Client), Konten
-$TEST_USER@$PEER_DOMAIN und $TEST_USER2@$PEER_DOMAIN, Passwort $TEST_PASSWORD.
+Done. ejabberd serves $PEER_DOMAIN on 127.0.0.1:$PEER_S2S_PORT (S2S) and
+wss://127.0.0.1:$WSS_PORT/websocket (client), accounts
+$TEST_USER@$PEER_DOMAIN and $TEST_USER2@$PEER_DOMAIN, password $TEST_PASSWORD.
 
-Ausgehender Lauf, von Windows aus:
+Outgoing run, from Windows:
 
     \$env:JABBER_EJABBERD_CERTS = '\\\\wsl.localhost\\Debian$PREFIX/certs'
-    dotnet test libs\\Ratatoskr\\RatatoskrTests\\RatatoskrTests.csproj --filter FullyQualifiedName~EjabberdFederationTests
+    dotnet test XMPPConformanceTests\\XMPPConformanceTests.csproj --filter FullyQualifiedName~EjabberdFederationTests
 
-Eingehender Lauf - der muss *in* WSL laufen, weil ejabberd uns sonst nicht
-erreicht: die Hyper-V-Firewall verwirft jede Verbindung von WSL zum
-Windows-Host. Innerhalb von WSL ist alles Rueckschleife:
+Incoming run - that one has to run *in* WSL, because ejabberd does not reach
+us otherwise: the Hyper-V firewall discards every connection from WSL to the
+Windows host. Inside WSL everything is loopback:
 
     JABBER_EJABBERD_CERTS=$PREFIX/certs \\
-    dotnet test /mnt/c/.../libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj \\
-        --artifacts-path /tmp/ratatoskr-artifacts \\
+    dotnet test /mnt/c/.../XMPPConformanceTests/XMPPConformanceTests.csproj \\
+        --artifacts-path /tmp/conformance-artifacts \\
         --filter FullyQualifiedName~EjabberdFederationTests
 
-Log:      $PREFIX/logs/ejabberd.log
-Beenden:  CONFIG_DIR=$PREFIX/etc LOGS_DIR=$PREFIX/logs SPOOL_DIR=$PREFIX/spool \\
-          $ROOT/usr/sbin/ejabberdctl stop
+Log:   $PREFIX/logs/ejabberd.log
+Stop:  CONFIG_DIR=$PREFIX/etc LOGS_DIR=$PREFIX/logs SPOOL_DIR=$PREFIX/spool \\
+       $ROOT/usr/sbin/ejabberdctl stop
 DONE
