@@ -833,314 +833,305 @@ var connection = new XMPPConnection(jid, password, Server.Uri)
 A check that returns `true` across the board would be shorter — but it would
 take the authentication away from TLS and would let the tests pass against a
 foreign far side as well.
+#### What the server lacks for production use
 
-#### Was dem Server zum Produktivbetrieb fehlt
+The name no longer says so — until recently the class was called
+`FakeXMPPServer`. It is meant as a far side for tests and development, not as a
+server implementation:
 
-Der Name sagt es nicht mehr — bis vor kurzem hiess die Klasse `FakeXMPPServer`.
-Sie ist als Gegenstelle für Tests und Entwicklung gedacht, nicht als
-Server-Implementierung:
-
-- **TLS ohne STARTTLS und ohne Zwang.** Der Server spricht `wss://` mit einem
-  selbst signierten, zur Laufzeit erzeugten Zertifikat (RFC 6120 §5). Was fehlt:
-  STARTTLS (§5.4), ein Weg ein eigenes Zertifikat zu hinterlegen, und die
-  Möglichkeit `ws://` zu verbieten — `new XMPPServer(useTLS: false)` liefert
-  weiterhin Klartext.
-- **SCRAM ohne Channel Binding.** Angeboten werden SCRAM-SHA-256, SCRAM-SHA-1
-  und PLAIN; die `-PLUS`-Varianten fehlen. ~~Ein unbekanntes Konto wird
-  abgelehnt, bevor der Austausch beginnt.~~ Behoben: Der Austausch läuft auch
-  für einen unbekannten Namen zu Ende und scheitert am Beweis (RFC 6120 §13.11,
-  siehe D50). Der Serverschlüssel, aus dem die erfundenen Salts entstehen, lebt
-  aber im Prozess — über einen Neustart hinweg wechseln sie, echte nicht. Bei
-  **PLAIN** ist der Ablauf ohnehin gleich; dort unterscheidet sich nur die
-  Laufzeit, weil ein vorhandenes Konto PBKDF2 rechnet und ein unbekanntes nicht.
-- **Der Downgrade-Schutz ist ein Trust-On-First-Use.** `PinnedSaslMechanism`
-  deckt jede Verbindung ab der zweiten; die allererste deckt nur, wer
-  `MinimumSaslMechanism` selbst setzt. Und die Anheftung lebt im Objekt: Ein
-  neuer Prozess fängt wieder ohne sie an.
-- **Kein Anlegen von Konten über XMPP** (XEP-0077) und keine
-  Passwortänderung — Konten entstehen nur über `AddAccount`.
-- **Der Kontenspeicher ist unverschlüsselt.** `FileAccountStore` legt eine
-  JSON-Datei ohne gesetzte Zugriffsrechte an. Passwörter stehen nicht darin,
-  aber die abgelegten Schlüssel erlauben, eine Anmeldung zu prüfen.
-- **Aufbewahrte Anfragen haben eine Obergrenze** (RFC 6121 §3.1.3,
-  `MaxStoredSubscriptionRequests`, Vorgabe 100). Ist sie erreicht, wird die
-  neue Anfrage verworfen — der Antragsteller erfährt davon nichts, und der
-  Kontakt sieht sie nie. Das ist die vom Abschnitt selbst empfohlene Antwort
-  auf die Erschöpfungsgefahr, aber es bleibt ein stiller Verlust.
-- **Die Offline-Ablage liegt im Kontenspeicher und unverschlüsselt.**
-  `FileAccountStore` schreibt die vollständigen Stanzas in dieselbe JSON-Datei
-  wie die Zugangsdaten — Nachrichtentexte im Klartext, ohne gesetzte
-  Zugriffsrechte. Ein echter Server trennt die beiden und hätte für die Ablage
-  ausserdem eine Verfallszeit; hier bleibt eine Nachricht liegen, bis jemand
-  sie abholt. Was ebenfalls fehlt: die Ablage einsehen und einzeln abholen,
-  statt sie beim Anmelden über sich hereinbrechen zu lassen — XEP-0013 könnte
-  das und ist bewusst nicht umgesetzt (siehe oben).
-- **Eine Probe an ein unbekanntes Konto bleibt unbeantwortet.** RFC 6121 §8.5.1
-  stellt `<unsubscribed/>` und Schweigen frei; dieser Server schweigt, damit ein
-  unbekanntes Konto genauso aussieht wie ein vorhandenes ohne Berechtigung.
-- **Eine Gegenstelle erreicht nur die Auskunft über den Server, nicht den
-  Zustand einer Sitzung.** Ping und disco#info an die Serveradresse werden auch
-  über die Servergrenze beantwortet (seit D36); Binding, Legacy Session,
-  Carbons und der Roster gehören dagegen einer Sitzung oder einem Konto und
-  bleiben für S2S unerreichbar — ein fremder Server, der danach fragt, bekommt
+- **TLS without STARTTLS and without compulsion.** The server speaks `wss://`
+  with a self-signed certificate created at runtime (RFC 6120 §5). What is
+  missing: STARTTLS (§5.4), a way to deposit a certificate of one's own, and
+  the possibility of forbidding `ws://` — `new XMPPServer(useTLS: false)` still
+  delivers plaintext.
+- **SCRAM without channel binding.** Offered are SCRAM-SHA-256, SCRAM-SHA-1 and
+  PLAIN; the `-PLUS` variants are missing. ~~An unknown account is refused
+  before the exchange begins.~~ Fixed: the exchange runs to the end for an
+  unknown name as well and fails at the proof (RFC 6120 §13.11, see D50). The
+  server key the made-up salts come from, however, lives in the process —
+  across a restart they change, real ones do not. With **PLAIN** the course of
+  events is the same anyway; there only the running time differs, because an
+  existing account computes PBKDF2 and an unknown one does not.
+- **The downgrade protection is a trust-on-first-use.** `PinnedSaslMechanism`
+  covers every connection from the second on; the very first is covered only
+  for whoever sets `MinimumSaslMechanism` themselves. And the pinning lives in
+  the object: a new process starts without it again.
+- **No creating of accounts over XMPP** (XEP-0077) and no password change —
+  accounts come about only over `AddAccount`.
+- **The account store is unencrypted.** `FileAccountStore` creates a JSON file
+  without set access rights. Passwords do not stand in it, but the keys stored
+  allow a login to be checked.
+- **Kept requests have an upper bound** (RFC 6121 §3.1.3,
+  `MaxStoredSubscriptionRequests`, default 100). Once it is reached, the new
+  request is discarded — the applicant learns nothing of it, and the contact
+  never sees it. That is the answer the section itself recommends to the danger
+  of exhaustion, but it stays a silent loss.
+- **The offline store lies in the account store and unencrypted.**
+  `FileAccountStore` writes the complete stanzas into the same JSON file as the
+  credentials — message texts in the clear, without set access rights. A real
+  server keeps the two apart and would besides have an expiry time for the
+  store; here a message stays lying until somebody fetches it. What is missing
+  as well: to look at the store and fetch from it one by one, instead of having
+  it break over you on login — XEP-0013 could do that and is deliberately not
+  implemented (see above).
+- **A probe to an unknown account stays unanswered.** RFC 6121 §8.5.1 leaves
+  the choice between `<unsubscribed/>` and silence; this server keeps quiet, so
+  that an unknown account looks exactly like an existing one without a
+  permission.
+- **A far side reaches only the information about the server, not the state of
+  a session.** Ping and disco#info to the server address are answered across
+  the server border as well (since D36); binding, legacy session, carbons and
+  the roster on the other hand belong to a session or an account and stay
+  unreachable for S2S — a foreign server asking for them gets
   `<service-unavailable/>`.
-- **Zwei fremde Gegenstellen, nicht mehr.** Gegen Prosody 13 und ejabberd 24.12
-  sind beide S2S-Richtungen und beide Ausweisverfahren geprüft (STARTTLS,
-  SASL-EXTERNAL, Dialback nach XEP-0220 in beiden Rollen, XEP-0288). Beide
-  Aufbauten stehen in `tools/`, die Tests dazu in
-  `libs/Ratatoskr/RatatoskrTests/Federation/`; ohne die Server überspringen
-  sie sich. Was der
-  zweite Server zutage förderte, stand im ersten Lauf nicht: ejabberd kündigt
-  Bidi im Namensraum des Freischalt-Elements an, und wir übersahen das Angebot
-  darum. Ein dritter Server fände vermutlich ein Drittes.
-- **Föderation.** Es gibt drei Wege über die Domain-Grenze:
-  `DirectServerLinks` (in-process, für Tests, ohne jede Authentifizierung),
-  `WebSocketServerLinks` und `TcpServerLinks` (beide mit TLS und Dialback nach
-  XEP-0220). Was fehlt: DNSSEC — die SRV-Auflösung ist unbeglaubigt, und wo sie
-  die Gegenstellenliste bei der Dialback-Prüfung ersetzt, wandert die
-  Vertrauenswurzel vom Betreiber ins DNS. Ausserdem: SASL-EXTERNAL gibt es nur
-  über TCP, nicht über WebSocket, und `id-on-xmppAddr` im Zertifikat wird nicht
-  gelesen. Der TCP-Weg ist in beiden Richtungen gegen zwei fremde Server
-  geprüft; der WebSocket-Weg bleibt auf Instanzen dieses Servers beschränkt.
-- **Stream-Resume steht** (XEP-0198 Abschnitt 5). Der Server sagt die
-  Wiederaufnahme zu (`<enabled id='…' resume='true'/>`, Kennung aus dem
-  Zufallsgenerator), hebt einen abgerissenen Stream samt Zählern und
-  ungesendeten Stanzas auf, stellt ihm weiter zu und schiebt seine
-  `unavailable`-Presence auf, bis die Frist (`ResumptionTimeout`, Vorgabe 60 s)
-  abläuft. Ein `<resume/>` wird nur von einem Stream angenommen, der auf
-  dasselbe Konto angemeldet ist — die Kennung allein weist niemanden aus. Eine
-  ordentliche Abmeldung (`<close/>`) wird nicht aufgehoben.
-  Aufgehoben wird unabhängig von der Presence: Die Zusage gehört dem Stream,
-  ein unsichtbarer Client behält sie also.
-  **Die Abweisung nennt einen Stand nur, wo es einen zu nennen gibt:** `h`
-  steht im `<failed/>` genau dann, wenn der abgelaufene Stream noch daliegt und
-  dem anfragenden Konto gehört. Eine unbekannte Kennung bekommt kein `h` —
-  geraten wird nicht —, und eine fremde erst recht nicht: Die Zahl verriete,
-  dass es diesen Stream gibt und wie viel über ihn gelaufen ist (siehe D49).
-- ~~**Fehlerbehandlung nur auf Zuruf.** Ausser den Schaltern oben erzeugt der
-  Server keine Stanza-Fehler.~~ Überholt: Er erzeugt sie von sich aus, wo die
-  RFCs es verlangen — `<bad-request/>` für einen unbekannten IQ-Typ,
-  `<service-unavailable/>` für einen unzustellbaren Empfänger und für ein
-  `groupchat` an ein Konto, `<remote-server-not-found/>` für eine unerreichbare
-  Domain, `<item-not-found/>` für einen unbekannten disco-Knoten und
-  `<jid-malformed/>` für ein `to`, das kein JID ist (D51). Die Schalter sind
-  dafür da, die *übrigen* Fehlerwege zu erreichen. Unbekannte IQs bekommen
-  weiterhin pauschal `<service-unavailable/>` statt einer Unterscheidung nach
-  Ursache.
+- **Two foreign far sides, no more.** Against Prosody 13 and ejabberd 24.12
+  both S2S directions and both means of identification are checked (STARTTLS,
+  SASL EXTERNAL, dialback under XEP-0220 in both roles, XEP-0288). Both setups
+  stand in `tools/`, the tests for them in
+  `libs/Ratatoskr/RatatoskrTests/Federation/`; without the servers they skip
+  themselves. What the
+  second server brought to light did not stand in the first run: ejabberd
+  announces bidi in the namespace of the enabling element, and we overlooked
+  the offer because of it. A third server would probably find a third thing.
+- **Federation.** There are three ways across the domain border:
+  `DirectServerLinks` (in-process, for tests, without any authentication),
+  `WebSocketServerLinks` and `TcpServerLinks` (both with TLS and dialback under
+  XEP-0220). What is missing: DNSSEC — the SRV resolution is unauthenticated,
+  and where it replaces the list of far sides in the dialback check, the root
+  of trust moves from the operator into the DNS. Besides: SASL EXTERNAL exists
+  only over TCP, not over WebSocket, and `id-on-xmppAddr` in the certificate is
+  not read. The TCP way is checked in both directions against two foreign
+  servers; the WebSocket way stays limited to instances of this server.
+- **Stream resumption stands** (XEP-0198 section 5). The server promises the
+  resumption (`<enabled id='…' resume='true'/>`, the id from the random
+  generator), keeps a broken stream together with its counters and unsent
+  stanzas, goes on delivering to it and puts off its `unavailable` presence
+  until the deadline (`ResumptionTimeout`, default 60 s) runs out. A
+  `<resume/>` is accepted only from a stream logged in to the same account —
+  the id alone identifies nobody. An orderly sign-off (`<close/>`) is not kept.
+  Keeping is independent of the presence: the promise belongs to the stream, so
+  an invisible client keeps it.
+  **The refusal names a state only where there is one to name:** an `h` stands
+  in the `<failed/>` exactly when the expired stream still lies there and
+  belongs to the account asking. An unknown id gets no `h` — nothing is
+  guessed — and a foreign one all the less: the number would betray that this
+  stream exists and how much has run over it (see D49).
+- ~~**Error handling only on demand.** Apart from the switches above the server
+  produces no stanza errors.~~ Overtaken: it produces them by itself where the
+  RFCs demand it — `<bad-request/>` for an unknown IQ type,
+  `<service-unavailable/>` for an undeliverable recipient and for a
+  `groupchat` to an account, `<remote-server-not-found/>` for an unreachable
+  domain, `<item-not-found/>` for an unknown disco node and
+  `<jid-malformed/>` for a `to` that is no JID (D51). The switches are there
+  to reach the *other* error paths. Unknown IQs still get a blanket
+  `<service-unavailable/>` instead of a distinction by cause.
 
-### Kryptografische Testvektoren
+### Cryptographic test vectors
 
-Die Implementierungen werden gegen die veröffentlichten Vektoren gerechnet,
-nicht gegen sich selbst:
+The implementations are computed against the published vectors, not against
+themselves:
 
-| Quelle | Was geprüft wird | Ergebnis |
+| Source | What is checked | Result |
 |--------|------------------|----------|
-| RFC 5802 §5 | SCRAM-SHA-1: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
-| RFC 7677 §3 | SCRAM-SHA-256: client-first, ClientProof, ServerSignature | ✅ exakt reproduziert |
-| XEP-0115 §5.2 | Verification String `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ exakt reproduziert |
-| XEP-0115 §5.3 | Verification String `q07IKJEyjvHSyhy//CH0CxmKi8w=` (zwei Sprachen, ein Datenformular) | ✅ exakt reproduziert |
-| RFC 4013 §3 | SASLprep-Beispieltabelle, alle sieben Zeilen | ✅ exakt reproduziert |
-| RFC 7622 §3.5 | JID-Beispieltabellen: 15 gültige, 8 ungültige Adressen | ✅ reproduziert (Ausnahme: Beispiel 18, siehe oben) |
-| RFC 3492 §7.1 | Punycode: elf Beispiele in acht Schriften | ✅ exakt reproduziert, in beide Richtungen |
-| RFC 3454 Anhang A–D | Die StringPrep-Tabellen selbst | ✅ von `libs/Ratatoskr/tools/stringprep/generate.py` aus dem RFC erzeugt, nicht abgeschrieben |
-| Unicode `DerivedBidiClass.txt` | Die Bidi-Klassen für RFC 5893 | ✅ von `libs/Ratatoskr/tools/unicode/generate-bidiclass.py` aus der Unicode-Datei erzeugt (15.1.0, 764 Bereiche) |
-| XEP-0220 §2.1.1 | Dialback-Schlüssel `b4835385…d23df3` | ✅ exakt reproduziert |
+| RFC 5802 §5 | SCRAM-SHA-1: client-first, ClientProof, ServerSignature | ✅ reproduced exactly |
+| RFC 7677 §3 | SCRAM-SHA-256: client-first, ClientProof, ServerSignature | ✅ reproduced exactly |
+| XEP-0115 §5.2 | Verification string `QgayPKawpkPSDYmwT/WM94uAlu0=` | ✅ reproduced exactly |
+| XEP-0115 §5.3 | Verification string `q07IKJEyjvHSyhy//CH0CxmKi8w=` (two languages, one data form) | ✅ reproduced exactly |
+| RFC 4013 §3 | SASLprep example table, all seven rows | ✅ reproduced exactly |
+| RFC 7622 §3.5 | JID example tables: 15 valid, 8 invalid addresses | ✅ reproduced (exception: example 18, see above) |
+| RFC 3492 §7.1 | Punycode: eleven examples in eight scripts | ✅ reproduced exactly, in both directions |
+| RFC 3454 appendix A–D | The StringPrep tables themselves | ✅ generated from the RFC by `libs/Ratatoskr/tools/stringprep/generate.py`, not copied out |
+| Unicode `DerivedBidiClass.txt` | The bidi classes for RFC 5893 | ✅ generated from the Unicode file by `libs/Ratatoskr/tools/unicode/generate-bidiclass.py` (15.1.0, 764 ranges) |
+| XEP-0220 §2.1.1 | Dialback key `b4835385…d23df3` | ✅ reproduced exactly |
 
-Damit sind Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature,
-die XOR-Verknüpfung und die Server-Signaturprüfung gemeinsam abgedeckt.
+With that, Hi/PBKDF2, ClientKey, StoredKey, AuthMessage, ClientSignature, the
+XOR combination and the server signature check are covered together.
 
-Der Dialback-Vektor hat sich dabei besonders gelohnt: `SHA256(Secret)` geht als
-**Hex-Zeichenkette** in den HMAC, nicht als Rohbytes, und die Domains stehen in
-der Reihenfolge Ziel vor Absender. Beide naheliegenden Gegenlesarten liefern
-einen in sich stimmigen, aber falschen Schlüssel — zwei Server, die sich
-verschieden entscheiden, kämen nie zusammen, ohne dass einer von beiden einen
-Fehler machte, den er selbst sehen könnte.
+The dialback vector paid off particularly well in doing so: `SHA256(Secret)`
+goes into the HMAC as a **hex string**, not as raw bytes, and the domains stand
+in the order target before sender. Both obvious counter-readings yield a key
+that is consistent in itself and wrong — two servers deciding differently would
+never come together, without either of them making a mistake it could see
+itself.
 
-Die Vektorarbeit hat zwei Defekte aufgedeckt, die inzwischen behoben sind. Die
-beiden Tests bleiben als Regressionstests stehen — dass sie greifen, ist per
-Gegenprobe belegt: mit zurückgedrehtem Fix schlagen genau diese zwei fehl:
+The work on the vectors uncovered two defects that have been fixed since. Both
+tests stay standing as regression tests — that they take hold is shown by a
+cross-check: with the fix turned back, exactly these two fail:
 
 - `IterationCountFollowingNonceWithPadding_IsParsedCorrectly` — `ExtractValue`
-  suchte mit dem unverankerten Muster `{key}=([^,]+)`. Endet die kombinierte
-  Nonce auf `i==`, traf die Suche nach dem Iterationszähler dieses Vorkommen
-  und lieferte `"="`; `Int32.Parse` warf dann eine `FormatException` statt
-  einer `AuthenticationException`. Das Muster ist jetzt auf `(?:^|,){key}=`
-  verankert.
-- `Features_AreSortedByOctetOrder` — XEP-0115 §5.1 verlangt Oktett-Reihenfolge,
-  `Order()` sortierte kulturabhängig (`'a'` vor `'B'` statt `'B'` vor `'a'`).
-  Für die aktuelle Feature-Liste fallen beide Reihenfolgen zufällig zusammen,
-  der offizielle Vektor allein deckte den Fehler also nicht auf. Jetzt
+  searched with the unanchored pattern `{key}=([^,]+)`. If the combined nonce
+  ends on `i==`, the search for the iteration count hit that occurrence and
+  yielded `"="`; `Int32.Parse` then threw a `FormatException` instead of an
+  `AuthenticationException`. The pattern is now anchored to `(?:^|,){key}=`.
+- `Features_AreSortedByOctetOrder` — XEP-0115 §5.1 demands octet order,
+  `Order()` sorted in a culture-dependent way (`'a'` before `'B'` instead of
+  `'B'` before `'a'`). For the current feature list both orders happen to
+  coincide, so the official vector alone did not uncover the mistake. Now
   `Order(StringComparer.Ordinal)`.
 
-Dieselbe Fehlerklasse steckte in der Identitäten-Sortierung und ist mit
-`Identities_AreSortedByOctetOrderIncludingName` ebenfalls behoben und abgedeckt:
-sortiert wird jetzt oktettweise über genau die Zeichenkette
-`category/type/xml:lang/name`, die auch in den Hash eingeht — vorher lief die
-Sortierung nur über `category/type`, sodass bei gleichem Präfix die
-Einfügereihenfolge stehenblieb. Der `xml:lang`-Platz bleibt leer, weil
-`DiscoIdentity` kein `xml:lang` trägt.
+The same class of mistake sat in the sorting of the identities and is fixed and
+covered by `Identities_AreSortedByOctetOrderIncludingName` as well: what is
+sorted now is octet by octet over exactly the string
+`category/type/xml:lang/name` that goes into the hash as well — before, the
+sorting ran only over `category/type`, so that with an equal prefix the order
+of insertion stayed. The `xml:lang` place stays empty, because `DiscoIdentity`
+carries no `xml:lang`.
 
-Zum Festnageln des Client-Nonce trägt `SCRAMAuthenticator` eine
-`internal`-Eigenschaft `FixedClientNonce`; ohne sie liessen sich AuthMessage
-und Proof nicht reproduzieren. Sichtbar gemacht wird sie über
-`InternalsVisibleTo` in `Ratatoskr.csproj`.
+To nail the client nonce down, `SCRAMAuthenticator` carries an `internal`
+property `FixedClientNonce`; without it the AuthMessage and the proof could not
+be reproduced. It is made visible over `InternalsVisibleTo` in
+`Ratatoskr.csproj`.
 
 ## Known limitations
 
-Was davon in welcher Reihenfolge angegangen wird, steht im
-[Arbeitsplan](../WORKPLAN.md).
+Which of these are tackled in what order stands in the
+[work plan](../WORKPLAN.md).
 
-### Architektur
-- **Eigene erweiterte Angaben sind abschaltbar und standardmäßig aus.**
-  `DiscoManager.LocalForms` fängt leer an. Was dort steht, erfährt jeder
-  Kontakt ungefragt — Software, Version und Betriebssystem sind genau die
-  Angaben, aus denen sich ein Gerät wiedererkennen lässt. Wer sie
-  veröffentlichen will:
+### Architecture
+- **Our own extended details are switchable and off by default.**
+  `DiscoManager.LocalForms` starts empty. What stands there every contact
+  learns unasked — software, version and operating system are exactly the
+  details a device can be recognised by. Whoever wants to publish them:
 
   ```csharp
   client.Connection.Disco!.LocalForms.Add(
       DiscoForm.SoftwareInfo(Software: "Jabber", SoftwareVersion: "0.1"));
   ```
 
-  Der Inhalt geht in den angekündigten `ver`-Wert ein. Er lässt sich deshalb
-  nur zusammen mit einer neuen Presence ändern — in der Zeit dazwischen kündigt
-  der Client einen Hash an, den seine Antwort nicht mehr ergibt, und eine
-  Gegenstelle, die nach XEP-0115 §5.4 nachrechnet, verwirft die Auskunft (zu
-  Recht) als nicht belegt.
-- ~~**Log-Ausgabe und Konsolen-UI überlagern sich.**~~ Behoben: Alles, was auf
-  die Konsole geht, läuft über `ConsoleUI/ConsoleOutput` — Ereignisse,
-  Systemmeldungen und das Protokoll über `ConsoleOutputLoggerProvider`. Die
-  angefangene Eingabezeile weicht, die Ausgabe erscheint, die
-  Eingabeaufforderung steht wieder da, und **eine Sperre** hält zwei
-  gleichzeitige Ausgaben auseinander (D58).
-- **XEP-0198 ist per Default an, samt Wiederaufnahme.** Die Zählung ist gegen
-  Prosody 13 geprüft: nach einem vollständigen Sitzungsaufbau melden beide
-  Seiten denselben Stand, und zwar auf den Zähler genau — nicht nur „die
-  Warteschlange lief leer", was auch ein zu grosses `h` bewirkte. Nach einem
-  Abriss knüpft der Client vor dem Resource Binding an den alten Stream an: die
-  Full-JID bleibt, was während der Störung ankam, wird nachgeliefert, und die
-  Kontakte sehen kein Verschwinden. Gelingt es nicht — Frist abgelaufen,
-  Kennung unbekannt —, bindet er neu; nennt die Abweisung dabei einen Stand
-  (`<failed h='…'/>`), gilt bis dorthin dasselbe wie bei einem `<a h='…'/>`:
-  verarbeitet ist verarbeitet, und verloren ist nur, was darüber hinaus offen
-  war. Geprüft gegen Prosody 13
-  (`mod_smacks`) und ejabberd 24.12 (`mod_stream_mgmt`) - beide verhalten sich
-  hier gleich.
-- ~~Der Content-Namensraum wandert nur in einer Richtung mit.~~ Behoben: jede
-  Stanza an einen Client trägt jetzt `jabber:client`, jede über die
-  Domain-Grenze `jabber:server` (RFC 6120 §4.8.1, RFC 7395 §3.3.3). Vorher
-  schickte der Server seinen Clients **gar keinen** Namensraum und reichte
-  Fremdes unverändert als `jabber:server` durch.
+  The content goes into the announced `ver` value. It can therefore be changed
+  only together with a new presence — in the time in between the client
+  announces a hash its answer no longer yields, and a far side that recomputes
+  under XEP-0115 §5.4 discards the information (rightly) as unproven.
+- ~~**Log output and console UI overlap.**~~ Fixed: everything that goes to
+  the console runs over `ConsoleUI/ConsoleOutput` — events, system notices and
+  the log over `ConsoleOutputLoggerProvider`. The line begun gives way, the
+  output appears, the prompt stands there again, and **one lock** keeps two
+  simultaneous outputs apart (D58).
+- **XEP-0198 is on by default, resumption included.** The counting is checked
+  against Prosody 13: after a complete session setup both sides report the same
+  state, and exactly on the counter — not merely "the queue ran empty", which
+  an `h` that was too large would bring about as well. After a break the client
+  ties on to the old stream before the resource binding: the full JID stays,
+  what arrived during the disturbance is handed in, and the contacts see no
+  disappearance. If it does not work — deadline run out, id unknown — it binds
+  anew; if the refusal names a state in doing so (`<failed h='…'/>`), the same
+  holds up to there as with an `<a h='…'/>`: processed is processed, and lost
+  is only what was open beyond that. Checked against Prosody 13
+  (`mod_smacks`) and ejabberd 24.12 (`mod_stream_mgmt`) - both behave the same
+  here.
+- ~~The content namespace travels along in one direction only.~~ Fixed: every
+  stanza to a client now carries `jabber:client`, every one across the domain
+  border `jabber:server` (RFC 6120 §4.8.1, RFC 7395 §3.3.3). Before, the server
+  sent its clients **no** namespace at all and passed foreign things through
+  unchanged as `jabber:server`.
 
-## Ende-zu-Ende-Verschlüsselung (OMEMO, XEP-0384)
+## End-to-end encryption (OMEMO, XEP-0384)
 
-In der Konsole:
+In the console:
 
 ```
-/omemo an                        einschalten
-/omemo an <jid> <text>           verschlüsselt senden
-/omemo fingerabdruecke           eigenen und bekannte anzeigen (Alias: fp)
-/omemo vertrauen <jid> <geraet>  Gerät bestätigen
-/omemo ablehnen <jid> <geraet>   Gerät ablehnen
+/omemo on                        switch on
+/omemo on <jid> <text>           send encrypted
+/omemo fingerprints              show the own and the known ones (alias: fp)
+/omemo trust <jid> <device>      confirm a device
+/omemo distrust <jid> <device>   refuse a device
 ```
 
-Aufgebaut in sieben Etappen (D62–D68): Kryptobausteine gegen veröffentlichte
-Prüfvektoren, X3DH, Double Ratchet, Drahtformat samt SCE-Hülle, PEP-Verteilung,
-Sitzungsspeicher und die Verdrahtung.
+Built in seven stages (D62–D68): crypto building blocks against published test
+vectors, X3DH, double ratchet, wire format together with the SCE envelope, PEP
+distribution, session store and the wiring.
 
-**Was dabei entschieden wurde, und warum:**
+**What was decided in doing so, and why:**
 
-- **Ein Gerät, für das es kein Bundle gibt, wird übersprungen — und genannt.**
-  Nicht zu senden machte einen Menschen durch ein einziges kaputtes Gerät
-  unerreichbar; unverschlüsselt zu senden wäre die schlimmste Antwort, weil
-  der Absender dann glaubt, verschlüsselt zu haben. `SendEncryptedMessageAsync`
-  gibt deshalb die übersprungenen Geräte samt Grund zurück, und die Konsole
-  zeigt sie an
-- **Ohne eingeschaltetes OMEMO wird geworfen**, nicht unverschlüsselt gesendet
-- **Blind Trust Before Verification** als Vorgabe (`TrustNewDevicesBlindly`).
-  Ein Verfahren, das vor der ersten Nachricht einen Fingerabdruckvergleich
-  verlangt, wird nicht benutzt — und unbenutzte Verschlüsselung schützt
-  niemanden. Wer einmal verglichen hat, merkt jeden späteren Wechsel
-- **Ein geänderter IdentityKey stoppt die Nachricht.** Neu aufgesetztes Gerät
-  oder Angreifer sind von aussen nicht zu unterscheiden; das ist keine
-  Entscheidung, die ein Programm treffen kann
-- Der Fingerabdruck wird in Achtergruppen angezeigt, damit ein Mensch beim
-  Vergleichen die Stelle nicht verliert
+- **A device there is no bundle for is skipped — and named.** Not to send would
+  make a human being unreachable through a single broken device; to send
+  unencrypted would be the worst answer, because the sender then believes they
+  have encrypted. `SendEncryptedMessageAsync` therefore returns the skipped
+  devices together with the reason, and the console shows them
+- **Without OMEMO switched on it throws**, it does not send unencrypted
+- **Blind trust before verification** as the default (`TrustNewDevicesBlindly`).
+  A procedure that demands a fingerprint comparison before the first message is
+  not used — and unused encryption protects nobody. Whoever has compared once
+  notices every later change
+- **A changed IdentityKey stops the message.** A device newly set up and an
+  attacker cannot be told apart from the outside; that is no decision a program
+  can make
+- The fingerprint is shown in groups of eight, so that a human being does not
+  lose their place when comparing
 
-### Die Grenzen, ausdrücklich
+### The limits, expressly
 
-- **Gegen die Referenzimplementierung geprüft, nicht gegen einen echten
-  Client.** Seit D69 läuft python-omemo (Syndace) als Gegenstelle mit — dieselbe
-  Fassung `urn:xmpp:omemo:2` — und zwar in beide Richtungen: Sie nimmt unser
-  Bundle an (und prüft dabei unsere Signatur), wir lesen ihre Nachrichten, sie
-  liest unsere. Damit sind Bundle-Format, X3DH, Ratchet-Anfang und Drahtformat
-  **gegen fremden Code** belegt. Nicht belegt bleiben die SCE-Hülle, das
-  `<encrypted/>`-Element, die PEP-Knoten und der Verlauf eines Gesprächs über
-  mehrere Nachrichten — und ein echter Client über eine echte Verbindung
-  ohnehin nicht: Conversations, Dino und Gajim sprechen überwiegend noch OMEMO
-  0.3.0. Siehe [das Orakel](../libs/Ratatoskr/RatatoskrTests/XEPs/Oracle/README.md)
-- **Der Sitzungsspeicher ist nicht verschlüsselt.** Er enthält den geheimen
-  IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer die Datei liest,
-  liest die Gespräche mit. Sie gehört an einen Ort, an den nur dieser Benutzer
-  kommt
-- **Die Punktarithmetik für XEdDSA ist nicht gegen Zeitmessung gehärtet.** Für
-  einen Client auf dem Gerät seines Benutzers ist das die richtige Reihenfolge
-  der Sorgen; für einen Server wäre es die falsche
-- **Kein MUC** (XEP-0045) und damit keine Gruppenverschlüsselung
-- Der Signed PreKey wird nicht selbsttätig gewechselt — `RotateSignedPreKey`
-  gibt es, ein Zeitplan dafür nicht
+- **Checked against the reference implementation, not against a real client.**
+  Since D69 python-omemo (Syndace) runs along as a far side — the same version
+  `urn:xmpp:omemo:2` — and in both directions: it accepts our bundle (and
+  checks our signature in doing so), we read its messages, it reads ours. With
+  that, the bundle format, X3DH, the beginning of the ratchet and the wire
+  format are shown **against foreign code**. What stays unshown are the SCE
+  envelope, the `<encrypted/>` element, the PEP nodes and the course of a
+  conversation over several messages — and a real client over a real connection
+  not at all anyway: Conversations, Dino and Gajim mostly still speak OMEMO
+  0.3.0. See [the oracle](../libs/Ratatoskr/RatatoskrTests/XEPs/Oracle/README.md)
+- **The session store is not encrypted.** It holds the secret IdentityKey, all
+  the PreKeys and every chain key; whoever reads the file reads the
+  conversations along with it. It belongs in a place only this user can get to
+- **The point arithmetic for XEdDSA is not hardened against timing.** For a
+  client on the device of its user that is the right order of worries; for a
+  server it would be the wrong one
+- **No MUC** (XEP-0045) and thereby no group encryption
+- The Signed PreKey is not rotated on its own — `RotateSignedPreKey` exists, a
+  schedule for it does not
 
-### Funktionsumfang
-- Kein Multi-User Chat (XEP-0045)
-- Kein Message Archive Management (XEP-0313)
-- **OMEMO (XEP-0384) ist fertig** — sieben Etappen, D62 bis D68. Siehe den
-  eigenen Abschnitt weiter unten Und es gibt hier keinen fremden OMEMO-Client, gegen den sich das
-  prüfen liesse — geprüft ist die Übereinstimmung mit dem Text, nicht mit der
-  Wirklichkeit
-- Kein HTTP File Upload (XEP-0363)
-- ~~Keine Client State Indication (XEP-0352)~~ Umgesetzt in D61, auf beiden
-  Seiten — siehe die Tabelle oben
-- Kein Flexible Offline Message Retrieval (XEP-0013) — die Ablage kommt beim
-  Anmelden vollständig heraus und lässt sich nicht einsehen oder einzeln
-  abholen. Bewusst so: Die XSF führt XEP-0013 als *Deprecated* (siehe D37)
-- ~~Der Client liest den XEP-0203-Stempel nicht; eine nachgereichte Nachricht
-  erscheint mit ihrer Empfangszeit, obwohl der Server den Verzug mitteilt~~
-  Behoben in D59: Sie erscheint mit Datum und dem Vermerk „(nachgereicht)"
-- **Kein TCP-Transport** — der Client spricht ausschliesslich XMPP über
-  WebSocket (RFC 7395). Die Fabrikmethode `CreateTcp`, die eine `tcp://`-URI
-  erzeugte und dabei funktionslos war, ist entfernt: Eine öffentliche Methode,
-  die nicht funktionieren kann, ist schlechter als keine. Ein echter
-  TCP-Transport steht unter „Optional" (siehe [WORKPLAN.md](../WORKPLAN.md),
-  D48): Prosody, ejabberd und der Testserver bieten WebSocket an, also fehlt er
-  niemandem — die Bausteine (`XmlStreamSplitter`, STARTTLS) gibt es auf der
-  S2S-Seite bereits.
+### Feature scope
+- No Multi-User Chat (XEP-0045)
+- No Message Archive Management (XEP-0313)
+- **OMEMO (XEP-0384) is finished** — seven stages, D62 to D68. See the section
+  of its own further below. And there is no foreign OMEMO client here to check
+  that against — what is checked is the agreement with the text, not with
+  reality
+- No HTTP File Upload (XEP-0363)
+- ~~No Client State Indication (XEP-0352)~~ Implemented in D61, on both
+  sides — see the table above
+- No Flexible Offline Message Retrieval (XEP-0013) — the store comes out in
+  full on login and cannot be looked at or fetched from one by one.
+  Deliberately so: the XSF lists XEP-0013 as *deprecated* (see D37)
+- ~~The client does not read the XEP-0203 stamp; a message handed in late
+  appears with the time it was received, although the server reports the
+  delay~~
+  Fixed in D59: it appears with a date and the note "(handed in late)"
+- **No TCP transport** — the client speaks XMPP over WebSocket (RFC 7395)
+  alone. The factory method `CreateTcp`, which created a `tcp://` URI and was
+  without function in doing so, has been removed: a public method that cannot
+  work is worse than none. A real TCP transport stands under "optional" (see
+  [WORKPLAN.md](../WORKPLAN.md), D48): Prosody, ejabberd and the test server
+  offer WebSocket, so nobody misses it — the building blocks
+  (`XmlStreamSplitter`, STARTTLS) already exist on the S2S side.
 
-### Ungenutzte API-Fläche
+### Unused API surface
 
-**Derzeit keine.** Die Liste stand hier, seit es sie gab, und ist in D57
-abgearbeitet — jeder Eintrag entweder benutzt oder gestrichen:
+**Currently none.** The list stood here for as long as there was one and was
+worked off in D57 — every entry either used or struck:
 
-| Member | Entscheidung |
+| Member | Decision |
 |--------|--------------|
-| `RosterStanzaBuilder.GetRoster` | **benutzt** — `XMPPConnection` setzte dieselbe Anfrage daneben von Hand zusammen |
-| `RosterStanzaBuilder.Unsubscribe` | **benutzt** — über das neue `CancelSubscriptionAsync`, den vierten Übergang aus RFC 6121 §3 |
-| `DiscoInfo.HasFeature` | **benutzt** — von einem Test, der die Frage vorher an der Merkmalsliste vorbei stellte |
-| `MessageReceipt` | gestrichen — der Typ dokumentierte selbst, dass er nirgends erzeugt wird |
-| `ReceiptTracker.GetTimedOutMessages` | gestrichen — es gibt keine Frist, die ablaufen könnte |
-| `PubSubManager.OnSubscriptionResult` | gestrichen — nie ausgelöst, und die einzige Warnung des Baus |
-| `PubSubBuilder.Retract` / `DiscoverNodes` | gestrichen — zwei Bausteine ohne Aufrufer, wiederherstellbar an einem Nachmittag |
-| `DiscoInfo.Supports*` (fünf Stück) | gestrichen — Abkürzungen für `HasFeature` mit eingebautem Namensraum |
-| `CarbonManager.DisableIq` | gestrichen — der Client schaltet Carbons im Aufbau ein und bietet keinen Schalter |
-| `StreamManagementManager.ResumeAsync`, `GetUnackedStanzas`, `OnStanzasLost` | **war veraltet** — alle drei werden längst benutzt |
+| `RosterStanzaBuilder.GetRoster` | **used** — `XMPPConnection` put the same request together by hand right next to it |
+| `RosterStanzaBuilder.Unsubscribe` | **used** — over the new `CancelSubscriptionAsync`, the fourth transition from RFC 6121 §3 |
+| `DiscoInfo.HasFeature` | **used** — by a test that put the question past the feature list before |
+| `MessageReceipt` | struck — the type documented itself that it is created nowhere |
+| `ReceiptTracker.GetTimedOutMessages` | struck — there is no deadline that could run out |
+| `PubSubManager.OnSubscriptionResult` | struck — never raised, and the only warning of the build |
+| `PubSubBuilder.Retract` / `DiscoverNodes` | struck — two building blocks without a caller, restorable in an afternoon |
+| `DiscoInfo.Supports*` (five of them) | struck — shortcuts for `HasFeature` with a built-in namespace |
+| `CarbonManager.DisableIq` | struck — the client switches carbons on during the setup and offers no switch |
+| `StreamManagementManager.ResumeAsync`, `GetUnackedStanzas`, `OnStanzasLost` | **was out of date** — all three have long been in use |
 
-Die letzte Zeile ist der Grund, warum eine solche Liste keine Dauereinrichtung
-sein sollte: **Sie veraltet in die falsche Richtung** und behauptet ungeprüft,
-was inzwischen geprüft ist. Dasselbe galt schon für
-`EntityCapsManager.GetCachedInfo`, das hier stand, während
-`CapsExchangeTests` längst darüber prüfte.
+The last row is the reason why such a list should not be a permanent
+institution: **it goes out of date in the wrong direction** and claims
+unchecked what has been checked in the meantime. The same held already for
+`EntityCapsManager.GetCachedInfo`, which stood here while
+`CapsExchangeTests` had long been checking over it.
 
-## Lizenz
+## License
 
-Apache License, Version 2.0 — siehe [LICENSE](../LICENSE).
+Apache License, Version 2.0 — see [LICENSE](../LICENSE).
 
 Copyright (c) 2010-2026 GraphDefined GmbH &lt;achim.friedland@graphdefined.com&gt;
