@@ -6210,304 +6210,285 @@ retraction and approval.
 
 ---
 
-### D95. Zwei Fragen, ein Merkmal ✅ — `authorize` auf der Clientseite
+### D95. Two questions, one property ✅ — `authorize` on the client side
 
-Die Clientseite von D93/D94, und ihr Kern ist eine Zeile, die seit D71 richtig
-aussah: **Ein `pending` wurde verworfen.** Der Aufrufer bekam `null` — dieselbe
-Antwort wie auf eine Absage.
+The client side of D93/D94, and its core is one line that had looked right since
+D71: **a `pending` was discarded.** The caller got `null` — the same answer as to a
+refusal.
 
-Das war die richtige Antwort auf „bin ich abonniert" und die falsche auf **„was
-habe ich beantragt"**. Zwei Fragen hingen an einem Merkmal. Und die zweite ist
-nicht nebensächlich: **Die Kennung des Antrags kommt vom Dienst.** Ohne sie kann
-der Client die Zusage, die später als Meldung eintrifft, keiner eigenen Frage
-zuordnen — dazwischen liegt ein Mensch, der sie beantwortet, und deshalb kommt
-sie nicht als Antwort auf das IQ.
+That was the right answer to "am I subscribed" and the wrong one to **"what have I
+applied for"**. Two questions hung on one property. And the second is not
+incidental: **the id of the application comes from the service.** Without it the
+client cannot assign the promise that arrives later as a report to any question of
+its own — between them lies a human who answers it, and this is why it does not come
+as an answer to the IQ.
 
-Eingetragen wird das `pending` jetzt also, aber als das, was es ist:
-`IsSubscribed` zählt Zugesagtes und nicht Eingetragenes. Die Verwechslung, vor
-der D71 warnte, bleibt ausgeschlossen — nur an einer anderen Stelle.
+Entered the `pending` therefore now is, but as what it is: `IsSubscribed` counts what
+was promised and not what was entered. The confusion D71 warned about stays ruled out
+— only at a different place.
 
-**Die Regel aus D86 gilt weiter, und sie wird genauer.** Dort hiess es: Eine
-Zusage kommt auf eine Anfrage, wer sie ungefragt annimmt, lässt sich von einem
-Dienst anmelden. Richtig — nur gibt es jetzt einen Fall, in dem sie verlangt
-war, und den erkennt dieser Client an seinem **offenen Antrag**: Zusagen ohne
-einen solchen werden weiterhin abgewiesen.
+**The rule from D86 still holds, and it becomes more exact.** There it read: a
+promise comes on a request, whoever accepts it unasked can be signed up by a service.
+Right — only there is now a case in which it was demanded, and this client recognises
+that by its **open application**: promises without such a one are still refused.
 
-Auf der anderen Seite legt der Client dem Eigentümer den Antrag vor und
-beantwortet ihn — **angezeigt und nicht beantwortet**: Wer zusagt, ist ein
-Mensch. Ein Client, der von sich aus antwortete, entschiede über fremden Zugang
-nach einer Regel, die niemand gesehen hat.
+On the other side the client puts the application before the owner and answers it —
+**shown and not answered**: whoever promises is a human. A client that answered of its
+own accord would decide about foreign access after a rule nobody has seen.
 
-Eine Mutation hat überlebt und wieder auf den Test gezeigt: „zugesagt wird auch,
-was schon zugesagt ist" ging durch, weil die unverlangte Zusage im Test eine
-**fremde Kennung** trug — abgewiesen wurde sie daran und nicht an der Regel. Der
-Test schickt jetzt beides: die erfundene Kennung und die richtige. **Zugesagt
-ist zugesagt** — eine zweite Zusage ist keine Änderung und meldet sich nicht.
+One mutation survived and pointed at the test again: "promised is also what is
+promised already" got through because the unrequested promise in the test carried a
+**foreign id** — refused it was by that and not by the rule. The test now sends both:
+the invented id and the right one. **Promised is promised** — a second promise is no
+change and does not report itself.
 
-Dreiundsechzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1141
-bestanden, 7 übersprungen.
+Sixty-three tests, seven mutations, all struck down. Full run: 1141 passed, 7
+skipped.
 
 ---
 
-### D96. Drei Listen derselben Befehle ✅ — die Konsole im README
+### D96. Three lists of the same commands ✅ — the console in the README
 
-Nachgezogen, und zwar in beide Richtungen abgeglichen: **kein Befehl im Code,
-den das README nicht nennt; keiner im README, den es nicht gibt.** Die
-PubSub-Unterbefehle, die obersten Befehle und `/omemo` sind je einmal
-durchgezählt.
+Drawn along, and compared in both directions at that: **no command in the code the
+README does not name; none in the README that does not exist.** The PubSub
+subcommands, the top-level commands and `/omemo` are counted through once each.
 
-Es gibt sie nämlich **dreimal**: in `PrintHelp`, in der Hilfe von `/pubsub` und
-im README. Drei Listen derselben Sache halten sich, bis eine von ihnen falsch
-wird — und genau das war passiert:
+They exist namely **three times**: in `PrintHelp`, in the help of `/pubsub` and in the
+README. Three lists of the same thing hold until one of them becomes wrong — and
+exactly that had happened:
 
-- **`/fix` fehlte im README ganz.** Der Befehl gibt es seit D60, die
-  Merkmalstabelle nennt ihn („In der Konsole `/fix <text>`"), die Konsolenhilfe
-  auch — nur die Befehlsliste nicht, also gerade die Stelle, an der jemand
-  nachsieht, der wissen will, was er tippen kann.
-- **`/pubsub access` versprach drei Modelle, `create` kannte zwei.** Das erste
-  war seit D92 behoben; beim zweiten stand dieselbe Verkürzung noch im Text.
-  <b>Wer `whitelist` schrieb, bekam einen offenen Knoten und eine
-  Erfolgsmeldung</b> — die stillste Art, eine Einstellung zu verlieren. Jetzt
-  liest auch `create` die Namen aus der Stelle, die auch das Formular liest.
-- Zwei Aliase (`rostergroups`, `authorize`, `fp`) waren nirgends vermerkt.
+- **`/fix` was missing from the README entirely.** The command has existed since D60,
+  the table of features names it ("in the console `/fix <text>`"), the help of the
+  console too — only the list of commands did not, that is, precisely the place
+  somebody looks who wants to know what they can type.
+- **`/pubsub access` promised three models, `create` knew two.** The first was fixed
+  since D92; at the second the same shortening still stood in the text.
+  <b>Whoever wrote `whitelist` got an open node and a message of success</b> — the
+  quietest way of losing a setting. Now `create` too reads the names out of the place
+  the form reads them from.
+- Two aliases (`rostergroups`, `authorize`, `fp`) were noted nowhere.
 
-Und die Kurzhilfe sagt jetzt, dass sie eine ist: Die fünf PubSub-Zeilen in
-`/help` sahen aus wie die ganze Menge; es sind fünf von zwanzig.
+And the short help now says that it is one: the five PubSub lines in `/help` looked
+like the whole set; they are five out of twenty.
 
-**Warum das überhaupt auseinanderlaufen konnte:** Die Konsole hat keine Tests.
-Sie ist die einzige Ecke dieses Projekts, in der eine Behauptung ohne Deckung
-niemandem auffällt — kein Mutant kann hier etwas erschlagen, weil nichts
-hinsieht. Der Abgleich lief deshalb als Wegwerf-Skript über beide Dateien;
-es als Test einzubauen hiesse, den Pfad zweier Textdateien in die Testsammlung
-zu schreiben, und der Umzug nach `HermodTests` steht noch aus.
+**Why that could run apart at all:** the console has no tests. It is the only corner
+of this project in which a claim without backing comes out to nobody — no mutant can
+strike anything down here, because nothing is looking. The comparison therefore ran as
+a throwaway script over both files; to build it in as a test would mean writing the
+path of two text files into the test suite, and the move to `HermodTests` is still
+outstanding.
 
-Voller Lauf: 1141 bestanden, 7 übersprungen.
+Full run: 1141 passed, 7 skipped.
 
-### D97. Das Protokoll zieht aus ✅ — Ratatoskr
+### D97. The protocol moves out ✅ — Ratatoskr
 
-Der Umzug selbst kam von aussen: Client, Server, XEPs und die Testsammlung
-liegen jetzt in **Ratatoskr**, einem eigenen Repository unter `libs/`, mit dem
-Namensraum `org.GraphDefined.Vanaheimr.Ratatoskr`. Hier bleiben die Konsole,
-ihre Tests und die beiden fremden Gegenstellen in `tools/`.
+The move itself came from outside: client, server, XEPs and the test suite now lie in
+**Ratatoskr**, a repository of its own under `libs/`, with the namespace
+`org.GraphDefined.Vanaheimr.Ratatoskr`. Here stay the console, its tests and the two
+foreign far sides in `tools/`.
 
-Dieser Eintrag handelt von dem, was so ein Umzug hinter sich herzieht. **Vier
-Dinge waren danach kaputt, und drei davon hätten sich nicht von selbst
-gemeldet.**
+This entry is about what such a move drags along behind it. **Four things were broken
+afterwards, and three of them would not have reported themselves.**
 
-**Der Übersetzer meldete zwei Zeilen, gemeint waren vier.** `IPPort`,
-`IPv4Address` und `IPSocket` kommen von Hermod, und niemand hatte je ein
-`using` dafür geschrieben — der Namensraum lag *unterhalb* von Hermod, die
-Typen kamen über die Verschachtelung herein. Zwei Dateien in der Bibliothek,
-zwei in den Föderationstests. Das ist die freundliche Sorte Fehler: Sie steht
-im Bauprotokoll.
+**The compiler reported two lines, meant were four.** `IPPort`, `IPv4Address` and
+`IPSocket` come from Hermod, and nobody had ever written a `using` for it — the
+namespace lay *beneath* Hermod, the types came in over the nesting. Two files in the
+library, two in the federation tests. That is the friendly sort of error: it stands in
+the build log.
 
-**Mit derselben Verschachtelung ist eine Begründung verfallen.** Am Alias
-`using IPAddress = System.Net.IPAddress;` stand, er müsse im Rumpf der
-Namespace-Deklaration stehen, weil ein Namespace-Member gegen einen Alias der
-Compilation Unit gewinnt. Das stimmte, solange der Namensraum unter Hermod lag.
-Jetzt kommt Hermods `IPAddress` nur noch über eine `using`-Direktive, und gegen
-die gewinnt der Alias — er steht deshalb wieder oben bei den anderen. Der
-Kommentar sagt jetzt beides: warum es den Alias braucht, und warum er nicht
-mehr in den Rumpf muss.
+**With the same nesting a reason has expired.** At the alias
+`using IPAddress = System.Net.IPAddress;` it stood that it has to stand in the body of
+the namespace declaration, because a namespace member wins against an alias of the
+compilation unit. That held as long as the namespace lay under Hermod. Now Hermod's
+`IPAddress` comes only over a `using` directive, and against that the alias wins — it
+therefore stands at the top with the others again. The comment now says both: why the
+alias is needed, and why it no longer has to be in the body.
 
-**Drei Tests haben sich seither stillschweigend übersprungen.** Das
-OMEMO-Orakel wurde gesucht, indem von der Ausgabe aus nach oben gelaufen wurde,
-bis `WORKPLAN.md` dalag — und von dort aus unter
-`Jabber.Tests/XMPP/XEPs/Orakel/`. Beide Marken gehören dem Programm und nicht
-der Bibliothek, und beide waren nach dem Umzug falsch. Die Meldung dazu lautete
-**„Das Orakel ist nicht erreichbar (python-omemo in WSL …)"** — sie klingt nach
-fehlender Referenzimplementierung und nicht nach einem falschen Pfad. Das ist
-genau der Unterschied zwischen **7 und 10 Übersprungenen**, also zwischen „die
-Gegenstelle stand bereit" und „die Gegenstelle wurde nie gefragt".
+**Three tests have skipped themselves silently since then.** The OMEMO oracle was
+looked for by walking up from the output until `WORKPLAN.md` lay there — and from
+there under `Jabber.Tests/XMPP/XEPs/Orakel/`. Both marks belong to the program and not
+to the library, and both were wrong after the move. The message for it read **"The
+oracle is not reachable (python-omemo in WSL …)"** — it sounds like a missing
+reference implementation and not like a wrong path. That is exactly the difference
+between **7 and 10 skipped**, that is, between "the far side stood ready" and "the far
+side was never asked".
 
-Gesucht wird jetzt nach dem Skript selbst, und **fehlt es, ist der Lauf rot und
-nicht übersprungen**: Das Orakel liegt in demselben Projekt wie die Tests, ein
-fehlendes ist also ein kaputter Checkout. Übersprungen wird nur noch, was
-wirklich an der Umgebung liegt.
+Looked for is now the script itself, and **if it is missing the run is red and not
+skipped**: the oracle lies in the same project as the tests, so a missing one is a
+broken checkout. Skipped is only what really is down to the environment.
 
-**Drei Erzeugerskripte schrieben ins Leere.** `tools/unicode/` und
-`tools/stringprep/` holen die Unicode-Datei beziehungsweise RFC 3454 und
-schreiben daraus `Common/BidiClasses.cs`, `Common/ContextTables.cs` und
-`Auth/StringPrepTables.cs`. Ihr Ziel stand als `parents[2] / "Jabber" / …` im
-Quelltext. Beim nächsten Unicode-Wechsel hätten sie ein frisches
-`Jabber/Common/BidiClasses.cs` neben die Konsole gelegt, „fertig" gemeldet, und
-die Tabelle, die tatsächlich übersetzt wird, wäre die alte geblieben. Sie sind
-mit ihrem Erzeugnis nach `libs/Ratatoskr/tools/` gezogen.
+**Three generator scripts wrote into the void.** `tools/unicode/` and
+`tools/stringprep/` fetch the Unicode file and RFC 3454 respectively and write
+`Common/BidiClasses.cs`, `Common/ContextTables.cs` and `Auth/StringPrepTables.cs` out
+of them. Their target stood as `parents[2] / "Jabber" / …` in the source. At the next
+change of Unicode they would have laid a fresh `Jabber/Common/BidiClasses.cs` beside
+the console, reported "done", and the table that is actually compiled would have
+stayed the old one. They have moved to `libs/Ratatoskr/tools/` with what they produce.
 
-**Und zwei Abhängigkeiten standen am falschen Ort — beide funktionierten
-trotzdem.** BouncyCastle stand in `Jabber.csproj`, wo seit dem Umzug kein OMEMO
-mehr liegt; in `Ratatoskr.csproj` stand weder es noch
-`Microsoft.Extensions.Logging`. Übersetzt hat es dennoch, weil Hermod beide
-mitbringt. Genau davor warnte der Kommentar, der über dem Paket stand: *wer
-eine transitive Abhängigkeit direkt benutzt, verliert sie in dem Augenblick, in
-dem der Vorbesitzer sie ablegt.* Der Kommentar ist mitgewandert, das Paket
-auch; dieselbe Begründung steht jetzt am ausdrücklichen `ProjectReference` der
-Föderationstests auf Hermod.
+**And two dependencies stood in the wrong place — both worked all the same.**
+BouncyCastle stood in `Jabber.csproj`, where since the move no OMEMO lies any more; in
+`Ratatoskr.csproj` stood neither it nor `Microsoft.Extensions.Logging`. It compiled
+nevertheless, because Hermod brings both along. Exactly against that the comment
+warned that stood above the package: *whoever uses a transitive dependency directly
+loses it at the moment at which the previous owner puts it down.* The comment has
+wandered along, the package too; the same reason now stands at the express
+`ProjectReference` of the federation tests on Hermod.
 
-**Ein Provisorium hat sich erledigt.** In `Jabber.csproj` standen zwei
-`InternalsVisibleTo`-Namen — der zweite „für den Fall, dass die Tests später
-nach `HermodTests` wandern". Sie sind gewandert, nur woandershin. Jetzt steht
-einer, in `Ratatoskr.csproj`, und er nennt die Assembly, die es gibt.
+**A stopgap has settled itself.** In `Jabber.csproj` there stood two
+`InternalsVisibleTo` names — the second "for the case that the tests wander to
+`HermodTests` later". They have wandered, only somewhere else. Now there stands one,
+in `Ratatoskr.csproj`, and it names the assembly that exists.
 
-**Das README ist geteilt, nicht verschoben.** Das grosse bleibt hier: Es
-beschreibt beides zusammen, weil beides zusammen entstanden ist und die
-Entscheidungen dahinter in diesem Arbeitsplan stehen. Ratatoskr bekommt daraus
-den Auszug für den, der die Bibliothek ohne diese Konsole benutzt — XEPs,
-RFC-Konformität, Server, Testvektoren, OMEMO. **Was den Prüfungen gegen fremde
-Gegenstellen gilt, bleibt hier**, denn hier liegen die Aufbauten. Nachgezogen
-sind ausserdem die Pfade in beiden `setup.sh`, die noch auf `Jabber.Tests`
-zeigten.
+**The README is divided, not moved.** The big one stays here: it describes both
+together, because both arose together and the decisions behind them stand in this work
+plan. Ratatoskr gets the extract out of it for whoever uses the library without this
+console — XEPs, RFC conformance, server, test vectors, OMEMO. **What holds for the
+checks against foreign far sides stays here**, for here lie the setups. Drawn along
+are moreover the paths in both `setup.sh` that still pointed at `Jabber.Tests`.
 
-**Keine Mutationen für diesen Schritt.** Es gibt keinen neuen Produktivcode —
-bis auf die eine Zeile, die entscheidet, wo das Orakel gesucht wird, und die
-ist dadurch belegt, dass drei Tests wieder laufen statt sich zu überspringen.
+**No mutations for this step.** There is no new production code — except for the one
+line that decides where the oracle is looked for, and that is shown by three tests
+running again instead of skipping themselves.
 
-Voller Lauf: 1133 bestanden, 7 übersprungen; dazu 8 für die Konsole.
+Full run: 1133 passed, 7 skipped; to that 8 for the console.
 
 ---
 
-## Später
+## Later
 
-### Testsammlung
-- ~~**`AFailureWhileHandlingAFrame_IsReported` wackelt seit D68 unter Last.**~~
-  Behoben in D69, und der Grund war kein Zeitproblem, sondern ein Wettlauf:
-  Nach dem Verbindungsaufbau ist noch etwas unterwegs — die erste Presence,
-  die Antwort auf den Roster-Abruf. Fiel der Testschalter, während davon noch
-  etwas beim Server ankam, scheiterte *jener* Rahmen zuerst, der Server
-  beendete den Stream, und die Nachricht mit der gesuchten Kennung ging nie
-  hinaus. Der Test wartete dann zehn Sekunden auf eine Meldung, die es nicht
-  mehr geben konnte.
-  **Der Wettlauf war immer da; sichtbar wurde er erst, als die OMEMO-Tests die
-  Maschine genug beschäftigten** — zwei von vier vollen Läufen fielen darüber.
-  Jetzt wartet der Test, bis vom Client nichts mehr nachkommt, statt bis
-  `ConnectAsync` zurückkehrt. **Ein Test, der die Hälfte der Zeit fällt, misst
-  nichts mehr** — und die erste Vermutung („zu knapp bemessen") war falsch: Es
-  half kein Warten, weil die Meldung nicht spät kam, sondern gar nicht.
-- ~~**`NonzasDoNotAdvanceTheCount` gegen Prosody scheitert gelegentlich** — in D34
-  aufgefallen, ein Fehlschlag in einem Vollauf. Der Mitschnitt liegt vor:
+### Test suite
+- ~~**`AFailureWhileHandlingAFrame_IsReported` has been flaky under load since
+  D68.**~~ Fixed in D69, and the reason was no problem of timing but a race: after the
+  building of the connection something is still on its way — the first presence, the
+  answer to the fetching of the roster. Did the test switch fall while something of
+  that was still arriving at the server, then *that* frame failed first, the server
+  ended the stream, and the message with the id sought never went out. The test then
+  waited ten seconds for a report that could no longer exist.
+  **The race was always there; it became visible only when the OMEMO tests kept the
+  machine busy enough** — two of four full runs fell over it. Now the test waits until
+  nothing more comes from the client, instead of until `ConnectAsync` returns. **A
+  test that falls half the time measures nothing any more** — and the first supposition
+  ("too tightly measured") was wrong: no waiting helped, because the report did not
+  come late but not at all.
+- ~~**`NonzasDoNotAdvanceTheCount` against Prosody fails occasionally** — come out in
+  D34, one failure in one full run. The recording is there:
 
   ```
   Wir haben Nonzas mitgezählt.  Expected: 6  But was: 8
   Prosody hat andere Nonzas mitgezählt als wir.  Expected: 8  But was: 6
   ```
 
-  Der Client hatte also **zwei** ausgehende Stanzas mehr gezählt als die drei,
-  die der Test schickt; Prosody bestätigte die erwarteten sechs. Beide
-  Zusicherungen fallen zusammen, weil beide dieselbe Zahl vergleichen.
+  The client had therefore counted **two** outgoing stanzas more than the three the
+  test sends; Prosody acknowledged the expected six. Both assurances fall together,
+  because both compare the same number.
 
-  Eine naheliegende Erklärung ist bereits **widerlegt**: Der Test schickt an
-  sich selbst, die Nachrichten kommen also zurück — aber die automatischen
-  Antworten des Clients (XEP-0184, XEP-0333) verlangen ein `<request/>` bzw.
-  `<markable/>` im Rahmen, und die Testnachrichten tragen nur einen `<body>`.
-  Sie lösen nichts aus.
+  An obvious explanation is already **refuted**: the test sends to itself, so the
+  messages come back — but the automatic answers of the client (XEP-0184, XEP-0333)
+  demand a `<request/>` or `<markable/>` respectively in the frame, and the test
+  messages carry only a `<body>`. They set nothing off.
 
-  Offen ist damit, **welche zwei Stanzas** mitgezählt wurden. Seit D35
-  schneidet der Test den Ausgang mit und legt ihn der Meldung bei — beim
-  nächsten Vorfall steht dort, was hinausging, statt einer Zahl. Zwanzig
-  gezielte Ausführungen konnten ihn nicht wiederholen (siehe D34, D35)~~
-  ✅ erledigt in D55 — und die Frage nach den zwei Stanzas war die falsche:
-  Prosody hatte richtig gezählt und wir auch. Der Test verglich eine Zahl, wo
-  Abschnitt 2 eine Beziehung meint
-- ~~`TheStreamSurvivesABrokenConnection` (D16) ist seit D33 **nicht mehr
-  reproduzierbar** und der damalige Verdacht widerlegt: vierzig Ausführungen
-  zwischen 519 und 669 ms bei 15 Sekunden Frist. Ob D30 ihn beseitigt hat, ist
-  eine passende Erklärung und kein Nachweis. Tritt er wieder auf, nennt die
-  Meldung jetzt den Verlauf — dann ist er in einem Anlauf zu klären (siehe D33)~~
-  ✅ erledigt in D56 — der Verdacht war **nicht** widerlegt, die Messung konnte
-  ihn gar nicht widerlegen: Alle vierzig Durchgänge kamen beim ersten Anlauf
-  durch, und die Frist von 15 Sekunden lag nur 5,7 Sekunden über den 9,3, die
-  der Client allein mit Warten verbringen darf
+  Open is thereby **which two stanzas** were counted along. Since D35 the test records
+  the outgoing and attaches it to the message — at the next incident what went out
+  stands there instead of a number. Twenty targeted executions could not repeat it
+  (see D34, D35)~~
+  ✅ done in D55 — and the question about the two stanzas was the wrong one: Prosody
+  had counted rightly and we did too. The test compared a number where section 2 means
+  a relation
+- ~~`TheStreamSurvivesABrokenConnection` (D16) has been **no longer reproducible**
+  since D33 and the suspicion of back then refuted: forty executions between 519 and
+  669 ms at a deadline of 15 seconds. Whether D30 removed it is a fitting explanation
+  and no proof. Does it occur again, the message now names the history — then it can be
+  cleared up in one attempt (see D33)~~
+  ✅ done in D56 — the suspicion was **not** refuted, the measurement could not refute
+  it at all: all forty passes got through at the first attempt, and the deadline of 15
+  seconds lay only 5.7 seconds above the 9.3 the client may spend on waiting alone
 
 ### Server (`libs/Ratatoskr/Ratatoskr/Server/`)
-Die grossen Brocken stehen oben unter [S1 bis S4](#der-server-soll-ein-richtiger-server-werden).
-Was dort nicht auftauchte und trotzdem anstand, ist in D49 bis D53
-abgearbeitet: `<resume/>` beantworten (war seit R1 erledigt, offen blieb das
-`h` im `<failed/>` — D49), SCRAM anbieten (war seit S2 erledigt, offen blieb
-das unbekannte Konto — D50) und Stanza-Fehler ohne Schalter (D51 bis D53).
-**Hier steht derzeit nichts offen.**
+The big lumps stand above under [S1 to S4](#the-server-is-to-become-a-real-server).
+What did not appear there and was due all the same is worked through in D49 to D53:
+answer the `<resume/>` (had been done since R1, what stayed open was the `h` in the
+`<failed/>` — D49), offer SCRAM (had been done since S2, what stayed open was the
+unknown account — D50) and stanza errors without a switch (D51 to D53).
+**Nothing stands open here at present.**
 
-### Struktur
-- ~~`Jabber.Tests/XMPP/` nach `HermodTests/XMPP/` verschieben. Bewusst
-  aufgeschoben; Namespaces, Ordnerschnitt und der doppelte
-  `InternalsVisibleTo`-Eintrag in `Jabber.csproj` sind bereits darauf ausgelegt,
-  dass das eine Kopie wird.~~ ✅ erledigt in D97 — nur anders als geplant: Nicht
-  die Testsammlung ist zu Hermod gewandert, sondern das ganze Protokoll in eine
-  eigene Bibliothek (**Ratatoskr**), und die Tests mit ihm. Die Vorarbeit hat
-  trotzdem getragen: Ordnerschnitt und Namensraum liessen sich unverändert
-  übernehmen. Der doppelte `InternalsVisibleTo` ist damit einer geworden.
-- ~~Konsolen-UI und Logger trennen: der Standard-Konsolenlogger schreibt in
-  dieselbe Konsole wie die Eingabezeile und zerlegt den Prompt. Ein eigener
-  `ILoggerProvider` über die synchronisierte Ausgabe wäre die saubere Lösung.~~
-  ✅ erledigt in D58 — die synchronisierte Ausgabe gab es dabei noch gar nicht:
-  Die Ereignisbehandlung klammerte jede Ausgabe von Hand, ohne Sperre
-- ~~Ungenutzte öffentliche Member entscheiden: benutzen oder streichen. Liste in
-  [Jabber/README.md](Jabber/README.md).~~ ✅ erledigt in D57
+### Structure
+- ~~Move `Jabber.Tests/XMPP/` to `HermodTests/XMPP/`. Deliberately postponed;
+  namespaces, the cut of the folders and the double `InternalsVisibleTo` entry in
+  `Jabber.csproj` are already laid out for that becoming a copy.~~ ✅ done in D97 —
+  only differently than planned: not the test suite wandered to Hermod, but the whole
+  protocol into a library of its own (**Ratatoskr**), and the tests with it. The
+  preparatory work carried all the same: the cut of the folders and the namespace could
+  be taken over unchanged. The double `InternalsVisibleTo` has thereby become one.
+- ~~Separate console UI and logger: the standard console logger writes into the same
+  console as the input line and takes the prompt apart. An `ILoggerProvider` of its own
+  over the synchronised output would be the clean solution.~~ ✅ done in D58 — the
+  synchronised output did not exist at all in doing so: the handling of the events
+  bracketed every output by hand, without a lock
+- ~~Decide about unused public members: use or strike. List in
+  [Jabber/README.md](Jabber/README.md).~~ ✅ done in D57
 
 ---
 
 ## Optional
 
-Was hier steht, ist nicht falsch und nicht dringend: Es fehlt niemandem, solange
-niemand es benutzt. Ein Punkt wandert von hier nach „Später", sobald es einen
-Anwendungsfall gibt, an dem sich die Umsetzung prüfen lässt.
+What stands here is not wrong and not urgent: nobody misses it as long as nobody uses
+it. A point wanders from here to "Later" as soon as there is a use case at which the
+implementation can be checked.
 
-- ~~**XEP-0060 — Publish-Subscribe.**~~ Erledigt in D70 und D71. Die Begründung,
-  warum der Punkt hier stand, war am Ende der Weg zur Umsetzung: Es gab keinen
-  Ablauf, an dem sich die Korrelation prüfen liess, weil der Testserver auf
-  jedes `subscribe` `<service-unavailable/>` sagte. Also erst der Server (D70),
-  dann der Client (D71) — und der eigentliche Fund lag dazwischen: Ein
-  bestätigtes Abonnement brachte gar nichts ein, weil der Spoofing-Schutz jede
-  PEP-Meldung verwarf.
+- ~~**XEP-0060 — Publish-Subscribe.**~~ Done in D70 and D71. The reason why the point
+  stood here was in the end the way to the implementation: there was no course of
+  events at which the correlation could be checked, because the test server said
+  `<service-unavailable/>` to every `subscribe`. So the server first (D70), then the
+  client (D71) — and the actual find lay in between: a confirmed subscription brought
+  nothing in at all, because the protection against spoofing discarded every PEP
+  report.
 
-  **Was das über die Liste sagt:** „Kein Anwendungsfall" hiess hier nicht, dass
-  niemand es braucht, sondern dass keine Gegenstelle es beantworten konnte.
-  Das ist ein Grund zu warten, aber ein anderer als der, der hier stand
+  **What that says about the list:** "no use case" did not mean here that nobody needs
+  it, but that no far side could answer it. That is a reason to wait, but a different
+  one than the one that stood here
 
-- **TCP-Transport für den Client.** Dieser Client spricht XMPP über WebSocket
-  (RFC 7395), und die Server, gegen die er läuft, bieten ihn an — Prosody,
-  ejabberd und der eigene Testserver. Solange das so bleibt, fehlt der
-  TCP-Transport niemandem.
+- **TCP transport for the client.** This client speaks XMPP over WebSocket (RFC 7395),
+  and the servers it runs against offer it — Prosody, ejabberd and our own test server.
+  As long as that stays so, nobody misses the TCP transport.
 
-  Der Umfang ist seit D34 gemessen: Der Client fasst den WebSocket an neun
-  Stellen unmittelbar an (Verbinden, Senden, die beiden Empfangspfade,
-  Abbruch), es bräuchte also eine Transportabstraktion, dazu clientseitiges
-  STARTTLS und die TCP-Rahmung. `XmlStreamSplitter` und die
-  STARTTLS-Aushandlung gibt es auf der S2S-Seite bereits, sind dort aber für
-  `jabber:server` geformt. `CreateTcp` — die Fabrikmethode, die eine
-  `tcp://`-URI erzeugte und dabei funktionslos war — ist in D34 entfernt
-  worden; eine öffentliche Methode, die nicht funktionieren kann, ist
-  schlechter als keine.
+  The extent has been measured since D34: the client touches the WebSocket directly at
+  nine places (connecting, sending, the two receiving paths, breaking off), so it would
+  need an abstraction of the transport, to that STARTTLS on the client side and the TCP
+  framing. `XmlStreamSplitter` and the STARTTLS negotiation exist on the S2S side
+  already, but are shaped for `jabber:server` there. `CreateTcp` — the factory method
+  that created a `tcp://` URI and was without function in doing so — was removed in
+  D34; a public method that cannot work is worse than none.
 
-  **Der Rückweg:** ein Server, den dieser Client erreichen soll und der keinen
-  WebSocket-Endpunkt anbietet. Dann ist der Anwendungsfall da, und mit ihm die
-  Gegenprobe — Prosody hört auf 127.0.0.1:5222 und wäre der Prüfstein
-  (siehe D34, D48)
+  **The way back:** a server this client is to reach that offers no WebSocket endpoint.
+  Then the use case is there, and with it the counter-check — Prosody listens on
+  127.0.0.1:5222 and would be the touchstone
+  (see D34, D48)
 
 ---
 
-## Bewusst nicht umgesetzt
+## Deliberately not implemented
 
-Was hier steht, ist entschieden und wartet nicht auf Gelegenheit.
+What stands here is decided and does not wait for an opportunity.
 
-- **XEP-0013 — Flexible Offline Message Retrieval.** Von der XSF als
-  *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the
-  protocol described herein is not recommended." Die Offline-Ablage bleibt beim
-  automatischen Nachreichen nach RFC 6121, Abschnitt 8.5.2.2.1, und XEP-0160.
-  Einen Nachfolger benennt das Dokument nicht; das gezielte Nachlesen läge bei
-  XEP-0313 (MAM), das aber ein Archiv beschreibt und keine Ablage (siehe D37)
+- **XEP-0013 — Flexible Offline Message Retrieval.** Carried by the XSF as
+  *Deprecated* (version 1.3, 2021-05-04): "Implementation of the protocol described
+  herein is not recommended." The offline store stays with the automatic handing in
+  later under RFC 6121, section 8.5.2.2.1, and XEP-0160. A successor the document does
+  not name; the targeted reading up would lie at XEP-0313 (MAM), which however
+  describes an archive and no store (see D37)
 
 ---
 
-## Arbeitsweise
+## Way of working
 
-Was sich in diesem Projekt bewährt hat und beibehalten werden sollte:
+What has proved itself in this project and should be kept:
 
-- **Fixes durch Mutation absichern.** Grün allein beweist nichts — den Fix
-  zurückdrehen und prüfen, dass genau die zuständigen Tests rot werden. So sind
-  alle bisherigen Korrekturen belegt.
-- **Gegen veröffentlichte Vektoren rechnen, nicht gegen sich selbst.** SCRAM und
-  der Caps-Hash sind gegen RFC 5802/7677 und XEP-0115 geprüft; zwei Defekte kamen
-  überhaupt erst dadurch ans Licht.
-- **Testserver unabhängig implementieren.** `XMPPServer` zählt XEP-0198 bewusst
-  mit eigener Logik. Benutzten beide Seiten dieselbe Hilfsfunktion, bliebe ein
-  gemeinsamer Denkfehler unsichtbar.
+- **Secure fixes by mutation.** Green alone proves nothing — turn the fix back and
+  check that exactly the responsible tests go red. That is how all corrections so far
+  are shown.
+- **Compute against published vectors, not against oneself.** SCRAM and the caps hash
+  are checked against RFC 5802/7677 and XEP-0115; two defects came to light through
+  that in the first place.
+- **Implement the test server independently.** `XMPPServer` counts XEP-0198
+  deliberately with logic of its own. Used both sides the same helper function, a
+  shared error of thought would stay invisible.
