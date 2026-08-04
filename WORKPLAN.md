@@ -1932,7 +1932,7 @@ another resource and waits. This is why it stands in a test.
 **The limit refuses and does not displace.** Both directions lose a message, but
 only one of them says it to somebody. And a limit that displaces would itself be
 the attack: whoever writes the store full would thereby delete foreign post. The
-same consideration as at the kept subscription requests from S6.
+same consideration as at the kept subscription requests from S7.
 
 **Handed in later at every non-negative available presence, not at the
 *becoming* available** — unlike the kept request directly above. The difference
@@ -4477,7 +4477,7 @@ return" is therefore never true. Meant was the sequence of deletion at the begin
 ### D59. A time that stands there and is not right ✅ — XEP-0203 read
 
 The server has always written the delay stamp —
-`AStoredMessage_CarriesADelayStamp` has held fast for a long time that every message
+`AStoredMessage_CarriesADelayStamp` has held fast since D14 that every message
 handed in later carries a `<delay/>`, with UTC time and the server as the originator.
 **The client has never read it.** `urn:xmpp:delay` did not appear in its whole
 source, and `XMPPMessage.Timestamp` was according to its own documentation "moment of
@@ -6266,7 +6266,7 @@ exactly that had happened:
   <b>Whoever wrote `whitelist` got an open node and a message of success</b> — the
   quietest way of losing a setting. Now `create` too reads the names out of the place
   the form reads them from.
-- Two aliases (`rostergroups`, `authorize`, `fp`) were noted nowhere.
+- Three aliases (`rostergroups`, `authorize`, `fp`) were noted nowhere.
 
 And the short help now says that it is one: the five PubSub lines in `/help` looked
 like the whole set; they are five out of twenty.
