@@ -199,401 +199,398 @@ condition from §8.3.3).
   runs across the border as well.
 - ~~No resolution over DNS~~ — done in S4b-8.
 
-### S4b. Der eigentliche S2S-Transport
+### S4b. The real S2S transport
 
-**Entschieden: beides.** Nicht das eine *oder* das andere — TCP für die
-Föderation mit vorhandenen Servern, WebSocket für Strecken zwischen zwei
-Instanzen dieses Servers.
+**Decided: both.** Not the one *or* the other — TCP for the federation with
+existing servers, WebSocket for routes between two instances of this server.
 
 | | TCP 5269 | WebSocket |
 |---|---|---|
-| Rahmen | ein offenes `<stream:stream>`, Stanzas als Kindelemente | ein Frame = eine Stanza |
-| TLS | STARTTLS **im** Stream (RFC 6120 §5.4) | TLS unter dem Handshake, davor |
-| Auffinden | DNS SRV `_xmpp-server._tcp` (RFC 6120 §3.2) | kein Standard, Konfiguration von Hand |
-| Gegenstellen | ejabberd, Prosody, alles | nur eine andere Instanz dieses Servers |
+| Framing | one open `<stream:stream>`, stanzas as child elements | one frame = one stanza |
+| TLS | STARTTLS **in** the stream (RFC 6120 §5.4) | TLS under the handshake, before it |
+| Finding | DNS SRV `_xmpp-server._tcp` (RFC 6120 §3.2) | no standard, configuration by hand |
+| Far sides | ejabberd, Prosody, everything | only another instance of this server |
 
-**S4b-1 ✅ Die Protokollschicht, ohne Transport darunter.** `S2SStream` (neu,
-`Jabber/Server/S2SStream.cs`) kennt weder Socket noch WebSocket-Rahmen: sie
-bekommt eingehende Rahmen als Zeichenketten gereicht und schickt ausgehende
-über eine Funktion hinaus. Beide Rollen (`Initiate`/`Accept`) beherrschen den
-`<open/>`-Handshake nach RFC 7395 §3.4, die vom Empfänger vergebene Stream-ID
-(der Anker für Dialback), Stanza-Ein-/Ausgang, `<close/>` und Stream-Fehler.
-Der Stream ist gerichtet (RFC 6120 §4.1) — ein ausgehender Stream nimmt keine
-Stanzas an, das wäre XEP-0288 und ausgehandelt, nicht angenommen.
+**S4b-1 ✅ The protocol layer, without a transport under it.** `S2SStream` (new,
+`Jabber/Server/S2SStream.cs`) knows neither socket nor WebSocket frame: it gets
+incoming frames handed to it as strings and sends outgoing ones out over a
+function. Both roles (`Initiate`/`Accept`) master the `<open/>` handshake under
+RFC 7395 §3.4, the stream ID given out by the recipient (the anchor for
+dialback), stanza in and out, `<close/>` and stream errors.
+The stream is directed (RFC 6120 §4.1) — an outgoing stream takes no stanzas,
+that would be XEP-0288 and negotiated, not assumed.
 
-`ReceiveFromRemoteAsync` hat einen Zwilling bekommen, `AcceptFromRemoteAsync`,
-der als `RemoteStanzaResult` sagt, *warum* abgelehnt wurde. Das war nötig, weil
-die Ablehnungen jetzt unterschiedlich schwer sind: ein `from`, für das die
-Gegenstelle nicht sprechen darf, beendet den Stream mit `<invalid-from/>`
-(RFC 6120 §8.1.1.1); ein Empfänger auf einer dritten Domain kostet nur die eine
-Stanza. `DirectServerLinks` kannte diesen Unterschied nicht — es konnte nur
-verwerfen, nie den Stream beenden.
+`ReceiveFromRemoteAsync` has got a twin, `AcceptFromRemoteAsync`, that says as a
+`RemoteStanzaResult` *why* something was refused. That was necessary because the
+refusals now weigh differently: a `from` the far side may not speak for ends the
+stream with `<invalid-from/>` (RFC 6120 §8.1.1.1); a recipient on a third domain
+costs only the one stanza. `DirectServerLinks` did not know this difference — it
+could only discard, never end the stream.
 
-**S4b-2 ✅ WebSocket-Transport.** `WebSocketServerLinks` (neu,
-`Jabber/Server/WebSocketServerLinks.cs`) ist `IServerLinks` über einen echten
-Socket: eingehend ein eigener `AWebSocketServer`-Zweig auf einem zweiten Port
-mit Subprotokoll `xmpp-server`, ausgehend `ClientWebSocket` mit
-Verbindungs-Cache je Domain. `WebSocketServerLinks.Connect(a, b)` verkabelt wie
-`DirectServerLinks.Connect`, nur mit echten Adressen und gepinntem Zertifikat
-statt bloss einer Objektreferenz. `WebSocketFederationTests` fährt dasselbe
-Zielbild wie `FederationTests`, diesmal über echte Sockets samt TLS.
+**S4b-2 ✅ WebSocket transport.** `WebSocketServerLinks` (new,
+`Jabber/Server/WebSocketServerLinks.cs`) is `IServerLinks` over a real socket:
+incoming a branch of its own on `AWebSocketServer` on a second port with the
+subprotocol `xmpp-server`, outgoing `ClientWebSocket` with a connection cache per
+domain. `WebSocketServerLinks.Connect(a, b)` wires up like
+`DirectServerLinks.Connect`, only with real addresses and a pinned certificate
+instead of a mere object reference. `WebSocketFederationTests` drives the same
+target picture as `FederationTests`, this time over real sockets together with
+TLS.
 
-Ein Stream-Fehler beendet jetzt auch die WebSocket-Verbindung, nicht nur den
-XMPP-Stream (RFC 6120 §4.9 verlangt genau das) — sonst bliebe eine Verbindung
-offen, auf der protokollseitig nichts mehr passiert. Ehrlich vermerkt: dieser
-Teil und der symmetrische Ausstieg der Empfangsschleife greifen im aktuellen
-Testaufbau ineinander (die eine Seite schliesst aktiv, die andere reagiert
-schon auf den regulären WebSocket-Close), sodass ein Mutationstest, der nur
-eine der beiden Stellen zurückdreht, nicht zuverlässig auf genau diese Zeile
-zeigt. Beide bleiben, weil RFC 6120 §4.9 den Verbindungsabbau unabhängig vom
-jeweils anderen Mechanismus verlangt — nur die Testschärfe dafür fehlt noch.
+A stream error now ends the WebSocket connection as well, not only the XMPP
+stream (RFC 6120 §4.9 demands exactly that) — otherwise a connection would stay
+open on which nothing happens any more on the protocol side. Honestly noted:
+this part and the symmetric exit of the receiving loop mesh with each other in
+the current test setup (the one side closes actively, the other reacts to the
+regular WebSocket close as it is), so that a mutation test which turns back only
+one of the two places does not point reliably at exactly this line. Both stay,
+because RFC 6120 §4.9 demands the teardown of the connection independently of
+whichever other mechanism — only the test sharpness for it is still missing.
 
-**Was jetzt WebSocket-S2S kann und was nicht:** verbinden, TLS, Stanza hin und
-zurück, Absenderprüfung mit Konsequenz (Stream *und* Verbindung enden), und
-seit S4b-3 eine belegte Gegenstellendomain. Was weiterhin fehlt: die Auflösung
-über SRV statt über eine Konfigurationsliste, das Verhalten, wenn zwei Server
-einander gleichzeitig anwählen (doppelte Verbindungen), und welcher Transport
-gewählt wird, wenn eine Domain über beide erreichbar wäre. SASL-EXTERNAL gibt
-es seit S4b-7, aber nur auf der TCP-Strecke — über WebSocket bleibt Dialback
-der einzige Weg.
+**What WebSocket S2S can do now and what it cannot:** connect, TLS, a stanza
+there and back, a sender check with a consequence (stream *and* connection end),
+and since S4b-3 a shown far-side domain. What is still missing: the resolution
+over SRV instead of over a configuration list, the behaviour when two servers
+dial each other at the same time (double connections), and which transport is
+chosen when a domain would be reachable over both. SASL EXTERNAL has been there
+since S4b-7, but only on the TCP route — over WebSocket dialback stays the only
+way.
 
-**S4b-3 ✅ Dialback (XEP-0220).** Die Domain der Gegenstelle wird jetzt belegt
-statt geglaubt. `DialbackKey` rechnet den Schlüssel nach XEP-0220 §2.1.1
-(Verfahren aus XEP-0185), geprüft gegen den veröffentlichten Vektor —
-`SHA256(Secret)` geht dabei als **Hex-Zeichenkette** in den HMAC, nicht als
-Rohbytes, und die Reihenfolge ist Ziel- vor Absenderdomain. Beide Lesarten
-liefern sonst einen stimmigen, aber falschen Schlüssel.
+**S4b-3 ✅ Dialback (XEP-0220).** The domain of the far side is now shown instead
+of believed. `DialbackKey` computes the key under XEP-0220 §2.1.1 (procedure from
+XEP-0185), checked against the published vector — `SHA256(Secret)` goes into the
+HMAC as a **hex string**, not as raw bytes, and the order is the target before
+the sender domain. Both other readings yield a coherent but wrong key.
 
-`S2SStream` beherrscht alle drei Rollen: der aufbauende Server weist sich
-unaufgefordert mit `<db:result/>` aus, der annehmende lässt den Schlüssel
-prüfen und antwortet `valid`/`invalid`, der autoritative rechnet einen fremden
-`<db:verify/>` nach. Vor bestandenem Dialback trägt der Stream keine Stanza —
-das ist die Zeile, die aus dem Austausch überhaupt eine Sicherung macht
-(XEP-0220 §1).
+`S2SStream` masters all three roles: the server building up identifies itself
+unasked with `<db:result/>`, the accepting one has the key checked and answers
+`valid`/`invalid`, the authoritative one recomputes a foreign `<db:verify/>`.
+Before a passed dialback the stream carries no stanza — that is the line which
+makes the exchange a safeguard in the first place (XEP-0220 §1).
 
-**Wo der Wert steckt:** `WebSocketServerLinks.VerifyDialbackKeyAsync` fragt
-nicht den, der sich gerade ausweisen will, sondern die Adresse, die *dieser*
-Server für die Absenderdomain hinterlegt hat — über eine eigene, kurzlebige
-Verbindung. Wer sich fälschlich für `left.example` ausgibt, wird deshalb nie
-selbst gefragt; gefragt wird der echte `left.example`, und der kennt den
-Schlüssel nicht. An die Stelle der DNS-Auflösung des XEP tritt dabei die
-Gegenstellenliste des Betreibers. Für den Zweck ist das eher strenger als DNS
-(das unauthentifiziert ist), aber es füllt sich nicht selbst: eine Domain ohne
-hinterlegte Adresse lässt sich nicht prüfen und wird deshalb abgelehnt.
+**Where the value sits:** `WebSocketServerLinks.VerifyDialbackKeyAsync` does not
+ask the one that is just now identifying itself, but the address *this* server
+has deposited for the sender domain — over a short-lived connection of its own.
+Whoever falsely gives themselves out as `left.example` is therefore never asked
+themselves; asked is the real `left.example`, and it does not know the key. In
+place of the DNS resolution of the XEP steps the far-side list of the operator.
+For the purpose that is rather stricter than DNS (which is unauthenticated), but
+it does not fill itself: a domain without a deposited address cannot be checked
+and is therefore refused.
 
-Zwei Fehler kamen dabei ans Licht, beide älter als dieser Schritt:
+Two errors came to light while doing this, both older than this step:
 
-- **Hermods `WebSocketServerConnection` vergleicht sich über `LocalSocket`** —
-  und der ist bei einem Listener für jede angenommene Verbindung derselbe. Ein
-  gewöhnliches `Dictionary` hält damit *alle* eingehenden Verbindungen für ein
-  und dieselbe: die zweite bekam den Stream der ersten samt deren Sendefunktion
-  auf einen längst geschlossenen Socket. `XMPPServer` geht dem seit jeher mit
-  `ReferenceEquals` aus dem Weg; der S2S-Eingang tut es jetzt auch.
-- **Der Verbindungs-Cache räumte nur auf, wenn der Aufbau bereits erfolgreich
-  abgeschlossen war.** Starb der Stream noch im Aufbau — mit Dialback der
-  Normalfall, weil der Aufbau mehrere Umläufe dauert —, blieb der Eintrag für
-  immer stehen. Jetzt wird über die Identität des Platzes aufgeräumt.
+- **Hermod's `WebSocketServerConnection` compares itself over `LocalSocket`** —
+  and that is the same one for a listener for every accepted connection. An
+  ordinary `Dictionary` thereby holds *all* incoming connections to be one and
+  the same: the second got the stream of the first together with its sending
+  function on a socket long since closed. `XMPPServer` has always got out of the
+  way of that with `ReferenceEquals`; the S2S entrance does it now as well.
+- **The connection cache cleared up only when the setup had already been
+  finished successfully.** Did the stream die while still being set up — with
+  dialback the normal case, because the setup takes several round trips —, the
+  entry stayed for ever. Now it is cleared up over the identity of the slot.
 
-**S4b-4 ✅ TCP als zweite Rahmung.** `TcpServerLinks` spricht
-`jabber:server`-Streams über TCP (RFC 6120) — dieselbe Protokollschicht,
-darunter `TcpStreamFraming` statt `WebSocketFraming` und `XmlStreamSplitter`
-statt fertiger Frames. `TcpFederationTests` prüft dasselbe wie die
-WebSocket-Fassung und läuft grün.
+**S4b-4 ✅ TCP as a second framing.** `TcpServerLinks` speaks `jabber:server`
+streams over TCP (RFC 6120) — the same protocol layer, under it
+`TcpStreamFraming` instead of `WebSocketFraming` and `XmlStreamSplitter` instead
+of finished frames. `TcpFederationTests` checks the same as the WebSocket version
+and runs green.
 
-**Die Antwort auf die Frage aus S4b-1: nein, `S2SStream` blieb nicht
-unverändert.** An sechs Stellen steckte RFC 7395 fest im Code — die beiden
-`<open/>`-Sendungen, das `<close/>`, die zwei Erkennungen dazu, und, am
-unauffälligsten, ein `XElement.Parse` auf dem Stream-Kopf. Über TCP ist der
-Kopf ein *offenes* Tag; jede TCP-Verbindung wäre mit `<bad-format/>` gescheitert.
-Die Abstraktion hatte die Form ihrer ersten Implementierung angenommen, genau
-wie hier als Risiko notiert. Was gehalten hat, ist alles Übrige: Handshake,
-Stream-ID, Dialback, Absenderprüfung, Fehlerbehandlung, Lebenszyklus — und das
-ist jetzt belegt statt behauptet, weil `S2SStreamTests` dieselbe Klasse mit
-beiden Rahmungen fährt, ohne Socket.
+**The answer to the question from S4b-1: no, `S2SStream` did not stay
+unchanged.** In six places RFC 7395 sat fast in the code — the two `<open/>`
+sendings, the `<close/>`, the two recognitions for those, and, most
+inconspicuously, an `XElement.Parse` on the stream header. Over TCP the header is
+an *open* tag; every TCP connection would have failed with `<bad-format/>`.
+The abstraction had taken on the shape of its first implementation, exactly as
+noted here as a risk. What has held is all the rest: handshake, stream ID,
+dialback, sender check, error handling, life cycle — and that is now shown
+instead of claimed, because `S2SStreamTests` drives the same class with both
+framings, without a socket.
 
-Nebenbei bestätigt: die Entscheidung aus S4b-3, Dialback-Elemente über einen
-regulären Ausdruck statt über einen XML-Parser zu lesen, zahlt sich hier aus.
-Ein `<db:result/>` über TCP ist für sich genommen nicht wohlgeformt — sein
-Präfix hängt am Wurzelelement.
+Confirmed along the way: the decision from S4b-3 to read dialback elements over a
+regular expression instead of over an XML parser pays off here. A `<db:result/>`
+over TCP is not well-formed taken by itself — its prefix hangs on the root
+element.
 
-Ein Fund, den nur eine Messung liefert: der erste Zustellvorgang dauerte
-4167 ms statt 82 ms. Nicht TLS, sondern `localhost` — der Name löst zuerst nach
-IPv6 auf, der Listener bindet IPv4-Loopback, und jede der beiden Verbindungen
-(Stanza-Stream und Dialback-Nachfrage) zahlte rund zwei Sekunden Fallback. Alles
-funktionierte, nur langsam; kein Test wäre je rot geworden.
+A find that only a measurement delivers: the first delivery took 4167 ms instead
+of 82 ms. Not TLS, but `localhost` — the name resolves to IPv6 first, the
+listener binds the IPv4 loopback, and each of the two connections (stanza stream
+and dialback query) paid about two seconds of fallback. Everything worked, only
+slowly; no test would ever have gone red.
 
-**Was an S4b-4 offen bleibt:**
+**What stays open about S4b-4:**
 
-- ~~Kein STARTTLS~~ ✅ **erledigt.** `TcpTlsMode` wählt zwischen Klartext, TLS
-  ab dem ersten Byte und STARTTLS nach RFC 6120 §5.4; Vorgabe ist STARTTLS.
-  Die Aushandlung steht im Transport und nicht in `S2SStream` — der Stream vor
-  TLS ist ein Wegwerfstream, dessen Zustand nach der Verschlüsselung verworfen
-  wird (§5.4.3.3), und so bekommt die Protokollschicht gar keine Gelegenheit,
-  etwas daraus zu übernehmen. `TcpFederationTests` läuft seither zweimal, einmal
-  je Betriebsart.
-- ~~**Kein Lauf gegen ejabberd oder Prosody.**~~ ✅ nachgeholt in S8 — und die
-  Lücke war grösser als vermutet, siehe dort.
-- **Keine SRV-Auflösung**, Gegenstellen werden von Hand eingetragen.
+- ~~No STARTTLS~~ ✅ **done.** `TcpTlsMode` chooses between plain text, TLS from
+  the first byte on and STARTTLS under RFC 6120 §5.4; the default is STARTTLS.
+  The negotiation stands in the transport and not in `S2SStream` — the stream
+  before TLS is a throwaway stream whose state is discarded after the encryption
+  (§5.4.3.3), and so the protocol layer gets no opportunity at all to carry
+  anything over out of it. `TcpFederationTests` has run twice since then, once
+  per mode of operation.
+- ~~**No run against ejabberd or Prosody.**~~ ✅ made up for in S8 — and the gap
+  was bigger than supposed, see there.
+- **No SRV resolution**, far sides are entered by hand.
 
-**S4b-7 ✅ SASL-EXTERNAL (XEP-0178).** Die Domain der Gegenstelle wird über ihr
-TLS-Zertifikat belegt statt über eine Rückfrage. `TcpServerLinks.UseSaslExternal`
-fordert dafür ein Klientzertifikat an; `CertificateIdentity` sagt, für welche
-Domains es gilt. Der Unterschied ist von aussen messbar und wird auch so
-geprüft: mit SASL-EXTERNAL bleibt `DialbackVerificationCount` auf null, ohne es
-steigt er. Die Zahl der Verbindungen taugt dafür nicht — über die Grenze läuft
-noch anderes, unter anderem die automatische Empfangsbestätigung des Clients,
-und genau daran ist die erste Fassung dieses Tests gescheitert.
+**S4b-7 ✅ SASL EXTERNAL (XEP-0178).** The domain of the far side is shown over
+its TLS certificate instead of over a query back.
+`TcpServerLinks.UseSaslExternal` asks for a client certificate for that;
+`CertificateIdentity` says which domains it holds for. The difference is
+measurable from outside and is checked that way too: with SASL EXTERNAL
+`DialbackVerificationCount` stays at zero, without it it rises. The number of
+connections is no use for that — other things run over the border as well, among
+them the automatic receipt of the client, and it is on exactly that that the
+first version of this test failed.
 
-Absichtlich streng: gibt es eine SAN-Erweiterung, zählt der Common Name nicht
-mehr (RFC 6125 §6.4.4) — sonst genügte ein Zertifikat mit passendem CN und
-harmlosen SANs. Platzhalter gelten nicht. Nach einem `<failure/>` gibt es
-keinen Rückfall auf Dialback: wer sich per Zertifikat ausweisen wollte und
-abgelehnt wurde, hat ein Problem, das ein schwächeres Verfahren verdeckt statt
-löst.
+Deliberately strict: is there a SAN extension, then the common name no longer
+counts (RFC 6125 §6.4.4) — otherwise a certificate with a fitting CN and harmless
+SANs would suffice. Wildcards do not hold. After a `<failure/>` there is no
+falling back to dialback: whoever wanted to identify themselves by certificate
+and was refused has a problem that a weaker procedure covers up instead of
+solving.
 
-Was dabei aufflog: der Stream-Neustart nach erfolgreichem SASL (RFC 6120 §6.4.6)
-braucht **zwei** Dinge, die beide zuerst fehlten. Der XML-Zerleger muss
-zurückgesetzt werden, sonst hält er den zweiten `<stream:stream>` für ein
-Kindelement des ersten und wartet ewig auf dessen schliessendes Tag — die
-Verbindung stünde still, ohne dass etwas kaputt aussähe. Und „ausgewiesen"
-allein reicht als Startsignal nicht: einen Augenblick lang ist der Stream
-ausgewiesen und trotzdem nicht offen, und wer da sendet, verliert die Stanza
-lautlos. Dafür gibt es jetzt `WaitUntilReadyAsync`.
+What came out while doing this: the stream restart after a successful SASL
+(RFC 6120 §6.4.6) needs **two** things, and both were missing at first. The XML
+splitter has to be reset, otherwise it holds the second `<stream:stream>` to be a
+child element of the first and waits for ever for its closing tag — the
+connection would stand still without anything looking broken. And "identified"
+alone does not suffice as a starting signal: for a moment the stream is
+identified and nevertheless not open, and whoever sends there loses the stanza
+silently. For that there is now `WaitUntilReadyAsync`.
 
-**Was an S4b-7 offen bleibt:**
+**What stays open about S4b-7:**
 
-- **`id-on-xmppAddr` wird nicht gelesen** (OID 1.3.6.1.5.5.7.8.5), obwohl
-  XEP-0178 es als die vorgesehene Form nennt. Es steckt als `otherName` in der
-  SAN, und die Bibliothek zählt nur dNSName und IP-Adressen auf. Eine
-  Gegenstelle, die sich *nur* darüber ausweist, wird abgelehnt, obwohl sie im
-  Recht ist.
-- **Nur auf der TCP-Strecke.** Über WebSocket bleibt Dialback der einzige Weg.
-- **Die Kette wird nicht gegen eine CA geprüft.** `CertificateIdentity` sagt,
-  *wofür* ein Zertifikat ausgestellt ist, nicht, ob ihm zu trauen ist — das
-  entscheidet die hinterlegte Prüfung im TLS-Handshake, im Testaufbau ein
-  angehefteter Fingerabdruck.
+- **`id-on-xmppAddr` is not read** (OID 1.3.6.1.5.5.7.8.5), although XEP-0178
+  names it as the intended form. It sits as an `otherName` in the SAN, and the
+  library enumerates dNSName and IP addresses alone. A far side that identifies
+  itself *only* over that is refused, although it is in the right.
+- **Only on the TCP route.** Over WebSocket dialback stays the only way.
+- **The chain is not checked against a CA.** `CertificateIdentity` says *what
+  for* a certificate is issued, not whether it is to be trusted — that is decided
+  by the deposited check in the TLS handshake, in the test setup a pinned
+  fingerprint.
 
-**S4b-8 ✅ SRV-Auflösung (RFC 6120 §3.2.1).** Gegenstellen müssen nicht mehr von
-Hand eingetragen werden. `DnsS2SAddressResolver` fragt
-`_xmpp-server._tcp.<domain>` und fällt ohne Eintrag auf die Domain selbst
-zurück; `SrvSelection` bringt die Ziele in die Reihenfolge aus RFC 2782. Ein
-Eintrag von Hand geht weiterhin vor - eine Entscheidung des Betreibers wiegt
-schwerer als eine Auskunft aus dem Netz.
+**S4b-8 ✅ SRV resolution (RFC 6120 §3.2.1).** Far sides no longer have to be
+entered by hand. `DnsS2SAddressResolver` asks `_xmpp-server._tcp.<domain>` and
+falls back without an entry to the domain itself; `SrvSelection` brings the
+targets into the order from RFC 2782. An entry by hand still goes first - a
+decision of the operator weighs heavier than a piece of information out of the
+network.
 
-Der auswahlkritische Teil ist die Gewichtung: sie ist **keine** Sortierung nach
-Gewicht, sondern eine gewichtete Ziehung ohne Zurücklegen. Wer stattdessen
-absteigend sortiert, schickt allen Verkehr an den stärksten Rechner, und die
-Lastverteilung findet nie statt - auffallen würde das erst im Betrieb, und auch
-dort nur jemandem, der die Auslastung anschaut. Die Zufallsquelle ist deshalb
-einsetzbar, damit der Ablauf prüfbar bleibt.
+The part critical to the selection is the weighting: it is **no** sorting by
+weight, but a weighted draw without replacement. Whoever sorts descending instead
+sends all traffic to the strongest machine, and the load spreading never takes
+place - that would be noticed only in operation, and even there only by someone
+who looks at the utilisation. The source of randomness is therefore settable, so
+that the course of events stays checkable.
 
-**Geprüft wird gegen einen echten DNS-Server**, nicht gegen eine nachgebaute
-Antwort: Hermod bringt einen mit, `InMemoryDNSZone` nimmt die Einträge, und die
-Abfrage läuft über echte DNS-Pakete. Das hat sich sofort ausgezahlt -
-`DnsFederationTests` verkabelt zwei Server ganz ohne Liste und deckte dabei
-auf, dass die **Dialback-Rückfrage** den Resolver gar nicht benutzte. Sie
-schaute nur in die Gegenstellenliste; mit einem nachgebauten Resolver wäre das
-nie aufgefallen, weil kein Test ohne Liste ausgekommen wäre.
+**Checked against a real DNS server**, not against a rebuilt answer: Hermod
+brings one along, `InMemoryDNSZone` takes the entries, and the query runs over
+real DNS packets. That paid off at once - `DnsFederationTests` wires up two
+servers quite without a list and uncovered in doing so that the **dialback query
+back** did not use the resolver at all. It looked only into the far-side list;
+with a rebuilt resolver that would never have been noticed, because no test would
+have got by without a list.
 
-**Was das für die Vertrauenswurzel bedeutet, und es ist eine Verschlechterung:**
-bisher stand bei der Dialback-Prüfung ausschliesslich die Liste des Betreibers,
-und genau daraus bezog sie ihre Schärfe. Wird die autoritative Adresse über DNS
-gesucht, ist Dialback nur noch so verlässlich wie die Auflösung - so ist
-XEP-0220 gemeint, aber es ist weniger als vorher. Wer das nicht will, lässt
-`AddressResolver` null und trägt seine Gegenstellen ein.
+**What that means for the root of trust, and it is a worsening:** until now there
+stood in the dialback check the list of the operator alone, and it drew its
+sharpness from exactly that. Is the authoritative address looked up over DNS,
+then dialback is only as reliable as the resolution - that is how XEP-0220 is
+meant, but it is less than before. Whoever does not want that leaves
+`AddressResolver` null and enters their far sides.
 
-Unverändert gilt: **das Zertifikat wird gegen die gesuchte Domain geprüft**,
-nicht gegen den Rechnernamen aus dem SRV-Eintrag (RFC 6120 §13.7.2.1). Sonst
-brächte ein Angreifer, der DNS fälschen kann, den Massstab gleich mit. Dafür
-gibt es einen eigenen Test, und die Mutation dazu wird gefangen.
+Unchanged it holds: **the certificate is checked against the domain sought**, not
+against the machine name from the SRV entry (RFC 6120 §13.7.2.1). Otherwise an
+attacker who can forge DNS would bring the yardstick along with them. For that
+there is a test of its own, and the mutation for it is caught.
 
-**Was an S4b-8 offen bleibt:**
+**What stays open about S4b-8:**
 
-- **Kein `_xmpps-server._tcp`** (XEP-0368, direktes TLS ohne STARTTLS). Die
-  Auswahl zwischen beiden Diensten wäre eine eigene Entscheidung.
-- **Kein DNSSEC.** Ohne das bleibt die Auflösung unbeglaubigt; sie sagt, wohin
-  verbunden wird, nie mit wem.
+- **No `_xmpps-server._tcp`** (XEP-0368, direct TLS without STARTTLS). The
+  choice between the two services would be a decision of its own.
+- **No DNSSEC.** Without that the resolution stays unattested; it says where a
+  connection goes, never with whom.
 
-**Zwei Dinge, die dabei nicht untergehen dürfen:**
+**Two things that must not go under while doing this:**
 
-- **Der schwächere Weg bestimmt das Niveau.** Beide Transporte müssen die
-  Domain der Gegenstelle gleich gut belegen. `S2SStream` lässt sich weiterhin
-  ohne Dialback bauen (`RequiresDialback == false`) — das ist für
-  `DirectServerLinks` und für einen späteren SASL-EXTERNAL-Weg gedacht, nicht
-  als Abkürzung. Der WebSocket-Transport schaltet es nirgends ab.
-- **Dialback klebt am Stream.** XEP-0220 ist über XML-Streams definiert und
-  hängt an der Stream-ID. Über WebSocket gibt es kein `<stream:stream>`,
-  sondern `<open/>` mit `id` (RFC 7395 §3.4) — `S2SStream.StreamId` trägt sie.
-  Das funktioniert, ist aber eine eigene Festlegung, die ausser uns niemand
-  kennt; ob TCP dieselbe Schicht unverändert trägt, entscheidet sich in S4b-4.
+- **The weaker way sets the level.** Both transports have to show the domain of
+  the far side equally well. `S2SStream` can still be built without dialback
+  (`RequiresDialback == false`) — that is meant for `DirectServerLinks` and for a
+  later SASL EXTERNAL way, not as a shortcut. The WebSocket transport switches it
+  off nowhere.
+- **Dialback sticks to the stream.** XEP-0220 is defined over XML streams and
+  hangs on the stream ID. Over WebSocket there is no `<stream:stream>`, but
+  `<open/>` with `id` (RFC 7395 §3.4) — `S2SStream.StreamId` carries it.
+  That works, but is a determination of our own that nobody besides us knows;
+  whether TCP carries the same layer unchanged is decided in S4b-4.
 
 ---
 
-### S5. Domainübergreifende Subscriptions ✅
+### S5. Cross-domain subscriptions ✅
 
-Der Handshake aus RFC 6121 §3 nahm an, dass derselbe Server beide Roster in der
-Hand hat: der ausgehende Weg pflegte beide Hälften, der eingehende gar keine.
-Eine Subscription-Presence von aussen wurde nur an den Client durchgereicht -
-sie kam an, aber der Server vergass sie, und die Antwort fand keinen Eintrag
-vor, den sie hätte ändern können.
+The handshake from RFC 6121 §3 assumed that the same server has both rosters in
+hand: the outgoing way tended both halves, the incoming one none at all.
+A subscription presence from outside was only handed through to the client - it
+arrived, but the server forgot it, and the answer found no entry before it that
+it could have changed.
 
-Jetzt pflegt jede Seite genau **eine** Hälfte, nämlich ihre eigene, und die
-Übereinstimmung entsteht allein daraus, dass beide dieselbe Stanzafolge
-verschieden auslegen: der eine setzt `from`, der andere `to`. Die andere Hälfte
-zu raten wäre falsch — über die Grenze erfährt man voneinander nur das, was
-ausdrücklich geschickt wird.
+Now each side tends exactly **one** half, namely its own, and the agreement
+arises solely out of both laying out the same sequence of stanzas differently:
+the one sets `from`, the other `to`. To guess the other half would be wrong —
+over the border one learns of one another only what is expressly sent.
 
-Umgesetzt sind die vier Übergänge (§3.1.6, §3.2.3, §3.3.3) und die
-Selbstbeantwortung aus §3.1.4: darf der Antragsteller den Kontakt ohnehin schon
-sehen, antwortet dessen Server selbst, statt den Nutzer erneut zu fragen. Ohne
-das käme ein Antragsteller, dessen Roster verlorenging, nie wieder in Ordnung,
-ohne den Kontakt zu behelligen.
+Implemented are the four transitions (§3.1.6, §3.2.3, §3.3.3) and the
+self-answering from §3.1.4: may the applicant see the contact anyway already,
+then that one's server answers itself instead of asking the user again. Without
+that an applicant whose roster got lost would never come right again without
+bothering the contact.
 
-Ausserdem adressiert `RouteToAsync` ausgehende Stanzas jetzt zentral. Innerhalb
-eines Servers weiss er selbst, an wen er verteilt; über die Grenze ist das `to`
-alles, was die Gegenstelle hat.
+Besides that `RouteToAsync` now addresses outgoing stanzas centrally. Inside a
+server it knows itself whom it distributes to; over the border the `to` is all
+the far side has.
 
-**Was offen bleibt:**
+**What stays open:**
 
-- ~~Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
-  (§3.1.3)~~ ✅ erledigt in S7 — und zwar für beide Fälle in derselben Stelle.
-- Die zentrale Adressierung in `RouteToAsync` ist durch keinen Test
-  festgehalten; siehe den Vermerk im Code.
+- ~~A request to an account that is not connected at the time is not kept
+  (§3.1.3)~~ ✅ done in S7 — and for both cases in the same place.
+- The central addressing in `RouteToAsync` is held fast by no test; see the note
+  in the code.
 
-### S6. Subscription-Pre-Approval ✅
+### S6. Subscription pre-approval ✅
 
-RFC 6121 §3.4: einen Kontakt zulassen, bevor er fragt. Der Abschnitt
-unterscheidet vier Fälle, und alle hängen an derselben Frage — liegt eine
-Anfrage vor oder nicht. Dasselbe `<presence type='subscribed'/>` ist einmal eine
-Zustimmung und einmal eine Vormerkung; die Stanza sieht in beiden Fällen gleich
-aus, der Unterschied steckt allein im Roster des Absenders.
+RFC 6121 §3.4: to let a contact in before they ask. The section distinguishes
+four cases, and all of them hang on the same question — is there a request or
+not. The same `<presence type='subscribed'/>` is once an agreement and once a
+pre-approval; the stanza looks the same in both cases, the difference sits solely
+in the roster of the sender.
 
-Dafür musste der Server erst lernen, offene Anfragen zu vermerken. `RosterEntry`
-bekam `PendingIn` neben `Ask` — die beiden Richtungen derselben Frage: die eine
-hält fest, dass *wir* gefragt haben, die andere, dass *gefragt wurde*. Ohne
-beide liesse sich §3.4 gar nicht umsetzen. Dazu kommt `Approved`, das als
-`approved='true'` in Roster-Ergebnis und -Push erscheint. (`PendingIn` ist in S7
-wieder verschwunden; die Tatsache liegt seither vollständig woanders.)
+For that the server first had to learn to note down open requests. `RosterEntry`
+got `PendingIn` beside `Ask` — the two directions of the same question: the one
+holds fast that *we* have asked, the other that *there was an asking*. Without
+both, §3.4 could not be implemented at all. To that comes `Approved`, which
+appears as `approved='true'` in the roster result and push. (`PendingIn` has
+vanished again in S7; the fact has lain wholly elsewhere since then.)
 
-Die leicht zu übersehende Hälfte: bei einer Vormerkung darf das `subscribed`
-**nicht** hinausgehen (Fälle 3 und 4). Ginge es doch, bekäme der Kontakt eine
-Zustimmung zu einer Frage, die er nie gestellt hat, und sein Server baute daraus
-eine Subscription, von der sein Nutzer nichts weiss. Umgekehrt darf eine
-vorgemerkte Anfrage dem Nutzer gar nicht erst zugestellt werden — der Server
-antwortet für ihn.
+The half that is easy to overlook: at a pre-approval the `subscribed` may
+**not** go out (cases 3 and 4). Did it go out all the same, the contact would get
+an agreement to a question they never put, and their server would build a
+subscription out of it that their user knows nothing about. The other way round a
+pre-approved request may not be delivered to the user in the first place — the
+server answers for them.
 
-Der eingehende `subscribe` läuft jetzt für lokale und fremde Herkunft durch
-dieselbe Stelle. Die Entscheidung hängt nicht daran, woher die Anfrage kam,
-sondern allein am Roster des Empfängers; sie zweimal zu treffen hiesse, zwei
-Gelegenheiten zu schaffen, sie verschieden zu treffen.
+The incoming `subscribe` now runs for local and foreign origin through the same
+place. The decision does not hang on where the request came from, but solely on
+the roster of the recipient; to take it twice would mean creating two
+opportunities to take it differently.
 
-**Der Client hat eine eigene Hälfte bekommen.** `AcceptSubscriptionAsync` bricht
-ohne offene Anfrage ab und stellt eine Gegenanfrage — beides ist für eine
-Vormerkung falsch. `PreApproveContactAsync` tut weder das eine noch das andere
-und verweigert von sich aus, wenn der Server das Feature nicht angekündigt hat
-(§3.4.1 verlangt genau das).
+**The client has got a half of its own.** `AcceptSubscriptionAsync` breaks off
+without an open request and puts a counter-request — both are wrong for a
+pre-approval. `PreApproveContactAsync` does neither the one nor the other and
+refuses of its own accord when the server has not announced the feature (§3.4.1
+demands exactly that).
 
-**Was offen blieb:** eine Anfrage an ein gerade nicht verbundenes Konto wurde
-weiterhin nicht aufbewahrt (§3.1.3) — erledigt in S7.
+**What stayed open:** a request to an account not connected at the time was
+still not kept (§3.1.3) — done in S7.
 
-### S7. Aufbewahrte Subscription-Anfragen ✅
+### S7. Kept subscription requests ✅
 
-RFC 6121 §3.1.3, Regel 4: wer gerade nicht verbunden ist, soll seine Anfragen
-trotzdem bekommen. Bis hierher gingen sie ersatzlos verloren, und zwar unbemerkt
-auf beiden Seiten — der Antragsteller sah `ask='subscribe'` in seinem Roster und
-wartete auf eine Antwort, der Kontakt hatte nie erfahren, dass er gefragt wurde.
+RFC 6121 §3.1.3, rule 4: whoever is not connected at the time is to get their
+requests all the same. Up to here they were lost without replacement, and
+unnoticed on both sides at that — the applicant saw `ask='subscribe'` in their
+roster and waited for an answer, the contact had never learned that they were
+asked.
 
-**Aufbewahrt wird immer, nicht nur wenn gerade niemand da ist.** Die Regel
-verlangt die Zustellung an *jede* Resource, die der Kontakt danach noch anlegt,
-bis er zustimmt oder ablehnt. Eine Anfrage nur dann aufzuheben, wenn zufällig
-niemand verbunden war, verfehlte genau den häufigen Fall: angemeldet, aber
-gerade nicht hingesehen, dann abgemeldet. Damit fällt auch die Fallunterscheidung
-weg — es gibt keinen Offline-Zweig, sondern einen Weg.
+**Kept is always, not only when nobody is there at the time.** The rule demands
+the delivery to *every* resource the contact still creates afterwards, until they
+agree or refuse. To keep a request only when by chance nobody was connected
+missed exactly the frequent case: signed on, but just not looking, then signed
+off. With that the distinction of cases falls away too — there is no offline
+branch, but one way.
 
-**`RosterEntry.PendingIn` ist wieder weg.** Der Zustand aus S6 war ein Ja/Nein
-für dieselbe Tatsache, die jetzt vollständig in
-`XMPPAccount.PendingSubscriptionRequests` liegt: die aufbewahrte Anfrage *ist*
-die offene Anfrage. Zwei Orte für eine Tatsache laufen über kurz oder lang
-auseinander; §3.4.2 fragt seither dieselbe Stelle, die §3.1.3 füllt. Das
-Fragen und das Erledigen sind dabei ein Schritt (`ForgetSubscriptionRequest`
-liefert, ob etwas vorlag), damit sie nicht getrennt werden können.
+**`RosterEntry.PendingIn` is gone again.** The state from S6 was a yes/no for the
+same fact that now lies wholly in `XMPPAccount.PendingSubscriptionRequests`: the
+kept request *is* the open request. Two places for one fact run apart sooner or
+later; §3.4.2 has asked the same place since then that §3.1.3 fills. The asking
+and the settling are one step in doing so (`ForgetSubscriptionRequest` delivers
+whether something was there), so that they cannot be separated.
 
-**Und der Roster bleibt sauber.** Die Security Warning desselben Abschnitts
-untersagt einen Roster-Eintrag für einen Antragsteller, dem noch nicht
-zugestimmt wurde — bisher entstand einer, mit `subscription='none'`. Wer
-beliebige Fremde in fremde Roster schreiben kann, kann sie vollschreiben.
+**And the roster stays clean.** The security warning of the same section forbids
+a roster entry for an applicant that has not yet been agreed to — until now one
+arose, with `subscription='none'`. Whoever can write arbitrary strangers into
+foreign rosters can fill them up.
 
-**Die Stanza wird gestempelt statt neu gebaut.** `HandleSubscriptionAsync` setzte
-bisher ein frisches `<presence …/>` zusammen und warf damit das `<status/>` weg —
-die Begründung, mit der ein Mensch über die Zustimmung entscheidet. Regel 4
-verlangt aber die *vollständige* Stanza, "including any extended content
-contained therein"; ohne diese Änderung wäre die Berufung darauf falsch gewesen.
+**The stanza is stamped instead of built anew.** `HandleSubscriptionAsync` used
+to put together a fresh `<presence …/>` and thereby threw the `<status/>` away —
+the reason with which a human decides about the agreement. Rule 4 demands
+however the *complete* stanza, "including any extended content contained
+therein"; without this change the appeal to it would have been wrong.
 
-**Zwei Grenzen, beide aus dem Abschnitt selbst.** Je Absender bleibt genau eine
-Anfrage stehen, und zwar die erste — sonst bestimmte, wer zuletzt fragt, was der
-Kontakt zu sehen bekommt, und könnte es beliebig oft austauschen (Anhang A,
-Tabelle 6 sagt dazu: nicht noch einmal zustellen). Dazu
-`MaxStoredSubscriptionRequests` je Konto, Vorgabe 100: die Security Warning rät
-ausdrücklich zu einer Obergrenze, weil aufgehoben wird, was Fremde schicken. Ist
-sie erreicht, wird die neue Anfrage verworfen statt eine aufbewahrte zu
-verdrängen — andersherum liesse sich die echte Anfrage eines Bekannten gezielt
-hinausdrängen.
+**Two limits, both out of the section itself.** Per sender exactly one request
+stays standing, and the first at that — otherwise whoever asks last would
+determine what the contact gets to see, and could exchange it as often as they
+liked (appendix A, table 6 says about it: do not deliver again). To that
+`MaxStoredSubscriptionRequests` per account, default 100: the security warning
+expressly advises an upper bound, because what strangers send is kept. Is it
+reached, then the new request is discarded instead of a kept one being displaced
+— the other way round the real request of an acquaintance could be pushed out on
+purpose.
 
-**Nebenbefund:** `FileAccountStore` schrieb `Approved` seit S6 gar nicht mit —
-eine Vormerkung überlebte keinen Neustart. Jetzt persistieren beide, Vormerkung
-und aufbewahrte Anfrage; "aufbewahrt" hiesse sonst "bis zum nächsten Neustart".
+**Incidental find:** `FileAccountStore` did not write `Approved` along at all
+since S6 — a pre-approval survived no restart. Now both persist, pre-approval and
+kept request; "kept" would mean "until the next restart" otherwise.
 
-14 Mutationen, 11 sofort tot. Die drei Überlebenden waren aufschlussreich:
+14 mutations, 11 dead at once. The three survivors were instructive:
 
-- *Nachreichen bei jeder Presence statt beim Verfügbar**werden***: kein Test sah
-  den Unterschied. Im Betrieb hätte jeder Wechsel auf "abwesend" dieselbe
-  unbeantwortete Anfrage erneut vorgelegt. Festgehalten durch
+- *Handing in later at every presence instead of at the *becoming* available*: no
+  test saw the difference. In operation every change to "away" would have put the
+  same unanswered request up again. Held fast by
   `AStatusChange_DoesNotRepeatTheRequest`.
-- *Eine wiederholte Anfrage verdrängt die aufbewahrte*: unsichtbar, weil der
-  einzige Test dazu den Kontakt abgemeldet hatte — dann sieht Abweisen und
-  Ersetzen gleich aus. Bei verbundenem Kontakt geht jede angenommene Anfrage
-  sofort hinaus, und der Unterschied wird sichtbar.
-  `AFurtherRequest_IsNotDeliveredAgain` prüft jetzt beides, Zahl und Inhalt.
-- *`AutoApproveAsync` vergisst die Anfrage nicht*: überlebt, und das zu Recht —
-  der einzige Aufrufer entscheidet sich für die selbsttätige Zustimmung, bevor
-  er aufbewahrt, und beide Wege zu `from` räumen die Anfrage ohnehin ab. Die
-  Zeile ist eine Aussage über die Reihenfolge in `DeliverSubscribeAsync`, nicht
-  über diese Methode; sie steht mit genau diesem Vermerk im Code.
+- *A repeated request displaces the kept one*: invisible, because the only test
+  for it had signed the contact off — then refusing and replacing look the same.
+  With a connected contact every accepted request goes out at once, and the
+  difference becomes visible.
+  `AFurtherRequest_IsNotDeliveredAgain` now checks both, number and content.
+- *`AutoApproveAsync` does not forget the request*: survived, and rightly so —
+  the only caller decides for the automatic agreement before it keeps anything,
+  and both ways to `from` clear the request away anyway. The line is a statement
+  about the order in `DeliverSubscribeAsync`, not about this method; it stands
+  with exactly this note in the code.
 
-**Was offen bleibt:** die Obergrenze wirft still weg — weder der Antragsteller
-noch der Kontakt erfährt davon. Das ist die vom Abschnitt empfohlene Antwort auf
-die Erschöpfungsgefahr, aber es bleibt ein Verlust ohne Quittung.
+**What stays open:** the upper bound throws away silently — neither the applicant
+nor the contact learns of it. That is the answer the section recommends to the
+danger of exhaustion, but it stays a loss without a receipt.
 
-### S8. Lauf gegen Prosody ⚠️ — ein Fund, der die Föderation betrifft
+### S8. Run against Prosody ⚠️ — a find that concerns the federation
 
-Seit S4b stand hier: *jedes einzelne Verfahren ist gegen die eigene Gegenstelle
-geprüft, keines gegen eine fremde.* Der Lauf ist nachgeholt, gegen Prosody 13.0.1.
+Since S4b there stood here: *every single procedure is checked against our own
+far side, none against a foreign one.* The run is made up for, against Prosody
+13.0.1.
 
-**Der Aufbau steht in `tools/prosody/setup.sh` und braucht kein root.** Das Paket
-lässt sich mit `apt-get download` holen und mit `dpkg-deb -x` in ein Präfix
-auspacken; Prosody bringt fertige Binärmodule mit, es wird nichts übersetzt. Vier
-fest eingebaute Pfade im Debian-Launcher werden umgebogen, dazu `LUA_PATH`,
-`LUA_CPATH` und `LD_LIBRARY_PATH`. Zwei Fallen unterwegs, beide ohne brauchbare
-Fehlermeldung: `libicu76` steht nicht in den Abhängigkeiten, wird aber von
-`util.encodings.so` gebraucht; und Prosodys `certmanager` verwirft PEM-Dateien
-mit CRLF wortlos als *"non-certificate (based on contents)"*.
+**The setup stands in `tools/prosody/setup.sh` and needs no root.** The package
+can be fetched with `apt-get download` and unpacked into a prefix with
+`dpkg-deb -x`; Prosody brings finished binary modules along, nothing is compiled.
+Four paths built fast into the Debian launcher are bent round, to that `LUA_PATH`,
+`LUA_CPATH` and `LD_LIBRARY_PATH`. Two traps along the way, both without a usable
+error message: `libicu76` does not stand in the dependencies but is needed by
+`util.encodings.so`; and Prosody's `certmanager` discards PEM files with CRLF
+wordlessly as *"non-certificate (based on contents)"*.
 
-**Was auf Anhieb trug.** STARTTLS nach RFC 6120 §5.4, TLS 1.3, unser
-CA-signiertes Zertifikat als Klientzertifikat, `EXTERNAL` von Prosody angeboten
-und angenommen — im Log: *"Accepting SASL EXTERNAL identity from jabber.test"*,
-*"Incoming s2s connection jabber.test->prosody.test complete"*. Unsere Stanza kam
-an und wurde verarbeitet. Der ganze Weg hinaus stimmt.
+**What carried straight away.** STARTTLS under RFC 6120 §5.4, TLS 1.3, our
+CA-signed certificate as a client certificate, `EXTERNAL` offered by Prosody and
+accepted — in the log: *"Accepting SASL EXTERNAL identity from jabber.test"*,
+*"Incoming s2s connection jabber.test->prosody.test complete"*. Our stanza
+arrived and was processed. The whole way out is right.
 
-**Dafür musste der Server erst ein Zertifikat von aussen annehmen können.** Er
-baute sich immer ein selbst signiertes. Das kann keine fremde Gegenstelle prüfen:
-sie müsste genau dieses eine kennen, und es entsteht bei jedem Start neu.
-`XMPPServer` nimmt jetzt eines entgegen — nicht für den Test, sondern weil jeder
-Betrieb ausserhalb dieser Testsammlung es braucht.
+**For that the server first had to be able to accept a certificate from
+outside.** It always built itself a self-signed one. No foreign far side can
+check that: it would have to know exactly this one, and it arises anew at every
+start. `XMPPServer` now takes one in — not for the test, but because every
+operation outside this test suite needs it.
 
-**Und dann der Fund.** Prosody beantwortet den Ping — die Antwort steht im Log —
-und schickt sie **nicht** über den Stream zurück, über den die Frage kam. Es baut
-dafür eine *eigene* Verbindung zu `jabber.test` auf, scheitert daran und verwirft
-die Antwort:
+**And then the find.** Prosody answers the ping — the answer stands in the log —
+and does **not** send it back over the stream the question came over. It builds
+a connection of *its own* to `jabber.test` for that, fails at it and discards the
+answer:
 
 ```
 Received[s2sin]: <iq from='alice@jabber.test/...' to='prosody.test' type='get'>
@@ -602,86 +599,83 @@ s2sout   debug  s2s connection attempt failed: unable to resolve service
 s2sout   debug  Not eligible for bouncing, discarding <iq ... type='result' ...>
 ```
 
-Genau so ist RFC 6120 §4.1 gemeint: ein XML-Stream ist **einseitig**, und eine
-S2S-Verbindung trägt nur eine Richtung.
+Exactly so is RFC 6120 §4.1 meant: an XML stream is **one-sided**, and an S2S
+connection carries only one direction.
 
-> **Korrektur (S9).** Hier stand zuerst, unsere Föderation antworte über denselben
-> Stream und mache es damit falsch. Das ist nachweislich nicht so.
-> `TcpServerLinks.DeliverAsync` und `WebSocketServerLinks.DeliverAsync` gehen
-> ausnahmslos über `GetOrCreateOutboundAsync`, und `S2SStream.ProcessStanzaAsync`
-> weist eine Stanza auf einem ausgehenden Stream ausdrücklich ab — mit genau
-> diesem Abschnitt als Begründung im Kommentar. Unsere Seite verhält sich also
-> wie Prosody.
+> **Correction (S9).** Here there stood at first that our federation answers over
+> the same stream and thereby does it wrong. That is demonstrably not so.
+> `TcpServerLinks.DeliverAsync` and `WebSocketServerLinks.DeliverAsync` go
+> without exception over `GetOrCreateOutboundAsync`, and
+> `S2SStream.ProcessStanzaAsync` expressly refuses a stanza on an outgoing stream
+> — with exactly this section as the reason in the comment. Our side therefore
+> behaves like Prosody.
 >
-> Was der Lauf wirklich zeigte: Prosody kam an `jabber.test` nicht heran. In WSL
-> gibt es kein DNS für `.test`, und die Hyper-V-Firewall verwirft den Weg von WSL
-> zum Windows-Host ohnehin. Beide Seiten haben sich richtig verhalten, die
-> Umgebung liess die Rückrichtung nicht zu.
+> What the run really showed: Prosody could not get at `jabber.test`. In WSL
+> there is no DNS for `.test`, and the Hyper-V firewall discards the way from WSL
+> to the Windows host anyway. Both sides behaved correctly, the environment did
+> not allow the way back.
 >
-> Der Lauf hat damit den **ausgehenden** Weg gegen eine fremde Gegenstelle
-> belegt und den **eingehenden** offen gelassen — nicht wegen eines Fehlers,
-> sondern weil die Gegenstelle keinen Weg zurück hatte. Der Fehler sass in
-> meiner Lesart des Logs, nicht im Code.
+> The run has thereby shown the **outgoing** way against a foreign far side and
+> left the **incoming** one open — not because of an error, but because the far
+> side had no way back. The error sat in my reading of the log, not in the code.
 
-**Was daraus wirklich folgt — zwei Wege, beide eigene Arbeitsschritte:**
+**What really follows from it — two ways, both work steps of their own:**
 
-- **XEP-0288 (Bidirectional Server-to-Server Streams).** Beide Richtungen über
-  eine Verbindung, ausgehandelt über `urn:xmpp:features:bidi`. Prosody kündigt es
-  an, sobald `mod_s2s_bidi` läuft — der Aufbau schaltet es ein, und die
-  Ankündigung ist geprüft. Kein Fehlerbehebung, sondern die Erweiterung, die den
-  Rückweg überflüssig macht: genau das, was hier fehlt. Erledigt in S9.
-- **Eingehende Verbindungen gegen eine fremde Gegenstelle prüfen**, also Prosody
-  uns anwählen lassen. Der Weg ohne Erweiterung. Der Code dafür steht, geprüft
-  ist er nur gegen die eigene Gegenstelle.
+- **XEP-0288 (Bidirectional Server-to-Server Streams).** Both directions over one
+  connection, negotiated over `urn:xmpp:features:bidi`. Prosody announces it as
+  soon as `mod_s2s_bidi` runs — the setup switches it on, and the announcement is
+  checked. No fixing of an error, but the extension that makes the way back
+  needless: exactly what is missing here. Done in S9.
+- **Check incoming connections against a foreign far side**, that is, let Prosody
+  dial us. The way without the extension. The code for it stands, checked it is
+  only against our own far side.
 
-**Was den zweiten Weg hier zusätzlich blockiert:** WSL2 läuft im NAT-Modus, und
-die Hyper-V-Firewall verwirft Verbindungen von WSL zum Windows-Host. Windows →
-WSL geht, die Gegenrichtung nicht. Das trifft auch Dialback, dessen Rückfrage
-genau diese Richtung braucht — deshalb läuft der Aufbau über SASL-EXTERNAL mit
-einer gemeinsamen Test-CA und nicht über XEP-0220. Zu ändern wäre das über
-`networkingMode=mirrored` in `.wslconfig` oder eine Firewall-Regel; beides ist
-eine Entscheidung über die Maschine, nicht über dieses Projekt.
+**What additionally blocks the second way here:** WSL2 runs in NAT mode, and the
+Hyper-V firewall discards connections from WSL to the Windows host. Windows → WSL
+goes, the counter-direction does not. That hits dialback as well, whose query
+back needs exactly this direction — this is why the setup runs over SASL EXTERNAL
+with a shared test CA and not over XEP-0220. To change that would go over
+`networkingMode=mirrored` in `.wslconfig` or a firewall rule; both are a decision
+about the machine, not about this project.
 
-**Testsammlung.** `ProsodyFederationTests` überspringt sich ohne Aufbau, sodass
-der gewöhnliche Lauf unberührt bleibt. `TheStreamToProsodyCarriesAStanza` besteht
-gegen die echte Gegenstelle. `APingReachesProsodyAndComesBack` ist stillgelegt
-statt gelöscht — er hält fest, dass ohne XEP-0288 keine Antwort kommt, solange
-die Gegenstelle uns nicht erreichen kann.
+**Test suite.** `ProsodyFederationTests` skips itself without a setup, so that the
+ordinary run stays untouched. `TheStreamToProsodyCarriesAStanza` passes against
+the real far side. `APingReachesProsodyAndComesBack` is shut down instead of
+deleted — it holds fast that without XEP-0288 no answer comes as long as the far
+side cannot reach us.
 
-### S9. XEP-0288 — beide Richtungen über eine Verbindung ✅
+### S9. XEP-0288 — both directions over one connection ✅
 
-Die Erweiterung, die den Rückweg überflüssig macht. Der Initiator schickt nach
-TLS ein `<bidi xmlns='urn:xmpp:bidi'/>`, sobald die Gegenstelle
-`urn:xmpp:features:bidi` ankündigt; danach trägt dieselbe Verbindung beide
-Richtungen.
+The extension that makes the way back needless. The initiator sends after TLS a
+`<bidi xmlns='urn:xmpp:bidi'/>` as soon as the far side announces
+`urn:xmpp:features:bidi`; after that the same connection carries both
+directions.
 
-**Beide Rollen, nicht nur die eine.** Angeboten auf eingehenden Verbindungen,
-erbeten auf ausgehenden — `UseBidirectionalStreams` schaltet beides zugleich.
-Nur die halbe Erweiterung hälfe nur der halben Föderation.
+**Both roles, not only the one.** Offered on incoming connections, asked for on
+outgoing ones — `UseBidirectionalStreams` switches both at once.
+Only half the extension would help only half the federation.
 
-**Die zwei Sicherungen aus Abschnitt 4, und beide sind keine Formalitäten:**
+**The two safeguards from section 4, and both are no formalities:**
 
-- *"MUST NOT send stanzas to the peer before it has authenticated"* — wer nicht
-  belegt hat, wer er ist, bekommt nichts. Ohne diese Zeile liesse sich mit einer
-  blossen Behauptung im Stream-Kopf fremde Post abholen: Verbindung aufbauen,
-  sich `example.com` nennen, um die Rückrichtung bitten, warten.
+- *"MUST NOT send stanzas to the peer before it has authenticated"* — whoever has
+  not shown who they are gets nothing. Without this line foreign post could be
+  fetched with a mere claim in the stream header: build a connection, call
+  yourself `example.com`, ask for the counter-direction, wait.
 - *"MUST only send stanzas for which it has been authenticated … the value of
-  the stream's 'to' attribute"* — über die Rückrichtung geht nur die eigene
-  Domain hinaus. Dieselbe Prüfung, die wir der Gegenstelle auferlegen, gilt hier
-  für uns.
+  the stream's 'to' attribute"* — over the counter-direction only our own domain
+  goes out. The same check we impose on the far side holds here for us.
 
-Dazu ein unangekündigtes `<bidi/>` abzuweisen: sonst liesse sich eine
-Rückrichtung erzwingen, die dieser Server nie angeboten hat.
+To that, to refuse an unannounced `<bidi/>`: otherwise a counter-direction could
+be forced that this server never offered.
 
-**Die Reihenfolge hat etwas aufgedeckt.** Das `<bidi/>` muss vor SASL *und* vor
-Dialback hinaus. Unser Initiator schickte den unaufgeforderten `<db:result/>`
-aus XEP-0220 aber schon beim Stream-Kopf — also bevor die Features überhaupt da
-waren, aus denen sich das Bidi-Angebot ablesen lässt. Er wartet jetzt in beiden
-Fällen auf die Features. `BidiAlsoGoesOutBeforeDialback` hat das beim ersten
-Lauf gefunden.
+**The order uncovered something.** The `<bidi/>` has to go out before SASL *and*
+before dialback. Our initiator however sent the unasked `<db:result/>` from
+XEP-0220 already at the stream header — that is, before the features were there
+at all out of which the bidi offer can be read. It now waits for the features in
+both cases. `BidiAlsoGoesOutBeforeDialback` found that at the first run.
 
-**Geprüft gegen Prosody.** `APingOverABidirectionalStream` besteht gegen die
-echte Gegenstelle, und ihr Log zeigt genau das Erwartete:
+**Checked against Prosody.** `APingOverABidirectionalStream` passes against the
+real far side, and its log shows exactly the expected:
 
 ```
 Received[s2sin_unauthed]: <bidi xmlns='urn:xmpp:bidi'>
@@ -690,73 +684,71 @@ Received[s2sin]:  <iq ... type='get' id='ping-1'>
 Sending[s2sin]:   <iq from='prosody.test' ... type='result'>
 ```
 
-`Sending[s2sin]` statt `opening a new outgoing connection` — die Antwort nimmt
-die bestehende Verbindung. Damit ist auch der **eingehende** Weg unserer
-Protokollschicht erstmals gegen eine fremde Gegenstelle belegt, wenn auch über
-die Rückrichtung und nicht über eine echte eingehende Verbindung.
+`Sending[s2sin]` instead of `opening a new outgoing connection` — the answer
+takes the existing connection. With that the **incoming** way of our protocol
+layer is shown against a foreign far side for the first time as well, if over the
+counter-direction and not over a real incoming connection.
 
-**Der Aufbau der Tests ist absichtlich einseitig.** `links` kennt `rechts`,
-`rechts` kennt `links` nicht. Der übliche `TcpServerLinks.Connect` taugt dafür
-nicht — er trägt beide Seiten ein, und dann käme die Antwort über eine eigene
-Verbindung an, ohne dass Bidi je beteiligt gewesen wäre. Deshalb prüft der Test
-`BidirectionalDeliveryCount` und nicht nur die Ankunft, und deshalb gibt es
-`WithoutBidi_TheAnswerIsLost` als Gegenprobe.
+**The setup of the tests is deliberately one-sided.** `left` knows `right`,
+`right` does not know `left`. The usual `TcpServerLinks.Connect` is no use for
+that — it enters both sides, and then the answer would arrive over a connection
+of its own without bidi ever having been involved. This is why the test checks
+`BidirectionalDeliveryCount` and not only the arrival, and this is why there is
+`WithoutBidi_TheAnswerIsLost` as a counter-check.
 
-Nebenbei: in diesem Aufbau taugt Dialback nicht als Nachweis, denn seine
-Rückfrage ginge ausgerechnet in die Richtung, die es nicht gibt. SASL-EXTERNAL
-kommt ohne Rückweg aus — dieselbe Überlegung wie beim Prosody-Aufbau.
+Incidentally: in this setup dialback is no use as proof, for its query back would
+go in of all directions the one that does not exist. SASL EXTERNAL gets by
+without a way back — the same consideration as at the Prosody setup.
 
-11 Mutationen, 9 sofort tot. Die beiden Überlebenden:
+11 mutations, 9 dead at once. The two survivors:
 
-- *Auswahl ohne Domainabgleich*: unsichtbar, weil an jedem Test nur eine
-  Gegenstelle hing. Im Betrieb wäre es ein Leck zwischen zwei fremden Servern —
-  die Stanza ginge an die falsche Gegenstelle, die sie zwar verwirft, aber
-  vorher gelesen hat, und der eigentliche Empfänger bekäme nichts, ohne dass
-  irgendwo ein Fehler aufliefe. Festgehalten durch
-  `TheReturnPath_GoesToTheRightDomain` mit drei Servern.
-- *Schalter im Transport*: überlebt zu Recht. `BidiEnabled` wird nur gesetzt,
-  wenn der Stream mit `offerBidi` angelegt wurde, und das kommt aus demselben
-  Schalter — die Zeile ist eine Abkürzung, keine Sicherung. Sie steht mit
-  diesem Vermerk im Code.
+- *Selection without a domain comparison*: invisible, because only one far side
+  hung on every test. In operation it would be a leak between two foreign
+  servers — the stanza would go to the wrong far side, which does discard it, but
+  has read it beforehand, and the actual recipient would get nothing without an
+  error running up anywhere. Held fast by `TheReturnPath_GoesToTheRightDomain`
+  with three servers.
+- *Switch in the transport*: survived rightly. `BidiEnabled` is set only when the
+  stream was created with `offerBidi`, and that comes from the same switch — the
+  line is a shortcut, no safeguard. It stands with this note in the code.
 
-**Was offen blieb:** WebSocket-S2S handelte Bidi nicht aus — nachgeholt in S9b.
+**What stayed open:** WebSocket S2S did not negotiate bidi — made up for in S9b.
 
-### S9b. XEP-0288 auch über WebSocket ✅
+### S9b. XEP-0288 over WebSocket as well ✅
 
-Dieselbe Erweiterung auf dem zweiten Transport. Im Betrieb fällt sie dort
-weniger ins Gewicht, weil an beiden Enden Instanzen dieses Servers hängen, die
-einander eingetragen haben. Sie trotzdem zu haben ist die Antwort darauf, dass
-zwei Transporte unter derselben Protokollschicht sich nicht verschieden
-verhalten sollten: was für den einen gilt, soll man beim anderen nicht erst
-nachschlagen müssen.
+The same extension on the second transport. In operation it weighs less there,
+because at both ends hang instances of this server that have entered each other.
+To have it all the same is the answer to the point that two transports under the
+same protocol layer should not behave differently: what holds for the one should
+not first have to be looked up at the other.
 
-**Die Auswahlregel liegt jetzt an einer Stelle.**
-`S2SStream.TryDeliverOverBidiAsync` — der Abgleich der Domain ist genau die
-Regel, an der beim Mutationslauf in S9 eine Mutation vorbeikam, und zwei
-Fassungen davon wären zwei Gelegenheiten für denselben Fehler gewesen. Seither
-töten Tests **beider** Transporte dieselbe Mutation.
+**The rule of selection now lies at one place.**
+`S2SStream.TryDeliverOverBidiAsync` — the comparison of the domain is exactly the
+rule at which a mutation got past at the mutation run in S9, and two versions of
+it would have been two opportunities for the same error. Since then tests of
+**both** transports kill the same mutation.
 
-**Der Aufbau kann die scharfe Probe aus S9 nicht wiederholen, und das ist
-eingestanden.** Über TCP kennt die Gegenstelle uns nicht, und ohne Rückrichtung
-geht die Antwort verloren — daran hängt dort die Beweiskraft. Über WebSocket
-geht das nicht: dieser Weg weist sich ausschliesslich über Dialback aus
-(SASL-EXTERNAL gibt es hier nicht), und dessen Rückfrage braucht genau die
-Richtung, die es dann nicht gäbe. Beide Seiten sind hier also eingetragen, die
-Antwort käme auch ohne Bidi an, und deshalb prüfen diese Tests
-`BidirectionalDeliveryCount` statt der Ankunft. Der Fixture-Kommentar sagt das,
-damit der Unterschied nicht wie Nachlässigkeit aussieht.
+**The setup cannot repeat the sharp probe from S9, and that is admitted.** Over
+TCP the far side does not know us, and without a counter-direction the answer is
+lost — the force of proof hangs on that there. Over WebSocket that does not go:
+this way identifies itself exclusively over dialback (SASL EXTERNAL does not
+exist here), and its query back needs exactly the direction that would then not
+exist. Both sides are therefore entered here, the answer would arrive without
+bidi as well, and this is why these tests check `BidirectionalDeliveryCount`
+instead of the arrival. The fixture comment says that, so that the difference
+does not look like carelessness.
 
-**Ein Test von mir war schlicht falsch.** Ich hatte angenommen, der anwählende
-Server benutze keine Rückrichtung — er hat ja keine eingehende Verbindung. Der
-Zähler stand aber auf 3. Sobald auch nur eine Stanza zurückläuft, schon eine
-Empfangsbestätigung nach XEP-0184, wählt die Gegenstelle ihrerseits an, und
-dann hat auch die erste Seite eine eingehende Verbindung, die sie fortan
-bevorzugt. Zwei sich gegenseitig kennende Server fallen unter Bidi also auf die
-Verbindungen zusammen, die sie ohnehin haben. Das ist der Zweck der Erweiterung
-— aber nichts, worauf sich eine zeitunabhängige Zusicherung stützen liesse. Der
-Test ist ersetzt, die Beobachtung steht als Kommentar am verbliebenen.
+**One test of mine was plainly wrong.** I had assumed the dialling server uses no
+counter-direction — it has no incoming connection after all. The counter stood at
+3 however. As soon as even one stanza runs back, even a receipt under XEP-0184,
+the far side dials for its part, and then the first side has an incoming
+connection too, which it prefers from then on. Two servers that know each other
+therefore fall together under bidi onto the connections they have anyway. That is
+the purpose of the extension — but nothing on which an assurance independent of
+time could be based. The test is replaced, the observation stands as a comment at
+the remaining one.
 
-5 Mutationen, alle tot.
+5 mutations, all dead.
 
 ### P4. Prosody wählt uns an ✅
 
