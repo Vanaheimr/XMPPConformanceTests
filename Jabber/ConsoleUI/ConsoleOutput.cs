@@ -25,31 +25,31 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
 {
 
     /// <summary>
-    /// Die eine Stelle, über die alles auf die Konsole geht: eingehende
-    /// Nachrichten, Systemmeldungen und die Protokollausgabe.
+    /// The one place everything goes to the console through: incoming
+    /// messages, system notices and the log output.
     /// </summary>
     /// <remarks>
-    /// Eine Konsole, die zugleich eine Eingabezeile führt, hat ein Problem, das
-    /// eine reine Ausgabe nicht hat: <b>Der Anwender tippt gerade.</b> Wer
-    /// dazwischen schreibt, zerlegt seine halb fertige Zeile und lässt ihn ohne
-    /// Eingabeaufforderung zurück.
+    /// A console that keeps an input line at the same time has a problem a
+    /// pure output does not: <b>the user is typing right now.</b> Whoever
+    /// writes in between takes their half-finished line apart and leaves them
+    /// without a prompt.
     ///
-    /// Die Ereignisbehandlung hat das von Anfang an beachtet und jede Ausgabe
-    /// von Hand in „Zeile löschen … Eingabeaufforderung neu schreiben"
-    /// geklammert - elfmal dieselben zwei Zeilen. <b>Der Logger hat es nicht
-    /// beachtet</b>, denn der wusste von alldem nichts: Ein
-    /// <c>AddSimpleConsole</c> schreibt, wann es ihm passt.
+    /// The event handling has taken that into account from the start and
+    /// bracketed every output by hand in "erase the line ... write the prompt
+    /// again" - eleven times the same two lines. <b>The logger did not take it
+    /// into account</b>, for it knew nothing of all this: an
+    /// <c>AddSimpleConsole</c> writes whenever it suits it.
     ///
-    /// Hier laufen beide zusammen, und zwar unter <b>einer Sperre</b>. Die ist
-    /// der zweite, weniger sichtbare Teil: Die Ereignisse kommen aus dem
-    /// Empfangsfaden, das Protokoll aus jedem beliebigen, und zwei
-    /// gleichzeitige Ausgaben verschränken sich sonst mitten im Wort - samt der
-    /// Farbe, die die eine gesetzt und die andere zurückgestellt hat.
+    /// Here both run together, and under <b>one lock</b>. That is the second,
+    /// less visible part: the events come from the receiving thread, the log
+    /// from any thread at all, and two simultaneous outputs otherwise
+    /// interleave in the middle of a word - together with the colour the one
+    /// set and the other put back.
     ///
-    /// <b>Warum kein <c>TextWriter</c> als Abstraktion?</b> Weil das Löschen
-    /// der Zeile und das Setzen der Farbe keine Schreibvorgänge sind, sondern
-    /// Steuerung. Ein Schreiber, der beides nicht kennt, könnte die Aufgabe
-    /// nicht erfüllen; einer, der es kennt, wäre wieder diese Klasse.
+    /// <b>Why no <c>TextWriter</c> as the abstraction?</b> Because erasing the
+    /// line and setting the colour are no writing operations but control. A
+    /// writer that knows neither could not do the job; one that knows them
+    /// would be this class again.
     /// </remarks>
     public sealed class ConsoleOutput
     {
@@ -66,18 +66,18 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
         #region Constructor(s)
 
         /// <summary>
-        /// Erzeugt die Ausgabe.
+        /// Creates the output.
         /// </summary>
         /// <param name="prompt">
-        /// Liefert die Eingabeaufforderung, wie sie nach einer Ausgabe wieder
-        /// dastehen soll. Eine Funktion und keine Zeichenkette: Sie ändert sich
-        /// mit dem Gesprächspartner.
+        /// Delivers the prompt as it is to stand again after an output. A
+        /// function and not a string: it changes with the conversation
+        /// partner.
         /// </param>
-        /// <param name="writer">Wohin geschrieben wird; ohne Angabe die Konsole.</param>
+        /// <param name="writer">Where it is written to; without a value the console.</param>
         /// <param name="width">
-        /// Wie breit die Zeile zu löschen ist. Ohne Angabe die Konsolenbreite -
-        /// und wenn es keine gibt (umgeleitete Ausgabe), null: Dann ist auch
-        /// nichts zu löschen, weil dort niemand tippt.
+        /// How wide the line is to be erased. Without a value the console
+        /// width - and if there is none (redirected output), zero: then there
+        /// is nothing to erase either, because nobody is typing there.
         /// </param>
         public ConsoleOutput(Func<String>   prompt,
                              TextWriter?    writer  = null,
@@ -86,56 +86,55 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
 
             _prompt  = prompt;
             _writer  = writer ?? Console.Out;
-            _width   = width  ?? Breite;
+            _width   = width  ?? ConsoleWidth;
 
         }
 
         #endregion
 
 
-        #region Write(ausgabe)
+        #region Write(output)
 
         /// <summary>
-        /// Schreibt etwas, das <b>ungefragt</b> kommt: Die angefangene
-        /// Eingabezeile weicht, die Ausgabe erscheint, die Eingabeaufforderung
-        /// steht wieder da.
+        /// Writes something that comes <b>unasked</b>: the line begun gives
+        /// way, the output appears, the prompt stands there again.
         /// </summary>
-        /// <param name="ausgabe">
-        /// Was zu schreiben ist. Als Rückruf und nicht als Zeichenkette, damit
-        /// mehrzeilige und eingefärbte Ausgaben als <b>ein</b> Vorgang unter
-        /// der Sperre laufen. Eine Ausgabe, die zwischendurch die Farbe
-        /// wechselt, wäre sonst genau dort zu unterbrechen.
+        /// <param name="output">
+        /// What is to be written. As a callback and not as a string, so that
+        /// multi-line and coloured outputs run as <b>one</b> operation under
+        /// the lock. An output that changes the colour halfway would otherwise
+        /// be interruptible at exactly that point.
         /// </param>
-        public void Write(Action<TextWriter> ausgabe)
+        public void Write(Action<TextWriter> output)
         {
 
-            using var bereich = Begin();
+            using var scope = Begin();
 
-            ausgabe(_writer);
+            output(_writer);
 
         }
 
-        /// <summary>Kurzform für eine einzelne Zeile ohne Farbe.</summary>
-        public void WriteLine(String zeile)
-            => Write(w => w.WriteLine(zeile));
+        /// <summary>Short form for a single line without colour.</summary>
+        public void WriteLine(String line)
+            => Write(w => w.WriteLine(line));
 
         #endregion
 
         #region Begin()
 
         /// <summary>
-        /// Eröffnet einen Ausgabebereich: Die Eingabezeile weicht, und beim
-        /// Verlassen steht die Eingabeaufforderung wieder da.
+        /// Opens an output scope: the input line gives way, and on leaving,
+        /// the prompt stands there again.
         /// </summary>
         /// <remarks>
-        /// Für Ausgaben, die sich nicht in einen Rückruf fassen lassen, ohne
-        /// unleserlich zu werden - etwa eine, die mitten in einer
-        /// <c>switch</c>-Weiche die Farbe wechselt. Der Bereich hält die Sperre
-        /// bis zum Verlassen; solange gehört die Konsole dem Aufrufer allein.
+        /// For outputs that cannot be put into a callback without becoming
+        /// unreadable - one that changes the colour in the middle of a
+        /// <c>switch</c>, say. The scope holds the lock until it is left; for
+        /// that long the console belongs to the caller alone.
         ///
-        /// <b>Nicht verschachteln:</b> Die Sperre ist wiedereintrittsfähig, der
-        /// innere Bereich schriebe beim Verlassen aber schon die
-        /// Eingabeaufforderung, und der äussere danach seine Ausgabe dahinter.
+        /// <b>Do not nest:</b> the lock is reentrant, but the inner scope
+        /// would already write the prompt on leaving, and the outer one would
+        /// put its output behind it.
         /// </remarks>
         public IDisposable Begin()
         {
@@ -144,7 +143,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
 
             try
             {
-                ZeileLoeschen();
+                EraseLine();
             }
             catch
             {
@@ -152,18 +151,18 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
                 throw;
             }
 
-            return new Bereich(this);
+            return new Scope(this);
 
         }
 
-        /// <summary>Das Ende eines Ausgabebereichs.</summary>
-        private sealed class Bereich : IDisposable
+        /// <summary>The end of an output scope.</summary>
+        private sealed class Scope : IDisposable
         {
 
             private readonly ConsoleOutput _output;
-            private Boolean _beendet;
+            private Boolean _ended;
 
-            internal Bereich(ConsoleOutput output)
+            internal Scope(ConsoleOutput output)
             {
                 _output = output;
             }
@@ -171,10 +170,10 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
             public void Dispose()
             {
 
-                if (_beendet)
+                if (_ended)
                     return;
 
-                _beendet = true;
+                _ended = true;
 
                 try
                 {
@@ -195,8 +194,8 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
         #region WritePrompt()
 
         /// <summary>
-        /// Schreibt die Eingabeaufforderung - für den Aufrufer, der gerade eine
-        /// Eingabe erwartet.
+        /// Writes the prompt - for the caller who is expecting an input right
+        /// now.
         /// </summary>
         public void WritePrompt()
         {
@@ -209,33 +208,32 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
 
         #endregion
 
-        #region (private) Hilfsfunktionen
+        #region (private) Helpers
 
-        private void ZeileLoeschen()
+        private void EraseLine()
         {
 
-            var breite = _width();
+            var width = _width();
 
-            if (breite <= 0)
+            if (width <= 0)
                 return;
 
             _writer.Write('\r');
-            _writer.Write(new String(' ', breite - 1));
+            _writer.Write(new String(' ', width - 1));
             _writer.Write('\r');
 
         }
 
         /// <summary>
-        /// Die Konsolenbreite, oder 0, wenn es keine gibt.
+        /// The console width, or 0 if there is none.
         /// </summary>
         /// <remarks>
-        /// <c>Console.WindowWidth</c> wirft, sobald die Ausgabe umgeleitet ist
-        /// - und genau dann gibt es auch keine Eingabezeile, die zu retten
-        /// wäre. Die alte Fassung fing den Wurf und schrieb ersatzweise eine
-        /// Leerzeile; das half niemandem und trennte jede Ausgabe von der
-        /// nächsten.
+        /// <c>Console.WindowWidth</c> throws as soon as the output is
+        /// redirected - and precisely then there is no input line to be saved
+        /// either. The old version caught the throw and wrote a blank line
+        /// instead; that helped nobody and tore every output from the next.
         /// </remarks>
-        private static Int32 Breite()
+        private static Int32 ConsoleWidth()
         {
             try
             {

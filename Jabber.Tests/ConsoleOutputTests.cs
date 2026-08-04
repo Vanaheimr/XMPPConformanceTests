@@ -31,19 +31,19 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 {
 
     /// <summary>
-    /// Die gemeinsame Konsolenausgabe: Sie hält die Eingabezeile heil - für
-    /// Ereignisse <b>und</b> für das Protokoll.
+    /// The shared console output: it keeps the input line whole - for events
+    /// <b>and</b> for the log.
     /// </summary>
     /// <remarks>
-    /// Bis D58 gab es hier nichts zu prüfen, weil es die Stelle nicht gab: Die
-    /// Ereignisbehandlung klammerte jede Ausgabe von Hand, und der Logger
-    /// schrieb daran vorbei. Beides liess sich nur mit den Augen beurteilen,
-    /// und beurteilt wurde es entsprechend selten.
+    /// Until D58 there was nothing to check here, because the place did not
+    /// exist: the event handling bracketed every output by hand, and the
+    /// logger wrote past it. Both could only be judged by eye, and were judged
+    /// accordingly rarely.
     ///
-    /// Geprüft wird gegen einen <see cref="StringWriter"/> - dieselbe Klasse,
-    /// nur ohne Konsole dahinter. Die Breite wird dabei vorgegeben: Auf einem
-    /// Testläufer ohne Fenster gibt es keine, und der Test soll die Zeile
-    /// löschen, nicht die Umgebung ausmessen.
+    /// The checking goes against a <see cref="StringWriter"/> - the same
+    /// class, only without a console behind it. The width is given in doing
+    /// so: on a test runner without a window there is none, and the test is
+    /// meant to erase the line, not to measure the environment.
     /// </remarks>
     [TestFixture]
     public class ConsoleOutputTests
@@ -51,8 +51,8 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region Data
 
-        private StringWriter  _geschrieben  = null!;
-        private ConsoleOutput _ausgabe      = null!;
+        private StringWriter  _written  = null!;
+        private ConsoleOutput _output   = null!;
 
         private const String Prompt = "> ";
 
@@ -61,10 +61,10 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region SetUp
 
         [SetUp]
-        public void Aufbau()
+        public void Prepare()
         {
-            _geschrieben  = new StringWriter();
-            _ausgabe      = new ConsoleOutput(() => Prompt, _geschrieben, () => 20);
+            _written  = new StringWriter();
+            _output   = new ConsoleOutput(() => Prompt, _written, () => 20);
         }
 
         #endregion
@@ -73,34 +73,32 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region AnUnpromptedLine_RestoresThePrompt()
 
         /// <summary>
-        /// Eine ungefragte Ausgabe löscht die angefangene Zeile und stellt die
-        /// Eingabeaufforderung wieder her.
+        /// An unasked output erases the line begun and restores the prompt.
         /// </summary>
         /// <remarks>
-        /// Das ist der ganze Zweck: Der Anwender tippt, es kommt eine
-        /// Nachricht, und danach steht seine Eingabeaufforderung wieder da.
-        /// Ohne das Löschen stünde die Nachricht hinter dem halben Wort; ohne
-        /// das Nachziehen wäre die Eingabeaufforderung fort, und er tippte ins
-        /// Nichts.
+        /// That is the whole purpose: the user is typing, a message comes in,
+        /// and afterwards their prompt stands there again. Without the erasing
+        /// the message would stand behind the half word; without the drawing
+        /// back the prompt would be gone, and they would type into nothing.
         /// </remarks>
         [Test]
         public void AnUnprompted_LineRestoresThePrompt()
         {
 
-            _ausgabe.WriteLine("Nachricht von Bob");
+            _output.WriteLine("Message from Bob");
 
-            var text = _geschrieben.ToString();
+            var text = _written.ToString();
 
             Assert.Multiple(() =>
             {
 
                 Assert.That(text, Does.StartWith("\r"),
-                            "Die angefangene Zeile wird nicht geräumt.");
+                            "The line begun is not cleared away.");
 
-                Assert.That(text, Does.Contain("Nachricht von Bob"));
+                Assert.That(text, Does.Contain("Message from Bob"));
 
                 Assert.That(text, Does.EndWith(Prompt),
-                            "Nach der Ausgabe fehlt die Eingabeaufforderung.");
+                            "The prompt is missing after the output.");
 
             });
 
@@ -111,25 +109,25 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region ThePromptFollowsTheConversation()
 
         /// <summary>
-        /// Die Eingabeaufforderung wird bei jeder Ausgabe neu erfragt.
+        /// The prompt is asked for anew on every output.
         /// </summary>
         /// <remarks>
-        /// Sie ändert sich mit dem Gesprächspartner. Wäre sie eine Zeichenkette
-        /// statt einer Funktion, stünde nach einem <c>/to</c> weiter die alte
-        /// da - und zwar bis zum nächsten Neustart.
+        /// It changes with the conversation partner. Were it a string instead
+        /// of a function, the old one would go on standing there after a
+        /// <c>/to</c> - and would do so until the next restart.
         /// </remarks>
         [Test]
         public void ThePromptFollowsTheConversation()
         {
 
             var partner  = "alice";
-            var ausgabe  = new ConsoleOutput(() => $"[{partner}] > ", _geschrieben, () => 20);
+            var output   = new ConsoleOutput(() => $"[{partner}] > ", _written, () => 20);
 
-            ausgabe.WriteLine("erste");
+            output.WriteLine("first");
             partner = "bob";
-            ausgabe.WriteLine("zweite");
+            output.WriteLine("second");
 
-            var text = _geschrieben.ToString();
+            var text = _written.ToString();
 
             Assert.Multiple(() =>
             {
@@ -144,28 +142,29 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region WithoutAWidth_NothingIsErased()
 
         /// <summary>
-        /// Ohne Konsolenbreite wird nicht gelöscht - aber weiterhin
-        /// geschrieben.
+        /// Without a console width nothing is erased - but it is still
+        /// written.
         /// </summary>
         /// <remarks>
-        /// Der Fall der umgeleiteten Ausgabe: Dort gibt es keine Eingabezeile,
-        /// die zu retten wäre. Die alte Fassung fing die Ausnahme von
-        /// <c>Console.WindowWidth</c> und schrieb ersatzweise eine Leerzeile -
-        /// das half niemandem und riss jede Ausgabe von der nächsten.
+        /// The case of the redirected output: there is no input line there
+        /// that would need saving. The old version caught the exception from
+        /// <c>Console.WindowWidth</c> and wrote a blank line instead - that
+        /// helped nobody and tore every output from the next.
         /// </remarks>
         [Test]
         public void WithoutAWidth_NothingIsErased()
         {
 
-            var ausgabe = new ConsoleOutput(() => Prompt, _geschrieben, () => 0);
+            var output = new ConsoleOutput(() => Prompt, _written, () => 0);
 
-            ausgabe.WriteLine("Zeile");
+            output.WriteLine("Line");
 
-            // Am Anfang und nicht am Vorkommen: Ein Wagenrücklauf steht unter
-            // Windows auch am Ende jeder Zeile. Was hier fehlen muss, ist die
-            // Löschfolge davor - Rücklauf, Leerzeichen, Rücklauf.
-            Assert.That(_geschrieben.ToString(), Does.StartWith("Zeile"),
-                        "Ohne Breite gibt es nichts zu löschen.");
+            // At the start and not anywhere in it: a carriage return also
+            // stands at the end of every line under Windows. What has to be
+            // missing here is the erase sequence before it - return, blank,
+            // return.
+            Assert.That(_written.ToString(), Does.StartWith("Line"),
+                        "Without a width there is nothing to erase.");
 
         }
 
@@ -174,29 +173,29 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region AScope_HoldsTheConsoleUntilItIsLeft()
 
         /// <summary>
-        /// Ein Ausgabebereich schreibt die Eingabeaufforderung erst beim
-        /// Verlassen - nicht nach jedem Teilstück.
+        /// An output scope writes the prompt only on leaving - not after every
+        /// piece.
         /// </summary>
         /// <remarks>
-        /// Für die Ausgaben, die in mehreren Zügen entstehen: Zeitstempel,
-        /// Absender, Text, jeweils mit eigener Farbe. Käme dazwischen die
-        /// Eingabeaufforderung, stünde sie mitten in der Zeile.
+        /// For the outputs that come about in several goes: timestamp, sender,
+        /// text, each with its own colour. If the prompt came in between, it
+        /// would stand in the middle of the line.
         /// </remarks>
         [Test]
         public void AScope_HoldsTheConsoleUntilItIsLeft()
         {
 
-            using (var bereich = _ausgabe.Begin())
+            using (var scope = _output.Begin())
             {
-                _geschrieben.Write("[12:00:00] ");
-                _geschrieben.Write("bob: ");
-                _geschrieben.WriteLine("Hallo");
+                _written.Write("[12:00:00] ");
+                _written.Write("bob: ");
+                _written.WriteLine("Hello");
 
-                Assert.That(_geschrieben.ToString(), Does.Not.Contain(Prompt),
-                            "Die Eingabeaufforderung kam mitten in die Ausgabe.");
+                Assert.That(_written.ToString(), Does.Not.Contain(Prompt),
+                            "The prompt came into the middle of the output.");
             }
 
-            Assert.That(_geschrieben.ToString(), Does.EndWith(Prompt));
+            Assert.That(_written.ToString(), Does.EndWith(Prompt));
 
         }
 
@@ -205,40 +204,40 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region TheLogger_GoesThroughTheSameDoor()
 
         /// <summary>
-        /// Eine Protokollzeile räumt die Eingabezeile und stellt sie wieder
-        /// her - genau wie eine Nachricht.
+        /// A log line clears the input line and restores it - just like a
+        /// message.
         /// </summary>
         /// <remarks>
-        /// Der eigentliche Punkt von D58. Ein <c>AddSimpleConsole</c> hätte
-        /// hier einfach geschrieben; dass es keinen Unterschied mehr macht,
-        /// woher die Zeile kommt, ist die ganze Änderung.
+        /// The actual point of D58. An <c>AddSimpleConsole</c> would simply
+        /// have written here; that it no longer makes a difference where the
+        /// line comes from is the whole change.
         /// </remarks>
         [Test]
         public void TheLogger_GoesThroughTheSameDoor()
         {
 
-            using var provider = new ConsoleOutputLoggerProvider(_ausgabe, LogLevel.Information);
+            using var provider = new ConsoleOutputLoggerProvider(_output, LogLevel.Information);
 
             provider.CreateLogger("org.GraphDefined.Vanaheimr.Hermod.XMPP.XMPPConnection")
-                    .LogInformation("Verbindung steht");
+                    .LogInformation("Connection is up");
 
-            var text = _geschrieben.ToString();
+            var text = _written.ToString();
 
             Assert.Multiple(() =>
             {
 
                 Assert.That(text, Does.StartWith("\r"),
-                            "Das Protokoll schreibt an der Eingabezeile vorbei.");
+                            "The log writes past the input line.");
 
-                Assert.That(text, Does.Contain("Verbindung steht"));
+                Assert.That(text, Does.Contain("Connection is up"));
 
                 Assert.That(text, Does.Contain("info"));
 
                 Assert.That(text, Does.Contain("XMPPConnection"),
-                            "Der Kategoriename gehört dazu - aber nur sein letzter Teil.");
+                            "The category name belongs in it - but only its last part.");
 
                 Assert.That(text, Does.Not.Contain("org.GraphDefined"),
-                            "Der volle Typname frisst die halbe Zeilenbreite.");
+                            "The full type name eats half the line width.");
 
                 Assert.That(text, Does.EndWith(Prompt));
 
@@ -251,29 +250,29 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region TheLogger_KeepsQuietBelowItsLevel()
 
         /// <summary>
-        /// Was unter der Mindeststufe liegt, erreicht die Konsole nicht.
+        /// What lies below the minimum level does not reach the console.
         /// </summary>
         /// <remarks>
-        /// Ohne diese Zusicherung wäre „schreibe alles" eine bestandene Lösung
-        /// - und der Anwender bekäme im Normalbetrieb jede Trace-Zeile des
-        /// Protokolls in seine Eingabezeile.
+        /// Without this assurance "write everything" would be a passing
+        /// solution - and in normal operation the user would get every trace
+        /// line of the log into their input line.
         /// </remarks>
         [Test]
         public void TheLogger_KeepsQuietBelowItsLevel()
         {
 
-            using var provider = new ConsoleOutputLoggerProvider(_ausgabe, LogLevel.Warning);
+            using var provider = new ConsoleOutputLoggerProvider(_output, LogLevel.Warning);
 
             var logger = provider.CreateLogger("Test");
 
-            logger.LogInformation("bitte nicht");
-            logger.LogWarning("aber das");
+            logger.LogInformation("please not");
+            logger.LogWarning("but this");
 
             Assert.Multiple(() =>
             {
                 Assert.That(logger.IsEnabled(LogLevel.Information), Is.False);
-                Assert.That(_geschrieben.ToString(), Does.Not.Contain("bitte nicht"));
-                Assert.That(_geschrieben.ToString(), Does.Contain("aber das"));
+                Assert.That(_written.ToString(), Does.Not.Contain("please not"));
+                Assert.That(_written.ToString(), Does.Contain("but this"));
             });
 
         }
@@ -283,29 +282,30 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region TheLogger_NamesTheException()
 
         /// <summary>
-        /// Eine mitgegebene Ausnahme steht in der Zeile.
+        /// An exception given along stands in the line.
         /// </summary>
         /// <remarks>
-        /// <c>ILogger</c> reicht die Ausnahme getrennt vom Text durch, und der
-        /// Formatierer lässt sie weg. Wer sie nicht selbst anhängt, protokolliert
-        /// „Verbindung verloren" und verschweigt, woran.
+        /// <c>ILogger</c> passes the exception through separately from the
+        /// text, and the formatter leaves it out. Whoever does not append it
+        /// themselves logs "connection lost" and keeps quiet about what it was
+        /// down to.
         /// </remarks>
         [Test]
         public void TheLogger_NamesTheException()
         {
 
-            using var provider = new ConsoleOutputLoggerProvider(_ausgabe, LogLevel.Information);
+            using var provider = new ConsoleOutputLoggerProvider(_output, LogLevel.Information);
 
             provider.CreateLogger("Test")
-                    .LogError(new InvalidOperationException("Socket weg"), "Verbindung verloren");
+                    .LogError(new InvalidOperationException("Socket gone"), "Connection lost");
 
-            var text = _geschrieben.ToString();
+            var text = _written.ToString();
 
             Assert.Multiple(() =>
             {
-                Assert.That(text, Does.Contain("Verbindung verloren"));
+                Assert.That(text, Does.Contain("Connection lost"));
                 Assert.That(text, Does.Contain("InvalidOperationException"));
-                Assert.That(text, Does.Contain("Socket weg"));
+                Assert.That(text, Does.Contain("Socket gone"));
             });
 
         }
@@ -315,45 +315,45 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         #region ParallelWriters_DoNotInterleave()
 
         /// <summary>
-        /// Zwei Fäden, die gleichzeitig schreiben, verschränken sich nicht.
+        /// Two threads writing at the same time do not interleave.
         /// </summary>
         /// <remarks>
-        /// Der zweite, weniger sichtbare Teil der Änderung: Ereignisse kommen
-        /// aus dem Empfangsfaden, das Protokoll aus jedem beliebigen. Ohne die
-        /// Sperre steht die eine Zeile mitten in der anderen - und die Farbe,
-        /// die die eine gesetzt hat, stellt die andere zurück.
+        /// The second, less visible part of the change: events come from the
+        /// receiving thread, the log from any thread at all. Without the lock
+        /// the one line stands in the middle of the other - and the colour the
+        /// one has set the other puts back.
         ///
-        /// Geprüft wird an der Form: Jede Ausgabe besteht aus Räumen, Text und
-        /// Eingabeaufforderung. Verschränken sich zwei, steht irgendwo ein
-        /// Textstück ohne seinen Anfang.
+        /// The checking goes by the shape: every output consists of clearing,
+        /// text and prompt. If two interleave, somewhere a piece of text
+        /// stands without its beginning.
         /// </remarks>
         [Test]
         public void ParallelWriters_DoNotInterleave()
         {
 
-            var langsam = new LangsamerWriter();
-            var ausgabe = new ConsoleOutput(() => "|", langsam, () => 0);
+            var slow   = new SlowWriter();
+            var output = new ConsoleOutput(() => "|", slow, () => 0);
 
             Parallel.For(0, 8, i =>
-                ausgabe.Write(w =>
+                output.Write(w =>
                 {
                     w.Write("<");
                     w.Write(i);
                     w.Write(">");
                 }));
 
-            // Jede Ausgabe ist "<n>|" - dazwischen darf nichts stehen.
-            Assert.That(langsam.ToString(),
+            // Every output is "<n>|" - nothing may stand in between.
+            Assert.That(slow.ToString(),
                         Does.Match("^(<[0-7]>\\|){8}$"),
-                        $"Zwei Ausgaben haben sich verschränkt: {langsam}");
+                        $"Two outputs have interleaved: {slow}");
 
         }
 
         /// <summary>
-        /// Ein Schreiber, der sich zwischen zwei Aufrufen Zeit lässt - damit
-        /// eine Verschränkung überhaupt eine Gelegenheit bekommt.
+        /// A writer that takes its time between two calls - so that an
+        /// interleaving gets an opportunity at all.
         /// </summary>
-        private sealed class LangsamerWriter : StringWriter
+        private sealed class SlowWriter : StringWriter
         {
 
             public override void Write(String? value)

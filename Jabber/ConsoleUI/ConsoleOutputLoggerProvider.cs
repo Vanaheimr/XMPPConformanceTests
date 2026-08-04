@@ -25,18 +25,18 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
 {
 
     /// <summary>
-    /// Ein <see cref="ILoggerProvider"/>, der seine Zeilen über
-    /// <see cref="ConsoleOutput"/> schickt statt an der Eingabezeile vorbei.
+    /// An <see cref="ILoggerProvider"/> that sends its lines over
+    /// <see cref="ConsoleOutput"/> instead of past the input line.
     /// </summary>
     /// <remarks>
-    /// Das ist der ganze Unterschied zu <c>AddSimpleConsole</c>: Dieselbe
-    /// Zeile, aber durch dieselbe Tür wie alles andere. Damit steht sie nicht
-    /// mehr mitten in einer halb getippten Eingabe, und die
-    /// Eingabeaufforderung ist danach wieder da.
+    /// That is the whole difference from <c>AddSimpleConsole</c>: the same
+    /// line, but through the same door as everything else. With that it no
+    /// longer stands in the middle of a half-typed input, and the prompt is
+    /// back afterwards.
     ///
-    /// Die Mindeststufe steht hier und nicht in der Filterkette des
-    /// Fabrikanten, damit ein Aufrufer diesen Anbieter auch einzeln benutzen
-    /// kann; <c>SetMinimumLevel</c> wirkt zusätzlich.
+    /// The minimum level stands here and not in the filter chain of the
+    /// factory, so that a caller can use this provider on its own as well;
+    /// <c>SetMinimumLevel</c> takes effect on top.
     /// </remarks>
     public sealed class ConsoleOutputLoggerProvider : ILoggerProvider
     {
@@ -69,7 +69,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
     }
 
     /// <summary>
-    /// Die Protokollzeile, wie sie in der Konsole erscheint.
+    /// The log line as it appears in the console.
     /// </summary>
     internal sealed class ConsoleOutputLogger : ILogger
     {
@@ -113,14 +113,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
             if (exception is not null)
                 text += $" ({exception.GetType().Name}: {exception.Message})";
 
-            _output.Write(w => w.WriteLine($"{DateTime.Now:HH:mm:ss} {Kuerzel(logLevel)} " +
-                                           $"{Kurzname(_category)}: {text}"));
+            _output.Write(w => w.WriteLine($"{DateTime.Now:HH:mm:ss} {Tag(logLevel)} " +
+                                           $"{ShortName(_category)}: {text}"));
 
         }
 
 
-        /// <summary>Die Stufe in vier Zeichen, wie sie eine Konsole verträgt.</summary>
-        internal static String Kuerzel(LogLevel level)
+        /// <summary>The level in four characters, as a console can bear it.</summary>
+        internal static String Tag(LogLevel level)
             => level switch {
                    LogLevel.Trace        => "trce",
                    LogLevel.Debug        => "dbug",
@@ -132,21 +132,21 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI
                };
 
         /// <summary>
-        /// Der letzte Teil des Kategorienamens.
+        /// The last part of the category name.
         /// </summary>
         /// <remarks>
-        /// Der volle Name ist der Typname samt Namensraum und damit in dieser
-        /// Sammlung rund fünfzig Zeichen - auf einer Konsole, die zugleich eine
-        /// Eingabezeile führt, ist das die halbe Breite für eine Auskunft, die
-        /// in jeder Zeile dieselbe ist.
+        /// The full name is the type name together with its namespace, and
+        /// thereby around fifty characters in this collection - on a console
+        /// that keeps an input line at the same time, that is half the width
+        /// for a piece of information that is the same in every line.
         /// </remarks>
-        internal static String Kurzname(String category)
+        internal static String ShortName(String category)
         {
 
-            var punkt = category.LastIndexOf('.');
+            var dot = category.LastIndexOf('.');
 
-            return punkt >= 0 && punkt < category.Length - 1
-                       ? category[(punkt + 1)..]
+            return dot >= 0 && dot < category.Length - 1
+                       ? category[(dot + 1)..]
                        : category;
 
         }
