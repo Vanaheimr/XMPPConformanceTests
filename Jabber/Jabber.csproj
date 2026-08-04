@@ -10,10 +10,10 @@
 
   <ItemGroup>
     <!--
-      Nur noch das Protokoll der Ausgabe: Die Konsole schreibt selbst und
-      braucht dafuer einen Logger. BouncyCastle stand hier, solange OMEMO hier
-      lag - das tut es seit D97 nicht mehr, und ein Paket, das niemand mehr
-      benutzt, ist eine Behauptung ueber eine Abhaengigkeit, die es nicht gibt.
+      Only the log of the output any more: the console writes itself and needs
+      a logger for that. BouncyCastle stood here as long as OMEMO lay here -
+      since D97 it does not any more, and a package nobody uses is a claim
+      about a dependency that does not exist.
     -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.9" />

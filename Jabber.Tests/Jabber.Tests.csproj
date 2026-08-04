@@ -5,10 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!--
-      Was hier liegt, gehoert der Konsole - alles andere ist mit dem Protokoll
-      nach Ratatoskr gezogen. Der RootNamespace folgt deshalb Ratatoskr, der
-      AssemblyName bleibt eigenstaendig: Zwei Suiten mit demselben Namen waeren
-      dieselbe Datei.
+      What lies here belongs to the console - everything else has moved to
+      Ratatoskr with the protocol. The RootNamespace therefore follows
+      Ratatoskr, the AssemblyName stays independent: two suites with the same
+      name would be the same file.
     -->
     <RootNamespace>org.GraphDefined.Vanaheimr.Ratatoskr.Tests</RootNamespace>
     <AssemblyName>org.GraphDefined.Vanaheimr.Ratatoskr.Jabber.Tests</AssemblyName>
