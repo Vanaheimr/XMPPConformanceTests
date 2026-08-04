@@ -3310,542 +3310,516 @@ the first line a protocol would have to change that addresses single messages.
 
 ---
 
-### D38. Eine Liste, die nicht wartet 🕓 — XEP-0060 wird optional
+### D38. A list that does not wait 🕓 — XEP-0060 becomes optional
 
-„Später" hiess bisher zweierlei: Punkte, denen nur die Gelegenheit fehlt, und
-Punkte, die niemandem fehlen. Beides in einer Liste liest sich wie eine
-Schuldenliste, und je länger sie wird, desto weniger sagt sie. Mit D37 kam
-„Bewusst nicht umgesetzt" dazu; dazwischen fehlte **„Optional"**: nicht
-entschieden dagegen, aber auch nicht anstehend.
+"Later" meant two things until now: points that only lack the opportunity, and
+points nobody misses. Both in one list reads like a list of debts, and the longer
+it becomes, the less it says. With D37 "deliberately not implemented" came to it;
+in between **"optional"** was missing: not decided against, but not due either.
 
-XEP-0060 gehört dorthin. Die Lücke ist echt — und sie ist grösser, als der alte
-Eintrag sagte: `PubSubSubscribeAsync` verschickt die Anfrage und trägt das
-Abonnement sofort ein, ohne die Antwort abzuwarten. Ein abgelehntes Abonnement
-steht danach als bestehendes in `_subscribedNodes`, und der Aufrufer erfährt es
-nie. `OnSubscriptionResult` gibt es bereits, ausgelöst wird es nirgends.
+XEP-0060 belongs there. The gap is real — and it is bigger than the old entry
+said: `PubSubSubscribeAsync` sends the request off and enters the subscription at
+once, without waiting for the answer. A refused subscription afterwards stands as
+an existing one in `_subscribedNodes`, and the caller never learns it.
+`OnSubscriptionResult` exists already, set off it is nowhere.
 
-**Trotzdem nicht anstehend, und zwar aus einem Grund, der zum Rest der
-Arbeitsweise passt.** Dieser Client benutzt PubSub an keiner Stelle selbst;
-die betroffenen Member stehen bereits als ungenutzte API-Fläche im README. Eine
-Korrelation, die kein Aufrufer abholt, liesse sich nur gegen einen ausgedachten
-Ablauf prüfen — und ein Test, der seinen eigenen Anwendungsfall erfindet, prüft
-die Erfindung. Das ist derselbe Grund, aus dem die XEP-0160-Regel aus D14 unter
-„Später" steht statt als erledigt.
+**Not due all the same, and for a reason that fits the rest of the way of
+working.** This client uses PubSub nowhere itself; the members concerned already
+stand in the README as unused API surface. A correlation no caller fetches could
+only be checked against an invented course of events — and a test that invents its
+own use case checks the invention. That is the same reason the XEP-0160 rule from
+D14 stands under "Later" instead of as done.
 
-Eine optionale Liste ist der Ort, an dem Dinge in Ruhe vergessen werden. Deshalb
-steht der Rückweg dabei: **Sobald PubSub einen Anwendungsfall hat** — ein
-Abonnement gegen eine echte PubSub-Komponente, an dem sich Zusage und Ablehnung
-unterscheiden lassen —, wandert der Punkt zurück nach „Später". Nicht die Zeit
-holt ihn zurück, sondern der Bedarf.
+An optional list is the place where things are forgotten in peace. This is why the
+way back stands with it: **as soon as PubSub has a use case** — a subscription
+against a real PubSub component at which promise and refusal can be told apart —,
+the point wanders back to "Later". Not the time fetches it back, but the need.
 
 ---
 
-### D39. Wir haben verlangt, was wir selbst nicht gaben ✅ — Abschnitt 3.2
+### D39. We demanded what we did not give ourselves ✅ — section 3.2
 
-XEP-0030, Abschnitt 3.2: „If the request included a 'node' attribute, the
-response MUST mirror the specified 'node' attribute to ensure coherence between
-the request and the response." XEP-0115, Abschnitt 6.2 sagt dasselbe für den
-Caps-Fall und nennt den Wert: `node#ver`.
+XEP-0030, section 3.2: "If the request included a 'node' attribute, the response
+MUST mirror the specified 'node' attribute to ensure coherence between the request
+and the response." XEP-0115, section 6.2 says the same for the caps case and names
+the value: `node#ver`.
 
-**Die Lücke war eine Asymmetrie, keine Unkenntnis.** `EntityCapsManager` fragt
-seit jeher mit `node#ver` und legt die Antwort unter genau diesem Schlüssel ab.
-`DiscoManager.RespondInfoAsync` konnte das `node` sogar setzen — der einzige
-Aufrufer übergab keines und las das Attribut der Anfrage nicht einmal. Wir haben
-also von jeder Gegenstelle verlangt, was wir selbst nie geliefert haben.
+**The gap was an asymmetry, no ignorance.** `EntityCapsManager` has always asked
+with `node#ver` and lays the answer down under exactly this key.
+`DiscoManager.RespondInfoAsync` could even set the `node` — the only caller passed
+none and did not even read the attribute of the request. We therefore demanded of
+every far side what we ourselves never delivered.
 
-Kaputt sah dabei nichts aus, und das ist das Tückische: Eine strenge
-Gegenstelle legt eine Antwort ohne `node` nicht unter `node#ver` ab, fragt bei
-jeder Presence erneut und bekommt jedes Mal dieselbe Auskunft. Der Nutzen von
-XEP-0115 fällt weg, ohne dass irgendwo ein Fehler erscheint.
+Nothing looked broken in doing so, and that is the treacherous part: a strict far
+side does not lay an answer without a `node` down under `node#ver`, asks anew at
+every presence and gets the same information every time. The use of XEP-0115 falls
+away without an error appearing anywhere.
 
-**Die zweite Hälfte war die grössere.** Ein Node, den es hier nicht gibt, bekam
-dieselbe volle Merkmalsliste wie eine Anfrage ohne Node. Diese Seite behauptete
-damit, **jeden erdachten Node zu führen** — `commands`, `offline`, was auch
-immer jemand fragt, es gab ihn. Jetzt wird nur beantwortet, was diese Entity
-bezeichnet: der Caps-Node, mit und ohne aktuelles `#ver`. Alles andere bekommt
+**The second half was the bigger one.** A node that does not exist here got the
+same full list of features as a request without a node. This side thereby claimed
+**to carry every node one might think of** — `commands`, `offline`, whatever
+somebody asks, it existed. Now only what designates this entity is answered: the
+caps node, with and without the current `#ver`. Everything else gets
 `<item-not-found/>`.
 
-**Ein veraltetes `ver` gehört ausdrücklich zu „alles andere", und das ist die
-unbequeme Entscheidung.** Verbreitete Server schicken auch dort die aktuelle
-Liste. Das ist bequemer und falsch: Der Frager rechnet nach XEP-0115,
-Abschnitt 5.4 den angekündigten Hash gegen die Antwort. Zu einem alten `ver`
-ergibt die neue Liste einen anderen Hash — er hat dann die Wahl, uns für einen
-Fälscher zu halten oder das Nachrechnen aufzugeben. Unser eigener
-`EntityCapsManager` würde die Antwort ablehnen. Ein Fehler ist die ehrlichere
-Auskunft: **Diesen Stand gibt es hier nicht mehr.**
+**An outdated `ver` belongs expressly to "everything else", and that is the
+uncomfortable decision.** Widespread servers send the current list there as well.
+That is more convenient and wrong: the one asking recomputes the announced hash
+against the answer under XEP-0115, section 5.4. To an old `ver` the new list yields
+a different hash — they then have the choice of holding us to be a forger or of
+giving the recomputing up. Our own `EntityCapsManager` would refuse the answer. An
+error is the more honest information: **this state does not exist here any more.**
 
-**Der Testserver hat gar keine Nodes**, er kündigt keine Capabilities an. Jede
-Frage nach einem Node bekommt dort einen Fehler. Dabei fiel ein Satz auf, der
-eine Unterscheidung behauptete, die es nicht gab: Der Schalter `FailDiscoInfo`
-antwortete mit „Diesen Node gibt es hier nicht." — auf eine Abfrage, die keinen
-Node nennt, in einem Server, der das Attribut nie ansah. Der Satz steht jetzt
-dort, wo er zutrifft; der Schalter sagt, was er tut.
+**The test server has no nodes at all**, it announces no capabilities. Every
+question about a node gets an error there. In doing so a sentence came out that
+claimed a distinction that did not exist: the switch `FailDiscoInfo` answered with
+"This node does not exist here." — to a query that names no node, in a server that
+never looked at the attribute. The sentence now stands where it holds; the switch
+says what it does.
 
-**Auch ein Fehler ist eine Antwort und muss sagen, worauf.** Beide Fehler nehmen
-die Anfrage samt `node` mit zurück (RFC 6120, Abschnitt 8.3.1); `StanzaErrorIq`
-hat dafür einen Parameter bekommen. Ohne das erfährt ein Frager, der mehrere
-Nodes derselben Entity abfragt, nur, dass *irgendeiner* fehlt — und die
-Spiegelung aus Abschnitt 3.2 gilt für die Fehlerantwort genauso.
+**An error too is an answer and has to say what to.** Both errors take the request
+together with the `node` back with them (RFC 6120, section 8.3.1); `StanzaErrorIq`
+has got a parameter for that. Without it somebody asking who queries several nodes
+of the same entity learns only that *some one* is missing — and the mirroring from
+section 3.2 holds for the error answer just the same.
 
-Acht neue Tests, elf Mutationen, zehn erschlagen. **Der Überlebende ist ein
-Zustand, den es nicht gibt:** `EntityCaps?.IsOwnNode(node) != true` gegen
-`== false` unterscheidet sich allein im Fall „kein EntityCaps", und der tritt
-nicht ein — `Disco` und `EntityCaps` entstehen in zwei aufeinanderfolgenden
-Zeilen, die Bedingung prüft `Disco is not null`. Die strengere Fassung bleibt
-stehen: Ohne Caps-Manager gibt es keine eigene Node-Kennung, und was man nicht
-kennt, kann man nicht bestätigen.
+Eight new tests, eleven mutations, ten struck down. **The survivor is a state that
+does not exist:** `EntityCaps?.IsOwnNode(node) != true` against `== false` differs
+only in the case "no EntityCaps", and that does not occur — `Disco` and
+`EntityCaps` arise in two consecutive lines, the condition checks
+`Disco is not null`. The stricter version stays standing: without a caps manager
+there is no node identifier of our own, and what one does not know one cannot
+confirm.
 
-Eine Mutation hat einen Test bekommen, statt als Überlebender vermerkt zu
-werden. Der Server liest seine Frames als Zeichenketten — bewusst, damit er den
-Client nicht mit derselben Brille ansieht, mit der der Client sich selbst
-ansieht. Damit sind „steht `node=` irgendwo im Frame" und „die Anfrage trägt ein
-`node`" zwei verschiedene Dinge, und der Unterschied wäre unbelegt geblieben.
-`ANodeOutsideTheQuery_DoesNotCount` legt der Anfrage ein fremdes Element mit
-`node` bei; ohne den Anker im Muster bekäme diese gewöhnliche Abfrage einen
-Fehler.
+One mutation has got a test instead of being noted as a survivor. The server reads
+its frames as strings — deliberately, so that it does not look at the client
+through the same glasses the client looks at itself with. With that "`node=`
+stands somewhere in the frame" and "the request carries a `node`" are two different
+things, and the difference would have stayed unshown.
+`ANodeOutsideTheQuery_DoesNotCount` puts a foreign element with a `node` beside the
+request; without the anchor in the pattern this ordinary query would get an error.
 
-**Und ein Werkzeug hat die Arbeit zurückgedreht.** `mutate.ps1` setzte nach
-jedem Lauf aus einem Sicherungsordner zurück, den es nie selbst gefüllt hat —
-darin lag, was irgendeine frühere Sitzung dort abgelegt hatte. Zwei Dateien
-sprangen so um eine ganze Sitzung zurück; in `XMPPConnection.cs` war `CreateTcp`
-wieder da, in D34 gelöscht. Die Hash-Prüfung meldete dabei brav „wie zuvor",
-denn sie verglich gegen genau diese alte Sicherung.
+**And a tool turned the work back.** `mutate.ps1` reset after every run out of a
+backup folder it never filled itself — in it lay what some earlier session had put
+down there. Two files thereby jumped back by a whole session; in `XMPPConnection.cs`
+`CreateTcp` was there again, deleted in D34. The check of hashes obediently reported
+"as before" in doing so, for it compared against exactly this old backup.
 
-Das ist derselbe Fehler wie in D34, nur eine Ebene tiefer: **eine Messung, die
-nicht misst, was sie behauptet.** Nur war sie diesmal nicht bloss blind, sondern
-zerstörend — die Prüfung, die den Schaden hätte melden sollen, war Teil davon.
-Die Sicherung wird jetzt im Augenblick der Mutation aus der Datei gezogen, die
-gleich mutiert wird. Eine Sicherung, die älter ist als die Arbeit, ist keine.
+That is the same error as in D34, only one level deeper: **a measurement that does
+not measure what it claims.** Only this time it was not merely blind but
+destructive — the check that should have reported the damage was part of it. The
+backup is now pulled at the moment of the mutation out of the file that is about to
+be mutated. A backup that is older than the work is none.
 
-**Nebenbefund, notiert unter „Später":** `LocalFeatures` kündigt
-`disco#items` an, beantwortet wird es nirgends — eine eingehende items-Abfrage
-fällt bis zum `<service-unavailable/>` durch. Angekündigt und dann verweigert
-ist die einzige Kombination, die es nicht geben darf.
+**Incidental find, noted under "Later":** `LocalFeatures` announces `disco#items`,
+answered it is nowhere — an incoming items query falls through as far as the
+`<service-unavailable/>`. Announced and then refused is the one combination there
+may not be.
 
 ---
 
-### D40. Angekündigt und dann verweigert ✅ — Abschnitt 4
+### D40. Announced and then refused ✅ — section 4
 
-Der Nebenbefund aus D39, und er ist kein fehlendes Merkmal, sondern ein
-falsches Versprechen: `LocalFeatures` führt
-`http://jabber.org/protocol/disco#items` seit jeher, beantwortet wurde eine
-items-Abfrage nie. Sie fiel durch bis zum `<service-unavailable/>`. Eine
-Gegenstelle, die der Merkmalsliste glaubt, bekam also einen Fehler auf eine
-Frage, zu der wir sie eingeladen hatten.
+The incidental find from D39, and it is no missing feature but a false promise:
+`LocalFeatures` has always carried `http://jabber.org/protocol/disco#items`, an
+items query was never answered. It fell through as far as the
+`<service-unavailable/>`. A far side that believes the list of features therefore
+got an error to a question we had invited it to.
 
-**Die Antwort ist eine leere Liste, und das ist keine Notlösung.** „Ich habe
-keine" und „frag mich nicht" sind verschiedene Auskünfte, und nur die erste
-stimmt: Ein Client hat keine Untereinheiten. Wer stattdessen
-`<service-unavailable/>` schickt, sagt das Zweite — und wer die Frage gar nicht
-erst zulässt, hätte das Merkmal nicht ankündigen dürfen.
+**The answer is an empty list, and that is no stopgap.** "I have none" and "do not
+ask me" are different pieces of information, and only the first is right: a client
+has no sub-units. Whoever sends `<service-unavailable/>` instead says the second —
+and whoever does not allow the question in the first place should not have
+announced the feature.
 
-`DiscoManager.LocalItems` ist leer als Vorgabe und wird tatsächlich gelesen; ein
-Test füllt sie, sonst wäre „immer eine leere Liste" eine bestandene Lösung und
-die Liste eine Zierde.
+`DiscoManager.LocalItems` is empty as a default and is really read; a test fills
+it, otherwise "always an empty list" would be a passing solution and the list a
+decoration.
 
-**Ein `node` ist hier etwas anderes als in D39.** Bei disco#info bezeichnet er
-die Entity selbst (der Caps-Node aus XEP-0115); bei disco#items ist er ein Ast
-im Baum der Untereinheiten. Dieser Client hat keinen einzigen, also
-`<item-not-found/>` — dieselbe Entscheidung wie in D39, aus demselben Grund. Die
-leere Liste wäre hier die falsche Antwort: Sie hiesse **„diesen Zweig gibt es,
-er ist leer"** statt „diesen Zweig gibt es nicht".
+**A `node` is something different here than in D39.** At disco#info it designates
+the entity itself (the caps node from XEP-0115); at disco#items it is a branch in
+the tree of the sub-units. This client has not a single one, so
+`<item-not-found/>` — the same decision as in D39, for the same reason. The empty
+list would be the wrong answer here: it would mean **"this branch exists, it is
+empty"** instead of "this branch does not exist".
 
-Deshalb hat `RespondItemsAsync` **keinen** `node`-Parameter, obwohl sein
-Gegenstück `RespondInfoAsync` einen hat. Er bekäme nie einen Wert: Wo ein Node
-in der Frage steht, wird gar nicht geantwortet. Ein Parameter, der nie einen
-Wert bekommt, sieht aus wie eine Fähigkeit und ist keine — und wäre prompt der
-erste Überlebende gewesen, weil ihn kein Test je erreicht.
+This is why `RespondItemsAsync` has **no** `node` parameter although its
+counterpart `RespondInfoAsync` has one. It would never get a value: where a node
+stands in the question, no answer is given at all. A parameter that never gets a
+value looks like an ability and is none — and would promptly have been the first
+survivor, because no test ever reaches it.
 
-`RefuseUnknownNode` hat dafür den Namensraum als Parameter bekommen: Der Fehler
-nimmt die Anfrage zurück, die gestellt wurde. **Ein Fehler, der die falsche
-Frage nennt, ist schlechter als einer ohne Frage** — der Frager ordnet ihn dann
-der falschen Abfrage zu. Eine eigene Mutation prüft genau das.
+`RefuseUnknownNode` has got the namespace as a parameter for that: the error takes
+back the request that was put. **An error that names the wrong question is worse
+than one without a question** — the one asking then assigns it to the wrong query.
+A mutation of its own checks exactly that.
 
-Vier Tests, sieben Mutationen, alle erschlagen.
+Four tests, seven mutations, all struck down.
 
-Und eine Zeile im README stimmte nicht mehr: `EntityCapsManager.GetCachedInfo`
-stand unter „ungenutzt und ungetestet", während zwei Fixtures darüber prüfen,
-was im Caps-Cache landet. Solche Listen veralten in die unangenehme Richtung —
-sie behaupten ungeprüft, was inzwischen geprüft ist.
-
----
-
-### D41. Wohin, sagt die Domain ✅ — XEP-0156
-
-Der Endpunkt war fest verdrahtet: `wss://{domain}:5443/ws`, die ejabberd-Vorgabe.
-Für Prosody, für jeden anderen Server und für jeden Betreiber mit eigenem Pfad
-musste der Aufrufer ihn kennen und mitgeben. XEP-0156 ist der Weg, auf dem die
-Domain selbst sagt, wo ihr WebSocket steht: `host-meta` unter
-`/.well-known/`, einmal als JSON (JRD), einmal als XML (XRD).
-
-**Zwei Sätze des XEPs bestimmen den ganzen Zuschnitt.**
-
-Der erste ist eine Rangfolge: „HTTPS queries for host-meta information MUST be
-used only as a fallback after the methods specified in RFC 6120 have been
-exhausted." Gefragt wird deshalb **nur, wenn der Aufrufer keinen Endpunkt
-genannt hat** — und ein eigener Test hält fest, dass die Discovery dann gar
-nicht erst anläuft. Ohne ihn wäre „immer erst nachschauen" eine bestandene
-Lösung: teuer für jeden, der seinen Server kennt, und eine offene Tür für ein
-fremdes `host-meta`, das ihn woandershin schickt.
-
-Der zweite ist eine Sicherheitsregel, und sie hat zwei Hälften: „host-meta files
-MUST be fetched only over HTTPS, and MUST only use connection URLs starting with
-'https://' or 'wss://'." Beide gehören zusammen. Wer die Auskunft im Klartext
-holt, lässt jeden Zwischenmann bestimmen, wohin sich der Client anmeldet; wer
-einer sicher geholten Auskunft ein `ws://` abnimmt, schickt Benutzer und
-Passwort hinterher trotzdem offen durchs Netz. **Eine halbe Absicherung ist hier
-keine.** Beide Hälften haben ihre eigene Mutation.
-
-Vom erlaubten Paar bleibt für diesen Client nur `wss://` übrig: `https://` ist
-BOSH (XEP-0124), das er nicht spricht. Ein BOSH-Link wird gelesen und übergangen
-— nicht, weil er falsch wäre, sondern weil eine Adresse, die als
-WebSocket-Endpunkt zurückkäme, den Verbindungsaufbau an etwas scheitern liesse,
-das nie dafür gedacht war.
-
-**Der Link-Typ entscheidet, nicht das Schema.** Ein `host-meta` ist nicht für
-XMPP gemacht; dort stehen `lrdd`, `webfinger` und was der Betreiber sonst
-veröffentlicht. Wer nur auf `wss://` prüft, nimmt den erstbesten Eintrag, der
-zufällig verschlüsselt ist — ein eigener Test legt genau so einen aus.
-
-**Was nicht umgesetzt ist, fehlt nicht:** Der DNS-Weg über
-`_xmppconnect`-TXT-Einträge steht in keiner aktuellen Fassung mehr — „this was
-insecure and has been removed". Ihn nachzubauen hiesse, eine zurückgezogene
-Empfehlung umzusetzen.
-
-Die Suche läuft **höchstens einmal**, auch über Wiederverbindungen hinweg. Der
-Wiederverbindungsversuch ist eine Schleife; eine Abfrage je Durchgang hiesse,
-bei einem Server, der gerade weg ist, jedes Mal erneut auf eine HTTPS-Antwort zu
-warten, die es nicht gibt. Auch das steht in einem Test — als Zählung der
-Abfragen, nicht als Vermutung.
-
-Zwölf Tests, neun Mutationen, alle erschlagen. **Ungeprüft bleibt der eingebaute
-Abrufer selbst:** Er holt über das Netz, und die Sammlung setzt an seine Stelle
-eine Funktion ohne Netz — anders wäre keiner dieser Tests wiederholbar. Was
-geprüft ist, sind die Adressen, die gebaut werden (beide `https://`, beide
-`/.well-known/`), und was mit dem Ergebnis geschieht. Die `https`-Sperre im
-Abrufer selbst ist damit eine zweite Linie hinter einer geprüften ersten und
-kein ungeprüftes Verhalten.
-
-**Ein Nebenbefund, notiert unter „Später":** Scheitert der Verbindungsaufbau,
-lautet die Ausnahme „Unable to connect to the remote server" — ohne die Adresse.
-Bisher war das verschmerzbar, denn der Aufrufer hatte sie selbst mitgegeben.
-Seit dieser Änderung kann sie aus dem `host-meta` einer fremden Domain stammen,
-und dann beantwortet der eigene Quelltext die Frage „wohin eigentlich?" nicht
-mehr. Der zugehörige Test prüft deshalb den Endpunkt und nicht den Fehlertext —
-und sagt in seinem Kommentar, warum.
+And one line in the README no longer held: `EntityCapsManager.GetCachedInfo` stood
+under "unused and untested" while two fixtures check over it what lands in the caps
+cache. Such lists age in the unpleasant direction — they claim as unchecked what is
+checked by now.
 
 ---
 
-### D42. Eine Leiter ist keine Menge ✅ — RFC 8264, Abschnitt 8
+### D41. Where to, the domain says ✅ — XEP-0156
 
-Seit D5 stand hier eine Näherung: Ein Codepoint gehörte zur IdentifierClass,
-wenn seine Unicode-Kategorie stimmte und er keine Kompatibilitätszerlegung
-hatte. Das traf die Beispiele aus RFC 7622 — und genau deshalb fiel es nicht
-auf.
+The endpoint was wired fast: `wss://{domain}:5443/ws`, the ejabberd default. For
+Prosody, for every other server and for every operator with a path of their own the
+caller had to know it and pass it along. XEP-0156 is the way on which the domain
+itself says where its WebSocket stands: `host-meta` under `/.well-known/`, once as
+JSON (JRD), once as XML (XRD).
 
-**Die Vorschrift ist keine Prüfliste, sondern eine Reihenfolge.** RFC 8264,
-Abschnitt 8 ist eine Leiter von fünfzehn Sprossen, und viele Codepoints stehen
-auf mehreren davon. Welche zuerst greift, entscheidet über die Antwort:
+**Two sentences of the XEP determine the whole cut.**
 
-- **U+0640 (ARABIC TATWEEL)** ist ein Modifier Letter und damit in
-  LetterDigits — die Ausnahmeliste steht davor und verbietet ihn. Er ist ein
-  Streckungsstrich: beliebig oft einfügbar, ohne etwas zu bedeuten. Aus einem
-  Konto werden damit beliebig viele, die gleich aussehen. Die Näherung liess ihn
-  durch.
-- **U+3164 (HANGUL FILLER)** ist ein Buchstabe (Lo) — `Default_Ignorable`
-  steht davor. Ein unsichtbarer Buchstabe in einer Adresse.
-- **U+2163 (ROMAN NUMERAL FOUR)** ist Nl und damit in OtherLetterDigits —
-  HasCompat steht davor.
-- **Die alten Hangul-Jamo** sind Buchstaben und kamen durch; sie setzen sich zu
-  Silben zusammen, die es fertig als eigene Codepoints gibt. Zwei Schreibweisen
-  für dasselbe Wort, und keine Normalisierung räumt das auf.
+The first is an order of precedence: "HTTPS queries for host-meta information MUST
+be used only as a fallback after the methods specified in RFC 6120 have been
+exhausted." This is why asking happens **only when the caller has named no
+endpoint** — and a test of its own holds fast that the discovery then does not
+start up in the first place. Without it "always look first" would be a passing
+solution: expensive for everybody who knows their server, and an open door for a
+foreign `host-meta` that sends them somewhere else.
 
-Der Test dazu prüft deshalb nicht nur das Ergebnis, sondern nennt zu jedem Fall
-**den Zweig, der ihn beantwortet.** Ein Test, der nur die Antwort prüft, hielte
-eine Leiter mit vertauschten Sprossen für richtig, solange sich die Fälle nicht
-überschneiden — und hier überschneiden sie sich fast alle.
+The second is a rule of security, and it has two halves: "host-meta files MUST be
+fetched only over HTTPS, and MUST only use connection URLs starting with 'https://'
+or 'wss://'." Both belong together. Whoever fetches the information in plain text
+lets every man in the middle determine where the client logs in; whoever takes a
+`ws://` from a securely fetched piece of information sends user and password openly
+through the network afterwards all the same. **Half a safeguard is none here.**
+Both halves have a mutation of their own.
 
-**Was .NET nicht kennt, steht jetzt als Tabelle da.**
-`Default_Ignorable_Code_Point`, `Noncharacter_Code_Point` und
-`Hangul_Syllable_Type` liefert die Laufzeit nicht. Sie sind als Bereiche
-eingetragen, mit der Unicode-Fassung benannt, aus der sie stammen. Das ist keine
-Näherung mehr, sondern eine Kopie: Sie kann veralten, aber sie kann nicht
-danebenliegen — und wo sie veraltet, steht es dran.
+Of the permitted pair only `wss://` is left over for this client: `https://` is
+BOSH (XEP-0124), which it does not speak. A BOSH link is read and passed over — not
+because it would be wrong, but because an address that came back as a WebSocket
+endpoint would let the building of the connection fail at something that was never
+meant for it.
 
-**Zwei Regeln sind umgesetzt, sieben nicht, und das ist eine Entscheidung.**
-Kontextabhängige Codepoints (CONTEXTJ/CONTEXTO) hängen nicht am Codepoint,
-sondern an der ganzen Zeichenkette. A.8 und A.9 — die beiden Reihen
-arabisch-indischer Ziffern dürfen nicht gemischt werden — kommen ohne
-Unicode-Eigenschaften aus und sind umgesetzt; sie betreffen Ziffern, die in
-Adressen wirklich vorkommen. Die übrigen brauchen `Joining_Type` oder `Script`,
-und **die aus Blockgrenzen zu erraten hiesse, die Näherung an genau der Stelle
-wieder einzuführen, an der sie über Zulassen oder Ablehnen entscheidet.** Also
-abgewiesen — es trifft fünf Satzzeichen und zwei unsichtbare Zeichen, keine
-Buchstaben.
+**The type of link decides, not the scheme.** A `host-meta` is not made for XMPP;
+there stand `lrdd`, `webfinger` and whatever else the operator publishes. Whoever
+checks only for `wss://` takes the first entry that happens to be encrypted — a
+test of its own lays out exactly such a one.
 
-Die Trennung der beiden Klassen bekommt eine eigene Gegenprobe: Was ein
-Resourcepart tragen darf (Symbole, Leerzeichen), darf ein Localpart nicht. Ohne
-sie wäre „beide nehmen die FreeformClass" eine bestandene Lösung, und der
-Unterschied verschwände unbemerkt.
+**What is not implemented is not missing:** the DNS way over `_xmppconnect` TXT
+entries stands in no current version any more — "this was insecure and has been
+removed". To rebuild it would mean implementing a withdrawn recommendation.
 
-Neun Tests, dreizehn Mutationen, alle erschlagen. Beide Beispieltabellen aus
-RFC 7622 stehen weiter und laufen unverändert durch — die Näherung traf sie, die
-Vorschrift trifft sie auch.
+The search runs **at most once**, across reconnections as well. The attempt at
+reconnecting is a loop; one query per pass would mean waiting anew every time for
+an HTTPS answer that does not exist, at a server that is just now gone. That too
+stands in a test — as a count of the queries, not as a supposition.
 
-**Die zweite Hälfte des Punktes bleibt offen und steht jetzt genauer da:**
-IDNA2008 für Domain-Labels. Die Codepoint-Ebene ist damit erledigt, es fehlt die
-Label-Ebene — Punycode, Bidi-Regel, Label-Längen.
+Twelve tests, nine mutations, all struck down. **Unchecked stays the built-in
+fetcher itself:** it fetches over the network, and the suite puts a function without
+a network in its place — otherwise none of these tests would be repeatable. What is
+checked are the addresses that are built (both `https://`, both `/.well-known/`),
+and what happens with the result. The `https` bar in the fetcher itself is thereby a
+second line behind a checked first and no unchecked behaviour.
+
+**An incidental find, noted under "Later":** does the building of the connection
+fail, then the exception reads "Unable to connect to the remote server" — without
+the address. Until now that was bearable, for the caller had passed it along
+themselves. Since this change it can come out of the `host-meta` of a foreign
+domain, and then our own source no longer answers the question "where to, actually?".
+The belonging test therefore checks the endpoint and not the error text — and says
+in its comment why.
 
 ---
 
-### D43. Ein Domainname ist keine Zeichenkette ✅ — IDNA2008
+### D42. A ladder is no set ✅ — RFC 8264, section 8
 
-Die zweite Hälfte von D42. Der Domainpart wurde bis hierher nur grob geprüft:
-keine Steuerzeichen, kein Leerzeichen. Alles andere ging durch — ein
-Unterstrich, ein Symbol, ein Label mit 200 Zeichen, ein `xn--`, hinter dem
-nichts steht.
+Since D5 an approximation had stood here: a code point belonged to the
+IdentifierClass when its Unicode category was right and it had no compatibility
+decomposition. That hit the examples from RFC 7622 — and exactly for that reason it
+did not come out.
 
-**Dieselben Bausteine, eine andere Leiter.** RFC 5892, Abschnitt 1 sieht aus wie
-die aus RFC 8264 und beantwortet dieselbe Frage anders. Wo PRECIS **ASCII7**
-sagt, sagt IDNA **LDH**: Bindestrich, Ziffern, Kleinbuchstaben — und sonst
-nichts aus ASCII. Wo PRECIS am Ende Symbole und Satzzeichen auffängt (FREE_PVAL),
-endet IDNA mit DISALLOWED. Dazu zwei Zweige, die es nur hier gibt: **Unstable**
-(was sich unter Normalisierung und Kleinschreibung verändert) und
-**IgnorableBlocks**.
+**The prescription is no checklist, but an order.** RFC 8264, section 8 is a ladder
+of fifteen rungs, and many code points stand on several of them. Which one takes
+hold first decides the answer:
 
-Deshalb stehen die beiden Leitern getrennt, auf einem gemeinsamen Unterbau
-(`UnicodeSets`). Ein Verfahren mit Schaltern wäre kürzer und stellte beim Lesen
-bei jeder Zeile die Frage „gilt das jetzt für Labels oder für Localparts?".
+- **U+0640 (ARABIC TATWEEL)** is a modifier letter and thereby in LetterDigits —
+  the list of exceptions stands before it and forbids it. It is an elongation
+  stroke: insertable as often as one likes without meaning anything. Out of one
+  account thereby become as many as one likes that look alike. The approximation
+  let it through.
+- **U+3164 (HANGUL FILLER)** is a letter (Lo) — `Default_Ignorable` stands before
+  it. An invisible letter in an address.
+- **U+2163 (ROMAN NUMERAL FOUR)** is Nl and thereby in OtherLetterDigits —
+  HasCompat stands before it.
+- **The old Hangul jamo** are letters and got through; they compose into syllables
+  that exist ready-made as code points of their own. Two spellings for the same
+  word, and no normalisation clears that up.
 
-**Punycode ist selbst gerechnet** (RFC 3492), obwohl .NET mit `IdnMapping`
-etwas Ähnliches mitbringt. Der Grund ist nicht Stolz: `IdnMapping` bringt seine
-eigene Auslegung mit (UTS 46 über ICU) und **bildet ab, wo IDNA2008 ablehnt** —
-Grossbuchstaben etwa. Wer prüfen will, ob ein Label gültig ist, darf die Prüfung
-nicht an etwas abgeben, das vorher zurechtbiegt. Geprüft wird gegen die elf
-Beispiele aus Abschnitt 7.1, in beide Richtungen.
+The test for it therefore checks not only the result, but names for every case
+**the branch that answers it.** A test that checks only the answer would hold a
+ladder with swapped rungs to be right as long as the cases do not overlap — and
+here they overlap almost all.
 
-**Ein A-Label wird nicht geglaubt, sondern nachgerechnet.** Dekodieren, die
-Label-Regeln auf das U-Label anwenden, zurückrechnen — und wenn dabei etwas
-anderes herauskommt als das, was dastand, ist es abgewiesen. Zwei Fälle machen
-das anschaulich: `xn--TDA` bedeutet dasselbe wie `xn--tda` (Punycode-Ziffern
-sind schreibweisenlos) und ist trotzdem keine gültige Schreibweise; `xn--abc-`
-verpackt reines ASCII, und dann stünde dasselbe Label zweimal da — einmal als es
-selbst, einmal in Verpackung. **Beides sind zwei Adressen für dieselbe Sache,
-und genau das soll IDNA verhindern.**
+**What .NET does not know now stands there as a table.**
+`Default_Ignorable_Code_Point`, `Noncharacter_Code_Point` and
+`Hangul_Syllable_Type` the runtime does not deliver. They are entered as ranges,
+named with the Unicode version they come from. That is no approximation any more,
+but a copy: it can grow old, but it cannot be beside the point — and where it grows
+old, it says so.
 
-**Adressliterale gehen daran vorbei, und zwar nach Vorschrift:** RFC 7622,
-Abschnitt 3.2 lässt neben dem Domainnamen eine IPv4-Adresse und ein
-eingeklammertes IPv6-Literal zu. `[::1]` ist kein Domainname; Doppelpunkte sind
-keine Label-Zeichen, und ohne diese Ausnahme wäre die Adresse ungültig.
+**Two rules are implemented, seven not, and that is a decision.** Context-dependent
+code points (CONTEXTJ/CONTEXTO) hang not on the code point but on the whole string.
+A.8 and A.9 — the two rows of Arabic-Indic digits may not be mixed — get by without
+Unicode properties and are implemented; they concern digits that really appear in
+addresses. The others need `Joining_Type` or `Script`, and **to guess those from
+block boundaries would mean reintroducing the approximation at exactly the place at
+which it decides about allowing or refusing.** So refused — it concerns five
+punctuation marks and two invisible characters, no letters.
 
-Neunzehn Mutationen, alle erschlagen — **zwei davon erst, nachdem die Tests
-schärfer wurden**, und beide Male aus demselben Grund wie in D5 und D36: Der
-Testfall traf schon eine frühere Regel.
+The separation of the two classes gets a counter-check of its own: what a resource
+part may carry (symbols, spaces) a local part may not. Without it "both take the
+FreeformClass" would be a passing solution, and the difference would disappear
+unnoticed.
 
-| Überlebende Mutation | Warum sie zuerst überlebte | Der Fall, der sie erschlägt |
+Nine tests, thirteen mutations, all struck down. Both tables of examples from
+RFC 7622 still stand and run through unchanged — the approximation hit them, the
+prescription hits them too.
+
+**The second half of the point stays open and now stands there more precisely:**
+IDNA2008 for domain labels. The code point level is thereby settled, what is missing
+is the label level — Punycode, bidi rule, label lengths.
+
+---
+
+### D43. A domain name is no string ✅ — IDNA2008
+
+The second half of D42. The domain part was only roughly checked up to here: no
+control characters, no space. Everything else got through — an underscore, a
+symbol, a label with 200 characters, an `xn--` behind which nothing stands.
+
+**The same building blocks, a different ladder.** RFC 5892, section 1 looks like
+the one from RFC 8264 and answers the same question differently. Where PRECIS says
+**ASCII7**, IDNA says **LDH**: hyphen, digits, small letters — and nothing else out
+of ASCII. Where PRECIS catches symbols and punctuation at the end (FREE_PVAL), IDNA
+ends with DISALLOWED. To that two branches that exist only here: **Unstable** (what
+changes under normalisation and lower-casing) and **IgnorableBlocks**.
+
+This is why the two ladders stand separately, on a common substructure
+(`UnicodeSets`). A procedure with switches would be shorter and would raise the
+question at every line while reading, "does that hold for labels or for local parts
+now?".
+
+**Punycode is computed ourselves** (RFC 3492), although .NET brings something
+similar along with `IdnMapping`. The reason is not pride: `IdnMapping` brings its
+own reading along (UTS 46 over ICU) and **maps where IDNA2008 refuses** — capital
+letters for instance. Whoever wants to check whether a label is valid may not give
+the check away to something that bends it into shape beforehand. Checked it is
+against the eleven examples from section 7.1, in both directions.
+
+**An A-label is not believed but recomputed.** Decode, apply the label rules to the
+U-label, compute back — and if something else comes out than what stood there, it is
+refused. Two cases make that vivid: `xn--TDA` means the same as `xn--tda` (Punycode
+digits carry no case) and is nevertheless no valid spelling; `xn--abc-` packs pure
+ASCII, and then the same label would stand there twice — once as itself, once in
+wrapping. **Both are two addresses for the same thing, and exactly that IDNA is to
+prevent.**
+
+**Address literals go past that, and by prescription at that:** RFC 7622, section
+3.2 allows an IPv4 address and a bracketed IPv6 literal beside the domain name.
+`[::1]` is no domain name; colons are no label characters, and without this
+exception the address would be invalid.
+
+Nineteen mutations, all struck down — **two of them only after the tests became
+sharper**, and both times for the same reason as in D5 and D36: the test case
+already hit an earlier rule.
+
+| Surviving mutation | Why it survived at first | The case that strikes it down |
 |---|---|---|
-| Die ignorierbaren Zeichen zählen nicht | U+3164 fällt schon über **Unstable**, U+00AD über den Auffangzweig | U+FE00 und U+180B: Variantenselektoren, Kategorie Mn — sie wären ohne diesen Zweig **Buchstaben** |
-| Die IDNA-Prüfung im JID wird nicht mehr gefragt | Alle Label-Tests fragen `Idna` unmittelbar | Ein JID mit `exa_mple.com`, `-example.com`, `a..example.com` |
+| The ignorable characters do not count | U+3164 falls over **Unstable** already, U+00AD over the catching branch | U+FE00 and U+180B: variation selectors, category Mn — without this branch they would be **letters** |
+| The IDNA check in the JID is no longer asked | All label tests ask `Idna` directly | A JID with `exa_mple.com`, `-example.com`, `a..example.com` |
 
-Die zweite ist die unangenehmere: **Die Prüfung war geprüft, ihre Verdrahtung
-nicht.** Eine Mutation, die das Ergebnis wegwirft und weitermacht, kam durch die
-ganze Sammlung. Dieselbe Sorte Lücke wie die Wache aus D19 — was die Frage
-stellt, muss selbst jemand prüfen.
+The second is the more unpleasant: **the check was checked, its wiring not.** A
+mutation that throws the result away and goes on got through the whole suite. The
+same sort of gap as the guard from D19 — what puts the question has to be checked by
+somebody itself.
 
-**Was offen bleibt, ist die Bidi-Regel** (RFC 5893): Sie verlangt `Bidi_Class`
-für jeden Codepoint eines Labels, und .NET liefert die Eigenschaft nicht. Aus
-Blockgrenzen geraten wäre sie dieselbe Näherung, die D42 abgeschafft hat — hier
-sogar folgenreicher, denn die Regel entscheidet über ganze Labels statt über
-einzelne Zeichen.
-
----
-
-### D44. Eine Tabelle statt einer Vermutung ✅ — RFC 5893
-
-Der offene Punkt aus D43. Die Begründung dort war richtig und die Folgerung
-falsch: `Bidi_Class` **lässt** sich nicht ableiten — aber sie lässt sich
-**holen**. Unicode veröffentlicht sie als `DerivedBidiClass.txt`, und für
-StringPrep gibt es in diesem Projekt seit Langem denselben Weg:
-`tools/stringprep/generate.py` erzeugt `StringPrepTables.cs` aus dem RFC-Text.
-
-Also `tools/unicode/generate-bidiclass.py`, nach demselben Muster. Er lädt die
-Datei, liest die Bereiche und schreibt `Jabber/Common/BidiClasses.cs` — zehn
-Tabellen, 764 Bereiche. **Die elfte Klasse, L, ist nicht aufgeschrieben:** Sie
-ist die grösste und zugleich die Vorgabe der Unicode-Datei selbst. Was in keiner
-anderen Tabelle steht, ist L.
-
-Der Unterschied zur Näherung, um die es in D42 und D43 ging, ist genau dieser:
-**Eine erzeugte Tabelle kann veralten, eine geratene kann falsch sein.** Die
-Unicode-Fassung steht im Kopf der Datei, der Generator daneben; wer zweifelt,
-lässt ihn laufen und vergleicht.
-
-**Die Regel ist ansteckend, und das ist ihr eigentlicher Inhalt.** Sobald ein
-einziges Label rechtsläufige Zeichen trägt, ist der ganze Name ein „Bidi domain
-name" — und dann müssen *alle* Labels die sechs Bedingungen erfüllen, auch die
-aus reinem ASCII. `9abc.example` ist ein gültiger Domainname, `9abc.אבג` ist
-keiner. Wer das überliest, baut eine von zwei Sorten Fehler: Er wendet die Regel
-nie an, oder er wendet sie immer an und weist reihenweise Namen ab, die es seit
-dreissig Jahren gibt. Beide Sorten haben hier einen Test.
-
-**Ein A-Label wird für die Regel ausgepackt.** `9abc.xn--4dbcagdahymbxekheh6e0a7fei0b`
-sieht in seiner ASCII-Verpackung aus wie zwei linksläufige Labels; darin steckt
-Hebräisch. Wer die Bidi-Regel über die Verpackung laufen lässt, findet nie
-etwas.
-
-Zehn Mutationen, alle erschlagen — **eine erst nach einer Verschärfung, und zum
-vierten Mal aus demselben Grund** (D3, D5, D36, D43): Der Testfall traf schon
-eine frühere Bedingung. `אבגa` prüft nicht, was es zu prüfen scheint: Es
-scheitert an Bedingung 3 (ein rechtsläufiges Label endet auf R, AL, EN oder AN)
-und nicht an Bedingung 2 (in einem rechtsläufigen Label ist L unzulässig).
-Erst `אaב` — das fremde Zeichen in der **Mitte** — trifft Bedingung 2 allein.
-Dasselbe für Bedingung 5 gegen 6.
-
-Und ein Fehler in der Arbeitsweise, der diesmal glimpflich ausging: Ich habe
-**Testdateien geändert, während der Mutationslauf lief.** Die späteren
-Mutationen liefen damit gegen andere Tests als die früheren. Weil die Änderung
-nur Fälle hinzufügte, blieben die Urteile gültig - „erschlagen" bleibt
-erschlagen. Richtig ist es trotzdem nicht: Es gilt dieselbe Regel wie für den
-Quelltext, und aus demselben Grund wie in D43.
+**What stays open is the bidi rule** (RFC 5893): it demands `Bidi_Class` for every
+code point of a label, and .NET does not deliver the property. Guessed from block
+boundaries it would be the same approximation D42 abolished — here even more
+consequential, for the rule decides about whole labels instead of about single
+characters.
 
 ---
 
-### D45. Der Codepoint allein sagt es nicht ✅ — RFC 5892, Anhang A
+### D44. A table instead of a supposition ✅ — RFC 5893
 
-Der letzte offene Punkt aus D42. Sieben der neun kontextabhängigen Regeln
-fehlten, weil sie `Canonical_Combining_Class`, `Joining_Type` und `Script`
-verlangen — und die Antwort ist dieselbe wie in D44: **holen statt raten.**
-`tools/unicode/generate-contexttables.py` schreibt `ContextTables.cs` aus drei
-Unicode-Dateien; die Lesearbeit, die sich beide Generatoren teilen, steht jetzt
-in `tools/unicode/ucd.py`. Aufgeschrieben ist nur, was die sieben Regeln
-brauchen: die Virama-Zeichen, vier Joining_Type-Werte, fünf Schriften.
+The open point from D43. The reason there was right and the conclusion wrong:
+`Bidi_Class` **cannot** be derived — but it can be **fetched**. Unicode publishes it
+as `DerivedBidiClass.txt`, and for StringPrep the same way has existed in this
+project for a long time: `tools/stringprep/generate.py` creates `StringPrepTables.cs`
+out of the RFC text.
 
-**„Kontextabhängig" heisst: Der Codepoint allein sagt es nicht** — und dieser
-Satz stand in der alten Bauform gar nicht zur Verfügung. Sie hiess
-`ContextRuleSatisfied(CodePoint, Text)` und konnte deshalb nur Regeln
-beantworten, die den ganzen Text betrachten (A.8/A.9). Drei der neuen Regeln
-fragen nach dem Zeichen **davor**, zwei nach dem **danach**; bei zwei gleichen
-Zeichen in derselben Zeichenkette wäre schon nicht mehr klar, welches gemeint
-ist. Die Stelle gehört also in die Frage: `ContextRuleSatisfied(CodePoints,
-Index)`. Der Aufrufer arbeitet dafür auf einem Feld statt auf einer Folge.
+So `tools/unicode/generate-bidiclass.py`, after the same pattern. It loads the file,
+reads the ranges and writes `Jabber/Common/BidiClasses.cs` — ten tables, 764 ranges.
+**The eleventh class, L, is not written down:** it is the biggest and at the same
+time the default of the Unicode file itself. What stands in no other table is L.
 
-Der Unterschied wird an einem Wort sichtbar, das es wirklich gibt: **`col·la`
-ist katalanisch und ein gültiger Localpart, `co·lla` ist keiner.** Dieselben
-Zeichen, andere Reihenfolge, andere Antwort — mehr ist über
-„kontextabhängig" nicht zu sagen.
+The difference to the approximation D42 and D43 were about is exactly this: **a
+generated table can grow old, a guessed one can be wrong.** The Unicode version
+stands in the head of the file, the generator beside it; whoever doubts lets it run
+and compares.
 
-A.7 fällt aus der Reihe: Der Katakana-Mittelpunkt fragt nicht nach Nachbarn,
-sondern danach, ob **irgendwo** in der Zeichenkette japanische Schrift steht. Er
-trennt in japanischem Text die Teile eines Fremdworts; ohne japanische Zeichen
-trennt er nichts.
+**The rule is infectious, and that is its actual content.** As soon as a single
+label carries right-to-left characters, the whole name is a "bidi domain name" — and
+then *all* labels have to fulfil the six conditions, the ones out of pure ASCII as
+well. `9abc.example` is a valid domain name, `9abc.אבג` is none. Whoever reads over
+that builds one of two sorts of error: they never apply the rule, or they always
+apply it and refuse names by the row that have existed for thirty years. Both sorts
+have a test here.
 
-Vierzehn Mutationen, alle erschlagen — **drei erst nach einer Verschärfung, und
-zum fünften Mal aus demselben Grund.** Diesmal in seiner reinsten Form: Regel
-A.1 hat zwei Seiten (links ein verbindender Buchstabe, rechts einer), und mein
-Testfall `a‌b` verletzte **beide**. Er konnte deshalb nicht zeigen, dass jede
-für sich geprüft wird. Erst `a‌ي` (links falsch, rechts richtig) und
-`ب‌b` (umgekehrt) trennen die beiden Hälften — und ein drittes Paar mit
-einem durchsichtigen Zeichen dazwischen zeigt, dass die Regel darüber
-hinwegsieht.
+**An A-label is unpacked for the rule.** `9abc.xn--4dbcagdahymbxekheh6e0a7fei0b`
+looks in its ASCII wrapping like two left-to-right labels; in it sits Hebrew.
+Whoever lets the bidi rule run over the wrapping never finds anything.
 
-Nebenbei ein Vermerk, der nicht mehr stimmte: Die Beschreibung von
-`Idna.IsValidDomain` sagte weiterhin, die Bidi-Regel fehle — seit D44 tut sie
-das nicht mehr. **Ein Kommentar, der eine Lücke benennt, ist so lange nützlich,
-wie die Lücke besteht, und danach eine Falschaussage an prominenter Stelle.**
+Ten mutations, all struck down — **one only after a sharpening, and for the fourth
+time for the same reason** (D3, D5, D36, D43): the test case already hit an earlier
+condition. `אבגa` does not check what it seems to check: it fails at condition 3 (a
+right-to-left label ends in R, AL, EN or AN) and not at condition 2 (in a
+right-to-left label L is inadmissible). Only `אaב` — the foreign character in the
+**middle** — hits condition 2 alone. The same for condition 5 against 6.
 
-Damit ist RFC 7622 vollständig umgesetzt: Codepoint-Ebene (D42), Label-Ebene
-und Punycode (D43), Bidi-Regel (D44), kontextabhängige Regeln (D45).
+And an error in the way of working that this time turned out lightly: I changed
+**test files while the mutation run was going.** The later mutations thereby ran
+against different tests than the earlier ones. Because the change only added cases,
+the verdicts stayed valid - "struck down" stays struck down. Right it is
+nevertheless not: the same rule holds as for the source, and for the same reason as
+in D43.
 
 ---
 
-### D46. Ein Tippstatus verspricht nichts ✅ — XEP-0160, Abschnitt 3
+### D45. The code point alone does not say it ✅ — RFC 5892, appendix A
 
-Der letzte Punkt unter „Später → Protokoll", und der Grund für die Verschiebung
-war von Anfang an der falsche. Er lautete: „dieser Client schickt keine solche
-Nachricht, die Regel wäre ungetestet". Das stimmt für den Client — **nur gehört
-die Regel dem Server.** Ein Test braucht keinen Client, der einen Tippstatus an
-einen Abwesenden schickt; er braucht eine Zeichenkette auf der Leitung, und die
-schreibt `SendRawAsync` seit jeher.
+The last open point from D42. Seven of the nine context-dependent rules were
+missing, because they demand `Canonical_Combining_Class`, `Joining_Type` and
+`Script` — and the answer is the same as in D44: **fetch instead of guess.**
+`tools/unicode/generate-contexttables.py` writes `ContextTables.cs` out of three
+Unicode files; the reading work both generators share now stands in
+`tools/unicode/ucd.py`. Written down is only what the seven rules need: the virama
+characters, four Joining_Type values, five scripts.
 
-XEP-0160, Abschnitt 3 nennt die Ausnahme beim `chat`: „with the exception of
+**"Context-dependent" means: the code point alone does not say it** — and this
+sentence was not available at all in the old build. It was called
+`ContextRuleSatisfied(CodePoint, Text)` and could therefore answer only rules that
+look at the whole text (A.8/A.9). Three of the new rules ask after the character
+**before**, two after the one **after**; at two identical characters in the same
+string it would already no longer be clear which one is meant. The place therefore
+belongs into the question: `ContextRuleSatisfied(CodePoints, Index)`. The caller
+works on an array instead of on a sequence for that.
+
+The difference becomes visible at a word that really exists: **`col·la` is Catalan
+and a valid local part, `co·lla` is none.** The same characters, a different order,
+a different answer — more than that is not to be said about "context-dependent".
+
+A.7 falls out of the row: the Katakana middle dot does not ask after neighbours, but
+after whether **anywhere** in the string Japanese script stands. It separates the
+parts of a foreign word in Japanese text; without Japanese characters it separates
+nothing.
+
+Fourteen mutations, all struck down — **three only after a sharpening, and for the
+fifth time for the same reason.** This time in its purest form: rule A.1 has two
+sides (on the left a joining letter, on the right one), and my test case `a‌b`
+violated **both**. It could therefore not show that each is checked for itself. Only
+`a‌ي` (left wrong, right right) and `ب‌b` (the other way round) separate the two
+halves — and a third pair with a transparent character in between shows that the
+rule looks over it.
+
+Incidentally a note that no longer held: the description of `Idna.IsValidDomain`
+still said the bidi rule was missing — since D44 it does not do that any more. **A
+comment that names a gap is useful as long as the gap exists, and after that a false
+statement in a prominent place.**
+
+With that RFC 7622 is completely implemented: code point level (D42), label level
+and Punycode (D43), bidi rule (D44), context-dependent rules (D45).
+
+---
+
+### D46. A typing state promises nothing ✅ — XEP-0160, section 3
+
+The last point under "Later → protocol", and the reason for the postponement was
+the wrong one from the beginning. It read: "this client sends no such message, the
+rule would be untested". That holds for the client — **only the rule belongs to the
+server.** A test needs no client that sends a typing state to an absent person; it
+needs a string on the wire, and that `SendRawAsync` has always written.
+
+XEP-0160, section 3 names the exception at the `chat`: "with the exception of
 messages that contain only Chat State Notifications (XEP-0085) content (such
-messages SHOULD NOT be stored offline)". Ein Tippstatus ist eine Aussage über
-*jetzt*. Beim Anmelden nachgereicht sagt er, jemand tippe gerade — und das
-stimmt dann garantiert nicht mehr. Zehn davon verdrängen ausserdem die
-Nachrichten, für die die Ablage da ist.
+messages SHOULD NOT be stored offline)". A typing state is a statement about *now*.
+Handed in later at the logging in it says somebody is typing at this moment — and
+that is then guaranteed no longer true. Ten of them moreover displace the messages
+the store is there for.
 
-**Und der Absender bekommt keinen Fehler**, obwohl D14 das stillschweigende
-Verwerfen ausdrücklich ausgeschlossen hat. Das ist kein Rückfall, sondern die
-Grenze jener Regel: Sie schützt eine Erwartung. Wer eine Nachricht schickt, will
-wissen, ob sie ankam; wer einen Tippstatus schickt, hat nichts verloren, wenn er
-verfällt. Ein `<service-unavailable/>` dafür wäre Lärm — und einer, der bei
-jedem Tastendruck neu käme.
+**And the sender gets no error**, although D14 expressly ruled the silent discarding
+out. That is no relapse but the limit of that rule: it protects an expectation.
+Whoever sends a message wants to know whether it arrived; whoever sends a typing
+state has lost nothing when it expires. A `<service-unavailable/>` for it would be
+noise — and one that would come anew at every keystroke.
 
-**Hier liest der Server als einziger Stelle einen Baum**, und der Grund steht in
-der Regel selbst: Die Frage lautet „sind *alle* Kinder Tippstatus-Elemente".
-Ein `Contains` beantwortet „kommt vor", nicht „kommt nur vor" — und genau dieser
-Unterschied ist die Vorschrift. Die Zeichenkettenbrille aus D26 bleibt dort, wo
-sie hingehört: bei der Weiche, die entscheidet, *was* eine Stanza ist.
+**Here the server reads a tree as the only place**, and the reason stands in the
+rule itself: the question reads "are *all* children typing-state elements". A
+`Contains` answers "occurs", not "occurs only" — and exactly this difference is the
+prescription. The string glasses from D26 stay where they belong: at the switch that
+decides *what* a stanza is.
 
-Drei Entscheidungen dabei, jede mit einem Test:
+Three decisions in doing so, each with a test:
 
-- Ein `<thread/>` zählt nicht als Inhalt — XEP-0085, Abschnitt 5.3 führt genau
-  diese Form vor.
-- Eine Nachricht ohne Text ist deshalb noch lange kein Tippstatus: Eine
-  Empfangsbestätigung (XEP-0184) und ein Lesevermerk (XEP-0333) haben keinen
-  Text und sollen ankommen. Die naheliegende Abkürzung „ohne `<body/>` nicht
-  ablegen" wäre falsch.
-- `normal` mit demselben Inhalt wird abgelegt. Das ist der Buchstabe des
-  Abschnitts: Dort steht „SHOULD be stored offline" ohne Einschränkung. Die
-  Regel weiter zu ziehen als geschrieben hiesse, eine eigene Vorschrift zu
-  erfinden und sie fremd zu nennen.
+- A `<thread/>` does not count as content — XEP-0085, section 5.3 demonstrates
+  exactly this form.
+- A message without text is not by a long way a typing state because of it: a
+  receipt (XEP-0184) and a read marker (XEP-0333) have no text and are to arrive.
+  The obvious shortcut "without a `<body/>` do not store" would be wrong.
+- `normal` with the same content is stored. That is the letter of the section:
+  there stands "SHOULD be stored offline" without a restriction. To draw the rule
+  wider than written would mean inventing a prescription of one's own and calling
+  it somebody else's.
 
-Sieben Mutationen, alle erschlagen — eine erst nach einer Verschärfung, und der
-Fall ist hübsch: Die Mutation prüfte statt des Namensraums den Namen
-(`composing`). **Alle meine Fälle benutzten ausgerechnet `<composing/>`** — die
-Mutation war damit unsichtbar, obwohl XEP-0085 fünf Zustände kennt. Ein
-`<active/>` genügt, um sie zu erschlagen.
+Seven mutations, all struck down — one only after a sharpening, and the case is
+pretty: the mutation checked the name instead of the namespace (`composing`). **All
+my cases used `<composing/>` of all things** — the mutation was thereby invisible
+although XEP-0085 knows five states. An `<active/>` suffices to strike it down.
 
-Zum zweiten Mal in zwei Punkten stand ausserdem eine Aussage im README, die
-ihre Wahrheit überlebt hatte: „Eine Anfrage von einer Gegenstelle an die
-Serveradresse bleibt unbeantwortet" — beantwortet seit D36. **Ein Vermerk über
-eine Lücke braucht dasselbe Nachziehen wie der Quelltext**; sonst wird aus der
-ehrlichsten Zeile die falscheste.
+For the second time in two points there moreover stood a statement in the README
+that had outlived its truth: "A request from a far side to the server address stays
+unanswered" — answered since D36. **A note about a gap needs the same drawing along
+as the source**; otherwise the most honest line becomes the falsest.
 
 ---
 
-### D47. Wohin eigentlich? ✅ — der Endpunkt im Fehlertext
+### D47. Where to, actually? ✅ — the endpoint in the error text
 
-Scheiterte der Verbindungsaufbau, lautete die Ausnahme „Unable to connect to the
-remote server" — ohne die Adresse. Solange der Aufrufer sie selbst mitgab, war
-das verschmerzbar: Er konnte in seinem eigenen Quelltext nachsehen. **Seit
-XEP-0156 (D41) kann sie aus dem `host-meta` einer fremden Domain stammen**, und
-dann steht sie nirgends, wo er nachsehen könnte.
+Did the building of the connection fail, then the exception read "Unable to connect
+to the remote server" — without the address. As long as the caller passed it along
+themselves, that was bearable: they could look in their own source. **Since XEP-0156
+(D41) it can come out of the `host-meta` of a foreign domain**, and then it stands
+nowhere they could look.
 
-Also wird genau dieser eine Aufruf eingefasst: Was `ClientWebSocket.ConnectAsync`
-wirft, kommt als `XMPPProtocolException` heraus, die den Endpunkt nennt und den
-ursprünglichen Fehler als `InnerException` mitführt.
+So exactly this one call is wrapped: what `ClientWebSocket.ConnectAsync` throws
+comes out as an `XMPPProtocolException` that names the endpoint and carries the
+original error along as the `InnerException`.
 
-**Das ist kein Rückzieher gegenüber D31.** Dort ging es um den *Stapel* des
-ursprünglichen Fehlers — „für den Aufrufer ist die Stelle interessant, an der es
-schiefging". Genau das trifft hier nicht zu: Der Stapel endet in
-`ClientWebSocket.ConnectAsync` und sagt nichts, was man nicht schon weiss. Was
-fehlt, ist die Adresse. Alles danach — Aushandlung, SASL, Binding — bleibt
-unverändert und wirft weiter seine eigenen Ausnahmen; ein
-`AuthenticationException` ist nach wie vor eines, und der Wiederverbindungs­weg
-entscheidet weiter an ihm.
+**That is no climb-down against D31.** There it was about the *stack* of the
+original error — "for the caller the place is interesting at which it went wrong".
+Exactly that does not hold here: the stack ends in `ClientWebSocket.ConnectAsync`
+and says nothing one does not know already. What is missing is the address.
+Everything after it — negotiation, SASL, binding — stays unchanged and still throws
+its own exceptions; an `AuthenticationException` is one as before, and the way of
+reconnecting still decides on it.
 
-Zwei Grenzen dazu, beide mit einem Test:
+Two limits to that, both with a test:
 
-- **Ein Abbruch bleibt ein Abbruch.** Wer sein Token zieht, bekommt seine
-  `OperationCanceledException` und nicht die Meldung über den Endpunkt - sonst
-  liesse sich der eigene Abbruch nicht mehr von einem Fehlschlag unterscheiden.
-- **Genannt wird der benutzte Endpunkt, nicht der Vorgabewert.** Der Test lässt
-  die Discovery `wss://127.0.0.1:1/ws` finden; genau diese Adresse muss in der
-  Meldung stehen. Ohne ihn wäre „nenne den eingebauten Vorgabewert" eine
-  bestandene Lösung — und die verschwiege gerade den Fall, für den die ganze
-  Änderung da ist.
+- **An abort stays an abort.** Whoever pulls their token gets their
+  `OperationCanceledException` and not the message about the endpoint - otherwise
+  their own abort could no longer be told apart from a failure.
+- **Named is the endpoint used, not the default.** The test lets the discovery find
+  `wss://127.0.0.1:1/ws`; exactly this address has to stand in the message. Without
+  it "name the built-in default" would be a passing solution — and that would keep
+  quiet about precisely the case the whole change is there for.
 
-Vier Mutationen, alle erschlagen, ohne Nachschärfen.
+Four mutations, all struck down, without sharpening.
 
 ---
 
