@@ -5726,523 +5726,487 @@ a procedure of approval and roster groups as a rule of access would be needed.
 
 ---
 
-### D84. Wer an meinem Knoten hängt ✅ — die Abonnenten-Sicht des Eigentümers
+### D84. Who hangs on my node ✅ — the owner's view of the subscribers
 
-In D79 stand über die Sammelabfrage: „Wer fremde aufzählen dürfte, erführe, wer
-sich wofür interessiert — eine Auskunft über Menschen, nicht über Knoten."
-Jetzt tut der Server genau das, und es ist kein Rückzieher, sondern eine andere
-Frage. **Abschnitt 5.6 fragt „wo hängt dieser Mensch überall", Abschnitt 8.8
-fragt „wer hängt an meinem Knoten".** Das erste ist ein Interessenprofil und
-geht über alle Knoten eines Dienstes; das zweite ist eine Auskunft über einen
-Knoten — und wer sie nicht bekommt, ist derjenige, von dem alle Empfänger ihre
-Daten haben. Ihm die Empfängerliste vorzuenthalten hiesse, ihn für eine
-Verteilung verantwortlich zu machen, die er nicht sehen darf.
+In D79 it stood about the collective query: "whoever were allowed to enumerate
+foreign ones would learn who is interested in what — a piece of information about
+humans, not about nodes." Now the server does exactly that, and it is no
+climb-down but a different question. **Section 5.6 asks "where does this human hang
+everywhere", section 8.8 asks "who hangs on my node".** The first is a profile of
+interests and goes over all nodes of a service; the second is a piece of information
+about one node — and whoever does not get it is the one from whom all the recipients
+have their data. To withhold the list of recipients from them would mean making them
+responsible for a distribution they may not see.
 
-**Die Kennung ist hier keine Zierde.** Seit D72 kann derselbe JID mehrfach
-abonniert sein; ohne `subid` stünde er zweimal gleich da, und der Eigentümer
-könnte keines seiner Abonnements von dem anderen unterscheiden — also auch
-keines einzeln beenden.
+**The id is no decoration here.** Since D72 the same JID can be subscribed several
+times; without a `subid` it would stand there twice alike, and the owner could
+distinguish none of their subscriptions from the other — so could end none of them
+singly either.
 
-Drei Entscheidungen:
+Three decisions:
 
-- **Der Eigentümer darf wegnehmen, nicht hergeben.** Abschnitt 8.8.2 lässt ihn
-  auch anmelden; dieser Server nicht. Jemanden einzutragen, der nicht gefragt
-  hat, ist genau das, was Abschnitt 6.1.3.1 auf der anderen Seite verhindert,
-  und dass es der eigene Knoten ist, ändert nichts für den, dessen Postfach
-  sich füllt. Ohne Genehmigungsvorgang gäbe es dazu auch nichts, was vorher
-  eine Frage gewesen wäre.
-- **Ohne Kennung gehen alle** — kein Widerspruch zu Abschnitt 6.2.3.1. Dort
-  muss der *Abonnent* sagen, welches er meint, weil die anderen seine bleiben
-  sollen. Hier meint der *Eigentümer* den Menschen und nicht die Buchführung:
-  Eines stehen zu lassen hiesse, die Anweisung zur Hälfte auszuführen, und der
-  Entfernte bekäme weiter alles.
-- **Was niemand findet, wird nicht beendet, sondern abgewiesen.** Ein `none`
-  für einen, der gar nicht abonniert hat, stillschweigend gelten zu lassen wäre
-  wieder die Meldung über etwas, das niemand nachgesehen hat — ein Tippfehler
-  im JID, und der Eigentümer hielte jemanden für entfernt, der weiter alles
-  bekommt.
+- **The owner may take away, not give out.** Section 8.8.2 lets them sign somebody
+  up as well; this server does not. To enter somebody who has not asked is exactly
+  what section 6.1.3.1 prevents on the other side, and that it is one's own node
+  changes nothing for the one whose mailbox fills up. Without a procedure of approval
+  there would be nothing about it that had been a question beforehand either.
+- **Without an id all of them go** — no contradiction to section 6.2.3.1. There the
+  *subscriber* has to say which one they mean, because the others are to stay theirs.
+  Here the *owner* means the human and not the bookkeeping: to leave one standing
+  would mean carrying the instruction out by half, and the one removed would go on
+  getting everything.
+- **What nobody finds is not ended but refused.** To let a `none` for somebody who
+  has not subscribed at all hold silently would again be the report about something
+  nobody has looked up — a typing error in the JID, and the owner would hold somebody
+  to be removed who goes on getting everything.
 
-Ein `subscribed` für ein *bestehendes* Abonnement gilt trotzdem: Es ist keine
-Anweisung, sondern eine Bestätigung. **Eine Liste, die sich nicht unverändert
-zurückschicken lässt, wäre kein Zustand, sondern ein Formular.**
+A `subscribed` for an *existing* subscription holds all the same: it is no
+instruction but a confirmation. **A list that cannot be sent back unchanged would be
+no state, but a form.**
 
-Und die Lehre aus D83 diesmal vorher gezogen statt hinterher: Der
-Eigentümer-Block prüfte Besitz und Knoten an **jeder** Anweisung einzeln — mit
-den Abonnenten wäre es die dritte Kopie derselben Entscheidung geworden. Jetzt
-steht der Vorspann einmal davor, und wer ihn lockert, lockert ihn für alle
-sichtbar oder gar nicht.
+And the lesson from D83 drawn beforehand this time instead of afterwards: the block
+for the owner checked ownership and node at **every** instruction singly — with the
+subscribers it would have become the third copy of the same decision. Now the
+preamble stands once in front of it, and whoever loosens it loosens it visibly for
+all or not at all.
 
-**Was hier noch fehlt:** Der Entfernte erfährt nichts davon. Er wartet auf
-Meldungen, die nicht mehr kommen — und das ist genau der Zustand, den
-`PubSubSubscriptionState` seit D71 als den schlimmeren beschreibt. Abschnitt
-8.8.4 sieht dafür eine Nachricht vor; sie ist D85.
+**What is still missing here:** the one removed learns nothing of it. They wait for
+reports that come no more — and that is exactly the state
+`PubSubSubscriptionState` has described as the worse one since D71. Section 8.8.4
+provides a message for it; it is D85.
 
-Einundachtzig Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 1074
-bestanden, 7 übersprungen.
+Eighty-one tests, fourteen mutations, all struck down. Full run: 1074 passed, 7
+skipped.
 
 ---
 
-### D85. Eine Meldung über das, was geschehen ist ✅ — die Abmeldung
+### D85. A report about what has happened ✅ — the removal
 
-Das Loch aus D84 zugemacht: Wer entfernt wurde, wartete auf Meldungen, die nicht
-mehr kommen. **Das ist der schlimmere der beiden Irrtümer** — so steht es seit
-D71 in `PubSubSubscriptionState`: Wer sich zu Unrecht für nicht abonniert hält,
-fragt noch einmal nach; wer sich zu Unrecht für abonniert hält, wartet auf
-etwas, das nie kommt.
+The hole from D84 closed: whoever was removed waited for reports that come no more.
+**That is the worse of the two mistakes** — so it has stood in
+`PubSubSubscriptionState` since D71: whoever wrongly holds themselves to be not
+subscribed asks once more; whoever wrongly holds themselves to be subscribed waits
+for something that never comes.
 
-**Je erloschenem Abonnement eine Meldung, nicht je Anweisung.** Ein `none` ohne
-Kennung beendet alle Abonnements eines JIDs; käme darauf nur eine Meldung,
-wüsste der Empfänger von einer Kennung, dass sie erloschen ist, und von der
-anderen nichts. Deshalb meldet der Server nicht, was ihm aufgeschrieben wurde,
-sondern was er tatsächlich entfernt hat — eine abgewiesene Anweisung meldet
-nichts ab.
+**One report per extinguished subscription, not per instruction.** A `none` without
+an id ends all subscriptions of a JID; came only one report on that, the recipient
+would know of one id that it is extinguished and of the other nothing. This is why
+the server does not report what was written down for it, but what it has actually
+removed — a refused instruction unsubscribes nothing.
 
-**Auch der Ausschluss meldet sich**, denn er beendet Abonnements (Abschnitt
-8.9.4). Er nennt dabei seine eigene Ursache nicht: Was der Ausgeschlossene an
-diesem Knoten *ist*, geht ihn nichts an — dass er ihn nicht mehr bekommt,
-schon. Zwei verschiedene Auskünfte, und nur die zweite schuldet der Server ihm.
+**The exclusion reports itself as well**, for it ends subscriptions (section 8.9.4).
+It does not name its own cause in doing so: what the one excluded *is* at this node
+is none of their business — that they no longer get it, is. Two different pieces of
+information, and the server owes them only the second.
 
-Dafür musste `SetPepAffiliation` sagen können, was der Ausschluss gekostet hat.
-Die Auskunft gehört dorthin, wo entfernt wird: Sie sich vorher selbst
-zusammenzusuchen hiesse, dieselbe Frage zweimal zu beantworten — und die zweite
-Antwort wäre die ungenauere, weil zwischen Nachsehen und Setzen etwas
-dazwischenkommen kann. Beide Wege zum Beenden führen jetzt durch dieselbe
-Methode; zwei Stellen, die Abonnements beenden, beenden sie irgendwann
-verschieden.
+For that `SetPepAffiliation` had to be able to say what the exclusion had cost. The
+information belongs where the removing happens: to gather it beforehand oneself would
+mean answering the same question twice — and the second answer would be the less
+exact one, because something can come in between the looking up and the setting. Both
+ways to the ending now lead through the same method; two places that end
+subscriptions end them differently at some point.
 
-**Ein `headline` und damit nichts für die Ablage** (XEP-0160). Wer offline ist,
-erfährt es nicht — so wie er auch die Veröffentlichungen nicht bekommt, die er
-versäumt. Die Auskunft bleibt trotzdem erreichbar, und das ist der Grund, aus
-dem D79/D80 vorher dran waren: Abschnitt 5.6 sagt ihm beim nächsten Verbinden,
-was er noch hat. **Eine aufbewahrte Meldung wäre die schlechtere Auskunft**,
-denn sie beschreibt einen Stand von damals.
+**A `headline` and thereby nothing for the store** (XEP-0160). Whoever is offline
+does not learn it — just as they do not get the publications they miss. The
+information stays reachable all the same, and that is the reason D79/D80 came before:
+section 5.6 tells them at the next connecting what they still have. **A kept report
+would be the poorer information**, for it describes a state of back then.
 
-Neunundachtzig Tests, acht Mutationen, alle erschlagen. Voller Lauf: 1082
-bestanden, 7 übersprungen.
+Eighty-nine tests, eight mutations, all struck down. Full run: 1082 passed, 7
+skipped.
 
 ---
 
-### D86. Zwei Aufzählungen, die sich zum Verwechseln ähneln ✅ — die Clientseite
+### D86. Two enumerations confusingly alike ✅ — the client side
 
-Die Clientseite von D84/D85. `<subscriptions/>` heisst beides: „wo hänge ich
-überall" (Abschnitt 5.6) und „wer hängt an meinem Knoten" (8.8.1). Gleicher
-Elementname, gleicher Aufbau, und der Eintrag nennt einmal einen Knoten und
-einmal einen JID — **zu unterscheiden sind sie allein am Namensraum.** Drei
-Mutationen haben genau diese Verwechslung geprüft; es ist dieselbe Falle wie
-bei den Rollen in D83, nur mit einem Elementnamen, den man leichter für
-denselben hält.
+The client side of D84/D85. `<subscriptions/>` means both: "where do I hang
+everywhere" (section 5.6) and "who hangs on my node" (8.8.1). The same element name,
+the same build, and the entry names once a node and once a JID — **to be
+distinguished they are by the namespace alone.** Three mutations checked exactly this
+confusion; it is the same trap as at the roles in D83, only with an element name one
+more easily holds to be the same.
 
-**Der Zustand wird hier streng gelesen, und in der eigenen Zusage nicht.** Das
-sieht nach einer Unstimmigkeit aus und ist der Punkt: Dort ist ein unbekannter
-Name als „nicht abonniert" die vorsichtige Annahme — wer sich zu Unrecht für
-nicht abonniert hält, fragt noch einmal. Hier wäre dieselbe Nachsicht das
-Gegenteil von vorsichtig: Der Eigentümer hielte einen Abonnenten für abwesend,
-den der Dienst führt, und entfernte womöglich einen anderen an seiner Stelle.
-Ein unlesbarer Eintrag lässt darum die ganze Liste scheitern.
+**The state is read strictly here, and in our own promise not.** That looks like an
+inconsistency and is the point: there an unknown name as "not subscribed" is the
+careful assumption — whoever wrongly holds themselves to be not subscribed asks once
+more. Here the same leniency would be the opposite of careful: the owner would hold a
+subscriber the service carries to be absent, and would possibly remove another one in
+their place. An unreadable entry therefore lets the whole list fail.
 
-**Der Client kann entfernen und nicht anmelden**, obwohl Abschnitt 8.8.2 beides
-zulässt — dieselbe Entscheidung wie im Server, und aus demselben Grund. Ein
-Client, der einen anderen ungefragt anmelden kann, braucht dafür keinen Namen
-in `PubSubBuilder`: Wer das will, schreibt es hin und sagt, was er tut.
+**The client can remove and not sign up**, although section 8.8.2 allows both — the
+same decision as in the server, and for the same reason. A client that can sign
+another up unasked needs no name in `PubSubBuilder` for it: whoever wants that writes
+it down and says what they are doing.
 
-Dazu die Gegenprobe im Eingang: Eine `<subscription/>`-Meldung mit
-`subscription='subscribed'` wird **nicht** eingetragen. Eine Zusage kommt auf
-eine Anfrage; wer sie ungefragt annähme, liesse sich von einem Dienst anmelden.
-Damit weisen beide Seiten dasselbe ab.
+To that the counter-check at the entrance: a `<subscription/>` report with
+`subscription='subscribed'` is **not** entered. A promise comes on a request; whoever
+accepted it unasked could be signed up by a service. With that both sides refuse the
+same thing.
 
-Der Knoten einer Abmeldung musste in `NodeOf` aufgenommen werden, und nicht nur
-damit sie ankommt: **An diesem Knoten hängt die Absenderprüfung.** Eine Meldung,
-deren Knoten dort leer bleibt, gilt als Meldung über den Knoten `""` — den
-niemand abonniert hat. Die Mutation, die den Eintrag wieder herausnimmt, wird
-deshalb nicht vom Auswerten erschlagen, sondern vom Spoofing-Schutz.
+The node of a removal had to be taken into `NodeOf`, and not only so that it arrives:
+**on this node the check of the sender hangs.** A report whose node stays empty there
+counts as a report about the node `""` — which nobody has subscribed to. The mutation
+that takes the entry out again is therefore struck down not by the evaluating but by
+the protection against spoofing.
 
-Zweiundfünfzig Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 1091
-bestanden, 7 übersprungen.
+Fifty-two tests, ten mutations, all struck down. Full run: 1091 passed, 7 skipped.
 
-Damit ist Abschnitt 8.8 fertig (D84–D86) und von XEP-0060 bleibt: das Löschen
-und Leeren von Knoten, `<retract/>` sowie die Zugriffsmodelle `authorize` und
-`roster` — für die es einen Genehmigungsvorgang und Rostergruppen als
-Zugriffsregel bräuchte.
+With that section 8.8 is finished (D84–D86) and of XEP-0060 there remains: the
+deleting and emptying of nodes, `<retract/>` as well as the access models `authorize`
+and `roster` — for which a procedure of approval and roster groups as a rule of access
+would be needed.
 
 ---
 
-### D87. Der Knoten und sein Inhalt ✅ — Löschen und Leeren
+### D87. The node and its content ✅ — deleting and emptying
 
-Zwei Anweisungen, die man leicht für Abstufungen derselben hält, und die
-verschiedene Dinge betreffen: **Gelöscht wird der Knoten, geleert nur sein
-Inhalt.** Wer geleert hat, veröffentlicht weiter an dieselben Empfänger; wer
-gelöscht hat, an niemanden.
+Two instructions one easily holds to be gradations of the same, and which concern
+different things: **deleted is the node, emptied only its content.** Whoever has
+emptied goes on publishing to the same recipients; whoever has deleted, to nobody.
 
-Der Testserver konnte bis hierher keines von beiden — `/pubsub delete` gab es
-in der Konsole seit jeher, und der Server antwortete darauf, wie er auf alles
-Unbekannte antwortet. Der fehlende Teil war also nicht der Client, sondern die
-Gegenstelle.
+The test server could do neither of the two up to here — `/pubsub delete` had always
+existed in the console, and the server answered it the way it answers everything
+unknown. The missing part was therefore not the client but the far side.
 
-**Ein gelöschter Knoten nimmt vier Dinge mit**, und das vierte ist der Grund,
-es hinzuschreiben: Einträge, Einstellungen, Abonnements **und Rollen**. Blieben
-die Rollen stehen, erbte der nächste Knoten desselben Namens eine
-Ausschlussliste, die niemand mehr sieht — und der Eigentümer wunderte sich,
-warum ein Bekannter an seinen neuen Knoten nicht herankommt.
+**A deleted node takes four things with it**, and the fourth is the reason for
+writing it down: items, settings, subscriptions **and roles**. Would the roles stay
+standing, the next node of the same name would inherit a list of exclusions nobody
+sees any more — and the owner would wonder why an acquaintance cannot get at their
+new node.
 
-## Die überlebende Mutation war gar keine
+## The surviving mutation was none at all
 
-Beim Leeren stand zuerst `eintraege.Clear()` statt `_pepNodes.Remove(node)`,
-und zwar mit einer Begründung, die gut klang: Ein Knoten, der bloss durchs
-Veröffentlichen entstanden ist, stünde allein in der Ablage — wird sie entfernt,
-hätte das Leeren ihn gelöscht. Die Mutation, die genau das tut, hat **überlebt**,
-zweimal, auch nachdem der Test die Lücke schloss, durch die er beim ersten Mal
-gefallen war.
+At the emptying there stood at first `items.Clear()` instead of
+`_pepNodes.Remove(node)`, and with a reason that sounded good: a node that arose
+merely through the publishing would stand alone in the store — is it removed, then
+the emptying would have deleted it. The mutation that does exactly that has
+**survived**, twice, even after the test closed the gap through which it had fallen
+the first time.
 
-Der Grund: **Den Fall gibt es nicht.** `PublishPepItem` legt die Einstellung an,
-bevor es den ersten Eintrag schreibt, genau wie `CreatePepNode` — es gibt keinen
-Knoten, der nur in der Ablage steht. Die Abwehr richtete sich gegen einen
-Zustand, den nichts herstellen kann, und war deshalb nicht zu widerlegen.
+The reason: **the case does not exist.** `PublishPepItem` creates the setting before
+it writes the first item, exactly like `CreatePepNode` — there is no node that stands
+only in the store. The defence was directed against a state nothing can produce, and
+was therefore not to be refuted.
 
-Dahinter lag der eigentliche Fund: **Die Frage „gibt es diesen Knoten" hatte
-zwei Antworten** — Einstellung vorhanden *oder* Einträge vorhanden. Die zweite
-war unerreichbar und wäre beim Leeren zur Falle geworden. Jetzt hängt ein Knoten
-an seiner Einstellung, an einer Stelle und nur dort; dieselbe Vereinfachung
-räumte eine zweite Aufzählung in `PepAffiliationsOf` mit weg. Das ist der Fund
-aus D81 in neuer Gestalt: nicht ein fehlender Test, sondern **zwei Wege zu
-derselben Entscheidung.**
+Behind it lay the actual find: **the question "does this node exist" had two answers**
+— a setting present *or* items present. The second was unreachable and would have
+become a trap at the emptying. Now a node hangs on its setting, at one place and only
+there; the same simplification cleared a second enumeration in `PepAffiliationsOf`
+away with it. That is the find from D81 in a new shape: not a missing test, but **two
+ways to the same decision.**
 
-Der Test, den die erste Mutation aufgedeckt hat, bleibt trotzdem stehen — er
-sah erst nach der nächsten Veröffentlichung nach, und die legt den Knoten wieder
-an. **Ein gelöschter hätte danach ausgesehen wie ein geleerter.**
+The test the first mutation uncovered stays standing all the same — it looked only
+after the next publication, and that creates the node again. **A deleted one would
+have looked afterwards like an emptied one.**
 
-**Je Abonnenten eine Meldung, nicht je Abonnement** — und ohne Kennung. Das ist
-die Gegenentscheidung zu D85, aus demselben Grund: Dort endeten einzelne
-Abonnements, und die Kennung sagte, welches. Hier endet der Knoten; eine
-Kennung zu nennen hiesse, die anderen bestünden weiter. Aus demselben Grund
-kommt keine zweite Meldung nach Abschnitt 8.8.4 hinterher.
+**One report per subscriber, not per subscription** — and without an id. That is the
+counter-decision to D85, for the same reason: there single subscriptions ended, and
+the id said which one. Here the node ends; to name an id would mean the others still
+exist. For the same reason no second report under section 8.8.4 follows afterwards.
 
-Zwei Absagen, die auch anders hätten ausfallen können:
+Two refusals that could have turned out differently:
 
-- **Ein Knoten ohne Ablage lässt sich nicht leeren** (Abschnitt 8.5.3.2). Für
-  das Gegenteil liesse sich argumentieren — die Meldung ist ja an den
-  Abonnenten gerichtet, und der hat womöglich etwas aufbewahrt. Das XEP
-  entscheidet anders, und mit dem besseren Grund: Ein `result` wäre die
-  Auskunft, es sei etwas geleert worden, und die Meldung die Aufforderung,
-  etwas wegzuwerfen, das dieser Knoten nie ausgeliefert hat.
-- **Ein `get` auf `<delete/>` ist ein `<bad-request/>`** und kein Löschen.
-  Ohne diese Prüfung fiele es bis zum Einstellen durch und bekäme die
-  Knotenkonfiguration zurück — eine Antwort auf eine Frage, die niemand
-  gestellt hat.
+- **A node without a store cannot be emptied** (section 8.5.3.2). For the opposite
+  one could argue — the report is directed at the subscriber after all, and that one
+  has possibly kept something. The XEP decides otherwise, and with the better reason:
+  a `result` would be the information that something had been emptied, and the report
+  the request to throw away something this node never delivered.
+- **A `get` on `<delete/>` is a `<bad-request/>`** and no deleting. Without this
+  check it would fall through as far as the configuring and would get the
+  configuration of the node back — an answer to a question nobody has put.
 
-Nicht umgesetzt: das `<redirect/>` aus Abschnitt 8.4.2, mit dem ein gelöschter
-Knoten auf seinen Nachfolger zeigt. Es wäre ein Verweis, dem der Client folgen
-müsste, und ohne den zweiten Knoten ein Versprechen ohne Deckung.
+Not implemented: the `<redirect/>` from section 8.4.2, with which a deleted node
+points at its successor. It would be a reference the client would have to follow, and
+without the second node a promise without backing.
 
-Hundert Tests, zwölf Mutationen, alle erschlagen. Voller Lauf: 1102 bestanden,
-7 übersprungen.
+A hundred tests, twelve mutations, all struck down. Full run: 1102 passed, 7 skipped.
 
 ---
 
-### D88. Was der Löschende als einziger nicht erfährt ✅ — die Clientseite
+### D88. What only the one deleting does not learn ✅ — the client side
 
-Die Clientseite von D87, und sie besteht fast ganz aus dem, was **nach** der
-Antwort zu tun ist.
+The client side of D87, and it consists almost entirely of what is to be done
+**after** the answer.
 
-**Ein gelöschter Knoten nimmt das Abonnement darauf mit, ein geleerter nicht.**
-Das ist derselbe Unterschied wie im Server, nur von der anderen Seite gesehen:
-Nach einem `<purge/>` kommt die nächste Veröffentlichung an dieselbe Adresse,
-und wer hier mit aufräumte, hätte danach keinen Eintrag mehr über ein
-Abonnement, das weiterbesteht — und müsste dessen Meldungen für Fälschungen
-halten.
+**A deleted node takes the subscription to it along, an emptied one does not.** That
+is the same difference as in the server, only seen from the other side: after a
+`<purge/>` the next publication comes to the same address, and whoever cleared up here
+as well would afterwards have no entry any more about a subscription that still
+exists — and would have to hold its reports to be forgeries.
 
-**Der Löschende bekommt keine Meldung.** Der Dienst schickt das `<delete/>` an
-alle ausser den, der gelöscht hat — richtig so, aber es heisst, dass genau der
-seinen Eintrag selbst streichen muss. Wer sich auf die Meldung verliesse,
-behielte als einziger eine Buchführung über einen Knoten, den er selbst
-beseitigt hat. Eine abgewiesene Löschung räumt dagegen nichts auf; auch das ist
-eine eigene Mutation wert.
+**The one deleting gets no report.** The service sends the `<delete/>` to everybody
+except the one who deleted — right so, but it means that exactly that one has to strike
+their entry themselves. Whoever relied on the report would as the only one keep a
+bookkeeping about a node they removed themselves. A refused deletion on the other hand
+clears nothing up; that too is worth a mutation of its own.
 
-**Gestrichen wird je Dienst und nicht je Namen.** `urn:xmpp:omemo:2:bundles`
-heisst bei jedem Konto so — wer beim Löschen bloss den Knotennamen aus der
-Buchführung nimmt, beendet zugleich das Abonnement auf den gleichnamigen Knoten
-von jemand anderem und merkt es erst, wenn dessen Meldungen ausbleiben. Der
-Test dazu hält zwei Abonnements auf denselben Namen bei zwei Konten.
+**Struck is per service and not per name.** `urn:xmpp:omemo:2:bundles` is called that
+at every account — whoever at the deleting takes merely the name of the node out of
+the bookkeeping ends at the same time the subscription to the node of the same name of
+somebody else and notices it only when their reports stay out. The test for it holds
+two subscriptions to the same name at two accounts.
 
-Nebenbei: `PubSubBuilder.DeleteNode` schrieb seinen Namensraum als Zeichenkette
-aus, während alle anderen Eigentümer-Anfragen die Konstante benutzen. Zwei
-Schreibweisen derselben Sache halten sich, bis eine von beiden falsch wird.
+Incidentally: `PubSubBuilder.DeleteNode` wrote its namespace out as a string while all
+other owner requests use the constant. Two spellings of the same thing hold until one
+of the two becomes wrong.
 
-Siebenundfünfzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1107
-bestanden, 7 übersprungen.
+Fifty-seven tests, seven mutations, all struck down. Full run: 1107 passed, 7 skipped.
 
-Damit bleibt von XEP-0060 noch `<retract/>` sowie die Zugriffsmodelle
-`authorize` und `roster`.
+With that of XEP-0060 there still remains `<retract/>` as well as the access models
+`authorize` and `roster`.
 
 ---
 
-### D89. Eine Zustellung und keine Nachricht über den Knoten ✅ — `<retract/>`
+### D89. A delivery and no report about the node ✅ — `<retract/>`
 
-Der Gegensatz zu D87 in einem Satz: **Löschen und Leeren betreffen den Knoten,
-eine Rücknahme betrifft einen Eintrag.** Daran hängt alles Weitere. Sie geht
-deshalb nicht je Abonnenten einmal hinaus, sondern **je Abonnement, mit
-Kennung, und an ein stillgelegtes gar nicht** — genau wie eine
-Veröffentlichung, denn sie ist eine Zustellung.
+The opposite of D87 in one sentence: **deleting and emptying concern the node, a
+retraction concerns an item.** On that everything further hangs. It therefore does not
+go out once per subscriber, but **per subscription, with an id, and to a silenced one
+not at all** — exactly like a publication, for it is a delivery.
 
-Das liess sich beweisen, statt es zu behaupten: Die Zustellung von
-Veröffentlichung und Rücknahme läuft jetzt durch dieselbe Stelle, die nur noch
-den Inhalt von `<items/>` gereicht bekommt. Für das stillgelegte Abonnement war
-danach nichts mehr zu bedenken — der Test dazu prüft, dass es auch so bleibt.
+That could be proved instead of claimed: the delivery of a publication and of a
+retraction now runs through the same place, which only gets the content of `<items/>`
+handed to it. For the silenced subscription there was afterwards nothing more to
+consider — the test for it checks that it stays that way as well.
 
-**Wer schreiben darf, darf auch zurücknehmen.** Dieselbe Rollenprüfung wie beim
-Veröffentlichen, und damit kommt ein `publisher` auch an fremde Einträge im
-selben Knoten. Die feinere Regel — jeder nur seine eigenen — wäre die bessere,
-setzte aber voraus, sich zu merken, wer welchen Eintrag geschrieben hat. Diese
-Ablage gibt es hier nicht, und ohne sie wäre die Regel bloss behauptet.
+**Whoever may write may also retract.** The same check of the role as at the
+publishing, and with that a `publisher` gets at foreign items in the same node as well.
+The finer rule — everybody only their own — would be the better one, but would
+presuppose remembering who wrote which item. That store does not exist here, and
+without it the rule would be merely claimed.
 
-Zwei Absagen, beide aus demselben Grund wie in D87: Ein Eintrag, den es nicht
-gibt, bekommt `<item-not-found/>`; ein Knoten ohne Ablage `<unsupported
-feature='persistent-items'/>`. Ein `result` wäre jeweils die Auskunft, etwas sei
-zurückgenommen worden — und die Meldung an die Abonnenten die Aufforderung,
-etwas wegzuwerfen, das sie nie bekommen haben.
+Two refusals, both for the same reason as in D87: an item that does not exist gets
+`<item-not-found/>`; a node without a store `<unsupported
+feature='persistent-items'/>`. A `result` would in each case be the information that
+something had been retracted — and the report to the subscribers the request to throw
+away something they never got.
 
-Ein Test hatte zuerst unrecht, und die Antwort des Servers war die bessere: Für
-einen **fremden** Knoten erwartete er `<forbidden/>` mit der Begründung aus D81
-— an einem Knoten, den es nicht gibt, hat niemand eine Rolle. Für den
-Eigentümer gilt das nicht: **Er wird erkannt und nicht nachgeschlagen**, weil
-ein PEP-Knoten dem Konto gehört. Ihm fehlt also nicht die Erlaubnis, sondern der
-Eintrag, und genau das sagt `<item-not-found/>`.
+One test was wrong at first, and the answer of the server was the better one: for a
+**foreign** node it expected `<forbidden/>` with the reason from D81 — at a node that
+does not exist nobody has a role. For the owner that does not hold: **they are
+recognised and not looked up**, because a PEP node belongs to the account. They
+therefore lack not the permission but the item, and exactly that `<item-not-found/>`
+says.
 
-Der letzte zurückgenommene Eintrag lässt den Knoten stehen. Ein Knoten, der mit
-seinem Inhalt verschwände, wäre für seine Abonnenten ohne Ankündigung fort — und
-die nächste Veröffentlichung legte einen neuen an, den niemand abonniert hat.
+The last retracted item leaves the node standing. A node that disappeared with its
+content would be gone without an announcement for its subscribers — and the next
+publication would create a new one nobody has subscribed to.
 
-**Was die Zusammenlegung nebenbei aufgedeckt hat:** Die Mutation, die eine
-Veröffentlichung ohne ihre `<item/>`-Hülle hinausschickt, hat überlebt. Diese
-Sammlung prüfte den Inhalt einer Zustellung, die Herkunft und die Kennung des
-Abonnements — **nie aber die Kennung des zugestellten Eintrags.** Das ist keine
-Förmlichkeit: Ein Client, der Einträge nach ihrer Kennung führt, übergeht ein
-Item ohne sie ganz. Der Inhalt käme an und wäre trotzdem verloren.
+**What the drawing together uncovered along the way:** the mutation that sends a
+publication out without its `<item/>` envelope has survived. This suite checked the
+content of a delivery, the origin and the id of the subscription — **never however the
+id of the delivered item.** That is no formality: a client that keeps items by their
+id passes over an item without one entirely. The content would arrive and would be
+lost all the same.
 
-Hundertsieben Tests, neun Mutationen, alle erschlagen. Voller Lauf: 1114
-bestanden, 7 übersprungen.
-
----
-
-### D90. Der Teil, der schon da war ✅ — `<retract/>` auf der Clientseite
-
-Die kürzeste Etappe dieser Reihe, und das aus einem Grund, der zu ihr gehört:
-**Der Client konnte eingehende Rücknahmen von Anfang an lesen.** `PubSubEvent`
-kennt `Retract` samt der Liste betroffener Kennungen, seit es
-`PubSubManager.ProcessEvent` gibt — es kam nur nie eine an, weil kein Server in
-Reichweite eine schickte. Erst D89 hat die Gegenstelle nachgeliefert, und
-seither ist der Zweig zum ersten Mal gelaufen. Dieselbe Geschichte wie beim
-Löschen in D88, nur ohne den Aufräumteil.
-
-Denn aufzuräumen gibt es hier nichts, und das ist die einzige Entscheidung
-dieser Etappe: **Eine Rücknahme betrifft einen Eintrag und nicht den Knoten.**
-Das Abonnement bleibt stehen — anders als beim Löschen, wo es mitgeht. Es hier
-ebenfalls zu streichen wäre ein Verlust ohne Anlass: Der Knoten besteht weiter,
-und die nächste Veröffentlichung käme an eine Adresse, die dieser Client nicht
-mehr kennt. Der Test dafür veröffentlicht nach der Rücknahme noch einmal und
-prüft, dass es unter derselben Kennung ankommt.
-
-Was ankommt, ist allein die Kennung des Eintrags — eine Rücknahme hat keine
-Nutzlast. Wer sie nicht liest, weiss, dass sich etwas geändert hat, aber nicht
-was, und muss den ganzen Knoten neu abrufen.
-
-Sechzig Tests, sechs Mutationen, alle erschlagen. Voller Lauf: 1117 bestanden,
-7 übersprungen.
-
-Damit ist XEP-0060 bis auf die Zugriffsmodelle `authorize` und `roster` fertig —
-für die es einen Genehmigungsvorgang und Rostergruppen als Zugriffsregel
-bräuchte.
+A hundred and seven tests, nine mutations, all struck down. Full run: 1114 passed, 7
+skipped.
 
 ---
 
-### D91. Die Gruppe, die es nie bis zum Server schaffte ✅ — Roster-Gruppen
+### D90. The part that was there already ✅ — `<retract/>` on the client side
 
-Auf dem Weg zum Zugriffsmodell `roster` stellte sich heraus, dass die
-Voraussetzung fehlt: **Der Testserver kannte keine Roster-Gruppen.** Und nicht
-nur das — er tat so, als kennte er sie:
+The shortest stage of this series, and for a reason that belongs to it: **the client
+could read incoming retractions from the beginning.** `PubSubEvent` knows `Retract`
+together with the list of ids concerned, since `PubSubManager.ProcessEvent` exists —
+only none ever arrived, because no server in reach sent one. Only D89 delivered the
+far side, and since then the branch has run for the first time. The same story as at
+the deleting in D88, only without the clearing-up part.
 
-- `RosterStanzaBuilder.SetItem` schickt `<group/>` mit, seit es ihn gibt.
-- `RosterItem.Groups` führt sie beim Client, `/roster` zeigt danach sortiert an.
-- Der Kommentar in der Roster-Behandlung des Servers sagt seit jeher, ein Set
-  ändere „Name **und Gruppen**".
-- Gelesen wurde das `<item/>` nur bis zu seinen Attributen.
+For there is nothing to clear up here, and that is the only decision of this stage: **a
+retraction concerns an item and not the node.** The subscription stays standing —
+unlike at the deleting, where it goes along. To strike it here as well would be a loss
+without an occasion: the node still exists, and the next publication would come to an
+address this client no longer knows. The test for it publishes once more after the
+retraction and checks that it arrives under the same id.
 
-Die Gruppe kam an, wurde still verworfen, und der Push brachte denselben
-Eintrag ohne sie zurück. **Weil ein Push die Gruppen eines Eintrags ersetzt,
-verschwand sie damit auch beim Client** — was der Mensch eingestellt hatte, war
-einen Wimpernschlag später weg, und nichts sah nach einem Fehler aus.
+What arrives is solely the id of the item — a retraction has no payload. Whoever does
+not read it knows that something has changed, but not what, and has to fetch the whole
+node anew.
 
-**Zwei Stellen, an denen dasselbe noch einmal passiert wäre**, sind beim
-Nachziehen aufgefallen:
+Sixty tests, six mutations, all struck down. Full run: 1117 passed, 7 skipped.
 
-- Der **Handschlag** (`UpdateRosterEntry`) baute den Eintrag Feld für Feld neu.
-  Die frisch gesetzte Gruppe fiel dabei heraus, weil `AddContactAsync` gleich
-  nach dem Set eine Presence-Anfrage schickt — der Test war rot, obwohl das
-  Lesen längst stimmte. Jetzt wird der bestehende Eintrag mit `with` geändert;
-  das kennt auch die Felder, die noch kommen.
-- Die **Ablage** (`FileAccountStore`) schrieb den Roster ebenso Feld für Feld.
-  Ohne die Ergänzung hätten die Gruppen jeden Serverneustart nicht überlebt.
-
-**Die Fassung des Rosters zählt sie mit** (RFC 6121, Abschnitt 2.6). Das ist der
-Teil, an dem sonst nichts auffiele: Bliebe die Fassung nach einem Umgruppieren
-dieselbe, bekäme ein Client, der sie zwischengespeichert hat, beim nächsten
-Anmelden ein leeres Ergebnis — und behielte die alte Einteilung für immer. Der
-Fehler zeigte sich erst Tage später und an einem anderen Gerät.
-
-Dazu ein `XmlEscaping.Unescape` für die Stellen, die eine Stanza mit einem
-Muster lesen statt sie zu zerlegen. **Das kaufmännische Und zuletzt:** Wer es
-zuerst ersetzt, macht aus `&amp;lt;` ein `<` — aus einem Text, der von einem
-Zeichen handelt, wird das Zeichen. Der Test dazu trägt eine Gruppe namens
-`A&lt;B`, die genau das wörtlich meint.
-
-Sechs Tests, sechs Mutationen, alle erschlagen. Voller Lauf: 1123 bestanden,
-7 übersprungen.
+With that XEP-0060 is finished except for the access models `authorize` and `roster` —
+for which a procedure of approval and roster groups as a rule of access would be
+needed.
 
 ---
 
-### D92. Die Liste, die der Eigentümer ohnehin führt ✅ — Zugriffsmodell `roster`
+### D91. The group that never made it to the server ✅ — roster groups
 
-Das vierte von fünf Modellen, und nach D91 fast eine Formsache: Wer im Roster
-des Eigentümers steht, kommt herein; sind Gruppen genannt, nur wer in einer
-davon steht.
+On the way to the access model `roster` it turned out that the precondition is
+missing: **the test server knew no roster groups.** And not only that — it acted as
+though it knew them:
 
-**Ein Eintrag genügt, ein Presence-Zustand wird nicht verlangt** — das ist der
-Unterschied zu `presence`, und er ist keine Ungenauigkeit, sondern eine andere
-Frage: Dort geht es darum, wer *mich sehen darf*, hier darum, wen *ich führe*.
-Beides kann auseinandergehen, und dann sind es zwei Antworten und nicht eine
-ungefähre.
+- `RosterStanzaBuilder.SetItem` sends `<group/>` along, since it has existed.
+- `RosterItem.Groups` keeps them at the client, `/roster` shows sorted by them.
+- The comment in the roster handling of the server has always said that a set changes
+  "name **and groups**".
+- Read the `<item/>` was only as far as its attributes.
 
-**Ohne genannte Gruppen kommt der ganze Roster herein.** Die leere Liste als
-„niemand" zu lesen wäre die andere Möglichkeit und die schlechtere: Sie machte
-`roster` in seiner Grundeinstellung wirkungsgleich mit einer leeren
-`whitelist` — zwei Namen für dieselbe Sache, und einer davon führte in die
-Irre.
+The group arrived, was discarded silently, and the push brought the same entry back
+without it. **Because a push replaces the groups of an entry, it thereby disappeared
+at the client as well** — what the human had set was gone the blink of an eye later,
+and nothing looked like an error.
 
-Die Gruppenliste steht auch dann im Formular, wenn ein anderes Modell gilt. Sie
-ist eine Einstellung des **Knotens** und nicht des Modells: Wer von `open` auf
-`roster` umstellt, soll die Liste vorher setzen können, statt den Knoten
-zwischen zwei Anweisungen für den ganzen Roster offen stehen zu lassen.
+**Two places at which the same would have happened once more** came out at the drawing
+along:
 
-`pubsub#roster_groups_allowed` ist das erste Feld dieses Hauses, das **mehrere
-Werte** trägt. Der Formularhelfer sagte bis hierher ausdrücklich, Mehrfachwerte
-würden nicht gebraucht — jetzt gibt es sie, und ein `list-multi`, von dem nur
-der erste Wert gelesen würde, wäre genau die stille Verkürzung, gegen die
-dieses Haus sonst schreibt.
+- The **handshake** (`UpdateRosterEntry`) built the entry anew field by field. The
+  freshly set group fell out in doing so, because `AddContactAsync` sends a presence
+  request straight after the set — the test was red although the reading had long been
+  right. Now the existing entry is changed with `with`; that knows the fields that are
+  still to come as well.
+- The **store** (`FileAccountStore`) wrote the roster field by field likewise. Without
+  the addition the groups would not have survived any restart of the server.
 
-Nebenbei ein Fund derselben Art wie in D91: **Der Konsolenbefehl `/pubsub
-access` kannte `whitelist` nicht** — er nahm seit jeher nur `open` und
-`presence`, während der Hilfetext daneben und das README seit D82 alle drei
-versprachen. Er liest die Namen jetzt aus derselben Stelle wie das Formular.
+**The version of the roster counts them along** (RFC 6121, section 2.6). That is the
+part at which nothing else would come out: would the version stay the same after a
+regrouping, a client that has cached it would get an empty result at the next logging
+in — and would keep the old division for ever. The error would show itself only days
+later and at a different device.
 
-Fünf Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1128 bestanden,
-7 übersprungen.
+To that an `XmlEscaping.Unescape` for the places that read a stanza with a pattern
+instead of taking it apart. **The ampersand last:** whoever replaces it first makes a
+`<` out of `&amp;lt;` — out of a text that is about a character becomes the character.
+The test for it carries a group named `A&lt;B`, which means exactly that literally.
 
----
-
-### D93. Das Modell, bei dem Fragen und Dürfen zweierlei sind ✅ — `authorize`
-
-Das fünfte und letzte Zugriffsmodell. **Bei allen anderen entscheidet dieselbe
-Regel zweierlei:** Wer nicht hereindarf, darf auch nicht abonnieren. Hier nicht
-— jeder darf fragen, denn das Fragen ist der Vorgang. Wer beides
-zusammenwürfe, machte den Genehmigungsvorgang unerreichbar: Um zu dürfen,
-müsste man schon dürfen.
-
-Damit bekommt `PubSubSubscriptionState.Pending` zum ersten Mal einen Sinn. Der
-Zustand steht seit D71 im Code, mit der Begründung, ein `pending` sehe wie eine
-Zusage aus und sei keine — **auf dem Papier**, denn kein Knoten konnte einen
-erzeugen. Jetzt kann einer, und an drei Stellen im Server stand
-`subscription='subscribed'` als feste Zeichenkette. Jede davon war ab sofort
-eine Behauptung.
-
-Die Zusage geht durch die Tür, die D84 gebaut hat: die Abonnentenliste. Dort
-stand ausdrücklich, der Zustand sei fest eingetragen und dies wäre „eine der
-Stellen, die einen echten Zustand brauchen", sobald es `authorize` gibt — und
-ebenso, ein `subscribed` sei „keine Anweisung, sondern eine Bestätigung". Beides
-gilt jetzt anders herum, und der Grund war schon damals notiert: *Ohne
-Genehmigungsvorgang gäbe es nichts, was vorher eine Frage gewesen wäre.* Jetzt
-gibt es etwas. **Ein `subscribed` auf ein beantragtes Abonnement ist die Zusage,
-auf ein zugesagtes bleibt es die Bestätigung von vorher** — und die meldet sich
-nicht, weil sich nichts geändert hat.
-
-## Was `authorize` nebenbei aufgedeckt hat
-
-**Die beiläufige Zustellung fragte das Zugriffsmodell nicht.** Presence-Kontakte
-bekamen jede Veröffentlichung — auch von einem Knoten, dessen Modell ihnen den
-Abruf versperrte. Das Modell hielt die Tür zu und liess die Meldung durch, in
-der der Eintrag vollständig steht. Für `whitelist` und `roster` war das seit
-D82 und D92 falsch und fiel niemandem auf, weil beide Modelle nur am Abruf und
-am Abonnieren geprüft wurden. Bei `authorize` wäre die Genehmigung damit eine
-blosse Förmlichkeit gewesen: Wer wartet, hätte längst alles bekommen.
-
-Jetzt fragt auch dieser Weg dieselbe Stelle — eine Zeile, und sie räumt drei
-Modelle zugleich auf.
-
-Und ein Test hat sein Beispiel **zum zweiten Mal verloren**, beide Male aus dem
-besten Grund: „Ein Zugriffsmodell, das niemand anbietet, wird abgewiesen" hiess
-bis K13 `whitelist` und bis D93 `authorize`. Beide sind jetzt angeboten, weil
-sie sich durchsetzen lassen. Übrig bleibt der Fall, den es immer geben wird:
-ein Name, den niemand vergeben hat.
-
-Hundertsiebzehn Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 1133
-bestanden, 7 übersprungen.
-
-**Was noch fehlt:** die Genehmigungsanfrage nach Abschnitt 8.6.1 — die
-Nachricht mit dem Formular, über die ein fremder Client den Antrag anzeigt und
-beantwortet. Solange es sie nicht gibt, erfährt der Eigentümer vom Antrag nur,
-wenn er nachsieht. Das ist die nächste Etappe, und sie hängt nicht in der Luft:
-Ohne sie wäre schon heute nichts falsch, nur unbequem.
+Six tests, six mutations, all struck down. Full run: 1123 passed, 7 skipped.
 
 ---
 
-### D94. Zwei Türen, ein Raum ✅ — die Genehmigungsanfrage
+### D92. The list the owner keeps anyway ✅ — access model `roster`
 
-Der Antrag wird dem Eigentümer jetzt vorgelegt, statt auf ihn zu warten
-(Abschnitt 8.6.1) — und die Antwort darauf kommt an (8.6.2).
+The fourth of five models, and after D91 almost a formality: whoever stands in the
+roster of the owner gets in; are groups named, only whoever stands in one of them.
 
-**Zwei Türen zu derselben Entscheidung, und deshalb keine zweite
-Entscheidung.** Genehmigen liess sich ein Antrag seit D93 über die
-Abonnentenliste; jetzt geht es auch über das Formular, und beide Wege rufen
-dieselbe Stelle im Konto auf. Zwei Türen sind trotzdem nötig: **Die Liste ist
-die Sicht eines Verwalters, das Formular die eines Menschen, dem sein Client
-eine Frage anzeigt.** Wer nur die Liste hätte, verlangte von jedem Client, dass
-er Abonnenten verwalten kann.
+**One entry suffices, a state of presence is not demanded** — that is the difference to
+`presence`, and it is no inexactness but a different question: there it is about who
+*may see me*, here about whom *I keep*. The two can go apart, and then they are two
+answers and not one approximate one.
 
-Daraus folgt auch die Kopplung, die diese Etappe überhaupt zu einer macht: **Ein
-Formular, das niemand beantworten kann, wäre schlimmer als keines.** Es genügt
-nicht, die Frage zu stellen — wer sie stellt, muss die Antwort annehmen, sonst
-genehmigt ein Mensch etwas und es geschieht nichts. Deshalb stehen Lesen und
-Schreiben des Formulars in einer Datei nebeneinander.
+**Without named groups the whole roster gets in.** To read the empty list as "nobody"
+would be the other possibility and the poorer one: it would make `roster` in its basic
+setting equal in effect to an empty `whitelist` — two names for the same thing, and one
+of them would mislead.
 
-Drei Entscheidungen im Kleinen:
+The list of groups stands in the form even when another model holds. It is a setting of
+the **node** and not of the model: whoever changes from `open` to `roster` is to be
+able to set the list beforehand, instead of leaving the node standing open for the
+whole roster between two instructions.
 
-- **`pubsub#allow` steht auf „nein".** Ein Formular, das schon auf ja steht,
-  macht aus dem Wegklicken eine Zusage.
-- **Ein „nein" auf eine Frage von vorhin beendet kein zugesagtes Abonnement.**
-  Sonst entschiede die Reihenfolge zweier Nachrichten darüber, was gilt — ein
-  spät eintreffendes Formular nähme jemandem etwas weg, das er längst hat.
-- **Was hier nicht verstanden wird, wird nicht verschluckt.** Ein Formular über
-  einen fremden Knoten oder eines, das sich nicht lesen lässt, geht seinen
-  gewöhnlichen Weg als Nachricht weiter. Eine Nachricht spurlos verschwinden zu
-  lassen ist die teuerste Art, höflich zu sein.
+`pubsub#roster_groups_allowed` is the first field of this house that carries **several
+values**. The helper for forms said expressly up to here that multiple values were not
+needed — now they exist, and a `list-multi` of which only the first value were read
+would be exactly the silent shortening this house otherwise writes against.
 
-  Der Test dazu hat das zuerst nicht geprüft, und die Mutation, die die
-  Knotenprüfung entfernt, hat überlebt: Er schickte das fremde Formular an das
-  Konto des Absenders, wo es ohnehin nichts bewirken konnte. **Beide Fassungen
-  taten dasselbe — nämlich nichts.** Jetzt geht es an einen Dritten, und der
-  Unterschied ist zu sehen: Ohne die Prüfung kommt es bei ihm nie an.
+Incidentally a find of the same kind as in D91: **the console command `/pubsub access`
+did not know `whitelist`** — it has always taken only `open` and `presence`, while the
+help text beside it and the README promised all three since D82. It now reads the names
+out of the same place as the form.
 
-Die Anfrage selbst ist ein `headline` und wird nicht aufbewahrt. **Sie ist eine
-Bequemlichkeit und kein Träger des Zustands:** Der Antrag steht im Abonnement,
-die Nachricht sagt nur, dass es ihn gibt. Wer offline war, verpasst die
-Nachricht und nicht den Antrag — und eine aufbewahrte wäre die schlechtere
-Auskunft, weil sie einen Stand von damals beschriebe, der längst beschieden sein
-kann.
+Five tests, seven mutations, all struck down. Full run: 1128 passed, 7 skipped.
 
-Hundertzweiundzwanzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf:
-1138 bestanden, 7 übersprungen.
+---
 
-Damit ist XEP-0060 in dem Umfang fertig, den dieses Projekt braucht: alle fünf
-Zugriffsmodelle, Rollen, Abonnements samt Kennungen und Einstellungen,
-Knotenverwaltung, Rücknahme und Genehmigung.
+### D93. The model at which asking and being allowed are two things ✅ — `authorize`
+
+The fifth and last access model. **At all the others the same rule decides two
+things:** whoever may not get in may not subscribe either. Here not — everybody may
+ask, for the asking is the procedure. Whoever threw both together would make the
+procedure of approval unreachable: to be allowed one would already have to be allowed.
+
+With that `PubSubSubscriptionState.Pending` gets a sense for the first time. The state
+has stood in the code since D71, with the reason that a `pending` looks like a promise
+and is none — **on paper**, for no node could create one. Now one can, and at three
+places in the server there stood `subscription='subscribed'` as a fixed string. Each of
+them was from that moment on a claim.
+
+The promise goes through the door D84 built: the list of subscribers. There it stood
+expressly that the state is entered fixedly and that this would be "one of the places
+that need a real state" as soon as `authorize` exists — and likewise that a
+`subscribed` is "no instruction but a confirmation". Both now hold the other way round,
+and the reason was noted back then already: *without a procedure of approval there
+would be nothing that had been a question beforehand.* Now there is something. **A
+`subscribed` on an applied-for subscription is the promise, on a promised one it stays
+the confirmation from before** — and that does not report itself, because nothing has
+changed.
+
+## What `authorize` uncovered along the way
+
+**The incidental delivery did not ask the access model.** Presence contacts got every
+publication — from a node too whose model barred them from the fetching. The model held
+the door shut and let the report through, in which the item stands complete. For
+`whitelist` and `roster` that was wrong since D82 and D92 and nobody noticed, because
+both models were checked only at the fetching and at the subscribing. At `authorize`
+the approval would thereby have been a mere formality: whoever waits would long since
+have got everything.
+
+Now this way asks the same place too — one line, and it clears three models up at once.
+
+And a test has lost its example **for the second time**, both times for the best
+reason: "an access model nobody offers is refused" was called `whitelist` until K13 and
+`authorize` until D93. Both are now offered, because they can be enforced. What remains
+is the case there will always be: a name nobody has given out.
+
+A hundred and seventeen tests, ten mutations, all struck down. Full run: 1133 passed, 7
+skipped.
+
+**What is still missing:** the request for approval under section 8.6.1 — the message
+with the form over which a foreign client shows the application and answers it. As long
+as it does not exist, the owner learns of the application only when they look. That is
+the next stage, and it does not hang in the air: without it nothing would be wrong even
+today, only inconvenient.
+
+---
+
+### D94. Two doors, one room ✅ — the request for approval
+
+The application is now put before the owner instead of waiting for them (section
+8.6.1) — and the answer to it arrives (8.6.2).
+
+**Two doors to the same decision, and therefore no second decision.** Approve an
+application could be done over the list of subscribers since D93; now it goes over the
+form as well, and both ways call the same place in the account. Two doors are necessary
+all the same: **the list is the view of an administrator, the form the one of a human
+whose client shows them a question.** Whoever had only the list would demand of every
+client that it can administer subscribers.
+
+From that follows the coupling that makes this stage one at all: **a form nobody can
+answer would be worse than none.** It does not suffice to put the question — whoever
+puts it has to accept the answer, otherwise a human approves something and nothing
+happens. This is why the reading and the writing of the form stand beside each other in
+one file.
+
+Three decisions in the small:
+
+- **`pubsub#allow` stands at "no".** A form that already stands at yes makes a promise
+  out of the clicking away.
+- **A "no" to a question from earlier ends no promised subscription.** Otherwise the
+  order of two messages would decide what holds — a form arriving late would take from
+  somebody something they have long had.
+- **What is not understood here is not swallowed.** A form about a foreign node or one
+  that cannot be read goes its ordinary way on as a message. To let a message disappear
+  without a trace is the dearest way of being polite.
+
+  The test for it did not check that at first, and the mutation that removes the check
+  of the node has survived: it sent the foreign form to the account of the sender, where
+  it could have no effect anyway. **Both versions did the same thing — namely nothing.**
+  Now it goes to a third party, and the difference is to be seen: without the check it
+  never arrives at them.
+
+The request itself is a `headline` and is not kept. **It is a convenience and no
+carrier of the state:** the application stands in the subscription, the message says
+only that it exists. Whoever was offline misses the message and not the application —
+and a kept one would be the poorer information, because it would describe a state of
+back then that can long since have been decided.
+
+A hundred and twenty-two tests, seven mutations, all struck down. Full run: 1138
+passed, 7 skipped.
+
+With that XEP-0060 is finished in the extent this project needs: all five access
+models, roles, subscriptions together with ids and settings, administration of nodes,
+retraction and approval.
 
 ---
 
