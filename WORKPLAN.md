@@ -750,16 +750,16 @@ the remaining one.
 
 5 mutations, all dead.
 
-### P4. Prosody wählt uns an ✅
+### P4. Prosody dials us ✅
 
-Der eingehende Weg gegen eine fremde Gegenstelle — die letzte Richtung, die
-nur gegen die eigene geprüft war. Was hier zum ersten Mal vor einem echten
-Server stand: unser Stream-Kopf als Antwortender, unsere Feature-Ankündigung,
-unsere Annahme eines fremden `<auth mechanism='EXTERNAL'/>` und die
-Identitätsprüfung aus dem vorgelegten Zertifikat. Der Rückweg aus S9 lief zwar
-in eingehender Richtung, aber über einen Stream, den *wir* aufgebaut hatten.
+The incoming way against a foreign far side — the last direction that was
+checked only against our own. What stood before a real server here for the first
+time: our stream header as the answering one, our feature announcement, our
+acceptance of a foreign `<auth mechanism='EXTERNAL'/>` and the identity check out
+of the certificate laid before us. The way back from S9 did run in the incoming
+direction, but over a stream *we* had built.
 
-Prosodys Log sagt es genau:
+Prosody's log says it exactly:
 
 ```
 prosody.test:saslauth  Initiating SASL EXTERNAL with localhost
@@ -768,535 +768,517 @@ s2sout   Outgoing s2s connection prosody.test->localhost complete
 s2sout   Sending[s2sout]: <iq to='alice@localhost/...' type='result' from='prosody.test'>
 ```
 
-**Kein Eingriff in die Firewall.** Der Blocker war die ganze Zeit, dass die
-Hyper-V-Firewall (`DefaultInboundAction = Block` auf dem WSL-vSwitch) jede
-Verbindung von WSL zum Windows-Host verwirft. Eine Regel dafür zu setzen wäre
-eine Änderung an den Sicherheitseinstellungen der Maschine. Es geht auch ohne:
-in WSL liegt ein .NET-10-SDK, also läuft der Test **dort**, im selben Netz wie
-Prosody — alles Rückschleife, keine Firewall dazwischen.
+**No intervention in the firewall.** The blocker was the whole time that the
+Hyper-V firewall (`DefaultInboundAction = Block` on the WSL vSwitch) discards
+every connection from WSL to the Windows host. To set a rule for that would be a
+change to the security settings of the machine. It goes without as well: in WSL
+there lies a .NET 10 SDK, so the test runs **there**, in the same network as
+Prosody — all loopback, no firewall in between.
 
     JABBER_PROSODY_CERTS=~/prosody-test/certs \
     dotnet test /mnt/c/.../Jabber.Tests/Jabber.Tests.csproj \
         --artifacts-path /tmp/jabber-artifacts \
         --filter FullyQualifiedName~ProsodyFederationTests
 
-Das `--artifacts-path` hält die Linux-Bauartefakte aus dem Windows-Baum heraus;
-ohne das schreiben sich beide Läufe gegenseitig die `obj`-Verzeichnisse um.
+The `--artifacts-path` holds the Linux build artefacts out of the Windows tree;
+without it the two runs write over each other's `obj` directories.
 
-**Zwei Namen für unsere Seite, und der Unterschied ist der Kern.** Damit Prosody
-uns anwählen kann, muss es unsere Domain auflösen. Ein Eintrag in `/etc/hosts`
-bräuchte root; `localhost` steht dort ohnehin. Der Testserver bedient im
-eingehenden Fall also diese Domain und horcht auf 5269 — dem Port, auf den
-Prosody ohne SRV-Eintrag zurückfällt. Prosody weicht dafür auf 15269 aus und
-bindet nur 127.0.0.1. Für den ausgehenden Fall bleibt es bei `jabber.test`, wo
-die Adresse von Hand steht und kein DNS nötig ist.
+**Two names for our side, and the difference is the core.** So that Prosody can
+dial us, it has to resolve our domain. An entry in `/etc/hosts` would need root;
+`localhost` stands there anyway. The test server therefore serves this domain in
+the incoming case and listens on 5269 — the port Prosody falls back to without an
+SRV entry. Prosody moves aside to 15269 for that and binds 127.0.0.1 alone. For
+the outgoing case it stays at `jabber.test`, where the address stands by hand and
+no DNS is necessary.
 
-**Ausdrücklich ohne XEP-0288.** Mit Bidi käme die Antwort über den bestehenden
-Stream, und der eingehende Weg bliebe wieder ungeprüft. Der Test hält das mit
-zwei Nebenbedingungen fest: `InboundConnectionCount > 0` und
-`BidirectionalDeliveryCount == 0`. Ohne sie bestünde er auch dann, wenn die
-Antwort einen ganz anderen Weg genommen hätte.
+**Expressly without XEP-0288.** With bidi the answer would come over the existing
+stream, and the incoming way would be unchecked again. The test holds that fast
+with two side conditions: `InboundConnectionCount > 0` and
+`BidirectionalDeliveryCount == 0`. Without them it would pass even if the answer
+had taken a quite different way.
 
-**Keine Mutationen für diesen Schritt** — es gibt keinen neuen Produktivcode.
-P4 ändert nur den Aufbau und die Testsammlung; sein Ertrag ist, dass
-vorhandener Code erstmals vor einer fremden Gegenstelle bestanden hat.
-`APingReachesProsodyAndComesBack` ist entfallen: der stillgelegte Test sagte
-nichts mehr, was die beiden laufenden nicht sagen.
+**No mutations for this step** — there is no new production code. P4 changes only
+the setup and the test suite; its yield is that existing code has stood before a
+foreign far side for the first time. `APingReachesProsodyAndComesBack` has fallen
+away: the shut-down test said nothing any more that the two running ones do not
+say.
 
-### P5. Dialback gegen Prosody ✅ — und ein Fehler, den der Lauf herausholte
+### P5. Dialback against Prosody ✅ — and an error the run brought out
 
-XEP-0220 war zuletzt das einzige Verfahren, das nur gegen die eigene
-Gegenstelle geprüft war. Ein Ping-Rundlauf übt beide Rollen auf einmal, weil
-jede Richtung ihre eigene Verbindung aufbaut und jede aufbauende Seite sich
-ausweisen muss: wir wählen an und schicken `<db:result/>`, Prosody fragt beim
-autoritativen Server unserer Domain nach — das sind wieder wir. Dann wählt
-Prosody an, um die Antwort zuzustellen, schickt seinerseits `<db:result/>`, und
-wir fragen bei `prosody.test` nach. Beide Rollen, ein Test.
+XEP-0220 was lastly the only procedure that was checked against our own far side
+alone. A ping round trip exercises both roles at once, because each direction
+builds a connection of its own and each building side has to identify itself: we
+dial and send `<db:result/>`, Prosody asks at the authoritative server of our
+domain — that is us again. Then Prosody dials to deliver the answer, sends
+`<db:result/>` for its part, and we ask at `prosody.test`. Both roles, one test.
 
-Welches Verfahren zum Zug kommt, entscheidet dabei **unsere** Seite: legen wir
-ein Klientzertifikat vor, bietet Prosody `EXTERNAL` an; legen wir keines vor,
-bleibt nur Dialback. `UseSaslExternal` ist der ganze Unterschied zwischen den
-beiden Tests, und `DialbackVerificationCount` trennt sie sauber — im
-EXTERNAL-Fall muss er null sein, im Dialback-Fall grösser null. Ohne diese
-beiden Zusicherungen bestünde jeder Test auch im jeweils anderen Regime.
+Which procedure comes into play is decided in doing so by **our** side: do we lay
+a client certificate before them, then Prosody offers `EXTERNAL`; do we lay none
+before them, then only dialback is left. `UseSaslExternal` is the whole
+difference between the two tests, and `DialbackVerificationCount` separates them
+cleanly — in the EXTERNAL case it has to be zero, in the dialback case greater
+than zero. Without these two assurances every test would pass in the respective
+other regime as well.
 
-**Ein Prosody-Schalter, der stillschweigend nichts tut.** Zuerst stand hier ein
-zweiter VirtualHost mit `s2s_secure_auth = false`. Er sah richtig aus und wirkte
-nicht: `mod_s2s` ist ein **globales** Modul und liest den Schalter *einmal* beim
-Laden (`mod_s2s.lua`, Zeile 40). Pro VirtualHost gesetzt geht er ins Leere.
-Prosody wies uns weiter mit `<not-authorized/>` ab — „Your server's certificate
-could not be validated". Der vorgesehene Weg ist die Ausnahmeliste
-`s2s_insecure_domains`, und die ist jetzt drin; der zweite VirtualHost ist
-wieder weg, weil eine Konfigurationszeile ohne Wirkung schlimmer ist als keine.
+**A Prosody switch that silently does nothing.** At first there stood here a
+second VirtualHost with `s2s_secure_auth = false`. It looked right and had no
+effect: `mod_s2s` is a **global** module and reads the switch *once* on loading
+(`mod_s2s.lua`, line 40). Set per VirtualHost it goes nowhere. Prosody went on
+refusing us with `<not-authorized/>` — "Your server's certificate could not be
+validated". The intended way is the exception list `s2s_insecure_domains`, and
+that is in now; the second VirtualHost is gone again, because a configuration
+line without an effect is worse than none.
 
-**Und dann der eigentliche Fund: `TcpServerLinks.DisposeAsync` liess angenommene
-Verbindungen offen.** Es brach den Token ab, beendete den Listener und räumte
-die *ausgehenden* Streams ab — die eingehenden nicht. Das Abbrechen des Tokens
-genügt dafür nicht: der Lesevorgang auf einem Socket bricht damit nicht
-zuverlässig ab, die Schleife bleibt stehen, bis die Gegenstelle auflegt.
+**And then the actual find: `TcpServerLinks.DisposeAsync` left accepted
+connections open.** It cancelled the token, ended the listener and cleared away
+the *outgoing* streams — the incoming ones not. Cancelling the token does not
+suffice for that: the reading on a socket does not break off reliably with it,
+the loop stays standing until the far side hangs up.
 
-Sichtbar wurde es daran, dass Prosody die nächste Anfrage noch dreissig Sekunden
-lang über den längst toten Socket beantwortete — der Testserver war weg, die
-Verbindung aus Prosodys Sicht nicht. Zwischen zwei Instanzen dieses Servers
-fällt das nie auf, weil dort beide Seiten gleichzeitig verschwinden. Im Betrieb
-heisst es: wer den Server beendet, lässt jede Gegenstelle im Glauben, sie könne
-weiter zustellen, und alles Zugestellte ist verloren.
+It became visible in that Prosody went on answering the next request for thirty
+seconds over the long since dead socket — the test server was gone, the
+connection from Prosody's point of view not. Between two instances of this server
+that never comes out, because there both sides disappear at the same time. In
+operation it means: whoever ends the server leaves every far side in the belief
+that it can go on delivering, and everything delivered is lost.
 
-Festgehalten durch `DisposingTheLinks_ClosesEstablishedInboundConnections` —
-ohne TLS, weil es um den Socket geht und nicht um den Handshake darüber. Die
-Mutation, die das `Dispose` der Verbindung wieder herausnimmt, stirbt an genau
-diesem Test.
+Held fast by `DisposingTheLinks_ClosesEstablishedInboundConnections` — without
+TLS, because it is about the socket and not about the handshake over it. The
+mutation that takes the `Dispose` of the connection out again dies at exactly
+this test.
 
-Nebenbei fiel im Fixture dasselbe Versäumnis auf: der Teardown räumte `_links`
-nicht ab, und der festgehaltene Port 5269 fehlte dem nächsten Test. Ein
-gescheiterter Bind sieht dabei aus wie ein Protokollfehler — das kostete zwei
-Testläufe.
+Incidentally the same omission came out in the fixture: the teardown did not
+clear `_links` away, and the port 5269 held fast was missing for the next test. A
+failed bind looks like a protocol error in doing so — that cost two test runs.
 
-### P6. Lauf gegen ejabberd ✅ — der zweite Zeuge, und was er allein sah
+### P6. Run against ejabberd ✅ — the second witness, and what it alone saw
 
-Prosody allein belegt, dass wir mit Prosody können. Wo unsere Auffassung des
-Protokolls von der Norm abweicht, Prosody dieselbe Abweichung aber mitmacht,
-fällt das nicht auf. Deshalb ein zweiter, unabhängig entstandener Server:
-ejabberd 24.12, in Erlang, anderer Werdegang, anderer Autorenkreis.
+Prosody alone shows that we can manage with Prosody. Where our understanding of
+the protocol deviates from the norm, but Prosody joins in the same deviation,
+that does not come out. Therefore a second, independently arisen server:
+ejabberd 24.12, in Erlang, a different background, a different circle of authors.
 
-Aufbau in `tools/ejabberd/setup.sh`, nach demselben Muster wie Prosody: ohne
-root ausgepackt, eigene Test-CA, `ejabberd.test` auf 127.0.0.1:25269. Zwei
-Stellen wollten dabei anderes Werkzeug als bei Prosody:
+Setup in `tools/ejabberd/setup.sh`, after the same pattern as Prosody: unpacked
+without root, a test CA of its own, `ejabberd.test` on 127.0.0.1:25269. Two
+places wanted a different tool than at Prosody:
 
-- **Erlang ist in Debian fest auf `/usr/lib/erlang` verdrahtet** — und zwar in
-  allen drei Zweigen der Fallunterscheidung im `erl`-Startskript, auch in dem,
-  der laut Quelltext `ERL_ROOTDIR` beachten soll. Die Variable zu setzen sieht
-  aus, als müsste es reichen, und tut nichts. Dieselbe Falle wie Prosodys
-  `CFG_*`, nur besser getarnt.
-- **`ejabberdctl` bricht mit „can only be run by root or the user ejabberd" ab,**
-  bevor es irgendetwas tut. `INSTALLUSER` leeren, dann geht es.
+- **Erlang is wired fast to `/usr/lib/erlang` in Debian** — and that in all three
+  branches of the case distinction in the `erl` start script, even in the one
+  that according to the source is supposed to heed `ERL_ROOTDIR`. To set the
+  variable looks as though it would have to suffice, and does nothing. The same
+  trap as Prosody's `CFG_*`, only better camouflaged.
+- **`ejabberdctl` breaks off with "can only be run by root or the user ejabberd"**
+  before it does anything at all. Empty `INSTALLUSER`, then it goes.
 
-Die vier Tests spiegeln die Prosody-Sammlung; die gemeinsame Mechanik ist nach
-`AForeignPeerFederationTests` gezogen, sodass jede Sammlung nur noch Domain,
-Ports, Umgebungsvariable und ihre eigene Prosa trägt. ejabberd horcht auf 25269
-und wählt uns auf 5270 an (`outgoing_s2s_port`) — beide Gegenstellen können
-damit nebeneinander laufen.
+The four tests mirror the Prosody suite; the common mechanics are pulled into
+`AForeignPeerFederationTests`, so that each suite carries only domain, ports,
+environment variable and its own prose. ejabberd listens on 25269 and dials us on
+5270 (`outgoing_s2s_port`) — both far sides can thereby run beside each other.
 
-**Der Fund: wir übersahen ejabberds Bidi-Angebot.** XEP-0288 vergibt zwei
-Namensräume und meint zwei Dinge damit — `urn:xmpp:features:bidi` für die
-Ankündigung, `urn:xmpp:bidi` für das Element, mit dem der aufbauende Server sie
-annimmt. Prosody hält sich daran. ejabberd 24.12 legt in die Features das
-*Freischalt*-Element, kündigt also `<bidi xmlns='urn:xmpp:bidi'/>` an.
+**The find: we overlooked ejabberd's bidi offer.** XEP-0288 gives out two
+namespaces and means two things by them — `urn:xmpp:features:bidi` for the
+announcement, `urn:xmpp:bidi` for the element with which the building server
+accepts it. Prosody keeps to that. ejabberd 24.12 puts the *enabling* element
+into the features, that is, it announces `<bidi xmlns='urn:xmpp:bidi'/>`.
 
-Wir sahen darin kein Angebot, schickten kein `<bidi/>`, und die Antwort auf den
-Ping ging über eine Verbindung, die es nicht gab: dreissig Sekunden
-Zeitüberschreitung, kein Fehler, keine Meldung. Genau die Sorte Ausfall, gegen
-die XEP-0288 gedacht ist.
+We saw no offer in that, sent no `<bidi/>`, and the answer to the ping went over
+a connection that did not exist: thirty seconds of timeout, no error, no message.
+Exactly the sort of failure XEP-0288 is meant against.
 
-Bevor daraus eine Änderung wurde, drei Feststellungen statt Vermutungen:
+Before a change came out of it, three findings instead of suppositions:
 
-1. Die XEP (1.0.1, 2016) nennt für die Ankündigung eindeutig
+1. The XEP (1.0.1, 2016) names for the announcement unambiguously
    `urn:xmpp:features:bidi`.
-2. ejabberds eigener Codec bildet **beide** Formen auf getrennte Typen ab —
-   direkt nachgefragt: `urn:xmpp:features:bidi` → `{s2s_bidi_feature}`,
-   `urn:xmpp:bidi` → `{s2s_bidi}`.
-3. Seine *aufbauende* Seite sucht `{s2s_bidi_feature}`, ist also konform und
-   versteht unsere Ankündigung. Upstream ist die annehmende Seite inzwischen
-   behoben (`s2s_in_features(Acc, _) -> [#s2s_bidi_feature{}|Acc].`).
+2. ejabberd's own codec maps **both** forms onto separate types — asked directly:
+   `urn:xmpp:features:bidi` → `{s2s_bidi_feature}`, `urn:xmpp:bidi` →
+   `{s2s_bidi}`.
+3. Its *building* side looks for `{s2s_bidi_feature}`, is therefore conformant
+   and understands our announcement. Upstream the accepting side has been fixed
+   in the meantime (`s2s_in_features(Acc, _) -> [#s2s_bidi_feature{}|Acc].`).
 
-Daraus folgt eine einseitige Änderung: `S2SStream.KuendigtBidiAn` liest beide
-Formen, angekündigt wird weiter nur die der XEP. Nachsichtig beim Lesen, streng
-beim Schreiben — und keine Zeile mehr als das, weil für eine zweite Ankündigung
-kein Beleg vorlag.
+Out of that follows a one-sided change: `S2SStream.AnnouncesBidi` reads both
+forms, announced is still only the one of the XEP. Lenient in reading, strict in
+writing — and no line more than that, because for a second announcement no
+evidence lay before us.
 
-**Und ein Test, der zweimal recht gehabt hätte und einmal nicht.** Der
-Bidi-Ping bestand, fiel dann durch und bestand wieder. Das Log sagte, woran es
-lag: ejabberd hatte den Bidi-Stream, wählte für die Antwort aber einen
-*zwischengespeicherten* `s2s_out` nach `jabber.test`, angelegt in einem
-früheren Lauf und zeigend auf einen längst toten Ephemeralport.
+**And a test that would have been right twice and once not.** The bidi ping
+passed, then failed and passed again. The log said what it was down to: ejabberd
+had the bidi stream, but chose a *cached* `s2s_out` to `jabber.test` for the
+answer, created in an earlier run and pointing at a long since dead ephemeral
+port.
 
-Woher der stammte: unsere `<message>` an die blosse Domain `ejabberd.test` hat
-dort keinen Empfänger und wird zurückgewiesen — und für die Rückweisung legt
-ejabberd eine ausgehende Verbindung zu uns an, die den Test überlebt. Ein
-`<iq type='result'/>` darf laut RFC 6120, Abschnitt 8.3.1, nie beantwortet
-werden und hinterlässt deshalb nichts. Danach dreimal hintereinander 8/8 ohne
-Neustart dazwischen.
+Where that came from: our `<message>` to the bare domain `ejabberd.test` has no
+recipient there and is refused — and for the refusal ejabberd creates an outgoing
+connection to us that survives the test. An `<iq type='result'/>` may under
+RFC 6120, section 8.3.1, never be answered and therefore leaves nothing behind.
+After that three times in a row 8/8 without a restart in between.
 
-Zweierlei bleibt daran hängen. Erstens: die Prosody-Sammlung schickt dieselbe
-Nachricht und ist bisher nicht aufgefallen — geändert wurde sie trotzdem nicht,
-weil dafür kein Beleg vorliegt und Änderung ohne Beleg nur Rauschen ist.
-Zweitens: dass ejabberd einen alten `s2s_out` einem bestehenden Bidi-Stream
-vorzieht, ist eine zweite Eigenheit; sie beisst nur, weil unser Testserver bei
-jedem Lauf auf einem anderen Port liegt.
+Two things stick to that. First: the Prosody suite sends the same message and has
+not come out so far — it was not changed all the same, because for that no
+evidence lies before us and a change without evidence is only noise. Second: that
+ejabberd prefers an old `s2s_out` to an existing bidi stream is a second
+peculiarity; it bites only because our test server lies on a different port at
+every run.
 
-**Offen geblieben** war, ob ejabberd unsere Ankündigung tatsächlich annimmt,
-wenn *es* uns anwählt — hier nur aus seinem Quelltext geschlossen. Inzwischen
-beobachtet, und der Schluss war **falsch**: siehe R6.
+**What stayed open** was whether ejabberd really accepts our announcement when
+*it* dials us — here only concluded from its source. Observed in the meantime,
+and the conclusion was **wrong**: see R6.
 
 ---
 
 ## Client
 
-### XEP-0198 gegen einen echten Server ✅ — und der Client konnte sich gar nicht anmelden
+### XEP-0198 against a real server ✅ — and the client could not log in at all
 
-Die Zählung stimmte gegen `XMPPServer`, also gegen unsere eigene Auffassung
-davon, was eine Stanza ist. Der Lauf gegen Prosody sollte das prüfen. Er kam
-zunächst nicht so weit.
+The counting was right against `XMPPServer`, that is, against our own
+understanding of what a stanza is. The run against Prosody was to check that. It
+did not get that far at first.
 
-**Der Client konnte sich an keinem RFC-7395-konformen Server anmelden.**
-Prosody wies das Bind-IQ mit `<unsupported-stanza-type/>` ab und schloss den
-Stream. Im Log stand, warum: es kam als `<iq … xmlns=''>` an.
+**The client could log in at no RFC 7395 conformant server.** Prosody refused the
+bind IQ with `<unsupported-stanza-type/>` and closed the stream. In the log stood
+why: it arrived as `<iq … xmlns=''>`.
 
-RFC 7395, Abschnitt 3.3.3 verlangt, dass jeder Rahmen für sich als
-vollständiges XML-Dokument lesbar ist, „complete with all relevant namespace
-and language declarations". Über TCP steht der Content-Namensraum einmal am
-`<stream:stream>` und gilt für alles darin; über WebSocket gibt es dieses
-umschliessende Element nicht, und eine Stanza ohne eigene Deklaration steht in
-*keinem* Namensraum. Unser Server hat das nie bemängelt, weil er Stanzas am
-lokalen Namen erkennt und den Namensraum gar nicht ansieht — beide Seiten
-machten denselben Fehler, also fiel er nicht auf.
+RFC 7395, section 3.3.3 demands that every frame is readable for itself as a
+complete XML document, "complete with all relevant namespace and language
+declarations". Over TCP the content namespace stands once at the
+`<stream:stream>` and holds for everything in it; over WebSocket there is no such
+enclosing element, and a stanza without a declaration of its own stands in *no*
+namespace. Our server never found fault with it, because it recognises stanzas by
+the local name and does not look at the namespace at all — both sides made the
+same error, so it did not come out.
 
-Behoben in `StanzaNamespace.Apply`, aufgerufen in `XMPPConnection.SendAsync` —
-derselben einen Stelle, durch die auch gezählt wird, und aus demselben Grund:
-sie ist die einzige, durch die jeder ausgehende Rahmen läuft.
+Fixed in `StanzaNamespace.Apply`, called in `XMPPConnection.SendAsync` — the same
+one place through which the counting also happens, and for the same reason: it is
+the only one through which every outgoing frame runs.
 
-**Und der Fix holte einen zweiten Fehler heraus.** Mit einem Mal fiel
-`APingOverABidirectionalStream` durch: unser Server reichte die
-`jabber:client`-Stanza unverändert auf den S2S-Stream weiter, und dort ist sie
-keine gültige Stanza — Prosody antwortete mit einem Fehler-IQ. Solange die
-Stanza gar keinen Namensraum trug, erbte sie auf dem S2S-Stream stillschweigend
-den richtigen; der Fehler war die ganze Zeit da und unsichtbar. Er hätte jeden
-echten Client getroffen, dessen Stanza über die Domain-Grenze geht.
+**And the fix brought a second error out.** All at once
+`APingOverABidirectionalStream` failed: our server handed the `jabber:client`
+stanza on unchanged onto the S2S stream, and there it is no valid stanza —
+Prosody answered with an error IQ. As long as the stanza carried no namespace at
+all, it inherited the right one silently on the S2S stream; the error was there
+the whole time and invisible. It would have hit every real client whose stanza
+goes over the domain border.
 
-Behoben in `RouteToAsync`, neben `StampTo` — der einen Weiche zwischen „hier"
-und „woanders".
+Fixed in `RouteToAsync`, beside `StampTo` — the one switch between "here" and
+"elsewhere".
 
-Sieben Mutationen, alle von genau den zuständigen Tests erschlagen: Client
-stempelt nicht (vier Prosody-Tests), Server tauscht nicht
-(`APingOverABidirectionalStream`), Namensprüfung weg (zwölf Tests quer durch
-die Zählung), naives „steht irgendwo ein xmlns" (der Bind-IQ-Fall),
-Präfix-Deklaration zählt als Standard-Namensraum, `>` im Attributwert beendet
-das Start-Tag, `LastAcknowledged` meldet den eigenen Zähler.
+Seven mutations, all struck down by exactly the responsible tests: the client
+does not stamp (four Prosody tests), the server does not exchange
+(`APingOverABidirectionalStream`), the check of the name gone (twelve tests right
+across the counting), a naive "an xmlns stands somewhere" (the bind IQ case), a
+prefix declaration counts as the default namespace, a `>` in the attribute value
+ends the start tag, `LastAcknowledged` reports our own counter.
 
-**Das eigentliche Ergebnis:** die Zählung stimmt. `ProsodyCountsTheSetupExactlyAsWeDo`
-vergleicht nach dem vollständigen Aufbau — Carbons, Roster, erste Presence, und
-dazwischen Nonzas — unseren `OutboundCount` mit Prosodys `h`, und beide Werte
-sind gleich. Geprüft wird Gleichheit und nicht nur eine leergelaufene
-Warteschlange: ein zu grosses `h` räumte sie ebenfalls, und ein Client, der zu
-wenig zählt, käme damit durch. Dafür gibt es `LastAcknowledged` überhaupt.
+**The actual result:** the counting is right.
+`ProsodyCountsTheSetupExactlyAsWeDo` compares after the complete setup — carbons,
+roster, first presence, and nonzas in between — our `OutboundCount` with
+Prosody's `h`, and both values are equal. Checked is equality and not only an
+emptied queue: too big an `h` would clear it as well, and a client that counts
+too little would get through with that. That is what `LastAcknowledged` is there
+for in the first place.
 
-**Die Gegenrichtung an der Domain-Grenze** blieb hier zunächst offen und ist
-inzwischen erledigt — siehe unten.
+**The counter-direction at the domain border** stayed open here at first and is
+done in the meantime — see below.
 
-### Default-Umstieg ✅ — und ein Test, der aufgehört hat zu prüfen, ohne es zu sagen
+### Switch of the default ✅ — and a test that stopped checking without saying so
 
-`StreamManagementEnabled` steht auf `true`. Der Grund für den ausgeschalteten
-Vorgabewert — eine einmal fehlerhafte Zählung — ist seit dem Prosody-Lauf
-weg.
+`StreamManagementEnabled` stands at `true`. The reason for the switched-off
+default — a counting that was faulty once — has been gone since the Prosody run.
 
-**Der Schalter allein hätte gar nichts bewirkt.** `AXMPPTests.CreateClient`
-setzte ihn hart auf `false` und überschrieb damit den Vorgabewert; die ganze
-Sammlung wäre weiter ohne XEP-0198 gelaufen, und die Umstellung wäre
-ungeprüft durchgegangen. Der Parameter ist deshalb jetzt `Boolean?`: `null`
-heisst „den Vorgabewert stehen lassen". Erst damit läuft die Sammlung mit dem,
-was ein Aufrufer ohne eigene Meinung bekommt.
+**The switch alone would have effected nothing at all.** `AXMPPTests.CreateClient`
+set it hard to `false` and thereby overwrote the default; the whole suite would
+have gone on running without XEP-0198, and the changeover would have gone through
+unchecked. The parameter is therefore now `Boolean?`: `null` means "leave the
+default standing". Only with that does the suite run with what a caller without an
+opinion of their own gets.
 
-Zwei Tests hingen daran, und der zweite ist der lehrreichere:
+Two tests hung on that, and the second is the more instructive:
 
-- `Disconnect_StopsKeepalive` wurde **rot**. Die Keepalive-Schleife wählt ihr
-  Mittel nach Lage: mit XEP-0198 schickt sie ein `<r/>`, sonst einen
-  XEP-0199-Ping. Der Test zählte Pings, und die kamen nicht mehr.
-- `Reconnect_DoesNotAccumulateKeepaliveLoops` blieb **grün**. Es prüft eine
-  Obergrenze, und „null Pings sind höchstens sieben Pings" trifft zu. Der Test
-  hat aufgehört zu messen und nichts davon gesagt.
+- `Disconnect_StopsKeepalive` went **red**. The keepalive loop chooses its means
+  by the situation: with XEP-0198 it sends an `<r/>`, otherwise an XEP-0199 ping.
+  The test counted pings, and those came no more.
+- `Reconnect_DoesNotAccumulateKeepaliveLoops` stayed **green**. It checks an upper
+  bound, and "zero pings are at most seven pings" holds true. The test stopped
+  measuring and said nothing about it.
 
-Beide laufen jetzt über beide Verfahren (`[TestCase(true/false)]`) und zählen,
-was die Schleife tatsächlich schickt. Und der Obergrenze steht eine Untergrenze
-gegenüber — ohne sie bestünde der Test auch dann, wenn gar kein Keepalive mehr
-feuert, und genau das war er eine Zeitlang.
+Both now run over both procedures (`[TestCase(true/false)]`) and count what the
+loop actually sends. And the upper bound has a lower bound facing it — without it
+the test would pass even when no keepalive fires at all, and that is exactly what
+it was for a while.
 
-Der Vorgabewert selbst hat jetzt einen Test
-(`StreamManagement_IsNegotiatedByDefault`), der beides prüft: den Wert und dass
-er bis auf die Leitung durchschlägt. Ein Test nur auf die Eigenschaft bestünde
-auch dann, wenn der Aufbau sie danach ignorierte.
+The default itself now has a test (`StreamManagement_IsNegotiatedByDefault`) that
+checks both: the value and that it comes through as far as the wire. A test on
+the property alone would pass even if the setup ignored it afterwards.
 
-Drei Mutationen, alle von genau den zuständigen Tests erschlagen: Vorgabewert
-zurück auf `false`, Keepalive schickt unter XEP-0198 nichts mehr (tötet beide
-Keepalive-Tests im SM-Fall — den zweiten nur wegen der neuen Untergrenze), und
-`CreateClient` nagelt den Schalter wieder fest.
+Three mutations, all struck down by exactly the responsible tests: the default
+back to `false`, the keepalive sends nothing any more under XEP-0198 (kills both
+keepalive tests in the SM case — the second only because of the new lower bound),
+and `CreateClient` nails the switch fast again.
 
 ---
 
-## Stream-Resume (XEP-0198 Abschnitt 5)
+## Stream resumption (XEP-0198 section 5)
 
-Zwei Schnitte, weil das `<resume/>` selbst in der Aufbauphase des Clients sitzt
-— nach der Anmeldung, **vor** dem Resource Binding. Ohne einen Client, der es
-schickt, führt kein Testweg dorthin: die Testbasis fährt echte
-`XMPPClient`-Instanzen, und die binden immer. Ein zweiter, handgeschriebener
-SASL-Client nur für diesen einen Test wäre Aufwand ohne Erkenntnis, denn R2
-folgt unmittelbar.
+Two cuts, because the `<resume/>` itself sits in the setup phase of the client —
+after the login, **before** the resource binding. Without a client that sends it,
+no test way leads there: the test base drives real `XMPPClient` instances, and
+those always bind. A second, hand-written SASL client only for this one test
+would be effort without insight, for R2 follows immediately.
 
-### R1. Der Server hebt abgerissene Streams auf ✅
+### R1. The server keeps broken-off streams ✅
 
-Der Teil, der ohne Rückkehrer prüfbar ist.
+The part that is checkable without a returner.
 
-**Die Kennung war ratbar, und niemandem fiel es auf.** Die frühere Fassung
-schickte `id='sm-{Verbindungsnummer}'` — eine kleine Zahl, die jeder Mitlesende
-mitzählen kann. Ohne Wiederaufnahme war sie folgenlos: es gab nichts, was
-sich damit übernehmen liesse. Mit ihr wäre sie ein Einfallstor geworden, denn
-die Kennung ist das einzige Geheimnis, das einen Rückkehrer ausweist. Jetzt
-kommt sie aus dem Zufallsgenerator, 128 Bit.
+**The identifier was guessable, and nobody noticed.** The earlier version sent
+`id='sm-{connection number}'` — a small number anybody reading along can count
+along with. Without a resumption it was without consequence: there was nothing
+that could be taken over with it. With it it would have become a way in, for the
+identifier is the only secret that identifies a returner. Now it comes out of the
+random generator, 128 bits.
 
-**Der eigentliche Eingriff sitzt dort, wo bisher bedingungslos abgemeldet
-wurde.** Reisst die Verbindung, erzeugt der Server seit jeher eine Abmeldung im
-Namen des Clients (RFC 6121, Abschnitt 4.5.2) — sonst führen die Kontakte die
-Resource für immer als online. Wer wiederkommen darf, darf das nicht: die
-Kontakte sähen ein Verschwinden, das gleich darauf zurückzunehmen wäre, und
-zwischen den beiden Presences läge alles, was inzwischen an eine vermeintlich
-abgemeldete Resource ging.
+**The actual intervention sits where until now the sign-off happened
+unconditionally.** Does the connection break, then the server has always created
+a sign-off in the name of the client (RFC 6121, section 4.5.2) — otherwise the
+contacts carry the resource as online for ever. Whoever may come back may not do
+that: the contacts would see a disappearing that would have to be taken back
+straight after, and between the two presences would lie everything that went to a
+supposedly signed-off resource in the meantime.
 
-Also wird der Stream geparkt statt abgemeldet — und das verlangt sofort die
-Gegenprobe: **eine aufgeschobene Abmeldung, die nie kommt, ist schlimmer als
-eine zu frühe.** Sie fiele niemandem auf. Deshalb ein Durchgang im
-Sekundentakt, der abgelaufene Streams abräumt und die Abmeldung nachholt, und
-ein Test, der genau darauf wartet.
+So the stream is parked instead of signed off — and that demands the
+counter-check at once: **a postponed sign-off that never comes is worse than one
+that is too early.** Nobody would notice it. Therefore a pass at the beat of a
+second which clears away expired streams and makes up for the sign-off, and a
+test that waits for exactly that.
 
-Dabei eine Falle, die nur beim Schreiben sichtbar wurde: der Abräumer ruft
-dieselbe `AnnounceUnavailableAsync` auf, die vorne parkt. Ohne vorheriges
-`EndResumption()` sieht sie wieder einen wiederaufnehmbaren Stream und parkt
-ihn erneut — mit neuer Frist, für immer. Die Mutation, die diese Zeile
-entfernt, tötet den Verfallstest.
+A trap in doing so that became visible only while writing: the clearer calls the
+same `AnnounceUnavailableAsync` that parks at the front. Without a preceding
+`EndResumption()` it sees a resumable stream again and parks it anew — with a new
+deadline, for ever. The mutation that removes this line kills the expiry test.
 
-Dazu der Puffer der noch nicht bestätigten Stanzas, aus dem nach einer
-Wiederaufnahme nachzusenden wäre. Er wird nur bei zugesagter Wiederaufnahme
-gefüllt — sonst wäre es ein Speicher, aus dem nie jemand liest — und leert sich
-am `<a h='…'/>` des Clients, in derselben Modulo-Arithmetik wie auf der
-Client-Seite.
+To that the buffer of the not yet acknowledged stanzas, out of which a resending
+would have to happen after a resumption. It is filled only at a promised
+resumption — otherwise it would be a store nobody ever reads from — and empties
+itself at the `<a h='…'/>` of the client, in the same modulo arithmetic as on the
+client side.
 
-Fünf Mutationen, jede von genau dem zuständigen Test erschlagen: nie parken,
-Verfall ohne `EndResumption`, ungefragt zusagen, Kennung aus der
-Verbindungsnummer, Puffer leert sich nicht.
+Five mutations, each struck down by exactly the responsible test: never park,
+expiry without `EndResumption`, promise unasked, identifier out of the connection
+number, buffer does not empty itself.
 
-### R2. Der Client kommt zurück ✅
+### R2. The client comes back ✅
 
-Der Versuch sitzt genau zwischen Anmeldung und Binding. Gelingt er, gibt es
-keine neue Resource — und keine zweite Presence, keinen zweiten Roster-Abruf,
-keine erneute Aushandlung: eine wiederaufgenommene Sitzung ist keine neue.
+The attempt sits exactly between login and binding. Does it succeed, then there
+is no new resource — and no second presence, no second roster fetch, no renewed
+negotiation: a resumed session is no new one.
 
-**Der Manager muss den Reconnect überleben.** `InitialiseManagers()` erzeugte
-ihn bei jedem Aufbau neu; an ihm hängen aber Kennung und unbestätigte Stanzas.
-Er ist jetzt der einzige, der stehenbleibt — seinen Sitzungszustand setzt er
-selbst zurück, sobald ein `<enabled/>` kommt.
+**The manager has to survive the reconnect.** `InitialiseManagers()` created it
+anew at every setup; on it however hang the identifier and the unacknowledged
+stanzas. It is now the only one that stays standing — its session state it resets
+itself as soon as an `<enabled/>` comes.
 
-**Die Kennung ist kein Ausweis, sondern eine Auswahl.** Sie wandert über die
-Leitung; wer sie abfängt, hätte sonst eine fremde Sitzung samt Full-JID und
-Roster, ohne je ein Passwort gesehen zu haben. Der Stream, auf dem das
-`<resume/>` ankommt, muss deshalb bereits auf **dasselbe Konto** angemeldet
-sein — ausgewiesen hat sich der Client vorher, über SASL.
-`AStolenId_DoesNotHandOverTheStream` hält das fest.
+**The identifier is no proof of identity, but a selection.** It travels over the
+wire; whoever intercepts it would otherwise have a foreign session together with
+the full JID and the roster, without ever having seen a password. The stream on
+which the `<resume/>` arrives has to be logged in to **the same account** already
+— identified itself the client has beforehand, over SASL.
+`AStolenId_DoesNotHandOverTheStream` holds that fast.
 
-**Drei Dinge, die erst der Lauf zeigte:**
+**Three things only the run showed:**
 
-1. *Ein sauberes `<close/>` darf nicht geparkt werden.* Fünf bestehende Tests
-   fielen durch, und sie hatten recht: der Server hielt jede ordentliche
-   Abmeldung für eine Störung, hob sie eine Minute lang auf und verschwieg sie
-   den Kontakten so lange. XEP-0198 Abschnitt 5.3 gilt abgerissenen Streams,
-   nicht verabschiedeten.
+1. *A clean `<close/>` may not be parked.* Five existing tests failed, and they
+   were right: the server held every proper sign-off to be a disturbance, kept it
+   for a minute and kept quiet about it to the contacts that long. XEP-0198
+   section 5.3 holds for broken-off streams, not for ones taken leave of.
 
-2. *Ein geparkter Stream muss weiter zustellbar sein.* `SessionsOf` filterte
-   auf offene Verbindungen — was während der Störung ankam, wurde verworfen,
-   statt in den Puffer zu gehen. Ohne diese Änderung rettete die Wiederaufnahme
-   nur, was in der letzten Zehntelsekunde vor dem Abriss unterwegs war, und der
-   eigentliche Fall — Verbindung weg, Nachrichten kommen trotzdem — fiele
-   durch.
+2. *A parked stream has to stay deliverable to.* `SessionsOf` filtered on open
+   connections — what arrived during the disturbance was discarded instead of
+   going into the buffer. Without this change the resumption saved only what was
+   on its way in the last tenth of a second before the break, and the actual case
+   — connection gone, messages come all the same — would fail.
 
-3. *`<enable/>` und `<enabled/>` gehören unter dieselbe Sperre.* Geht dazwischen
-   eine Stanza hinaus, zählt der Server sie und der Client nicht — der setzt
-   seinen Zähler erst beim `<enabled/>` zurück. Die Stände bleiben dann um
-   genau eine auseinander, und der Puffer läuft nie mehr leer.
+3. *`<enable/>` and `<enabled/>` belong under the same lock.* Does a stanza go
+   out in between, then the server counts it and the client does not — that one
+   resets its counter only at the `<enabled/>`. The states then stay exactly one
+   apart, and the buffer never runs empty again.
 
-Und die Gegenprobe zum Nachsenden: das `h` im `<resumed/>` räumt die
-Warteschlange des Clients bis zum Stand des Servers ab. Ohne das bekäme jeder
-Empfänger nach jedem Abriss alles doppelt, was der Server längst hatte.
+And the counter-check to the resending: the `h` in the `<resumed/>` clears the
+queue of the client away as far as the state of the server. Without that every
+recipient would get everything the server had long since twice after every break.
 
-Sechs Mutationen, alle von genau den zuständigen Tests erschlagen: Kontoprüfung
-weg, Manager bei jedem Aufbau neu, geparkter Stream nimmt nichts entgegen,
-sauberes Verabschieden wird geparkt, Client nimmt nie wieder auf, und nach der
-Wiederaufnahme läuft trotzdem der volle Aufbau.
+Six mutations, all struck down by exactly the responsible tests: the check of the
+account gone, the manager anew at every setup, a parked stream takes nothing in,
+a clean taking of leave is parked, the client never resumes, and after the
+resumption the full setup runs all the same.
 
-**Zwei eigene Testfehler auf dem Weg**, beide von derselben Sorte — eine
-Zusicherung, die mehr verlangt als der Test meint:
+**Two test errors of my own on the way**, both of the same sort — an assurance
+that demands more than the test means:
 
-- Die Wartebedingung `IsConnected && ResumableStreamCount == 0` war schon
-  erfüllt, während der Client noch mitten im Aufbau stand. Die Mutation
-  „Manager bei jedem Aufbau neu" kam daran vorbei, weil die Zusicherungen den
-  alten Manager lasen, bevor er ersetzt wurde. Jetzt wird auf den
-  *abgeschlossenen* Aufbau gewartet.
-- `AcknowledgedStanzas_LeaveTheBuffer` verlangte einen **leeren** Puffer,
-  während Bobs XEP-0184-Empfangsbestätigungen weiter Einträge nachlegten. In
-  etwa jedem dritten vollen Lauf falsch, allein ausgeführt nie. Gemeint war:
-  was bestätigt wurde, liegt nicht mehr drin.
+- The waiting condition `IsConnected && ResumableStreamCount == 0` was already
+  fulfilled while the client still stood in the middle of the setup. The mutation
+  "manager anew at every setup" got past that, because the assurances read the
+  old manager before it was replaced. Now it is waited for the *finished* setup.
+- `AcknowledgedStanzas_LeaveTheBuffer` demanded an **empty** buffer while Bob's
+  XEP-0184 receipts went on putting entries in. Wrong in about every third full
+  run, run on its own never. Meant was: what was acknowledged does not lie in
+  there any more.
 
-**Nicht abgedeckt** blieb hier zunächst eine Stanza, die der Client
-erfolgreich abschickt und die den Server nie erreicht — inzwischen erledigt,
-siehe R7.
+**Not covered** stayed here at first a stanza the client sends off successfully
+and that never reaches the server — done in the meantime, see R7.
 
-### R3. Wiederaufnahme gegen Prosody ✅
+### R3. Resumption against Prosody ✅
 
-Bis hierher war die Wiederaufnahme nur gegen den eigenen Server geprüft — beide
-Seiten mit derselben Auffassung davon, wann ein `<resume/>` geschickt werden
-darf, was hineingehört und was zurückkommt. Prosody hat diese Auffassung nicht
-von uns.
+Up to here the resumption was checked only against our own server — both sides
+with the same understanding of when a `<resume/>` may be sent, what belongs in it
+and what comes back. Prosody does not have this understanding from us.
 
-Nötig war dafür zweierlei: ein **Abriss von unserer Seite** (`KillConnection()`,
-das Gegenstück zu `XMPPSession.Kill()` — gegen eine fremde Gegenstelle lässt
-sich die Sitzung nicht von drüben kappen, und ein ordentliches Abmelden ist
-gerade das Gegenteil dessen, was zu prüfen ist) und ein **zweites Konto** auf
-Prosody, sonst gibt es keinen Absender für eine Nachricht während der Störung.
+Necessary for that were two things: a **break from our side** (`KillConnection()`,
+the counterpart to `XMPPSession.Kill()` — against a foreign far side the session
+cannot be cut from over there, and a proper signing off is exactly the opposite of
+what is to be checked) and a **second account** on Prosody, otherwise there is no
+sender for a message during the disturbance.
 
-Es lief auf Anhieb, und weil das verdächtig glatt war, erst ins Prosody-Log
-statt es zu glauben. Dort steht der ganze Ablauf: `Session going into
-hibernation (not being destroyed)`, unser `<resume previd='…' h='2'/>`,
-`mod_smacks resuming existing session`, `<resumed previd='…' h='3'/>` und
-`resending all unacked stanzas that are still queued after resume`.
+It ran straight away, and because that was suspiciously smooth, into the Prosody
+log first instead of believing it. There stands the whole course of events:
+`Session going into hibernation (not being destroyed)`, our
+`<resume previd='…' h='2'/>`, `mod_smacks resuming existing session`,
+`<resumed previd='…' h='3'/>` and `resending all unacked stanzas that are still
+queued after resume`.
 
-**Zwei Mutationen, zwei zu schwache Tests — und beide Male dieselbe Ursache:**
-die Zusicherung war auch ohne Wiederaufnahme erfüllt.
+**Two mutations, two tests too weak — and both times the same cause:** the
+assurance was fulfilled without a resumption as well.
 
-- *„Nie wiederaufnehmen"* liess `ProsodyHoldsBackWhatArrivedDuringTheOutage`
-  bestehen. Prosody stellt die Nachricht auch dann zu, wenn der Client eine
-  neue Resource bindet — sie geht dann eben dorthin. Dass sie ankommt, belegt
-  die Wiederaufnahme nicht. Jetzt wird zusätzlich geprüft, dass es derselbe
-  Stream war.
-- *„resume='true' weglassen"* liess beide neuen Tests bestehen. Ohne Zusage ist
-  die Kennung auf beiden Seiten `null`, und `null == null` heisst „unverändert".
-  Beide prüfen jetzt zuerst, dass überhaupt zugesagt wurde.
+- *"Never resume"* let `ProsodyHoldsBackWhatArrivedDuringTheOutage` pass. Prosody
+  delivers the message even when the client binds a new resource — it just goes
+  there then. That it arrives shows nothing about the resumption. Now it is
+  additionally checked that it was the same stream.
+- *"Leave out resume='true'"* let both new tests pass. Without a promise the
+  identifier is `null` on both sides, and `null == null` means "unchanged". Both
+  now check first that anything was promised at all.
 
-Der Vergleich „vorher gleich nachher" ist nur dann ein Beleg, wenn *vorher*
-etwas dastand. Das ist in dieser Sitzung der dritte Test, der grün war und
-nichts gemessen hat.
+The comparison "before equals after" is only then a piece of evidence when
+something stood there *before*. That is the third test in this session that was
+green and measured nothing.
 
-### R4. Dieselbe Probe gegen ejabberd ✅ — und diesmal kein Fund
+### R4. The same probe against ejabberd ✅ — and this time no find
 
-ejabberd bekommt einen `ejabberd_http_ws`-Handler auf 5443,
-`mod_stream_mgmt` und zwei Konten. Die sieben Prüfungen sind nach
-`AForeignPeerStreamManagementTests` gezogen — sie prüfen für jede Gegenstelle
-dasselbe, und was sich unterscheidet, legen die Ableitungen in zwanzig Zeilen
-fest. Ein dritter Server kostet damit fast nichts.
+ejabberd gets an `ejabberd_http_ws` handler on 5443, `mod_stream_mgmt` and two
+accounts. The seven checks are pulled into `AForeignPeerStreamManagementTests` —
+they check the same for every far side, and what differs the derivations lay down
+in twenty lines. A third server thereby costs almost nothing.
 
-**Vierzehn von vierzehn, keine Abweichung.** Das ist ein anderes Ergebnis als
-bei XEP-0288, wo ejabberd in den Stream-Features das Freischalt-Element statt
-der Ankündigung schickte und wir sein Angebot deshalb übersahen. Bei
-XEP-0198 stimmen beide Server in allem überein, was wir prüfen: Zählung des
-Aufbaus, Nonzas, unser Empfangszähler, Zusage, Wiederaufnahme, Nachlieferung.
+**Fourteen out of fourteen, no deviation.** That is a different result than at
+XEP-0288, where ejabberd sent the enabling element instead of the announcement in
+the stream features and we therefore overlooked its offer. At XEP-0198 both
+servers agree in everything we check: counting of the setup, nonzas, our counter
+of what comes in, promise, resumption, resending.
 
-Das ist kein verschwendeter Lauf. Vorher war offen, ob unsere Wiederaufnahme
-an Prosodys Auslegung hängt; jetzt ist es das nicht. Ein zweiter Zeuge, der
-bestätigt, sagt weniger als einer, der widerspricht — aber er sagt etwas.
+That is no wasted run. Before it was open whether our resumption hangs on
+Prosody's reading; now it is not that. A second witness that confirms says less
+than one that contradicts — but it says something.
 
-Zwei Unterschiede im Aufbau, beide banal und beide wären beim Festverdrahten
-zur Falle geworden:
+Two differences in the setup, both banal and both would have become a trap on
+wiring them fast:
 
-- Der WebSocket-Pfad heisst bei ejabberd `/websocket`, bei Prosody
-  `/xmpp-websocket`. RFC 7395 schreibt keinen vor.
-- `ejabberdctl register` geht über einen RPC-Aufruf in den laufenden Knoten
-  und braucht ihn gestartet; `prosodyctl register` fasst die Dateien direkt an
-  und will ihn *angehalten*. Genau verkehrt herum.
+- The WebSocket path is called `/websocket` at ejabberd, `/xmpp-websocket` at
+  Prosody. RFC 7395 prescribes none.
+- `ejabberdctl register` goes over an RPC call into the running node and needs it
+  started; `prosodyctl register` touches the files directly and wants it
+  *stopped*. Exactly the wrong way round.
 
-### R5. Der Namensraum in der Gegenrichtung ✅ — und er fehlte überall
+### R5. The namespace in the counter-direction ✅ — and it was missing everywhere
 
-Notiert war eine schmale Sache: was von einem fremden Server hereinkommt, steht
-in `jabber:server` und wird unverändert an den lokalen Client weitergereicht.
-Der zweite Test dazu hat gezeigt, dass es breiter liegt — **der Server hat
-seinen Clients überhaupt nie einen Namensraum geschickt.** Bind-Antwort,
-Carbons-Bestätigung, Roster, Presence: alles ohne.
+Noted was a narrow thing: what comes in from a foreign server stands in
+`jabber:server` and is handed on unchanged to the local client. The second test
+for it has shown that it lies broader — **the server has never sent its clients a
+namespace at all.** Bind answer, carbons confirmation, roster, presence:
+everything without.
 
-Das ist derselbe Fehler wie der, den Prosody am Bind-IQ des Clients abgewiesen
-hat, nur spiegelverkehrt. Über WebSocket gibt es kein umschliessendes
-`<stream:stream>`, von dem eine Stanza ihren Namensraum erben könnte
-(RFC 7395, Abschnitt 3.3.3); über die Domain-Grenze wechselt er von
-`jabber:server` auf `jabber:client` (RFC 6120, Abschnitt 4.8.1).
+That is the same error as the one Prosody refused at the bind IQ of the client,
+only mirror-inverted. Over WebSocket there is no enclosing `<stream:stream>` from
+which a stanza could inherit its namespace (RFC 7395, section 3.3.3); over the
+domain border it changes from `jabber:server` to `jabber:client` (RFC 6120,
+section 4.8.1).
 
-Aufgefallen ist beides nie, und aus demselben Grund: unser Client erkennt
-Stanzas am lokalen Namen und sieht den Namensraum gar nicht an. Diese
-Nachsicht hat den Fehler auf der Client-Seite jahrelang verdeckt und hier
-gleich noch einmal. Ein fremder Client wäre vermutlich strenger — und wir
-erführen es erst von ihm.
+Neither ever came out, and for the same reason: our client recognises stanzas by
+the local name and does not look at the namespace at all. This leniency has
+covered up the error on the client side for years and here once again. A foreign
+client would presumably be stricter — and we would learn of it from them first.
 
-Behoben in `XMPPSession.SendAsync`: die eine Stelle, durch die jeder Rahmen an
-einen Client läuft, und aus demselben Grund gewählt wie beim Zählen. Nonzas
-bleiben aussen vor; `<enabled/>` geht ohnehin an dieser Stelle vorbei, ist aber
-auch keine Stanza.
+Fixed in `XMPPSession.SendAsync`: the one place through which every frame to a
+client runs, and chosen for the same reason as at the counting. Nonzas stay
+outside; `<enabled/>` goes past this place anyway, but is no stanza either.
 
-Zwei Mutationen, beide von genau den zwei neuen Tests erschlagen: gar keinen
-Namensraum setzen, und `jabber:server` statt `jabber:client`.
+Two mutations, both struck down by exactly the two new tests: set no namespace at
+all, and `jabber:server` instead of `jabber:client`.
 
-Der Lauf gegen Prosody und ejabberd blieb danach unverändert grün — die
-Änderung betrifft nur, was unsere Clients von unserem Server bekommen.
+The run against Prosody and ejabberd stayed green unchanged afterwards — the
+change concerns only what our clients get from our server.
 
-### R6. Anbieten und Erbitten getrennt ✅ — und der Schluss aus P6 fällt
+### R6. Offering and asking separated ✅ — and the conclusion from P6 falls
 
-`UseBidirectionalStreams` steuerte beides zugleich: die Ankündigung auf
-eingehenden Verbindungen und die Bitte auf ausgehenden. Das war nicht bloss
-unscharf — es machte die eine Richtung **unbeobachtbar**. Solange unsere
-ausgehende Verbindung die Rückrichtung nutzt, antwortet die Gegenstelle
-darüber und wählt uns gar nicht erst an; es gab also keinen Zustand, in dem
-sich unsere Ankündigung zeigen konnte.
+`UseBidirectionalStreams` steered both at once: the announcement on incoming
+connections and the request on outgoing ones. That was not merely unsharp — it
+made the one direction **unobservable**. As long as our outgoing connection uses
+the counter-direction, the far side answers over that and does not dial us in the
+first place; there was therefore no state in which our announcement could show
+itself.
 
-Jetzt zwei Schalter, `OfferBidirectionalStreams` und
-`RequestBidirectionalStreams`. Damit gibt es den Zustand „anbieten, nicht
-erbitten", und damit den Test `ThePeerTakesTheReturnPathWeOffered`: zwei Pings,
-weil es beim ersten die eingehende Verbindung noch nicht gibt, und
-`BidirectionalDeliveryCount` als Beleg.
+Now two switches, `OfferBidirectionalStreams` and `RequestBidirectionalStreams`.
+With that there is the state "offer, do not ask", and with that the test
+`ThePeerTakesTheReturnPathWeOffered`: two pings, because at the first the incoming
+connection does not exist yet, and `BidirectionalDeliveryCount` as evidence.
 
-**Prosody nimmt an, ejabberd 24.12 nicht.** Genau die Abweichung, für die der
-zweite Server da ist — und sie widerlegt, was in P6 hier stand. Dort hatte ich
-aus ejabberds *master* geschlossen, seine aufbauende Seite suche die XEP-Form
-`urn:xmpp:features:bidi`, und daraus, dass unsere Ankündigung genügt. Die
-ausgelieferte 24.12 verhält sich anders: sie kündigt selbst `urn:xmpp:bidi` an
-und sucht offenbar dasselbe.
+**Prosody accepts, ejabberd 24.12 does not.** Exactly the deviation the second
+server is there for — and it refutes what stood here in P6. There I had concluded
+from ejabberd's *master* that its building side looks for the XEP form
+`urn:xmpp:features:bidi`, and out of that, that our announcement suffices. The
+shipped 24.12 behaves differently: it announces `urn:xmpp:bidi` itself and
+apparently looks for the same.
 
-Derselbe Fehler wie damals im Kleinen: aus dem Quelltext einer anderen Fassung
-auf das Verhalten der laufenden geschlossen. Der Unterschied ist, dass es
-diesmal auffiel, weil ein Test danach fragte.
+The same error as back then in the small: concluded from the source of one version
+to the behaviour of the running one. The difference is that this time it came out,
+because a test asked after it.
 
-Behoben durch **zwei** Ankündigungen. Auf dem Draht bleibt es eindeutig: das
-Freischalt-Element heisst in beiden Lesarten `urn:xmpp:bidi`, es kommt also nur
-eine Antwort zurück, und wer nur die XEP-Form kennt, übergeht das zweite
-Element als unbekanntes Feature. Nach der Änderung nehmen beide Server die
-Rückrichtung an.
+Fixed by **two** announcements. On the wire it stays unambiguous: the enabling
+element is called `urn:xmpp:bidi` in both readings, so only one answer comes back,
+and whoever knows only the XEP form passes over the second element as an unknown
+feature. After the change both servers accept the counter-direction.
 
-Nebenbei hing eine dritte Sache am selben Schalter: ob wir eine bestehende
-Rückrichtung überhaupt *benutzen*. Das gehört zum Anbieten und nicht zum
-Erbitten — und ist jetzt ganz ohne Schalter, weil `BidiEnabled` beides schon
-voraussetzt.
+Incidentally a third thing hung on the same switch: whether we *use* an existing
+counter-direction at all. That belongs to the offering and not to the asking — and
+is now quite without a switch, because `BidiEnabled` presupposes both already.
 
-Zwei Mutationen, beide von `ThePeerTakesTheReturnPathWeOffered` erschlagen: nur
-die XEP-Form ankündigen (ejabberd fällt aus), und das Anbieten wieder an den
-Schalter für die ausgehende Seite hängen (beide fallen aus).
+Two mutations, both struck down by `ThePeerTakesTheReturnPathWeOffered`: announce
+only the XEP form (ejabberd falls out), and hang the offering on the switch for
+the outgoing side again (both fall out).
 
-### R7. Die verlorene Stanza ✅ — ein Fall, den es im Prozess nicht gab
+### R7. The lost stanza ✅ — a case that did not exist in the process
 
-`ResendUnackedAsync` war seit R2 implementiert und ungeprüft, und der Grund war
-kein Versäumnis, sondern ein Aufbauproblem: es gab keinen Weg, eine Stanza zu
-erzeugen, die die Leitung erfolgreich verlässt und trotzdem nicht ankommt. Ein
-abgerissener Socket lässt das Senden sofort und lautstark scheitern, und eine
-nicht gesendete Stanza wird gar nicht erst mitgezählt — die Warteschlange
-blieb also immer leer, und der ganze Zweig lief nie.
+`ResendUnackedAsync` had been implemented since R2 and unchecked, and the reason
+was no omission but a problem of the setup: there was no way to create a stanza
+that leaves the wire successfully and nevertheless does not arrive. A broken-off
+socket lets the sending fail at once and loudly, and a stanza not sent is not
+counted along in the first place — the queue therefore always stayed empty, and
+the whole branch never ran.
 
-`XMPPServer.SwallowClientStanzas` stellt den Fall her: der Server nimmt den
-Rahmen entgegen und wirft ihn weg, **bevor** er ihn aufzeichnet, zählt oder
-weiterreicht. Für den Client sieht es aus wie ein geglücktes Senden, für den
-Server, als sei nie etwas gekommen. Nonzas bleiben unangetastet — ohne sie
-wären in diesem Zustand weder `<r/>` noch `<resume/>` möglich, und der Fall
-wäre wieder nicht zu erreichen.
+`XMPPServer.SwallowClientStanzas` produces the case: the server takes the frame in
+and throws it away **before** it records, counts or hands it on. To the client it
+looks like a successful sending, to the server as if nothing had ever come. Nonzas
+stay untouched — without them neither `<r/>` nor `<resume/>` would be possible in
+this state, and the case would be unreachable again.
 
-Der Schalter reiht sich in die bestehenden Fehlerfall-Schalter ein
+The switch falls in with the existing switches for error cases
 (`CompleteCloseHandshake`, `RouteStanzas`, `AnswerAckRequests`,
-`BroadcastPresence`) und ist derselbe Gedanke: manche Wege sind nur begehbar,
-wenn der Server sich absichtlich schlecht benimmt.
+`BroadcastPresence`) and is the same thought: some ways are walkable only when
+the server misbehaves on purpose.
 
-Zwei Mutationen, beide von `StanzasLostInFlight_GoOutAgainAfterResumption`
-erschlagen: gar nichts nachsenden, und beim Nachsenden erneut mitzählen. Die
-zweite ist die, die in R2 ausdrücklich unerschlagen blieb — dort stand
-vermerkt, dass für sie kein Testweg existiert. Jetzt gibt es einen.
+Two mutations, both struck down by
+`StanzasLostInFlight_GoOutAgainAfterResumption`: resend nothing at all, and count
+along again while resending. The second is the one that stayed expressly
+unstruck in R2 — there it stood noted that no test way exists for it. Now there
+is one.
 
-Damit hat der ganze XEP-0198-Strang keine ungeprüfte Zeile mehr.
+With that the whole XEP-0198 strand has no unchecked line any more.
 
 ### D1. Der SASL-Downgrade ✅ — nie schwächer als beim letzten Mal
 
