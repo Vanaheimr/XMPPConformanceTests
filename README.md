@@ -1,18 +1,18 @@
 
 XEPs (XMPP Extension Protocols):
-XEP			Name						Nutzen
-XEP-0045	MUC							Multi-User Chat (Gruppenchats)
--XEP-0085	Chat State					"tippt gerade..."
--XEP-0184	Receipts					Lesebestätigungen
--XEP-0280	Carbons						Nachrichten auf allen Geräten sync
-XEP-0313	MAM							Message Archive (Verlauf vom Server)
-XEP-0384	OMEMO						End-to-End Verschlüsselung
+XEP			Name						Use
+XEP-0045	MUC							Multi-User Chat (group chats)
+-XEP-0085	Chat State					"is typing..."
+-XEP-0184	Receipts					Read receipts
+-XEP-0280	Carbons						Messages synced across all devices
+XEP-0313	MAM							Message Archive (history from the server)
+XEP-0384	OMEMO						End-to-end encryption
 
 
-Für OCA/E-Mobility relevant:
+Relevant for OCA/e-mobility:
 
--XEP-0060	PubSub						Für Event-basierte Kommunikation
-Custom IQ Handler						Für eigene Protokollerweiterungen
+-XEP-0060	PubSub						For event-based communication
+Custom IQ handler						For our own protocol extensions
 
 
 

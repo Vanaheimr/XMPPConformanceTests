@@ -1,200 +1,197 @@
 ﻿# XMPP Console Client (.NET 10)
 
-Ein XMPP-Client für die Kommandozeile mit WebSocket-Transport (RFC 7395) und
-SCRAM-Authentifizierung.
+An XMPP client for the command line with WebSocket transport (RFC 7395) and
+SCRAM authentication.
 
-> **Reifegrad:** Experimentell. Der Client verbindet, authentifiziert und
-> chattet gegen Prosody 13 über `wss://` — geprüft, nicht behauptet: bis vor
-> kurzem stand hier dasselbe über ejabberd, und tatsächlich hätte sich der
-> Client an *keinem* RFC-7395-konformen Server anmelden können, weil seine
-> Stanzas ohne Namensraum hinausgingen. Verbindungsmanagement und
-> Fehlerbehandlung sind unvollständig (siehe
-> [Bekannte Einschränkungen](#bekannte-einschränkungen)). Nicht für den
-> Produktivbetrieb.
+> **Maturity:** experimental. The client connects, authenticates and chats
+> against Prosody 13 over `wss://` — shown, not claimed: until recently the
+> same stood here about ejabberd, and in fact the client could not have
+> logged in to *any* RFC 7395 conformant server, because its stanzas went out
+> without a namespace. Connection management and error handling are
+> incomplete (see [Known limitations](#known-limitations)). Not for
+> production use.
 
-Das Protokoll selbst — Client, Server, XEPs, Föderation, OMEMO — liegt seit D97
-in **[Ratatoskr](../libs/Ratatoskr/README.md)**, einer eigenen Bibliothek unter
-`libs/`. Dieses Dokument beschreibt beides weiter zusammen, weil beides
-zusammen entstanden ist und die Entscheidungen dahinter im
-[Arbeitsplan](../WORKPLAN.md) stehen; das README von Ratatoskr ist der Auszug
-für den, der die Bibliothek ohne diese Konsole benutzt. **Hier** stehen
-ausserdem die Dinge, die es dort nicht gibt: die Konsole selbst und der Aufbau
-der Interoperabilitätsprüfungen gegen Prosody, ejabberd und python-omemo.
+The protocol itself — client, server, XEPs, federation, OMEMO — has lived
+since D97 in **[Ratatoskr](../libs/Ratatoskr/README.md)**, a library of its own
+under `libs/`. This document goes on describing both together, because both
+came about together and the decisions behind them stand in the
+[work plan](../WORKPLAN.md); the README of Ratatoskr is the extract for
+whoever uses the library without this console. **Here** stand in addition the
+things that do not exist there: the console itself and the setup of the
+interoperability checks against Prosody, ejabberd and python-omemo.
 
-## Authentifizierung
+## Authentication
 
-| Methode | Status |
+| Method | Status |
 |---------|--------|
-| SCRAM-SHA-256 | ✅ Bevorzugt |
+| SCRAM-SHA-256 | ✅ Preferred |
 | SCRAM-SHA-1 | ✅ Fallback |
-| SASL PLAIN | ⚠️ Letzter Fallback |
-| SCRAM-*-PLUS (Channel Binding) | ❌ Nicht implementiert |
+| SASL PLAIN | ⚠️ Last fallback |
+| SCRAM-*-PLUS (channel binding) | ❌ Not implemented |
 
-Gewählt wird der stärkste angebotene Mechanismus — nach der Rangfolge, nicht
-nach der Reihenfolge der Ankündigung. Gegen den Downgrade halten zwei
-Untergrenzen, beide auf `XMPPConnection`:
+What is chosen is the strongest mechanism on offer — by the ranking, not by
+the order of the announcement. Against the downgrade stand two lower bounds,
+both on `XMPPConnection`:
 
-| Eigenschaft | Wirkung |
+| Property | Effect |
 |---|---|
-| `PinnedSaslMechanism` | Womit die letzte Anmeldung gelang. Wirkt von selbst, aber erst ab der zweiten Verbindung. |
-| `MinimumSaslMechanism` | Was der Aufrufer verlangt. Wirkt vom ersten Rahmen an, muss aber gesetzt werden. |
+| `PinnedSaslMechanism` | What the last login succeeded with. Works by itself, but only from the second connection on. |
+| `MinimumSaslMechanism` | What the caller demands. Works from the first frame on, but has to be set. |
 
-Beide werden geprüft, *bevor* das `<auth/>` hinausgeht — bei PLAIN stünde das
-Passwort in genau diesem Rahmen. Bietet der Server weniger an als eine der
-Untergrenzen verlangt, kommt keine Verbindung zustande und es wird kein
-Reconnect versucht.
+Both are checked *before* the `<auth/>` goes out — with PLAIN the password
+would stand in exactly that frame. If the server offers less than one of the
+lower bounds demands, no connection comes about and no reconnect is tried.
 
-Die Anheftung ist ein Trust-On-First-Use: Steht der Zwischenmann schon beim
-allerersten Verbindungsaufbau dazwischen, heftet sie sein Downgrade an, statt
-es abzuwehren. Wer weiß, was sein Server kann, setzt deshalb zusätzlich
-`MinimumSaslMechanism`. Was sie ohne Zutun abwehrt, ist der Angriff, der sich
-lohnt: Der Client kommt nach jedem Abriss von allein wieder, und ein Abriss
-lässt sich erzwingen.
+The pinning is a trust-on-first-use: if the man in the middle is already there
+at the very first connection, it pins his downgrade instead of fending it off.
+Whoever knows what their server can do therefore also sets
+`MinimumSaslMechanism`. What it fends off without any help is the attack that
+pays: the client comes back by itself after every break, and a break can be
+forced.
 
-## XEP-Unterstützung
+## XEP support
 
-Legende: ✅ funktionsfähig · ⚠️ implementiert mit bekannten Lücken · 🚧 vorhanden, aber standardmäßig aus · ⛔ bewusst nicht umgesetzt
+Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but off by default · ⛔ deliberately not implemented
 
-| XEP | Name | Status | Anmerkung |
+| XEP | Name | Status | Note |
 |-----|------|--------|-----------|
-| XEP-0013 | Flexible Offline Message Retrieval | ⛔ | Von der XSF als *Deprecated* geführt (Fassung 1.3, 2021-05-04): „Implementation of the protocol described herein is not recommended." Die Offline-Ablage bleibt beim automatischen Nachreichen nach RFC 6121 §8.5.2.2.1 und XEP-0160 — siehe [WORKPLAN.md](../WORKPLAN.md), D37 |
-| XEP-0030 | Service Discovery | ✅ | disco#info und disco#items, abgefragt und beantwortet. Das `node` der Anfrage wird nach §3.2 gespiegelt; beantwortet werden nur Nodes, die diese Entity bezeichnen — der Caps-Node mit und ohne aktuelles `#ver` (XEP-0115 §6.2). Jeder andere, auch ein veraltetes `ver`, bekommt `<item-not-found/>` mit der Anfrage zurück. disco#items antwortet aus `DiscoManager.LocalItems` (leer als Vorgabe: ein Client hat keine Untereinheiten); ein `node` ist dort ein Ast im Baum und wird abgewiesen. Der Testserver führt keine Nodes und weist jeden ab |
-| XEP-0060 | Publish-Subscribe | ⚠️ | Eingehende Events werden geparst, gegen Spoofing geprüft und tragen ihre `SubID` aus der SHIM-Kopfzeile. Ausgehend wird jede Anfrage mit ihrer Antwort korreliert: Ein Abonnement gilt erst nach der Zusage des Dienstes, `pending` zählt nicht als Zusage, mehrere Abonnements auf denselben Knoten stehen nebeneinander, und ohne `subid` wird bei mehreren weder abbestellt noch eingestellt. Die Konfiguration je Abonnement (§6.3) und die eines Knotens (§8.2) werden gelesen und gesetzt — vermerkt wird nur, was der Dienst bestätigt hat, und `<create/>` schickt seine Einstellungen gleich mit, damit der Knoten nicht dazwischen offen steht. Rollen werden gelesen und vergeben (§5.7/§8.9); eine Liste mit einem unlesbaren Eintrag gilt ganz als unlesbar. Der Eigentümer sieht die Abonnenten seines Knotens (§8.8.1) und kann sie entfernen (§8.8.2) — nur entfernen: Ein Client, der andere ungefragt anmeldet, hat hier keinen Namen. Eine Abmeldung des Dienstes (§8.8.4) streicht das Abonnement aus der eigenen Buchführung; eine Zusage per Meldung wird nur angenommen, wenn dazu ein **eigener offener Antrag** steht (§8.6) — sonst liesse sich der Client von einem Dienst ungefragt anmelden. Ein `pending` wird eingetragen, zählt aber nicht als Abonnement: „was habe ich beantragt" und „bin ich abonniert" sind zwei Fragen. Als Eigentümer zeigt der Client eingehende Anträge an und beantwortet sie (§8.6.1/§8.6.2). Knoten werden gelöscht und geleert (§8.4/§8.5) — **ein gelöschter nimmt das Abonnement darauf mit, ein geleerter nicht**, und gestrichen wird je Dienst und nicht je Namen: `urn:xmpp:omemo:2:bundles` heisst bei jedem Konto so. Einzelne Einträge werden zurückgenommen (§7.2); eingehend wird die Rücknahme mit den Kennungen der betroffenen Einträge gemeldet und lässt das Abonnement stehen. Siehe [WORKPLAN.md](../WORKPLAN.md), D70–D90 |
-| XEP-0085 | Chat State Notifications | ✅ | Senden + Empfangen |
-| XEP-0115 | Entity Capabilities | ✅ | ver-String nach §5.1 vollständig, samt `xml:lang` und XEP-0128-Formularen, gegen beide Vektoren aus §5.2 und §5.3 geprüft; Antworten werden nach §5.4 verifiziert, sonst kein Cache-Eintrag |
-| XEP-0128 | Service Discovery Extensions | ✅ | Fremde Formulare werden gelesen, eigene über `DiscoManager.LocalForms` ausgeliefert; beide gehen in den ver-String ein. Standardmäßig leer — siehe unten |
-| XEP-0156 | Discovering Alternative XMPP Connection Methods | ✅ | Nur der HTTP-Weg, und nur so weit er sicher ist: `host-meta` wird ausschliesslich über HTTPS geladen, übernommen werden ausschliesslich `wss://`-Endpunkte. BOSH (`xbosh`) wird gelesen und übergangen — dieser Client spricht es nicht. Der DNS-Weg über `_xmppconnect` fehlt nicht, er ist aus dem XEP entfernt worden |
-| XEP-0160 | Best Practices for Handling Offline Messages | ✅ | Serverseitig: `normal` und `chat` werden abgelegt, `groupchat` abgelehnt, `headline` und `error` verworfen; ein `chat` mit ausschliesslich Tippstatus-Inhalt (XEP-0085) ebenfalls, und zwar ohne Fehler an den Absender. Nachgereicht bei der nächsten nicht-negativen verfügbaren Presence, als `msgoffline` angekündigt. Gilt auch für Nachrichten von anderen Servern |
-| XEP-0184 | Message Delivery Receipts | ✅ | Mit Spoofing-Schutz |
-| XEP-0203 | Delayed Delivery | ✅ | Der Server stempelt nachgereichte Nachrichten, der Client liest den Stempel: `XMPPMessage.Timestamp` ist die Zeit, zu der die Nachricht **geschrieben** wurde, `ReceivedAt` die des Empfangs, `IsDelayed` der Unterschied. Gelesen wird nur an der äusseren Stanza — ein Carbon bringt den Stempel seiner inneren Nachricht mit —, und nur mit Zonenangabe: eine Uhrzeit ohne Zone ist keine (D59) |
-| XEP-0198 | Stream Management | ✅ | Gegen Prosody 13 und ejabberd 24.12 geprüft, an per Default, mit Wiederaufnahme; nach dem Nachsenden wird eine Bestätigung angefordert, damit die Warteschlange auch ohne Keepalive leer wird; auch die Abweisung wird ausgewertet — ein `h` im `<failed/>` bestätigt, was der Server noch verarbeitet hat |
-| XEP-0199 | XMPP Ping | ✅ | Senden, Beantworten, RTT-Messung |
-| XEP-0280 | Message Carbons | ✅ | Mit Spoofing-Schutz |
-| XEP-0308 | Last Message Correction | ✅ | Empfangen: `XMPPMessage.ReplacesId` nennt die abgelöste Nachricht, `IsCorrection` die Tatsache. Senden: `CorrectLastMessageAsync` berichtigt die letzte Nachricht **an denselben Empfänger** (Abschnitt 5) und wird selbst zur letzten, sodass sich eine Berichtigung berichtigen lässt. In der Konsole `/fix <text>`; angekündigt in disco#info (D60) |
-| XEP-0333 | Chat Markers | ✅ | Senden + Empfangen, Namespace-geprüft gegen Verwechslung mit XEP-0184 |
-| XEP-0384 | OMEMO Encryption | ✅ | Vollständig, `urn:xmpp:omemo:2` — siehe den Abschnitt „Ende-zu-Ende-Verschlüsselung" weiter unten. Gegen die Referenzimplementierung python-omemo geprüft, in beide Richtungen (D69) |
-| XEP-0420 | Stanza Content Encryption | ✅ | Die Hülle, die OMEMO verschlüsselt: `<content/>` mit dem Absender darin und einer Polsterung zufälliger Länge |
-| XEP-0352 | Client State Indication | ✅ | Beide Seiten. Der Server kündigt `<csi/>` nach der Anmeldung an (§4.1) und antwortet auf `<active/>`/`<inactive/>` nicht (§4.2). Zurückgehalten wird nur, was später noch wahr ist: Presence wartet und **die letzte je Full-JID löst die früheren ab** (§3), eine Nachricht mit Text, ein `iq`, ein Fehler und jede Nonza gehen sofort hinaus, ein Chat State (XEP-0085) wird fallengelassen — er wäre beim Nachliefern nicht verspätet, sondern falsch. Zurückgehaltenes geht **vor** der Stanza hinaus, die den Puffer leert (RFC 6120 §10.1), und beim Verbindungsende in den Puffer der unbestätigten Stanzas. Obergrenze `MaxHeldWhileInactive` (Vorgabe 100); beim Überlauf geht der Puffer hinaus, statt etwas wegzuwerfen. Nach einer Wiederaufnahme gilt wieder „aktiv" (§5.2) — der Client erklärt sich deshalb nach jedem Aufbau erneut. In der Konsole `/csi aktiv|inaktiv` (D61) |
+| XEP-0013 | Flexible Offline Message Retrieval | ⛔ | Listed by the XSF as *deprecated* (version 1.3, 2021-05-04): "Implementation of the protocol described herein is not recommended." The offline store stays with the automatic handing in under RFC 6121 §8.5.2.2.1 and XEP-0160 — see [WORKPLAN.md](../WORKPLAN.md), D37 |
+| XEP-0030 | Service Discovery | ✅ | disco#info and disco#items, asked and answered. The `node` of the request is mirrored under §3.2; answered are only nodes that name this entity — the caps node with and without the current `#ver` (XEP-0115 §6.2). Every other one, an outdated `ver` included, gets `<item-not-found/>` back together with the request. disco#items answers from `DiscoManager.LocalItems` (empty by default: a client has no sub-units); a `node` is a branch in the tree there and is refused. The test server keeps no nodes and refuses every one |
+| XEP-0060 | Publish-Subscribe | ⚠️ | Incoming events are parsed, checked against spoofing and carry their `SubID` from the SHIM header. Outgoing, every request is correlated with its answer: a subscription holds only after the confirmation of the service, `pending` does not count as a confirmation, several subscriptions to the same node stand side by side, and without a `subid` nothing is unsubscribed or configured when there are several. The options per subscription (§6.3) and those of a node (§8.2) are read and set — recorded is only what the service has confirmed, and `<create/>` sends its settings along, so that the node does not stand open in between. Roles are read and granted (§5.7/§8.9); a list with one unreadable entry counts as unreadable entirely. The owner sees the subscribers of their node (§8.8.1) and can remove them (§8.8.2) — remove only: a client that signs others up unasked has no name here. A sign-off from the service (§8.8.4) strikes the subscription from the own books; a grant by event is accepted only when there is an **application of one's own** pending for it (§8.6) — otherwise a service could sign the client up unasked. A `pending` is recorded but does not count as a subscription: "what have I applied for" and "am I subscribed" are two questions. As an owner the client shows incoming applications and answers them (§8.6.1/§8.6.2). Nodes are deleted and emptied (§8.4/§8.5) — **a deleted one takes the subscription to it along, an emptied one does not**, and what is struck is struck per service and not per name: `urn:xmpp:omemo:2:bundles` is called that at every account. Single items are retracted (§7.2); incoming, the retraction is reported with the ids of the items concerned and leaves the subscription standing. See [WORKPLAN.md](../WORKPLAN.md), D70–D90 |
+| XEP-0085 | Chat State Notifications | ✅ | Sending + receiving |
+| XEP-0115 | Entity Capabilities | ✅ | ver string complete under §5.1, together with `xml:lang` and XEP-0128 forms, checked against both vectors from §5.2 and §5.3; answers are verified under §5.4, otherwise there is no cache entry |
+| XEP-0128 | Service Discovery Extensions | ✅ | Foreign forms are read, our own delivered over `DiscoManager.LocalForms`; both go into the ver string. Empty by default — see below |
+| XEP-0156 | Discovering Alternative XMPP Connection Methods | ✅ | Only the HTTP way, and only as far as it is safe: `host-meta` is loaded over HTTPS alone, and only `wss://` endpoints are taken over. BOSH (`xbosh`) is read and passed over — this client does not speak it. The DNS way over `_xmppconnect` is not missing, it has been removed from the XEP |
+| XEP-0160 | Best Practices for Handling Offline Messages | ✅ | On the server side: `normal` and `chat` are stored, `groupchat` refused, `headline` and `error` discarded; a `chat` whose content is nothing but a chat state (XEP-0085) likewise, and without an error to the sender. Handed in at the next non-negative available presence, announced as `msgoffline`. Holds for messages from other servers as well |
+| XEP-0184 | Message Delivery Receipts | ✅ | With spoofing protection |
+| XEP-0203 | Delayed Delivery | ✅ | The server stamps messages handed in late, the client reads the stamp: `XMPPMessage.Timestamp` is the time at which the message was **written**, `ReceivedAt` that of the receiving, `IsDelayed` the difference. Read only at the outer stanza — a carbon brings the stamp of its inner message along — and only with a zone: a time of day without a zone is none (D59) |
+| XEP-0198 | Stream Management | ✅ | Checked against Prosody 13 and ejabberd 24.12, on by default, with resumption; after the resending an acknowledgement is requested, so that the queue empties even without a keepalive; the refusal is evaluated as well — an `h` in the `<failed/>` confirms what the server has processed so far |
+| XEP-0199 | XMPP Ping | ✅ | Sending, answering, RTT measurement |
+| XEP-0280 | Message Carbons | ✅ | With spoofing protection |
+| XEP-0308 | Last Message Correction | ✅ | Receiving: `XMPPMessage.ReplacesId` names the message replaced, `IsCorrection` the fact. Sending: `CorrectLastMessageAsync` corrects the last message **to the same recipient** (section 5) and becomes the last one itself, so that a correction can be corrected. In the console `/fix <text>`; announced in disco#info (D60) |
+| XEP-0333 | Chat Markers | ✅ | Sending + receiving, namespace-checked against being confused with XEP-0184 |
+| XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo, in both directions (D69) |
+| XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
+| XEP-0352 | Client State Indication | ✅ | Both sides. The server announces `<csi/>` after the login (§4.1) and does not answer `<active/>`/`<inactive/>` (§4.2). Held back is only what will still be true later: presence waits and **the last one per full JID replaces the earlier ones** (§3), a message with text, an `iq`, an error and every nonza go out at once, a chat state (XEP-0085) is dropped — it would not be late on being handed in later, it would be wrong. What was held back goes out **before** the stanza that empties the buffer (RFC 6120 §10.1), and at the end of the connection into the buffer of unacknowledged stanzas. Upper bound `MaxHeldWhileInactive` (default 100); on overflow the buffer goes out instead of anything being thrown away. After a resumption "active" holds again (§5.2) — this is why the client declares itself anew after every setup. In the console `/csi active|inactive` (D61) |
 
-## RFC-Konformität
+## RFC conformance
 
 ### RFC 6120 — XMPP Core
 
-| Bereich | Status |
+| Area | Status |
 |---------|--------|
-| TLS (§5) | ⚠️ `wss://` über den WebSocket-Transport; `XMPPConnection.ServerCertificateValidator` erlaubt eine eigene Zertifikatsprüfung, `null` überlässt sie dem Betriebssystem. Kein STARTTLS (§5.4) — WebSocket bringt TLS unter sich mit, ein Klartext-`ws://` wird aber nicht verweigert |
-| SASL-Aushandlung und -Durchführung (§6) | ✅ Client und Server; der Client nimmt den stärksten angebotenen Mechanismus und nie einen schwächeren als beim letzten Mal, der Server lehnt einen nicht angebotenen ab |
-| SASL-Abbruch (§6.4.4) | ✅ `<abort/>` wird mit `<failure><aborted/></failure>` beantwortet, der halb begonnene SCRAM-Austausch verworfen und der Stream **nicht** beendet — ein Abbruch ist ein vorgesehener Schritt, kein Verstoss. Auf der Client-Verbindung und auf dem S2S-Stream; der Initiator eines S2S-Streams beantwortet ihn nicht, er wäre der Absender |
-| Directory Harvesting (§13.11) | ⚠️ Ein unbekannter Benutzername bekommt denselben SCRAM-Austausch wie ein bekannter — erfundene Zugangsdaten aus dem Namen und einem Serverschlüssel, Abweisung erst am Beweis. Sonst stünde die Auskunft im Ablauf statt im Fehlerwort. Der Serverschlüssel lebt im Prozess, über einen Neustart hinweg wechseln die erfundenen Salts; bei PLAIN unterscheidet sich weiterhin die Laufzeit. Die übrigen Gegenmassnahmen des Abschnitts — Ratenbegrenzung, Fehlerauskunft nur an Angemeldete — fehlen |
-| Resource Binding (§7) | ✅ `XMPPConnection.Resource` (Vorgabe `console-<pid>`, `null` überlässt die Wahl dem Server); auf `<conflict/>` folgt ein zweiter Versuch ohne Wunsch, jede andere Ablehnung bricht ab |
-| Legacy Session (RFC 3921) | ✅ Wird übersprungen, wenn das Feature selbst `<optional/>` trägt |
-| Stanza-Fehler (§8.3) | ✅ Typ, Bedingung, Text und `by` werden geparst; offene Anfragen scheitern statt scheinbar zu gelingen |
-| Antwort auf unbehandelte IQs (§8.2.3 Regel 3) | ✅ Unbekannte `iq get`/`set` werden mit `<service-unavailable/>` beantwortet |
-| Unmögliche Adressen (§8.3.3.8, §8.1.1.1) | ✅ Ist der Wert des `to` kein JID nach RFC 7622, antwortet der Server mit `<jid-malformed/>` (Fehlerart `modify`) und stellt nicht zu — für `message`, `presence` und `iq` an derselben Stelle, vor jeder Weiche. **Beide Herkünfte:** Von einer Gegenstelle wird auch das `from` geprüft, und zwar vor der Frage, für welche Domain sie sprechen darf — `DomainOf` auf etwas anzuwenden, das kein JID ist, vergleicht Bruchstücke. Ein unmögliches `from` beendet nach §8.1.1.1 den Stream mit `<invalid-from/>`, ein unmögliches `to` kostet nur die Stanza (D51, D53). Absender der Ablehnung ist der Server selbst und nicht der gemeinte Empfänger: Die Adresse ist keine, also hat dort niemand hineingesehen. Eine Stanza **ohne** `to` ist davon nicht betroffen (§8.1.1.1), und auf eine Fehler-Stanza folgt kein Fehler (§8.3.1) — verworfen wird sie trotzdem. Geprüft wird mit derselben RFC-7622-Prüfung, die der Client für seine eigenen Adressen benutzt |
-| Prüfung des IQ-Typs (§8.2.3 Regel 2) | ✅ Fehlt das `type`-Attribut oder trägt es einen anderen Wert als `get`, `set`, `result` oder `error`, folgt `<bad-request/>` mit der Fehlerart `modify` (§8.3.3.1). Geprüft wird in beiden Rollen, die der Abschnitt nennt: vom Client als Empfänger und vom Server als „intermediate router" — dort **vor** jeder Zustellung, also auch für das, was an die Serveradresse selbst geht, an einen hiesigen Empfänger oder über die Grenze. Ebenso für das, was von einer Gegenstelle hereinkommt. Ohne `id` geht die Ablehnung trotzdem hinaus und trägt dann keine |
-| Stream-Fehler (§4.9) | ✅ Geparst; nach einer nicht wiederholbaren Bedingung unterbleibt der Reconnect |
-| Weiche für eingehende Rahmen (§8.1) | ✅ Entschieden wird am **Elementnamen**, nicht an einem Präfix: `<iqbogus/>` ist kein `iq`, `<presence-probe/>` keine `presence`, `<opencast/>` keine Stream-Eröffnung. Ein Namensraum-Präfix ändert den Typ nicht (`<client:iq/>` ist ein `iq`, `<stream:features/>` und `<features/>` sind dasselbe Element) |
-| Unbekanntes Element auf Stream-Ebene (§4.9.3.24) | ✅ Auf beiden Streams — Client wie S2S — folgt `<unsupported-stanza-type/>`, und der Stream endet (§4.9.1.1). Gilt auch für ein unbekanntes Element in einem **bekannten** Namensraum: `<enabled/>` ist ein richtiges XEP-0198-Element, kommt aber vom Server und nicht vom Client. Für den S2S-Stream wurde vorher gemessen statt vermutet: Über den vollen Lauf gegen Prosody und ejabberd, ausgehend wie eingehend, kam dort kein einziger unbekannter Rahmen an. Ein Rahmen **ohne** Element ist kein unbekanntes Element und wird übergangen — Leerraum ist als Keepalive erlaubt (§4.6.1) |
+| TLS (§5) | ⚠️ `wss://` over the WebSocket transport; `XMPPConnection.ServerCertificateValidator` allows a certificate check of one's own, `null` leaves it to the operating system. No STARTTLS (§5.4) — WebSocket brings TLS along underneath it, but a plaintext `ws://` is not refused |
+| SASL negotiation and execution (§6) | ✅ Client and server; the client takes the strongest mechanism on offer and never a weaker one than last time, the server refuses one it did not offer |
+| SASL abort (§6.4.4) | ✅ `<abort/>` is answered with `<failure><aborted/></failure>`, the half-begun SCRAM exchange discarded and the stream **not** ended — an abort is a foreseen step, not a violation. On the client connection and on the S2S stream; the initiator of an S2S stream does not answer it, it would be the sender |
+| Directory harvesting (§13.11) | ⚠️ An unknown user name gets the same SCRAM exchange as a known one — made-up credentials from the name and a server key, refusal only at the proof. Otherwise the information would stand in the course of events instead of in the error word. The server key lives in the process, and across a restart the made-up salts change; with PLAIN the running time still differs. The other countermeasures of the section — rate limiting, error information only to those logged in — are missing |
+| Resource binding (§7) | ✅ `XMPPConnection.Resource` (default `console-<pid>`, `null` leaves the choice to the server); a `<conflict/>` is followed by a second attempt without a wish, every other refusal breaks off |
+| Legacy session (RFC 3921) | ✅ Is skipped when the feature itself carries `<optional/>` |
+| Stanza errors (§8.3) | ✅ Type, condition, text and `by` are parsed; pending requests fail instead of seeming to succeed |
+| Answer to unhandled IQs (§8.2.3 rule 3) | ✅ Unknown `iq get`/`set` are answered with `<service-unavailable/>` |
+| Impossible addresses (§8.3.3.8, §8.1.1.1) | ✅ If the value of the `to` is no JID under RFC 7622, the server answers with `<jid-malformed/>` (error type `modify`) and does not deliver — for `message`, `presence` and `iq` at the same place, before every branch. **Both origins:** from a far side the `from` is checked as well, and before the question of which domain it may speak for — to apply `DomainOf` to something that is no JID compares fragments. An impossible `from` ends the stream under §8.1.1.1 with `<invalid-from/>`, an impossible `to` costs only the stanza (D51, D53). The sender of the refusal is the server itself and not the intended recipient: the address is none, so nobody has looked in there. A stanza **without** a `to` is not affected by this (§8.1.1.1), and an error stanza is not followed by an error (§8.3.1) — it is discarded all the same. What checks is the same RFC 7622 check the client uses for its own addresses |
+| Check of the IQ type (§8.2.3 rule 2) | ✅ If the `type` attribute is missing or carries a value other than `get`, `set`, `result` or `error`, a `<bad-request/>` follows with the error type `modify` (§8.3.3.1). Checked in both roles the section names: by the client as a recipient and by the server as an "intermediate router" — there **before** every delivery, so also for what goes to the server address itself, to a local recipient or across the border. Likewise for what comes in from a far side. Without an `id` the refusal goes out all the same and then carries none |
+| Stream errors (§4.9) | ✅ Parsed; after a condition that cannot be repeated, the reconnect is left out |
+| Branch for incoming frames (§8.1) | ✅ What decides is the **element name**, not a prefix: `<iqbogus/>` is no `iq`, `<presence-probe/>` no `presence`, `<opencast/>` no stream opening. A namespace prefix does not change the type (`<client:iq/>` is an `iq`, `<stream:features/>` and `<features/>` are the same element) |
+| Unknown element at stream level (§4.9.3.24) | ✅ On both streams — client as well as S2S — an `<unsupported-stanza-type/>` follows, and the stream ends (§4.9.1.1). Holds for an unknown element in a **known** namespace as well: `<enabled/>` is a proper XEP-0198 element, but it comes from the server and not from the client. For the S2S stream this was measured beforehand instead of assumed: over the full run against Prosody and ejabberd, outgoing as well as incoming, not a single unknown frame arrived there. A frame **without** an element is no unknown element and is passed over — whitespace is allowed as a keepalive (§4.6.1) |
 
-### RFC 6121 — Instant Messaging und Presence
+### RFC 6121 — Instant messaging and presence
 
-| Bereich | Status |
+| Area | Status |
 |---------|--------|
-| Roster abrufen, hinzufügen, entfernen, Gruppen | ✅ Die Gruppen (§2.1.2.4) gingen bis D91 auf halbem Weg verloren: Der Client schickte sie, der Server las das `<item/>` nur bis zu seinen Attributen und schickte im Push denselben Eintrag ohne sie zurück — und weil ein Push die Gruppen eines Eintrags **ersetzt**, verschwanden sie damit auch beim Client. Jetzt trägt sie der Server, gibt sie in Abruf und Push aus, sie zählen für die Fassung des Rosters, und sie überstehen einen Neustart |
-| Ergebnis ersetzt den Zwischenspeicher (§2.1.4) | ✅ Ein Kontakt, der bei abgemeldetem Client entfernt wurde, ist danach weg — vorher blieb er stehen |
-| Roster-Pushes anwenden | ✅ Ergänzend und nicht ersetzend: Ein Push trägt nur die geänderten Einträge |
-| Absender-Validierung von Roster-Pushes (§2.1.6) | ✅ Nur ohne `from` oder mit dem eigenen Bare-JID; sonst verworfen und als Spoofing gemeldet |
-| Roster-Versionierung (§2.6) | ✅ Client und Server; `<ver/>` wird angekündigt, unveränderte Roster kommen als leeres Ergebnis, Pushes tragen die neue Fassung. Die Fassung ist ein Streuwert über den Inhalt — abschaltbar über `XMPPServer.OfferRosterVersioning` |
-| Presence-Subscription anfragen/annehmen/ablehnen | ✅ |
-| Eingehende `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Ändern den Subscription-Zustand und gelten nicht als Anwesenheit |
-| Message-Typen (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; fehlender oder unbekannter Wert gilt als `normal`. Auf `groupchat` und `headline` wird nicht von selbst geantwortet — eine Quittung in einen Raum sähen alle Anwesenden |
-| Zustellregeln nach Typ (§8.5) | ✅ An den Bare-JID: `groupchat` wird mit `<service-unavailable/>` abgelehnt, `error` still verworfen, `headline` an **alle** Resourcen mit nicht-negativer Priorität, `normal`/`chat` an eine. An eine passende Resource: alles, auch `groupchat` und `error` (§8.5.3.1). An eine Resource, die es nicht gibt: `chat` wie an das Konto (§8.5.3.2.1), alles andere still verworfen. Gilt für Nachrichten von hiesigen Clients **und** von anderen Servern — der Abschnitt spricht von einer „inbound stanza" und unterscheidet die Herkunft nicht. Eine Ablehnung findet den Rückweg über die Grenze |
-| Offline-Ablage (§8.5.2.2.1) | ✅ Ohne erreichbare Resource werden `normal` und `chat` abgelegt und bei der nächsten nicht-negativen verfügbaren Presence nachgereicht — mit XEP-0203-Stempel, über einen Neustart hinweg und als `msgoffline` in disco#info angekündigt. Auch für Nachrichten von anderen Servern, und das ist der Regelfall. Abschaltbar über `XMPPServer.StoreOfflineMessages`; dann bekommt der Absender `<service-unavailable/>`, was derselbe Abschnitt gleichrangig zulässt. Obergrenze `MaxStoredOfflineMessages` (Vorgabe 100): Ist sie erreicht, wird die neue Nachricht abgewiesen und keine abgelegte verdrängt |
-| IQ-Zustellregeln (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ✅ Eine Anfrage an einen Bare-JID wird nicht zugestellt, sondern vom Server mit `<service-unavailable/>` beantwortet — genau einmal, und für ein unbekanntes Konto ebenso, damit die Antwort keine Konten verrät. An eine passende Resource wird zugestellt; ohne passende Resource antwortet der Server. Ein `result` oder `error` wird nie beantwortet (RFC 6120 §8.2.3 Regel 4) und an einen Bare-JID nicht verteilt. Gilt für beide Herkünfte |
-| Anfrage an die Serveradresse (§8.2.3 Regel 3) | ✅ Ping (XEP-0199) und disco#info (XEP-0030) beantwortet der Server für sich selbst — einem hiesigen Client wie einer Gegenstelle, denn die Auskunft hängt nicht daran, wer fragt; nur der Rückweg unterscheidet sich. Was er nicht kennt, bekommt `<service-unavailable/>` statt Schweigen. **Nicht** darüber erreichbar sind Binding, Legacy Session, Carbons und der Roster: Die ändern den Zustand einer Sitzung oder gehören einem Konto — ein fremder Server, der nach dem Roster fragt, bekommt dieselbe Absage wie für jede unbekannte Anfrage |
-| Nachricht an ein unbekanntes Konto (§8.5.1) | ✅ Der Abschnitt lässt die Wahl zwischen `<service-unavailable/>` und Schweigen, aber sie muss dieselbe sein wie für ein vorhandenes Konto, das gerade nicht zusieht — sonst beantwortet sie die Frage „gibt es dieses Konto?". Gefragt wird deshalb nicht, ob es ein Konto gibt, sondern ob die Ablage die Nachricht annähme: für ein unbekanntes ist sie leer, und eine leere nimmt an, solange überhaupt etwas hineinpasst. Ist die Ablage aus oder voll, bekommen beide `<service-unavailable/>`; ist sie an, schweigt der Server für beide. Abgelegt wird für ein unbekanntes Konto nichts (D52) |
-| IQ-Prüfung gegen Presence-Lecks (§8.5.3.1) | ✅ Eine Anfrage an eine Resource wird nur zugestellt, wenn der Empfänger seine Presence mit dem Fragenden teilt — über den Roster (`from` oder `both` in **seiner** Hälfte) oder über gerichtete Presence (§4.6). Sonst dieselbe Antwort wie für eine Resource, die es nicht gibt; aus der Ablehnung lässt sich also nichts herauslesen. Für `result` und `error` gilt sie nicht — die muss der Server nach demselben Abschnitt zustellen |
-| Gerichtete Presence (§4.6) | ✅ Je Resource vermerkt, geleert bei der Abmeldung, zurückgenommen bei gerichtetem `unavailable`, und ebenso, wenn der Empfänger uns seinerseits eine Abmeldung schickt (§4.6.1, MUSS und SOLL). Wird die Resource unverfügbar — durch eigene Abmeldung oder Verbindungsabriss —, geht die Abmeldung an alle Empfänger gerichteter Presence, die sie nicht schon über den Roster bekommen (§4.6.3 Regel 2). Eine Statusänderung mitten in der Sitzung beendet die Zusage nicht |
-| Presence-Zustellregeln (§8.5.2.1.2, §8.5.3.1) | ✅ Verfügbare und unverfügbare Presence geht an den Bare-JID an alle Resourcen, an eine Full-JID an die passende, sonst still ins Leere (§8.5.1, §8.5.3.2.2) — für beide Herkünfte |
-| Presence-Probe (§4.3) | ✅ Beantwortet der Server selbst und stellt sie keinem Client zu, gleich ob sie von einem hiesigen Client oder von einer Gegenstelle kommt. Eine Probe an eine fremde Domain schickt er hinaus (§4.3.1). Geantwortet wird nur, wenn der Fragende im Roster des Befragten mit `from` oder `both` steht; sonst Schweigen, das auch ein unbekanntes Konto nicht verrät (§8.5.1 lässt die Wahl) |
-| Presence-Priorität (§4.7.2.3) | ✅ Gelesen und beachtet; eine negative Priorität bekommt nichts, was an den Bare-JID ging, bleibt aber gerichtet ansprechbar. Der Client setzt sie über `XMPPConnection.PresencePriority` |
+| Fetch, add, remove roster, groups | ✅ The groups (§2.1.2.4) were lost halfway until D91: the client sent them, the server read the `<item/>` only as far as its attributes and sent the same entry back in the push without them — and because a push **replaces** the groups of an entry, they vanished at the client with that as well. Now the server keeps them, gives them out in the fetch and in the push, they count for the version of the roster, and they survive a restart |
+| Result replaces the cache (§2.1.4) | ✅ A contact removed while the client was logged off is gone afterwards — before, it stayed standing |
+| Apply roster pushes | ✅ Adding and not replacing: a push carries only the changed entries |
+| Sender validation of roster pushes (§2.1.6) | ✅ Only without a `from` or with our own bare JID; otherwise discarded and reported as spoofing |
+| Roster versioning (§2.6) | ✅ Client and server; `<ver/>` is announced, unchanged rosters come as an empty result, pushes carry the new version. The version is a hash over the content — switchable over `XMPPServer.OfferRosterVersioning` |
+| Ask for/accept/deny a presence subscription | ✅ |
+| Incoming `subscribed`/`unsubscribed`/`unsubscribe` | ✅ Change the subscription state and do not count as presence |
+| Message types (§5.2.2) | ✅ `chat`, `groupchat`, `headline`, `normal`, `error`; a missing or unknown value counts as `normal`. To `groupchat` and `headline` nothing is answered by itself — everybody present would see a receipt in a room |
+| Delivery rules by type (§8.5) | ✅ To the bare JID: `groupchat` is refused with `<service-unavailable/>`, `error` silently discarded, `headline` to **all** resources with a non-negative priority, `normal`/`chat` to one. To a matching resource: everything, `groupchat` and `error` included (§8.5.3.1). To a resource that does not exist: `chat` as to the account (§8.5.3.2.1), everything else silently discarded. Holds for messages from local clients **and** from other servers — the section speaks of an "inbound stanza" and does not tell the origins apart. A refusal finds the way back across the border |
+| Offline store (§8.5.2.2.1) | ✅ Without a reachable resource, `normal` and `chat` are stored and handed in at the next non-negative available presence — with an XEP-0203 stamp, across a restart and announced as `msgoffline` in disco#info. For messages from other servers as well, and that is the ordinary case. Switchable over `XMPPServer.StoreOfflineMessages`; then the sender gets `<service-unavailable/>`, which the same section allows equally. Upper bound `MaxStoredOfflineMessages` (default 100): once it is reached, the new message is refused and no stored one displaced |
+| IQ delivery rules (§8.5.1, §8.5.2.1.3, §8.5.2.2.3, §8.5.3.2.3) | ✅ A request to a bare JID is not delivered but answered by the server with `<service-unavailable/>` — exactly once, and for an unknown account likewise, so that the answer betrays no accounts. To a matching resource it is delivered; without a matching resource the server answers. A `result` or `error` is never answered (RFC 6120 §8.2.3 rule 4) and not distributed to a bare JID. Holds for both origins |
+| Request to the server address (§8.2.3 rule 3) | ✅ Ping (XEP-0199) and disco#info (XEP-0030) the server answers for itself — to a local client as to a far side, for the information does not hang on who is asking; only the way back differs. What it does not know gets `<service-unavailable/>` instead of silence. **Not** reachable that way are binding, legacy session, carbons and the roster: those change the state of a session or belong to an account — a foreign server asking for the roster gets the same refusal as for every unknown request |
+| Message to an unknown account (§8.5.1) | ✅ The section leaves the choice between `<service-unavailable/>` and silence, but it has to be the same one as for an existing account that is not watching right now — otherwise it answers the question "does this account exist?". What is asked is therefore not whether an account exists but whether the store would accept the message: for an unknown one it is empty, and an empty one accepts as long as anything fits in at all. If the store is off or full, both get `<service-unavailable/>`; if it is on, the server keeps quiet for both. For an unknown account nothing is stored (D52) |
+| IQ check against presence leaks (§8.5.3.1) | ✅ A request to a resource is delivered only when the recipient shares their presence with the one asking — over the roster (`from` or `both` in **their** half) or over directed presence (§4.6). Otherwise the same answer as for a resource that does not exist; nothing can be read out of the refusal, then. For `result` and `error` it does not hold — the server has to deliver those under the same section |
+| Directed presence (§4.6) | ✅ Recorded per resource, emptied on the sign-off, taken back on a directed `unavailable`, and likewise when the recipient sends us a sign-off of their own (§4.6.1, MUST and SHOULD). When the resource becomes unavailable — by a sign-off of its own or by a connection break — the sign-off goes to all recipients of directed presence who do not get it over the roster anyway (§4.6.3 rule 2). A change of status in the middle of the session does not end the promise |
+| Presence delivery rules (§8.5.2.1.2, §8.5.3.1) | ✅ Available and unavailable presence goes to the bare JID to all resources, to a full JID to the matching one, otherwise silently nowhere (§8.5.1, §8.5.3.2.2) — for both origins |
+| Presence probe (§4.3) | ✅ The server answers it itself and delivers it to no client, whether it comes from a local client or from a far side. A probe to a foreign domain it sends out (§4.3.1). Answered only when the one asking stands in the roster of the one asked with `from` or `both`; otherwise silence, which does not betray an unknown account either (§8.5.1 leaves the choice) |
+| Presence priority (§4.7.2.3) | ✅ Read and heeded; a negative priority gets nothing that went to the bare JID, but stays addressable in a directed way. The client sets it over `XMPPConnection.PresencePriority` |
 
-### RFC 7395 — XMPP über WebSocket
+### RFC 7395 — XMPP over WebSocket
 
-| Bereich | Status |
+| Area | Status |
 |---------|--------|
-| Subprotokoll `xmpp`, `<open/>`/`<close/>`-Framing | ✅ |
-| Close-Handshake | ✅ `<close/>` wird gesendet, dann bis zu 3 s auf die Gegenseite gewartet, danach Socket-Abbruch |
-| Endpunkt-Discovery (XEP-0156 / `host-meta`) | ✅ Ohne angegebenen Endpunkt wird `https://<domain>/.well-known/host-meta.json` und danach `.../host-meta` gelesen; nur `wss://`-Adressen werden genommen. Ohne Fund bleibt es bei `wss://<domain>:5443/ws` |
+| Subprotocol `xmpp`, `<open/>`/`<close/>` framing | ✅ |
+| Close handshake | ✅ `<close/>` is sent, then up to 3 s waited for the far side, after that the socket is broken off |
+| Endpoint discovery (XEP-0156 / `host-meta`) | ✅ Without a given endpoint, `https://<domain>/.well-known/host-meta.json` and after that `.../host-meta` are read; only `wss://` addresses are taken. Without a find it stays at `wss://<domain>:5443/ws` |
 
-Der Vorgabe-Port ist ejabberd-spezifisch und greift nur, wenn die Domain kein
-`host-meta` ausliefert. Wer ihn nicht will, gibt die URL an, z. B. Prosody:
-`wss://<host>:5281/xmpp-websocket` — ein angegebener Endpunkt wird nie
-überstimmt.
+The default port is ejabberd-specific and takes effect only when the domain
+delivers no `host-meta`. Whoever does not want it gives the URL, e.g. Prosody:
+`wss://<host>:5281/xmpp-websocket` — a given endpoint is never overruled.
 
 ### RFC 5802 / RFC 7677 — SCRAM
 
-| Bereich | Status |
+| Area | Status |
 |---------|--------|
-| Vier-Schritt-Handshake | ✅ |
-| Nonce-Prüfung gegen MITM | ✅ |
-| Server-Signatur-Verifikation (konstante Laufzeit) | ✅ Zwingend — ein `<success/>` ohne server-final-message bricht den Aufbau ab |
-| SASLprep (RFC 4013) | ✅ Vollständig: Abbildung, NFKC, Verbotstabellen, nicht zugewiesene Codepoints und die Bidi-Regeln; gegen die Beispieltabelle aus §3 geprüft |
-| Channel Binding (RFC 9266 `tls-exporter`) | ❌ |
+| Four-step handshake | ✅ |
+| Nonce check against MITM | ✅ |
+| Server signature verification (constant running time) | ✅ Mandatory — a `<success/>` without a server-final-message breaks the setup off |
+| SASLprep (RFC 4013) | ✅ Complete: mapping, NFKC, prohibition tables, unassigned code points and the bidi rules; checked against the example table from §3 |
+| Channel binding (RFC 9266 `tls-exporter`) | ❌ |
 
-### RFC 7622 — JID-Behandlung
+### RFC 7622 — JID handling
 
-`JidUtilities` zerlegt, prüft und vergleicht JIDs nach RFC 7622; geprüft gegen
-beide Beispieltabellen aus §3.5 (fünfzehn gültige und acht ungültige Adressen).
+`JidUtilities` splits, checks and compares JIDs under RFC 7622; checked against
+both example tables from §3.5 (fifteen valid and eight invalid addresses).
 
-| Regel | Stand |
+| Rule | State |
 |---|---|
-| Zerlegung in der Reihenfolge aus §3.2 (erst `/`, dann `@`) | ✅ |
-| Localpart: UsernameCaseMapped, plus die Ausschlüsse aus §3.3.1 | ✅ Abbildungsregeln vollständig, IdentifierClass aus den abgeleiteten Eigenschaften nach RFC 8264 §8 |
-| Resourcepart: OpaqueString, **nicht** kleingeschrieben | ✅ ebenso, mit der FreeformClass |
-| Domainpart: kleingeschrieben, NFC | ✅ IDNA2008 Label für Label (RFC 5891/5892), Punycode selbst gerechnet (RFC 3492), Bidi-Regel nach RFC 5893 über einer aus `DerivedBidiClass.txt` erzeugten Tabelle |
-| Höchstlänge 1023 Oktette je Teil | ✅ |
-| Vergleich: Local-/Domainpart schreibweisenunabhängig, Resourcepart nicht | ✅ |
+| Splitting in the order from §3.2 (first `/`, then `@`) | ✅ |
+| Localpart: UsernameCaseMapped, plus the exclusions from §3.3.1 | ✅ Mapping rules complete, IdentifierClass from the derived properties under RFC 8264 §8 |
+| Resourcepart: OpaqueString, **not** lowercased | ✅ likewise, with the FreeformClass |
+| Domainpart: lowercased, NFC | ✅ IDNA2008 label by label (RFC 5891/5892), Punycode computed ourselves (RFC 3492), bidi rule under RFC 5893 over a table generated from `DerivedBidiClass.txt` |
+| Maximum length 1023 octets per part | ✅ |
+| Comparison: local and domain part case-insensitive, resource part not | ✅ |
 
-Die Klassenzugehörigkeit kommt aus `Precis.DerivedProperty` und damit aus der
-Leiter in RFC 8264 §8: Ausnahmeliste (RFC 5892 §2.6), Unassigned, ASCII7,
-JoinControl, alte Hangul-Jamo, ignorierbare Zeichen, Controls, HasCompat,
-LetterDigits, OtherLetterDigits, Spaces, Symbols, Punctuation — in dieser
-Reihenfolge, denn viele Codepoints stehen in mehreren dieser Kategorien.
-`Default_Ignorable_Code_Point`, `Noncharacter_Code_Point` und
-`Hangul_Syllable_Type` liefert .NET nicht; sie stehen als Bereichstabellen im
-Quelltext, mit der Unicode-Fassung benannt, aus der sie stammen (15.1.0).
+The class membership comes from `Precis.DerivedProperty` and thereby from the
+ladder in RFC 8264 §8: exception list (RFC 5892 §2.6), Unassigned, ASCII7,
+JoinControl, old Hangul Jamo, ignorable characters, Controls, HasCompat,
+LetterDigits, OtherLetterDigits, Spaces, Symbols, Punctuation — in that order,
+for many code points stand in several of these categories.
+`Default_Ignorable_Code_Point`, `Noncharacter_Code_Point` and
+`Hangul_Syllable_Type` .NET does not deliver; they stand as range tables in the
+source, named with the Unicode version they come from (15.1.0).
 
-Der Domainpart geht durch `Idna` — dieselben Bausteine, aber die Leiter aus
-RFC 5892 §1 statt der aus RFC 8264 §8, und darum andere Antworten: Ein
-Unterstrich gehört in einen Localpart und in kein Label, ein Symbol in einen
-Resourcepart und in kein Label. Ein A-Label (`xn--…`) wird dekodiert, auf die
-Label-Regeln geprüft und zurückgerechnet; ergibt die Rückrechnung eine andere
-Schreibweise, wird es abgewiesen. Adressliterale (`127.0.0.1`, `[::1]`) sind
-nach RFC 7622 §3.2 ausgenommen.
+The domain part goes through `Idna` — the same building blocks, but the ladder
+from RFC 5892 §1 instead of the one from RFC 8264 §8, and therefore different
+answers: an underscore belongs in a local part and in no label, a symbol in a
+resource part and in no label. An A-label (`xn--…`) is decoded, checked against
+the label rules and computed back; if the back-computation yields a different
+spelling, it is refused. Address literals (`127.0.0.1`, `[::1]`) are exempt
+under RFC 7622 §3.2.
 
-Trägt ein einziges Label rechtsläufige Zeichen, ist der ganze Name ein
-*Bidi domain name* (RFC 5893 §2), und dann müssen **alle** Labels die sechs
-Bedingungen erfüllen — auch die aus reinem ASCII. `9abc.example` ist deshalb ein
-gültiger Domainname und `9abc.אבג` keiner. Die Bidi-Klassen stehen in
-`libs/Ratatoskr/Ratatoskr/Common/BidiClasses.cs`, erzeugt von
+If a single label carries right-to-left characters, the whole name is a
+*bidi domain name* (RFC 5893 §2), and then **all** labels have to meet the six
+conditions — the ones of pure ASCII as well. `9abc.example` is therefore a
+valid domain name and `9abc.אבג` is not. The bidi classes stand in
+`libs/Ratatoskr/Ratatoskr/Common/BidiClasses.cs`, generated by
 `libs/Ratatoskr/tools/unicode/generate-bidiclass.py`
-aus `DerivedBidiClass.txt`.
+from `DerivedBidiClass.txt`.
 
-Die kontextabhängigen Regeln aus RFC 5892 Anhang A sind vollständig umgesetzt —
-für Localparts wie für Domain-Labels. Sie hängen nicht am Codepoint, sondern an
-seiner Umgebung: `col·la` ist ein katalanisches Wort und ein gültiger Localpart,
-`co·lla` ist keiner. Die dafür nötigen Eigenschaften
-(`Canonical_Combining_Class`, `Joining_Type`, `Script`) stehen in
-`libs/Ratatoskr/Ratatoskr/Common/ContextTables.cs`, erzeugt von
+The context-dependent rules from RFC 5892 appendix A are implemented in full —
+for local parts as for domain labels. They do not hang on the code point but on
+its surroundings: `col·la` is a Catalan word and a valid local part,
+`co·lla` is not. The properties needed for that
+(`Canonical_Combining_Class`, `Joining_Type`, `Script`) stand in
+`libs/Ratatoskr/Ratatoskr/Common/ContextTables.cs`, generated by
 `libs/Ratatoskr/tools/unicode/generate-contexttables.py`.
 
-**Eine bewusste Abweichung:** Beispiel 18 der Tabelle 2
-(`juliet@example.com/ foo`, führendes Leerzeichen im Resourcepart) wird
-angenommen. Die Tabelle führt es als Nicht-JID, aber die Regel dazu fehlt — das
-OpaqueString-Profil lässt Leerzeichen ausdrücklich zu. Für einen Router ist
-Annehmen ausserdem die vorsichtigere Wahl: Eine Adresse zurückzuweisen, die
-andere Server für gültig halten, verliert Nachrichten.
+**One deliberate deviation:** example 18 of table 2
+(`juliet@example.com/ foo`, a leading space in the resource part) is accepted.
+The table lists it as a non-JID, but the rule for it is missing — the
+OpaqueString profile expressly allows spaces. For a router, accepting is
+besides the more cautious choice: to refuse an address other servers hold to be
+valid loses messages.
 
 ## Installation
 
@@ -1001,7 +998,7 @@ Zum Festnageln des Client-Nonce trägt `SCRAMAuthenticator` eine
 und Proof nicht reproduzieren. Sichtbar gemacht wird sie über
 `InternalsVisibleTo` in `Ratatoskr.csproj`.
 
-## Bekannte Einschränkungen
+## Known limitations
 
 Was davon in welcher Reihenfolge angegangen wird, steht im
 [Arbeitsplan](../WORKPLAN.md).
