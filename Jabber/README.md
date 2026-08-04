@@ -1094,7 +1094,7 @@ Sitzungsspeicher und die Verdrahtung.
   `<encrypted/>`-Element, die PEP-Knoten und der Verlauf eines Gesprächs über
   mehrere Nachrichten — und ein echter Client über eine echte Verbindung
   ohnehin nicht: Conversations, Dino und Gajim sprechen überwiegend noch OMEMO
-  0.3.0. Siehe [das Orakel](../libs/Ratatoskr/RatatoskrTests/XEPs/Orakel/README.md)
+  0.3.0. Siehe [das Orakel](../libs/Ratatoskr/RatatoskrTests/XEPs/Oracle/README.md)
 - **Der Sitzungsspeicher ist nicht verschlüsselt.** Er enthält den geheimen
   IdentityKey, alle PreKeys und jeden Kettenschlüssel; wer die Datei liest,
   liest die Gespräche mit. Sie gehört an einen Ort, an den nur dieser Benutzer
