@@ -196,253 +196,252 @@ valid loses messages.
 ## Installation
 
 ```bash
-# .NET 10 SDK erforderlich
+# .NET 10 SDK required
 dotnet build
 dotnet run
 ```
 
-## Verwendung
+## Usage
 
 ```bash
-# Interaktiv (fragt JID, Passwort und WebSocket-URI ab)
+# Interactive (asks for JID, password and WebSocket URI)
 dotnet run
 
-# Mit Parametern
-dotnet run -- -j user@example.com -p geheim
+# With parameters
+dotnet run -- -j user@example.com -p secret
 
-# Mit expliziter WebSocket-URL (bei nicht-ejabberd-Servern nötig)
+# With an explicit WebSocket URL (needed with non-ejabberd servers)
 dotnet run -- -j user@example.com -p pw -w wss://xmpp.example.com:5281/xmpp-websocket
 
-# Mit vollem Protokoll-Log
-dotnet run -- -j user@example.com -p geheim -v
+# With the full protocol log
+dotnet run -- -j user@example.com -p secret -v
 ```
 
-| Option | Bedeutung |
+| Option | Meaning |
 |--------|-----------|
-| `-j`, `--jid <jid>` | JID im Format `user@domain` |
-| `-p`, `--password <pw>` | Passwort |
-| `-w`, `--ws`, `--websocket <uri>` | WebSocket-URI |
-| `-v`, `--verbose` | Ausführliches Logging (Trace-Level, zeigt alle Stanzas) |
-| `-h`, `--help` | Hilfe anzeigen |
+| `-j`, `--jid <jid>` | JID in the form `user@domain` |
+| `-p`, `--password <pw>` | Password |
+| `-w`, `--ws`, `--websocket <uri>` | WebSocket URI |
+| `-v`, `--verbose` | Verbose logging (trace level, shows every stanza) |
+| `-h`, `--help` | Show the help |
 
-## Kommandos
+## Commands
 
-### Nachrichten
+### Messages
 ```
-/to <jid>                 Chat-Partner setzen (Aliase: /chat)
-/to                       Chat-Partner zurücksetzen
-/msg <jid> <text>         Einzelne Nachricht senden (Alias: /m)
-/fix <text>               Letzte Nachricht berichtigen (XEP-0308, Alias: /korr)
-/status [show] [text]     Status setzen: available|away|chat|dnd|xa (Alias: /s)
-```
-
-### Kontakte (Roster)
-```
-/roster [filter]          Kontakte anzeigen (Aliase: /list, /contacts)
-/online                   Nur Online-Kontakte
-/add <jid> [name] [g1,g2] Kontakt hinzufügen und Subscription anfragen
-/remove <jid>             Kontakt entfernen (Alias: /del)
-/info <jid>               Kontakt-Details
-/groups                   Gruppen mit Kontaktanzahl
-/pending                  Offene Kontaktanfragen
-/accept [jid]             Kontaktanfrage annehmen (ohne Argument: die erste)
-/deny [jid]               Kontaktanfrage ablehnen (ohne Argument: die erste)
+/to <jid>                 set the chat partner (aliases: /chat)
+/to                       reset the chat partner
+/msg <jid> <text>         send a single message (alias: /m)
+/fix <text>               correct the last message (XEP-0308, alias: /corr)
+/status [show] [text]     set the status: available|away|chat|dnd|xa (alias: /s)
 ```
 
-### Chat States (XEP-0085)
+### Contacts (roster)
 ```
-/typing                   'tippt gerade' senden
-/paused                   'hat aufgehört zu tippen' senden
-/gone                     Chat verlassen und Empfänger zurücksetzen
+/roster [filter]          show the contacts (aliases: /list, /contacts)
+/online                   only the online contacts
+/add <jid> [name] [g1,g2] add a contact and ask for a subscription
+/remove <jid>             remove a contact (alias: /del)
+/info <jid>               contact details
+/groups                   groups with the number of contacts
+/pending                  pending contact requests
+/accept [jid]             accept a contact request (without an argument: the first)
+/deny [jid]               deny a contact request (without an argument: the first)
 ```
 
-### Chat Markers (XEP-0333)
+### Chat states (XEP-0085)
 ```
-/mark received [msg-id]   Als empfangen markieren (Alias: r)
-/mark displayed [msg-id]  Als gelesen markieren (Aliase: d, read)
-/mark ack [msg-id]        Bestätigen (Aliase: acknowledged, a)
+/typing                   send 'is typing'
+/paused                   send 'has stopped typing'
+/gone                     leave the chat and reset the recipient
 ```
-Ohne `msg-id` wird die zuletzt empfangene Nachricht verwendet.
 
-### Service Discovery (XEP-0030)
+### Chat markers (XEP-0333)
 ```
-/disco                    Unterbefehle anzeigen
-/disco server             Features des eigenen Servers
-/disco info <jid>         Features eines JIDs
-/disco items <jid>        Services/Items eines JIDs
-/features                 Server-Features und eigene Features
+/mark received [msg-id]   mark as received (alias: r)
+/mark displayed [msg-id]  mark as read (aliases: d, read)
+/mark ack [msg-id]        acknowledge (aliases: acknowledged, a)
+```
+Without a `msg-id` the message received last is used.
+
+### Service discovery (XEP-0030)
+```
+/disco                    show the subcommands
+/disco server             features of our own server
+/disco info <jid>         features of a JID
+/disco items <jid>        services/items of a JID
+/features                 server features and our own features
 ```
 
 ### PubSub (XEP-0060)
 ```
-/pubsub                        Unterbefehle anzeigen
-/pubsub sub <node> [jid]       Node abonnieren (Alias: subscribe)
-/pubsub unsub <node> [jid] [subid]  Abo beenden (Alias: unsubscribe)
-/pubsub abos                   Eigene Abonnements samt subid (Alias: subs)
-/pubsub sync [jid]             Abonnements beim Dienst holen und übernehmen
-/pubsub opts <node> [subid]    Einstellungen des Abonnements (Alias: options)
-/pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus
-/pubsub pub <node> <id> <data> Item veröffentlichen (Alias: publish)
-/pubsub get <node> [max]       Items abrufen (Alias: items)
-/pubsub create <node> [zugriff]  Node erstellen (Modelle wie bei 'access')
-/pubsub cfg <node>             Knoteneinstellungen (Alias: nodecfg)
-/pubsub access <node> <open|presence|whitelist|roster|authorize>  Zugriff umstellen
-/pubsub rollen <node>          Wer ist was an diesem Knoten (Alias: affiliations)
-/pubsub rolle <node> <jid> <owner|publisher|member|outcast|none>  Rolle setzen
-/pubsub abonnenten <node>      Wer hängt an diesem Knoten (Alias: subscribers)
-/pubsub raus <node> <jid> [subid]  Abonnent entfernen (Alias: kick)
-/pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (Alias: rostergroups)
-/pubsub antrag <node> <jid> <ja|nein>  Abonnementantrag beantworten (Alias: authorize)
-/pubsub retract <node> <id>    Einen Eintrag zurücknehmen (Alias: zurueck)
-/pubsub purge <node>           Node leeren, Abonnenten behalten (Alias: leeren)
-/pubsub delete <node>          Node löschen
+/pubsub                        show the subcommands
+/pubsub sub <node> [jid]       subscribe to a node (alias: subscribe)
+/pubsub unsub <node> [jid] [subid]  end a subscription (alias: unsubscribe)
+/pubsub subscriptions          own subscriptions with subid (alias: subs)
+/pubsub sync [jid]             fetch the subscriptions from the service and take them over
+/pubsub opts <node> [subid]    options of the subscription (alias: options)
+/pubsub deliver <node> <on|off> [subid]  delivery on/off
+/pubsub pub <node> <id> <data> publish an item (alias: publish)
+/pubsub get <node> [max]       fetch items (alias: items)
+/pubsub create <node> [access]   create a node (models as with 'access')
+/pubsub cfg <node>             node settings (alias: nodecfg)
+/pubsub access <node> <open|presence|whitelist|roster|authorize>  change the access
+/pubsub roles <node>           who is what at this node (alias: affiliations)
+/pubsub role <node> <jid> <owner|publisher|member|outcast|none>  set a role
+/pubsub subscribers <node>     who hangs on this node (alias: who)
+/pubsub kick <node> <jid> [subid]  remove a subscriber (alias: remove)
+/pubsub groups <node> [group...]  roster groups for 'roster' (alias: rostergroups)
+/pubsub request <node> <jid> <yes|no>  answer a subscription request (alias: authorize)
+/pubsub retract <node> <id>    take back a single item (alias: undo)
+/pubsub purge <node>           empty a node, keep the subscribers (alias: empty)
+/pubsub delete <node>          delete a node
 ```
 
-Ohne `<jid>` geht die Anfrage an `pubsub.<domain>`; ein PEP-Knoten gehört einem
-Konto, dort steht dann dessen Bare-JID. **Jeder dieser Befehle meldet, was der
-Dienst geantwortet hat** — „Abonniert" heisst, dass er zugesagt hat, und nicht,
-dass gefragt wurde.
+Without a `<jid>` the request goes to `pubsub.<domain>`; a PEP node belongs to
+an account, and then its bare JID stands there. **Every one of these commands
+reports what the service answered** — "Subscribed" means that it confirmed, and
+not that it was asked.
 
-Das `[subid]` beim Abbestellen ist nötig, sobald es auf denselben Knoten
-mehrere Abonnements gibt: Ohne sie wäre nicht zu sagen, welches gemeint ist, und
-der Client sucht sich keines aus. `/pubsub abos` zeigt sie.
+The `[subid]` on unsubscribing is needed as soon as there are several
+subscriptions to the same node: without it there would be no saying which one is
+meant, and the client picks none. `/pubsub subscriptions` shows them.
 
-`abos` und `abonnenten` fragen entgegengesetzt: das eine, wo dieser Client
-hängt, das andere, wer an einem eigenen Knoten hängt. Beim `raus` ist die
-`[subid]` dagegen freiwillig — ohne sie gehen **alle** Abonnements dieses JIDs,
-denn der Eigentümer meint den Menschen und nicht die Buchführung.
+`subscriptions` and `subscribers` ask in opposite directions: the one where this
+client hangs, the other who hangs on a node of one's own. With `kick` the
+`[subid]` is optional by contrast — without it **all** subscriptions of that JID
+go, for the owner means the human being and not the books.
 
-Ein beantragtes Abonnement steht bei `abos` mit dabei und sagt, was es ist
-(`pending`). Ohne den Zustand sähe es aus wie ein zugesagtes, und die
-ausbleibenden Meldungen sähen aus wie ein Fehler. Ein eingehender Antrag wird
-gemeldet, sobald er eintrifft; `antrag` beantwortet ihn.
+An applied-for subscription stands among the others at `subscriptions` and says
+what it is (`pending`). Without the state it would look like a granted one, and
+the absent events would look like a mistake. An incoming application is reported
+as soon as it arrives; `request` answers it.
 
-### Verbindung
+### Connection
 ```
-/ping [jid]               Ping senden und RTT messen (XEP-0199)
-/keepalive [on|off|sek]   Keepalive-Status anzeigen/ändern
-/sm [on|off]              Stream-Management-Status anzeigen/ändern
-/csi [aktiv|inaktiv]      Client State Indication (XEP-0352)
-/who                      Eigenen Verbindungsstatus anzeigen
-/carbons                  Carbon-Status anzeigen
-/reconnect                Neu verbinden
-/disconnect               Verbindung trennen
-/raw                      XML-Debug-Ausgabe umschalten
-/help                     Hilfe (Aliase: /h, /?)
-/quit                     Beenden (Aliase: /q, /exit)
+/ping [jid]               send a ping and measure the RTT (XEP-0199)
+/keepalive [on|off|sec]   show/change the keepalive status
+/sm [on|off]              show/change the stream management status
+/csi [active|inactive]    client state indication (XEP-0352)
+/who                      show our own connection status
+/carbons                  show the carbon status
+/reconnect                connect again
+/disconnect               disconnect
+/raw                      toggle the XML debug output
+/help                     help (aliases: /h, /?)
+/quit                     quit (aliases: /q, /exit)
 ```
 
-## Keepalive (Anti-Timeout)
+## Keepalive (anti-timeout)
 
-Standard-Intervall: **25 Sekunden**. Änderungen wirken erst nach einem
-Reconnect, da die Schleife beim Verbindungsaufbau gestartet wird.
+Default interval: **25 seconds**. Changes take effect only after a reconnect,
+because the loop is started when the connection is set up.
 
 ```
 /keepalive
-Keepalive Status:
-  Aktiviert: True
+Keepalive status:
+  Enabled: True
   Interval: 25s
-  Methode: Stream Management <r/>
+  Method: Stream Management <r/>
 
-/keepalive 60      # Intervall auf 60s setzen
-/keepalive off     # Deaktivieren
+/keepalive 60      # set the interval to 60s
+/keepalive off     # disable
 ```
 
-**Methoden:** Ist Stream Management aktiv, wird ein `<r/>` gesendet
-(leichtgewichtig), sonst ein XEP-0199 Ping.
+**Methods:** if stream management is active, an `<r/>` is sent (lightweight),
+otherwise an XEP-0199 ping.
 
-## Verbindungsaufbau: gelungen oder geworfen
+## Setting up a connection: succeeded or thrown
 
-`ConnectAsync` **wirft**, wenn der Aufbau scheitert — den ursprünglichen Fehler,
-nicht eine Hülle darum: `AuthenticationException` bei abgelehnter Anmeldung,
-`XMPPProtocolException` bei einer gescheiterten Aushandlung. Wer den Aufruf
-überlebt, hat eine Verbindung.
+`ConnectAsync` **throws** when the setup fails — the original error, not a shell
+around it: `AuthenticationException` on a refused login,
+`XMPPProtocolException` on a failed negotiation. Whoever survives the call has a
+connection.
 
-**Eine Ausnahme davon ist der Transport selbst.** Kommt die Verbindung gar nicht
-erst zustande, lautet der Fehler von dort „Unable to connect to the remote
-server" und nennt die Adresse nicht — die seit XEP-0156 auch aus dem `host-meta`
-einer fremden Domain stammen kann und dann in keinem Quelltext steht. Dieser
-eine Fall wird deshalb in eine `XMPPProtocolException` gefasst, die den Endpunkt
-nennt; der ursprüngliche Fehler bleibt als `InnerException` erhalten. Ein
-abgebrochener Aufbau bleibt eine `OperationCanceledException`.
+**One exception to that is the transport itself.** If the connection does not
+come about at all, the error from there reads "Unable to connect to the remote
+server" and does not name the address — which since XEP-0156 can come from the
+`host-meta` of a foreign domain as well and then stands in no source file. This
+one case is therefore wrapped in an `XMPPProtocolException` that names the
+endpoint; the original error is kept as the `InnerException`. A setup that was
+cancelled stays an `OperationCanceledException`.
 
-Nur der ausdrückliche Aufruf wirft. Der Wiederverbindungsversuch im Hintergrund
-hat keinen Aufrufer und meldet weiterhin über `OnError` und `OnStateChanged`.
+Only the express call throws. The reconnection attempt in the background has no
+caller and goes on reporting over `OnError` and `OnStateChanged`.
 
-## Fristen beim Verbindungsaufbau
+## Deadlines when setting up a connection
 
-Jeder Lese-Schritt der Aushandlung — Stream-Kopf, Features, jede SASL-Runde —
-hat **10 Sekunden**, ebenso das Resource Binding. Läuft eine Frist ab, scheitert
-der Aufbau mit einer Meldung, die den Schritt nennt („Auf den Stream-Kopf kam
-innerhalb von 10 Sekunden keine Antwort").
+Every reading step of the negotiation — stream header, features, every SASL
+round — has **10 seconds**, and so does the resource binding. If a deadline runs
+out, the setup fails with a message that names the step ("No answer came to the
+stream header within 10 seconds").
 
-Der Grund ist der eine Fall, den ein Fehler nicht abdeckt: Eine Gegenstelle, die
-die Verbindung annimmt und dann **schweigt**. Ein Fehler kommt an, ein
-geschlossener Socket kommt an — Schweigen kommt nicht an, und ohne Frist kehrte
-`ConnectAsync` nie zurück.
+The reason is the one case an error does not cover: a far side that accepts the
+connection and then **keeps quiet**. An error arrives, a closed socket arrives —
+silence does not arrive, and without a deadline `ConnectAsync` would never
+return.
 
-## Spoofing-Schutz
+## Spoofing protection
 
-Der Client prüft bei drei Nachrichtenarten den Absender, bevor er sie
-verarbeitet:
+With three kinds of message the client checks the sender before it processes
+them:
 
-1. **Carbons (XEP-0280)** — müssen vom eigenen Bare-JID stammen (also vom
-   eigenen Server). Andernfalls könnte jeder Kontakt beliebige Nachrichten
-   als angeblich selbst gesendet einschleusen.
-2. **Receipts (XEP-0184)** — müssen vom Bare-JID des ursprünglichen
-   Empfängers stammen.
-3. **PubSub-Events (XEP-0060)** — müssen vom konfigurierten PubSub-Service
-   stammen **oder von dem, bei dem dieser Knoten abonniert wurde**. Die zweite
-   Erlaubnis hängt am Knoten und nicht am Absender: Wer bei Bob den einen
-   Knoten abonniert hat, hat nicht erlaubt, dass Bob Meldungen über jeden
-   erdachten anderen schickt. Ohne sie kam gar keine PEP-Meldung durch — die
-   kommt nach XEP-0163 vom Konto selbst und galt deshalb jedes Mal als
-   Fälschung.
-4. **Roster-Pushes (RFC 6121 §2.1.6)** — müssen ohne `from` kommen oder vom
-   eigenen Bare-JID. Sonst könnte jeder Absender Kontakte in den lokalen
-   Roster einschleusen oder daraus löschen.
+1. **Carbons (XEP-0280)** — have to come from our own bare JID (that is, from
+   our own server). Otherwise any contact could smuggle in arbitrary messages
+   as supposedly sent by ourselves.
+2. **Receipts (XEP-0184)** — have to come from the bare JID of the original
+   recipient.
+3. **PubSub events (XEP-0060)** — have to come from the configured PubSub
+   service **or from the one this node was subscribed at**. The second
+   permission hangs on the node and not on the sender: whoever subscribed to
+   the one node at Bob has not allowed Bob to send events about every other one
+   he can think of. Without it no PEP event got through at all — under XEP-0163
+   it comes from the account itself and therefore counted as a forgery every
+   time.
+4. **Roster pushes (RFC 6121 §2.1.6)** — have to come without a `from` or from
+   our own bare JID. Otherwise any sender could smuggle contacts into the local
+   roster or delete them from it.
 
-5. **Caps-Antworten (XEP-0115 §5.4)** — eine disco#info-Antwort kommt nur dann
-   unter `node#ver` in den Cache, wenn ihr SHA-1-Hash genau diesen `ver`-Wert
-   ergibt. Sonst könnte jeder, dessen Presence hier ankommt, das `node#ver`-Paar
-   eines verbreiteten Clients ankündigen, eine Liste seiner Wahl antworten und
-   sie damit jedem weiteren Kontakt unterschieben, der dasselbe Paar ankündigt.
+5. **Caps answers (XEP-0115 §5.4)** — a disco#info answer goes into the cache
+   under `node#ver` only when its SHA-1 hash yields exactly that `ver` value.
+   Otherwise anybody whose presence arrives here could announce the `node#ver`
+   pair of a widespread client, answer with a list of their choosing and thereby
+   foist it on every further contact that announces the same pair.
 
-## Architektur
+## Architecture
 
-Drei Schichten, klar getrennt:
+Three layers, cleanly separated:
 
-| Schicht | Typ | Aufgabe |
+| Layer | Type | Task |
 |---------|-----|---------|
-| UI | `Program` | Kommandozeile, Kommando-Dispatch, Darstellung. Enthält keine Protokolllogik. |
-| Anwendung | `XMPPClient` | Sitzungszustand (Chatpartner, offene Kontaktanfragen, letzte Nachrichten-ID) und zusammengesetzte Operationen. |
-| Protokoll | `XMPPConnection` | WebSocket-I/O, SASL, Resource Binding, Stanza-Routing. |
+| UI | `Program` | Command line, command dispatch, presentation. Holds no protocol logic. |
+| Application | `XMPPClient` | Session state (chat partner, pending contact requests, last message id) and composite operations. |
+| Protocol | `XMPPConnection` | WebSocket I/O, SASL, resource binding, stanza routing. |
 
-`XMPPClient` und `XMPPConnection` geben nichts auf der Konsole aus — alles läuft
-über Events und die injizierte `ILoggerFactory`.
+`XMPPClient` and `XMPPConnection` write nothing to the console — everything runs
+over events and the injected `ILoggerFactory`.
 
-### Verbindungsaufbau
+### Setting up a connection
 
-Der Aufbau zerfällt in zwei Abschnitte, und die Grenze liegt beim Resource
-Binding:
+The setup falls into two parts, and the border lies at the resource binding:
 
-1. **Aushandlung** (`<open/>`, Stream-Features, SASL, Binding). Hier liest
-   `ConnectInternalAsync` selbst vom Socket. Das ist unproblematisch, weil der
-   Server noch keine Resource hat, an die er etwas zustellen könnte — es kann
-   nichts anderes eintreffen. Ausgewertet wird über `StreamNegotiation`, eine
-   Sammlung reiner Funktionen auf dem geparsten `XElement`.
-2. **Sitzungsaufbau** (Legacy-Session, XEP-0198, Carbons, Roster, Presence).
-   Ab dem Binding läuft die Empfangsschleife, und alle Schritte laufen über
-   `SendIqAsync` — dieselbe `TaskCompletionSource`-Korrelation über die
-   Stanza-ID, die `DiscoManager` und `PingManager` benutzen. Was in dieser Zeit
-   sonst eintrifft (nachgelieferte Nachrichten, Presence, Roster-Pushes), wird
-   ganz normal zugestellt.
+1. **Negotiation** (`<open/>`, stream features, SASL, binding). Here
+   `ConnectInternalAsync` reads from the socket itself. That is unproblematic,
+   because the server has no resource yet to deliver anything to — nothing else
+   can arrive. The evaluation goes over `StreamNegotiation`, a collection of
+   pure functions on the parsed `XElement`.
+2. **Session setup** (legacy session, XEP-0198, carbons, roster, presence).
+   From the binding on, the receiving loop is running, and all the steps go over
+   `SendIqAsync` — the same `TaskCompletionSource` correlation over the stanza
+   id that `DiscoManager` and `PingManager` use. Whatever else arrives in that
+   time (messages handed in late, presence, roster pushes) is delivered quite
+   normally.
 
-Auf Textmustern arbeiten bewusst nur noch `StreamManagementManager` (liest `h`
-und `id` aus Nonzas), `StanzaError`/`StreamError` (müssen gerade auch mit
-unwohlgeformten Rahmen umgehen) und `SCRAMAuthenticator` (SASL ist kein XML).
+Working on text patterns are now deliberately only `StreamManagementManager`
+(reads `h` and `id` out of nonzas), `StanzaError`/`StreamError` (have to cope
+with ill-formed frames precisely) and `SCRAMAuthenticator` (SASL is no XML).
 
-### Als Bibliothek verwenden
+### Using it as a library
 
 ```csharp
 using Microsoft.Extensions.Logging;
@@ -452,7 +451,7 @@ using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
 
 await using var client = new XMPPClient(
                              "user@example.com",
-                             "geheim",
+                             "secret",
                              "wss://xmpp.example.com:5443/ws",
                              loggerFactory);
 
@@ -464,56 +463,56 @@ client.OnSubscriptionRequest += async (from, status) =>
 
 await client.ConnectAsync();
 
-client.SetChatPartner("kontakt@example.com");
-await client.SendMessageAsync("Hallo!");
+client.SetChatPartner("contact@example.com");
+await client.SendMessageAsync("Hello!");
 ```
 
-Die `ILoggerFactory` ist optional; ohne sie wird auf `NullLogger` zurückgefallen
-und gar nicht geloggt. Log-Level: `Information` für Verbindungsschritte,
-`Debug` für Protokolldetails, `Trace` für einzelne Stanzas, `Warning` für
-abgewehrte Spoofing-Versuche und Protokollauffälligkeiten.
+The `ILoggerFactory` is optional; without it there is a fallback to
+`NullLogger` and nothing is logged at all. Log levels: `Information` for
+connection steps, `Debug` for protocol details, `Trace` for single stanzas,
+`Warning` for spoofing attempts fended off and protocol oddities.
 
-## Projektstruktur
+## Project structure
 
-**Das Protokoll liegt seit D97 nicht mehr hier**, sondern in
-[Ratatoskr](../libs/Ratatoskr/README.md) — einem eigenen Repository unter
-`libs/`, damit es sich ohne diese Konsole benutzen laesst. Hier bleibt, was
-Benutzeroberflaeche ist, und der Aufbau fuer die Pruefungen gegen fremde Server.
+**The protocol has not lived here since D97** but in
+[Ratatoskr](../libs/Ratatoskr/README.md) — a repository of its own under
+`libs/`, so that it can be used without this console. What stays here is what
+is user interface, and the setup for the checks against foreign servers.
 
-Namespace ist durchgehend flach `org.GraphDefined.Vanaheimr.Ratatoskr` (wie
-`Hermod.DNS` und `Hermod.HTTP`); die Ordner gliedern nur. Eine Datei pro Typ:
+The namespace is flat throughout: `org.GraphDefined.Vanaheimr.Ratatoskr` (like
+`Hermod.DNS` and `Hermod.HTTP`); the folders only group. One file per type:
 
 ```
-Jabber/                                  die Konsole
-├── Program.cs                           Kommandozeile, Weiche, Darstellung
+Jabber/                                  the console
+├── Program.cs                           command line, branch, presentation
 └── ConsoleUI/
-    ├── ConsoleOutput.cs                 Eine Sperre, eine Zeile, eine Ausgabe
-    └── ConsoleOutputLoggerProvider.cs   Das Protokoll durch dieselbe Sperre
+    ├── ConsoleOutput.cs                 One lock, one line, one output
+    └── ConsoleOutputLoggerProvider.cs   The log through the same lock
 
-tools/                                   die fremden Gegenstellen
+tools/                                   the foreign far sides
 ├── prosody/setup.sh                     Prosody 13 rootless in WSL
 └── ejabberd/setup.sh                    ejabberd 24.12 rootless in WSL
 
-libs/Ratatoskr/Ratatoskr/                das Protokoll
+libs/Ratatoskr/Ratatoskr/                the protocol
 ├── Client/       XMPPClient, XMPPMessage, MessageType
-├── Common/       JIDs (RFC 7622), PRECIS, IDNA, Punycode, Bidi-Klassen,
-│                 Stanza-Namen und -Namensraeume, XML-Escaping
-├── Auth/         SCRAM (RFC 5802/7677), SASLprep, Mechanismus-Politik
-├── Connection/   XMPPConnection: WebSocket-I/O, Aushandlung, Stanza-Routing
-├── Errors/       Stanza- und Stream-Fehler
-├── Rosters/      Roster, Subscription-Zustaende, Stanza-Bau
-├── Server/       XMPPServer, XMPPSession, S2S, Konten, PEP
-└── XEPs/         Ein Ordner je XEP, benannt nach ihrer Nummer
+├── Common/       JIDs (RFC 7622), PRECIS, IDNA, Punycode, bidi classes,
+│                 stanza names and namespaces, XML escaping
+├── Auth/         SCRAM (RFC 5802/7677), SASLprep, mechanism policy
+├── Connection/   XMPPConnection: WebSocket I/O, negotiation, stanza routing
+├── Errors/       stanza and stream errors
+├── Rosters/      roster, subscription states, stanza building
+├── Server/       XMPPServer, XMPPSession, S2S, accounts, PEP
+└── XEPs/         one folder per XEP, named after its number
 
-libs/Ratatoskr/tools/                    erzeugte Tabellen
-├── unicode/      Bidi-Klassen und die Kontexttabellen aus RFC 5892 Anhang A
-└── stringprep/   die StringPrep-Tabellen aus RFC 3454
+libs/Ratatoskr/tools/                    generated tables
+├── unicode/      bidi classes and the context tables from RFC 5892 appendix A
+└── stringprep/   the StringPrep tables from RFC 3454
 ```
 
-Die XEP-Manager bekommen ihre Sende-Funktion als `Func<string, Task>` injiziert
-und kennen den Transport nicht — sie sind damit unabhaengig von
-`XMPPConnection` testbar. Der vollstaendige Baum steht im
-[README von Ratatoskr](../libs/Ratatoskr/README.md#projektstruktur).
+The XEP managers get their sending function injected as a `Func<string, Task>`
+and do not know the transport — they are thereby testable independently of
+`XMPPConnection`. The complete tree stands in the
+[README of Ratatoskr](../libs/Ratatoskr/README.md#project-structure).
 
 ## Tests
 
