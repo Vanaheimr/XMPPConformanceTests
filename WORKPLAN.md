@@ -4309,501 +4309,472 @@ nothing at all against the foreign servers.
 
 ---
 
-### D56. Vierzig Läufe, die nichts widerlegen konnten ✅
+### D56. Forty runs that could refute nothing ✅
 
-Der zweite Wackler, und er ist das Gegenstück zu D55: Dort war die Erklärung
-falsch, hier war es die **Widerlegung**.
+The second flaky test, and it is the counterpart to D55: there the explanation was
+wrong, here it was the **refutation**.
 
-`TheStreamSurvivesABrokenConnection` fiel in D16 einmal mit „Der Stream wurde
-binnen 15 Sekunden nicht wieder aufgenommen". D33 hat daraufhin gemessen —
-vierzig Ausführungen, alle zwischen 519 und 669 Millisekunden — und daraus
-geschlossen, die Erklärung „unter Last knapp" trage nicht. Die Frist blieb.
+`TheStreamSurvivesABrokenConnection` fell once in D16 with "the stream was not
+resumed within 15 seconds". D33 thereupon measured — forty executions, all between
+519 and 669 milliseconds — and concluded from that that the explanation "tight
+under load" does not hold. The deadline stayed.
 
-**Der Schluss war falsch, und zwar aus Arithmetik.** Der Client darf in diesem
-Test fünfmal wiederkommen und wartet dazwischen mit Verdopplung, beginnend bei
-300 Millisekunden:
+**The conclusion was wrong, and out of arithmetic at that.** The client may come
+back five times in this test and waits in between with doubling, beginning at 300
+milliseconds:
 
-| Anlauf | 1 | 2 | 3 | 4 | 5 | Summe |
+| Attempt | 1 | 2 | 3 | 4 | 5 | Sum |
 |---|---|---|---|---|---|---|
-| Wartezeit davor | 300 ms | 600 ms | 1,2 s | 2,4 s | 4,8 s | **9,3 s** |
+| Waiting time before | 300 ms | 600 ms | 1.2 s | 2.4 s | 4.8 s | **9.3 s** |
 
-Von den 15 Sekunden blieben also **5,7 für fünf vollständige
-Verbindungsaufbauten** — Aushandlung, TLS, SASL, Bind, Wiederaufnahme. Zwei
-fehlgeschlagene Anläufe genügen, und die Frist ist überschritten, während der
-Client sich genau so verhält, wie er eingestellt ist.
+Of the 15 seconds there therefore remained **5.7 for five complete buildings of a
+connection** — negotiation, TLS, SASL, bind, resumption. Two failed attempts
+suffice, and the deadline is exceeded while the client behaves exactly as it is
+set.
 
-**Die vierzig schnellen Durchgänge widerlegen das nicht — sie sind alle beim
-ersten Anlauf durchgekommen.** Über den Fall mit Wiederholungen sagen sie
-nichts. Ein Mittelwert aus lauter geglückten Läufen begrenzt den Ausreisser
-nicht; er beschreibt nur, wie es aussieht, wenn nichts schiefgeht. Die
-Verteilung ist zweigipflig, und gemessen wurde ausschliesslich der vordere
-Gipfel.
+**The forty fast passes do not refute that — they all got through at the first
+attempt.** About the case with repetitions they say nothing. A mean out of nothing
+but successful runs does not bound the outlier; it describes only what it looks
+like when nothing goes wrong. The distribution is two-peaked, and measured was
+exclusively the front peak.
 
-Die Geduld ist deshalb keine geratene Zahl mehr, sondern die Summe dessen, was
-der Client tun darf: die Wartezeiten seiner eigenen Politik plus je drei
-Sekunden für den Anlauf selbst. Für diese Einstellung sind das gut 24 statt 15
-Sekunden. Die Meldung nennt beim Scheitern jetzt auch, woraus die Frist besteht
-— sonst rechnet der nächste Leser dasselbe noch einmal nach.
+The patience is therefore no longer a guessed number, but the sum of what the
+client may do: the waiting times of its own policy plus three seconds each for the
+attempt itself. For this setting that is a good 24 instead of 15 seconds. The
+message now also names at the failing what the deadline consists of — otherwise
+the next reader computes the same thing over again.
 
-**Was sich nicht herbeiführen lässt, lässt sich nicht durch einen Test halten,
-der auf sein Eintreten wartet** — der Fehlschlag trat einmal auf und war
-danach in vierzig Ausführungen nicht zu wiederholen. Nachrechnen lässt er sich
-dafür: `ThePatienceCoversWhatTheClientMayTake` prüft die Frist gegen die von
-Hand gerechneten 9,3 Sekunden plus fünf Anläufe. Die Zahlen stehen dort
-ausgeschrieben und nicht als Aufruf derselben Formel — sonst prüfte der Test
-sie gegen sich selbst, dieselbe Trennung wie bei der Zählung in D55.
+**What cannot be brought about cannot be held by a test that waits for its
+occurring** — the failure occurred once and was afterwards not to be repeated in
+forty executions. Recomputed it can be however:
+`ThePatienceCoversWhatTheClientMayTake` checks the deadline against the 9.3 seconds
+computed by hand plus five attempts. The numbers stand there written out and not as
+a call of the same formula — otherwise the test would check them against
+themselves, the same separation as at the counting in D55.
 
-Es ist zugleich die einzige Prüfung dieser Sammlung, die ohne Gegenstelle
-auskommt: Sie rechnet, statt zu warten. Drei Mutationen, alle erschlagen:
-zurück zur festen Frist, der Aufbau kostet nichts, nur der erste Anlauf zählt.
+It is at the same time the only check of this suite that gets by without a far
+side: it computes instead of waiting. Three mutations, all struck down: back to the
+fixed deadline, the setting up costs nothing, only the first attempt counts.
 
-**Damit ist die Ursache benannt, aber nicht bewiesen.** Bewiesen ist, dass die
-alte Frist den eingestellten Ablauf nicht deckte; ob genau das in D16 zugeschlagen
-hat, bleibt die wahrscheinlichste Erklärung. Der Unterschied zu vorher: Sie
-passt zu den Daten, statt ihnen zu widersprechen.
-
----
-
-### D57. Elf Member, drei Entscheidungen ✅
-
-„Ungenutzte öffentliche Member entscheiden: benutzen oder streichen." Die Liste
-stand im README, seit es sie gab. **Der erste Schritt war, ihr nicht zu
-glauben** — sie warnt selbst davor, dass sie „in die falsche Richtung
-veraltet", und genau das war eingetreten: `ResumeAsync`, `GetUnackedStanzas`
-und `OnStanzasLost` werden längst benutzt, das letzte davon seit D49. Drei von
-elf Einträgen waren schlicht falsch.
-
-**Benutzt (3):**
-
-- **`RosterStanzaBuilder.GetRoster`.** `XMPPConnection` setzte dieselbe Anfrage
-  daneben von Hand zusammen — zwei Schreibweisen einer Stanza. Die Feinheit
-  stand dabei nur in einer: Ein *leeres* `ver=''` ist kein Platzhalter, sondern
-  die Ansage „ich kann Versionierung, habe aber noch nichts" (RFC 6121 §2.6.1).
-  Sie steht jetzt im Baustein, dort, wo sie hingehört.
-- **`RosterStanzaBuilder.Unsubscribe`** über ein neues
-  `CancelSubscriptionAsync`. Von den vier Übergängen aus RFC 6121 §3 bot der
-  Client drei an; der vierte fehlte, obwohl der Baustein dastand und der Server
-  ihn seit S3b beherrscht. Aufgefallen ist er nicht, **weil der Test die Lücke
-  überbrückt hat**: `Unsubscribe_EndsTheOwnSubscription` schrieb die Presence
-  selbst. Ein Test, der am Client vorbei prüft, hält das Verhalten und
-  verbirgt, dass es keinen Weg dorthin gibt.
-- **`DiscoInfo.HasFeature`** — von einem Test, der die Frage vorher an der
-  Merkmalsliste vorbei stellte.
-
-**Gestrichen (8):** `MessageReceipt` (der Typ dokumentierte selbst, dass ihn
-niemand erzeugt), `ReceiptTracker.GetTimedOutMessages` (es gibt keine Frist,
-die ablaufen könnte), `PubSubManager.OnSubscriptionResult`,
-`PubSubBuilder.Retract` und `DiscoverNodes`, `CarbonManager.DisableIq` und die
-fünf `DiscoInfo.Supports*`.
-
-Die fünf Abkürzungen sind der lehrreichste Fall: Jede war eine Zeile über
-`HasFeature` und trug ihren Namensraum eingebaut mit sich. Sie konnten nichts,
-was `HasFeature` nicht kann — aber sie führten eine zweite Abschrift jedes
-Namensraums, und die veraltet für sich allein.
-
-**Der Bau ist jetzt warnungsfrei.** `OnSubscriptionResult` war die einzige
-Warnung (CS0067, „wird nie verwendet") und stand über Dutzende von Läufen in
-jeder Ausgabe. Eine Warnung, die immer da ist, wird zur Tapete — und die
-nächste, die dazukommt, fällt dann nicht mehr auf.
-
-Drei Mutationen auf das neu Benutzte, alle erschlagen: die Kündigung schickt
-`unsubscribed` statt `unsubscribe`, die Roster-Anfrage lässt die Fassung immer
-weg, `HasFeature` bejaht alles.
-
-**Was das Streichen nicht ist: eine Aussage über XEP-0060.** Der Punkt unter
-„Optional" bleibt, wie er war — es fehlte dort nie die Meldung, sondern die
-Korrelation von IQ-Ergebnis und Anfrage. Wer sie baut, deklariert das Ereignis
-in derselben Stunde wieder. Ein nie ausgelöstes Ereignis ist keine halbe
-Umsetzung, sondern eine Zusage ohne Deckung.
-
-**Und die Liste kommt nicht wieder.** Eine stehende Aufzählung ungenutzter
-Member ist eine Buchhaltung, die niemand führt: Sie stimmt am Tag ihrer
-Entstehung und danach nie wieder. Was ungenutzt ist, entscheidet der Compiler
-(bei Ereignissen) oder eine Suche (bei allem anderen) — beides in Sekunden und
-immer aktuell.
+**With that the cause is named but not proved.** Proved is that the old deadline did
+not cover the set course of events; whether exactly that struck in D16 stays the
+most probable explanation. The difference to before: it fits the data instead of
+contradicting them.
 
 ---
 
-### D58. Eine Tür für alles, was auf die Konsole geht ✅
+### D57. Eleven members, three decisions ✅
 
-Der Punkt lautete: „Der Standard-Konsolenlogger schreibt in dieselbe Konsole
-wie die Eingabezeile und zerlegt den Prompt. Ein eigener `ILoggerProvider` über
-die **synchronisierte Ausgabe** wäre die saubere Lösung."
+"Decide about unused public members: use or strike." The list had stood in the
+README since it existed. **The first step was not to believe it** — it warns itself
+that it "grows old in the wrong direction", and exactly that had occurred:
+`ResumeAsync`, `GetUnackedStanzas` and `OnStanzasLost` are long since used, the
+last of them since D49. Three of eleven entries were plainly wrong.
 
-**Die synchronisierte Ausgabe gab es nicht.** Was es gab, war eine Verabredung:
-Jede Ereignisbehandlung klammerte ihre Ausgabe von Hand in `ClearCurrentLine()`
-… `WritePrompt()` — elfmal dieselben zwei Zeilen. Wer eine davon vergisst,
-merkt es erst im Betrieb, und **eine Sperre lag über keiner von ihnen**. Die
-Ereignisse kommen aus dem Empfangsfaden, das Protokoll aus jedem beliebigen;
-zwei gleichzeitige Ausgaben verschränken sich mitten im Wort, samt der Farbe,
-die die eine gesetzt und die andere zurückgestellt hat.
+**Used (3):**
 
-Der Logger war also nur der auffälligste von drei Fällen desselben Problems.
+- **`RosterStanzaBuilder.GetRoster`.** `XMPPConnection` put the same request
+  together by hand beside it — two spellings of one stanza. The subtlety stood in
+  only one of them: an *empty* `ver=''` is no placeholder but the announcement "I
+  can do versioning but have nothing yet" (RFC 6121 §2.6.1). It now stands in the
+  building block, where it belongs.
+- **`RosterStanzaBuilder.Unsubscribe`** over a new `CancelSubscriptionAsync`. Of the
+  four transitions from RFC 6121 §3 the client offered three; the fourth was
+  missing although the building block stood there and the server has mastered it
+  since S3b. It did not come out **because the test bridged the gap**:
+  `Unsubscribe_EndsTheOwnSubscription` wrote the presence itself. A test that
+  checks past the client holds the behaviour and hides that there is no way there.
+- **`DiscoInfo.HasFeature`** — by a test that put the question past the list of
+  features before.
 
-`ConsoleOutput` ist jetzt die eine Tür. Sie kann zweierlei:
+**Struck (8):** `MessageReceipt` (the type documented itself that nobody creates
+it), `ReceiptTracker.GetTimedOutMessages` (there is no deadline that could run out),
+`PubSubManager.OnSubscriptionResult`, `PubSubBuilder.Retract` and `DiscoverNodes`,
+`CarbonManager.DisableIq` and the five `DiscoInfo.Supports*`.
 
-- `Write(w => …)` für eine Ausgabe in einem Zug,
-- `Begin()` für die, die sich nicht in einen Rückruf fassen lassen, ohne
-  unleserlich zu werden — die PubSub-Ausgabe wechselt in einer `switch`-Weiche
-  die Farbe. Der Bereich hält die Sperre bis zum Verlassen und zieht dann die
-  Eingabeaufforderung nach.
+The five shortcuts are the most instructive case: each was one line over
+`HasFeature` and carried its namespace built in with it. They could do nothing
+`HasFeature` cannot — but they kept a second copy of every namespace, and that
+grows old on its own.
 
-Damit schrumpfen die elf Klammern auf je eine Zeile (`using var sperre =
-Ausgabe();`), und der Logger geht durch dieselbe Tür — das ist der ganze
-Unterschied zwischen `AddSimpleConsole` und `ConsoleOutputLoggerProvider`.
+**The build is now free of warnings.** `OnSubscriptionResult` was the only warning
+(CS0067, "is never used") and stood in every output over dozens of runs. A warning
+that is always there becomes wallpaper — and the next one that comes along then does
+not come out any more.
 
-**Zwei Kleinigkeiten, die dabei mit abfielen:**
+Three mutations on the newly used, all struck down: the cancellation sends
+`unsubscribed` instead of `unsubscribe`, the roster request always leaves the
+version out, `HasFeature` says yes to everything.
 
-- Der volle Kategoriename ist der Typname samt Namensraum, hier rund fünfzig
-  Zeichen — auf einer Konsole mit Eingabezeile die halbe Breite für eine
-  Auskunft, die in jeder Zeile dieselbe ist. Es steht jetzt nur der letzte Teil
-  da.
-- `ILogger` reicht die Ausnahme **getrennt** vom Text durch, und der
-  Formatierer lässt sie weg. Wer sie nicht selbst anhängt, protokolliert
-  „Verbindung verloren" und verschweigt, woran.
+**What the striking is not: a statement about XEP-0060.** The point under "optional"
+stays as it was — what was missing there was never the report, but the correlation
+of IQ result and request. Whoever builds it declares the event again in the same
+hour. An event never set off is no half implementation, but a promise without
+backing.
 
-**Der Teil des Projekts, der bis hierher gar keine Tests hatte**, hat jetzt
-acht. Geprüft wird gegen einen `StringWriter` mit vorgegebener Breite: Auf
-einem Testläufer gibt es kein Fenster, und der Test soll die Zeile löschen und
-nicht die Umgebung ausmessen.
-
-Fünf Mutationen, alle erschlagen: Zeile nicht räumen, Eingabeaufforderung nicht
-nachziehen, Sperre nur halb entfernt (das wirft beim Verlassen und reisst alle
-acht mit), Logger schreibt an der Ausgabe vorbei — und **die Sperre
-vollständig entfernt**. Die letzte ist die interessante: Sie tötet **genau
-einen** Test, `ParallelWriters_DoNotInterleave`. Damit ist belegt, dass er die
-gegenseitige Ausschliessung wirklich misst und nicht nur mitläuft.
-
-Ein Test, der beim ersten Lauf rot war, hatte übrigens unrecht und nicht der
-Code: `WriteLine` endet unter Windows auf `\r\n`, und „die Ausgabe enthält
-keinen Wagenrücklauf" ist deshalb nie wahr. Gemeint war die Löschfolge am
-Anfang — geprüft wird jetzt der Anfang.
-
----
-
-### D59. Eine Uhrzeit, die dasteht und nicht stimmt ✅ — XEP-0203 gelesen
-
-Der Server schreibt den Verzugsstempel seit jeher — `AStoredMessage_CarriesADelayStamp`
-hält seit D-lang fest, dass jede nachgereichte Nachricht ein `<delay/>` trägt,
-mit UTC-Zeit und dem Server als Urheber. **Der Client hat ihn nie gelesen.**
-`urn:xmpp:delay` kam in seinem gesamten Quelltext nicht vor, und
-`XMPPMessage.Timestamp` war laut eigener Dokumentation „Zeitpunkt des Empfangs
-(lokale Uhr)".
-
-Die Folge war eine Lüge mit Uhrzeit: Eine Nachricht von gestern Abend erschien
-nach dem Anmelden mit der Uhrzeit von jetzt. **Das ist schlimmer als eine
-fehlende Angabe** — es lädt dazu ein, auf eine Frage zu antworten, die sich
-längst erledigt hat.
-
-Von allen sieben Punkten der Umfangsliste war das der einzige, bei dem etwas
-Falsches angezeigt wurde statt etwas zu fehlen.
-
-`Timestamp` ist jetzt die Zeit, zu der die Nachricht **geschrieben** wurde,
-`ReceivedAt` die des Empfangs, `IsDelayed` der Unterschied zwischen beiden.
-Gelesen wird die Stanza dort, wo sie noch vorliegt — in der Verbindung; das
-`DateTime.Now` im Client, das die Auskunft überschrieb, ist fort.
-
-**Zwei Feinheiten, beide mit eigenem Test:**
-
-- **Nur direkte Kinder.** Ein Carbon (XEP-0280) und eine Weiterleitung
-  (XEP-0297) bringen in ihrem `<forwarded/>` den Stempel der *inneren*
-  Nachricht mit. Wer die ganze Stanza durchsucht, datiert die äussere auf die
-  Zeit der inneren — und liegt genau dann falsch, wenn es darauf ankommt.
-- **Nur mit Zonenangabe.** Das kam durch eine überlebende Mutation dazu, und
-  sie war die lehrreichste des Tages: `RoundtripKind` gegen `AssumeUniversal`
-  liess sich nicht erschlagen. Der Grund war keine schwache Prüfung, sondern
-  eine Lücke dahinter — ein Stempel **ohne** Zone verstösst gegen Abschnitt 3,
-  liess sich aber lesen und wurde als hiesige Zeit gedeutet. **Die
-  schlechteste aller Auslegungen:** Die Nachricht verschiebt sich um genau den
-  Zonenunterschied und sieht dabei vollkommen plausibel aus. Jetzt gilt sie wie
-  kein Stempel.
-
-Nach dieser Verschärfung ist dieselbe Mutation **gleichwertig statt
-überlebend**: Mit erzwungener Zone können sich die beiden Auslegungen nicht
-mehr unterscheiden, denn `AssumeUniversal` greift nur, wo keine Zone steht. Ein
-Überlebender, dessen Gleichwertigkeit sich beweisen lässt, ist etwas anderes
-als einer, der ungeprüft danebensteht.
-
-Fünf Mutationen: vier erschlagen (Stempel gar nicht gelesen, ganze Stanza
-durchsucht, unlesbarer Stempel wirft statt zu verneinen, Zonenangabe nicht mehr
-verlangt), eine gleichwertig.
-
-Die Konsole zeigt eine nachgereichte Nachricht jetzt mit Datum und dem Vermerk
-„(nachgereicht)" — ohne das Datum sähe eine Uhrzeit von gestern aus wie heute.
+**And the list does not come back.** A standing enumeration of unused members is a
+bookkeeping nobody keeps: it is right on the day of its arising and never again
+afterwards. What is unused the compiler decides (at events) or a search (at
+everything else) — both in seconds and always current.
 
 ---
 
-### D60. „Ich meinte: morgen." ✅ — XEP-0308
+### D58. One door for everything that goes to the console ✅
 
-Die Korrektur ist eine gewöhnliche Nachricht mit eigener `id` und
-**vollständigem** Text; das `<replace/>` nennt nur, welche sie ablöst. Das ist
-Absicht: Ein Empfänger, der die Erweiterung nicht kennt, zeigt sie als zweite
-Nachricht an — unschön, aber vollständig. Wer stattdessen nur den geänderten
-Teil schickte, hinterliesse bei ihm eine leere Zeile.
+The point read: "the standard console logger writes into the same console as the
+input line and takes the prompt apart. An `ILoggerProvider` of its own over the
+**synchronised output** would be the clean solution."
 
-**Die Grenze aus Abschnitt 5 ist die eigentliche Entscheidung.** Berichtigen
-lässt sich nur die zuletzt an **denselben Empfänger** geschickte Nachricht.
-Deshalb merkt sich der Client die letzte Kennung *je Empfänger* und nicht
-insgesamt: Ein einzelner Merkposten wäre nach jedem Themenwechsel falsch — und
-zwar so, dass die Berichtigung beim vorigen Gesprächspartner landet. Die
-Mutation, die das Merken vom Empfänger löst, fällt an genau diesem Fall.
+**The synchronised output did not exist.** What existed was an agreement: every
+handling of an event bracketed its output by hand in `ClearCurrentLine()` …
+`WritePrompt()` — eleven times the same two lines. Whoever forgets one of them
+notices it only in operation, and **a lock lay over none of them**. The events come
+out of the receiving thread, the log out of any one at all; two simultaneous outputs
+interleave in the middle of a word, together with the colour the one has set and the
+other has put back.
 
-Und die Korrektur wird selbst zur letzten Nachricht, sodass sich eine
-Berichtigung wiederum berichtigen lässt. Kein Sonderfall, sondern der übliche:
-Wer sich vertippt, vertippt sich auch in der Berichtigung. Zeigte die zweite
-Korrektur weiter auf das Original, hinge die erste beim Empfänger in der Luft.
+The logger was therefore only the most conspicuous of three cases of the same
+problem.
 
-**Beim Empfangen wird gemeldet, nicht entschieden.** `ReplacesId` und
-`IsCorrection` stehen an der Nachricht; was daraus wird, ist Sache der
-Oberfläche. Eine Konsole kann Geschriebenes nicht zurücknehmen — sie setzt ein
-`✎` an den Absender und zeigt beide Fassungen. Das ist ehrlicher, als die
-Korrektur zu verschweigen: Der Leser sieht, dass es eine gab, und welche gilt.
+`ConsoleOutput` is now the one door. It can do two things:
 
-Nebenbei ist die Parameterliste des Nachrichten-Ereignisses verschwunden. Sie
-war mit jeder Erweiterung länger geworden — fünf Werte, mit dem Verzugsstempel
-acht, mit der Korrektur neun —, und **eine Reihe gleichartiger Zeichenketten,
-deren Bedeutung nur an ihrer Stellung hängt, ist eine Verwechslung, die auf
-ihre Gelegenheit wartet.** Die Verbindung setzt die `XMPPMessage` jetzt selbst
-zusammen; sie ist ohnehin die einzige Stelle, an der die Stanza noch vorliegt.
-Genau daran war der Verzugsstempel in D59 vorbeigegangen.
+- `Write(w => …)` for an output in one go,
+- `Begin()` for those that cannot be put into a callback without becoming
+  unreadable — the PubSub output changes the colour in a `switch`. The scope holds
+  the lock until leaving and then draws the prompt along.
 
-Sechs Mutationen, alle erschlagen: Vermerk nicht gelesen, ganze Stanza
-durchsucht, leere `id` als Ziel, `<replace/>` geht nicht mit hinaus, Korrektur
-wird nicht zur neuen letzten, Merken hängt nicht am Empfänger.
+With that the eleven brackets shrink to one line each (`using var scope =
+Output();`), and the logger goes through the same door — that is the whole
+difference between `AddSimpleConsole` and `ConsoleOutputLoggerProvider`.
 
-Angekündigt wird die Erweiterung in disco#info (Abschnitt 4) — ohne die
-Ankündigung muss ein Gegenüber annehmen, dass seine Korrektur als zweite
-Nachricht erscheint, und schickt dann lieber keine.
+**Two small things that fell out along the way:**
 
----
+- The full category name is the type name together with the namespace, here about
+  fifty characters — on a console with an input line half the width for a piece of
+  information that is the same in every line. Only the last part stands there now.
+- `ILogger` passes the exception through **separately** from the text, and the
+  formatter leaves it out. Whoever does not append it themselves logs "connection
+  lost" and keeps quiet about what at.
 
-### D61. Wenn niemand hinsieht ✅ — XEP-0352
+**The part of the project that had no tests at all up to here** now has eight.
+Checked it is against a `StringWriter` with a given width: on a test runner there is
+no window, and the test is to delete the line and not to measure the environment.
 
-Das Protokoll ist an einem Nachmittag gelesen: zwei Nonzas, `<active/>` und
-`<inactive/>`, angekündigt in den Features nach der Anmeldung (Abschnitt 4.1),
-und **keine Antwort darauf** (Abschnitt 4.2) — eine Bestätigung weckte das
-Gerät genau in dem Augenblick, in dem es sich schlafen legt.
+Five mutations, all struck down: do not clear the line, do not draw the prompt
+along, lock only half removed (that throws at the leaving and takes all eight with
+it), logger writes past the output — and **the lock removed completely**. The last
+is the interesting one: it kills **exactly one** test,
+`ParallelWriters_DoNotInterleave`. With that it is shown that it really measures the
+mutual exclusion and does not only run along.
 
-Die Arbeit steckt woanders. **Was zurückgehalten werden darf, entscheidet der
-Server**; das XEP nennt in Abschnitt 3 nur Beispiele. Meine Leitlinie:
-*zurückgehalten wird nur, was später noch wahr ist.*
-
-- **Presence wartet**, und die letzte je Full-JID löst die früheren ab
-  („push the latest presence from each contact"). Je Full-JID und nicht je
-  Mensch: Zwei Geräte sind zwei Anwesenheiten, und die eine darf die andere
-  nicht verdrängen — sonst verschwände Bobs Telefon aus der Liste, weil sein
-  Rechner sich abgemeldet hat.
-- **Ein Chat State wird fallengelassen**, nicht aufgehoben. Das ist der einzige
-  Punkt, an dem etwas verloren geht, und er ist der wichtigste: Ein „schreibt
-  gerade" von vorhin ist beim Nachliefern keine verspätete Auskunft mehr,
-  sondern eine falsche.
-- **Text, `iq`, Fehler und jede Nonza gehen sofort hinaus.** XEP-0352 ist eine
-  Sparmassnahme für den Akku und keine Ruhefunktion für den Menschen davor. Ein
-  `iq` ist ausserdem eine Frage mit Frist — wer es zurückhält, beantwortet es
-  nach Ablauf, und die Antwort käme zu einer Frage, die niemand mehr stellt.
-- Eine Kontaktanfrage ist eine Presence und trotzdem keine
-  Anwesenheitsmeldung: Sie wartet auf die Entscheidung eines Menschen
-  (RFC 6121, Abschnitt 3.1.3) und geht sofort hinaus.
-
-**Zwei Feinheiten, die sich erst beim Bauen zeigen:**
-
-- **Zurückgehaltenes geht vor der Stanza hinaus, die den Puffer leert.** Ohne
-  diese Regel überholte Bobs Nachricht seine eigene Presence, und RFC 6120,
-  Abschnitt 10.1 verlangt zwischen zwei Entitäten ausdrücklich die
-  Reihenfolge. Alice sähe sonst erst „Bob schreibt: bin unterwegs" und danach,
-  dass Bob online gegangen ist.
-- **Eine Nonza leert den Puffer nicht.** Ein `<r/>` des Servers (XEP-0198)
-  fragt nach dem Empfangszähler und trägt keine Reihenfolge; leerte es den
-  Puffer, wäre jede Zählnachfrage ein Weckruf durch die Hintertür. Die Zählung
-  bleibt dabei stimmig, weil Zurückgehaltenes nicht gesendet und damit auch
-  nicht gezählt ist.
-
-**Der Puffer hat eine Obergrenze** (`MaxHeldWhileInactive`, Vorgabe 100). Ein
-Client, der sich für inaktiv erklärt und dann nicht mehr wiederkommt, nötigte
-dem Server sonst mit einem einzigen `<inactive/>` unbegrenzt Speicher ab. Beim
-Überlauf geht der ganze Puffer hinaus, statt etwas wegzuwerfen: Der Client
-bekommt dann Verkehr, den er gerade nicht wollte — die freundlichere der beiden
-Möglichkeiten.
-
-**Und am Ende der Verbindung bleibt nichts liegen.** Was zurückgehalten wurde,
-hat den Client nie erreicht und wäre auch nicht im Puffer der unbestätigten
-Stanzas gelandet — eine Wiederaufnahme fände es nicht, und niemand erführe
-davon, denn eine nie gesendete Stanza fehlt auch keiner Zählung. Der Abschied
-leert den Puffer deshalb zuerst; bei einem aufgehobenen Stream geht er damit
-seinen gewohnten Weg.
-
-**Abschnitt 5.2 nimmt einem die Frage nach der Wiederaufnahme ab:** „stream
-resumption does not affect the current CSI state, which always defaults to
-'active' for new and resumed streams." Der Server übernimmt den Zustand also
-bewusst *nicht* — und der Client erklärt sich nach jedem Aufbau erneut für
-inaktiv, denn das Gerät liegt in derselben Tasche wie vorher. Ohne diese
-Wiederholung wäre jede Störung ein stilles Ende der Sparmassnahme, und niemand
-bemerkte es: Es funktioniert ja alles weiter.
-
-Ohne Ankündigung schickt der Client nichts, und ohne eigene Ankündigung
-gehorcht der Server nicht. Der zweite Fall ist der gefährlichere: Ein Server,
-der schweigt und trotzdem zurückhält, liesse den Client seine Kontakte für
-still halten. Vor der Anmeldung gilt es ebenfalls nicht — sonst hätte ein
-Unangemeldeter einen Zustand an einer Sitzung, die noch niemandem gehört.
-
-Zu Abschnitt 6 (Security Considerations, „servers MUST NOT reveal the clients
-active/inactive state to other entities on the network") war nichts zu tun und
-das ist der Punkt: Der Zustand ändert nichts an der Presence und verlässt die
-Sitzung nirgends — es gibt kein automatisches „abwesend", das ihn den Kontakten
-vorführte.
-
-**21 Mutationen, alle erschlagen** — Kontaktanfrage wartet, Text zählt nicht,
-leeres `<body/>` gilt als Text, alle Kinder statt nur der Erweiterungen,
-Nachricht ohne Erweiterung verfällt, Ablösung je Mensch statt je Gerät, keine
-Ablösung, `iq` zurückgehalten, gar nichts zurückgehalten, Puffer nicht
-mitgenommen, Puffer auch von Nonzas geleert, `<active/>` liefert nichts nach,
-keine Obergrenze, Chat State aufgehoben statt fallengelassen, Puffer bleibt am
-Verbindungsende liegen, Feature nicht angekündigt, Server gehorcht ohne
-Ankündigung, Unangemeldeter darf setzen, Client schickt ohne Ankündigung,
-Client wiederholt sich nach dem Wiederaufbau nicht, Client merkt sich seinen
-Zustand nicht.
-
-In der Konsole: `/csi` zeigt den Zustand, `/csi inaktiv` und `/csi aktiv`
-melden ihn.
+A test that was red at the first run was wrong by the way and not the code:
+`WriteLine` ends under Windows in `\r\n`, and "the output contains no carriage
+return" is therefore never true. Meant was the sequence of deletion at the beginning
+— checked is now the beginning.
 
 ---
 
-### D62. Fremde Zahlen ✅ — OMEMO, Etappe 1 von 7: die Kryptobausteine
+### D59. A time that stands there and is not right ✅ — XEP-0203 read
 
-OMEMO ist keine Erweiterung, die man an einem Abend einbaut. XEP-0384 (Fassung
-0.9.1, `urn:xmpp:omemo:2`) verlangt X3DH, den Double Ratchet, ein
-protobuf-Drahtformat, PEP-Verteilung von Device-Liste und Bundles, einen
-Sitzungsspeicher, der einen Neustart übersteht, und eine Vertrauensentscheidung
-für den Menschen davor. Das sind sieben Etappen; hier ist die erste, und sie
-ist die einzige, die ohne XMPP auskommt.
+The server has always written the delay stamp —
+`AStoredMessage_CarriesADelayStamp` has held fast for a long time that every message
+handed in later carries a `<delay/>`, with UTC time and the server as the originator.
+**The client has never read it.** `urn:xmpp:delay` did not appear in its whole
+source, and `XMPPMessage.Timestamp` was according to its own documentation "moment of
+the receiving (local clock)".
 
-**Der Unterbau war schon da.** BouncyCastle 2.6.2 hängt über Hermod ohnehin im
-Baum — X25519 und Ed25519 gibt es also, ohne eine neue Abhängigkeit zu wählen.
-.NET 10 hat X25519 nicht: In `System.Security.Cryptography.dll` kommt die
-Zeichenfolge kein einziges Mal vor. Das Paket steht jetzt ausdrücklich in der
-`.csproj`, obwohl es transitiv schon da war — wer eine transitive Abhängigkeit
-direkt benutzt, verliert sie in dem Augenblick, in dem der Vorbesitzer sie
-ablegt.
+The consequence was a lie with a time on it: a message from yesterday evening
+appeared after the logging in with the time of now. **That is worse than a missing
+piece of information** — it invites answering a question that has long since settled
+itself.
 
-**Eine Lücke musste ich selbst füllen, und der Weg dorthin gehört
-aufgeschrieben.** BouncyCastle gibt sein `ScalarMultBase` für Ed25519 nicht
-heraus; öffentlich sind nur `Sign` und `Verify`, und beide leiten den Skalar
-aus einem Seed ab. XEdDSA braucht aber einen *gegebenen* Skalar. Der naheliegende
-Ausweg — den Nonce über `GeneratePublicKey` aus einem zufälligen Seed erzeugen —
-ist eine Falle: Der Skalar wäre dann **geklammert**, also ein Vielfaches von 8
-in einem festen Fenster, rund vier Bit vorhersagbar. Genau darauf zielt der
-Angriff auf verzerrte Nonces; wenige hundert Signaturen genügen, und der
-Identitätsschlüssel fällt. **Ein verzerrter Nonce ist kein Schönheitsfehler,
-sondern der übliche Weg, wie solche Schlüssel gestohlen werden.** Also die
-Punktarithmetik selbst, mit den vollständigen Formeln aus RFC 8032, Abschnitt
-5.1.4 — und mit dem ausdrücklichen Vermerk im Quelltext, dass sie **nicht**
-gegen Zeitmessung gehärtet ist. Für einen Client auf dem Gerät seines Benutzers
-ist das die richtige Reihenfolge der Sorgen; für einen Server wäre es die
-falsche, und es steht dort, damit niemand es später für erledigt hält.
+Of all seven points of the list of extent that was the only one at which something
+wrong was shown instead of something missing.
 
-**Geprüft wird gegen fremde Zahlen.** Eine Verschlüsselung prüft sich selbst zu
-leicht: Wer entschlüsseln kann, was er selbst verschlüsselt hat, hat gezeigt,
-dass er zweimal denselben Fehler macht. Beweiskraft haben nur veröffentlichte
-Vektoren — RFC 7748 (Abschnitte 5.2 und 6.1), RFC 8032 (Abschnitt 7.1, drei
-Vektoren, über den Umweg der Ed25519-eigenen Skalarbildung), RFC 5869, RFC 4231,
-NIST SP 800-38A. Dazu ein Punkt, den beide Kurven benennen: Der
-X25519-Basispunkt `u = 9` muss nach der Umrechnung der Ed25519-Basispunkt sein.
+`Timestamp` is now the time at which the message was **written**, `ReceivedAt` the
+one of the receiving, `IsDelayed` the difference between the two. Read the stanza is
+where it is still there — in the connection; the `DateTime.Now` in the client that
+overwrote the information is gone.
 
-**Der erste Lauf hat zwei Fehler gefunden, und sie sind verschieden
-gefährlich:**
+**Two subtleties, both with a test of their own:**
 
-- `Aes.Create().DecryptCbc(…)` entschlüsselte mit einem **zufälligen**
-  Schlüssel — ich hatte ihn nur beim Verschlüsseln ans Objekt gehängt. Das
-  scheitert immer und fällt sofort auf.
-- In XEdDSA wird mit `-k` weitergerechnet, wenn `kB` das Vorzeichenbit trägt.
-  Meine Negation lief über die Gruppenordnung hinaus und ergab eine negative
-  Zahl — und das trifft **jeden zweiten Schlüssel**. Ein Test mit einem
-  erzeugten Schlüssel wäre in jedem zweiten Lauf grün gewesen. Dagegen steht
-  jetzt einer, der 32 Schlüssel durchgeht *und hinterher nachzählt, dass beide
-  Vorzeichen vorkamen* — sonst prüft er den halben Weg und sagt es nicht.
+- **Only direct children.** A carbon (XEP-0280) and a forwarding (XEP-0297) bring
+  the stamp of the *inner* message along in their `<forwarded/>`. Whoever searches
+  the whole stanza dates the outer one to the time of the inner one — and is wrong
+  exactly when it matters.
+- **Only with a zone.** That came along through a surviving mutation, and it was the
+  most instructive of the day: `RoundtripKind` against `AssumeUniversal` could not
+  be struck down. The reason was no weak check, but a gap behind it — a stamp
+  **without** a zone offends against section 3, could however be read and was
+  interpreted as local time. **The worst of all readings:** the message shifts by
+  exactly the difference of the zones and looks completely plausible in doing so.
+  Now it counts like no stamp.
 
-**26 Mutationen, 23 erschlagen, drei beweisbar gleichwertig:**
+After this sharpening the same mutation is **equivalent instead of surviving**: with
+a forced zone the two readings can no longer differ, for `AssumeUniversal` takes
+hold only where no zone stands. A survivor whose equivalence can be proved is
+something other than one that stands there unchecked.
 
-- Die Längenprüfung der Signatur — ohne sie wirft der fremde Prüfer, und die
-  Ausnahme wird ohnehin zu „ungültig".
-- Der Schleifenanfang bei Bit 254 statt 253 — der Skalar wird vorher modulo der
-  Gruppenordnung reduziert, die oberen Bits sind danach immer null.
-- Das Salz aus 32 Nullbyte gegen 16 — HMAC füllt jeden Schlüssel unterhalb der
-  Blocklänge mit Nullen auf, beide ergeben denselben Wert. Die 32 stehen
-  trotzdem da, weil die Spezifikation sie so nennt.
+Five mutations: four struck down (stamp not read at all, whole stanza searched,
+unreadable stamp throws instead of saying no, zone no longer demanded), one
+equivalent.
 
-**Eine überlebende Mutation war ein echtes Loch und hat einen Test erzwungen:**
-Der Info-String der Ableitung liess sich auf `""` setzen, ohne dass etwas
-scheiterte — alle Tests prüften die Struktur der 80 Byte, keiner ihren Wert.
-Der Fehler wäre in diesem Haus nie aufgefallen: **Zwei Clients mit demselben
-falschen String verstehen sich bestens.** Erst eine fremde Gegenstelle bekäme
-Buchstabensalat, und die gibt es hier nicht. Jetzt rechnet ein zweites HKDF —
-das von BouncyCastle statt das der BCL — dieselben 80 Byte nach, mit den
-Parametern aus Abschnitt 4.4 buchstäblich hingeschrieben.
-
-Das ist zugleich die Grenze dieser Etappe und der ganzen Reihe, und sie gehört
-vorweg gesagt: **Gegen einen echten OMEMO-Client ist hier nichts geprüft.**
-Prosody und ejabberd tragen OMEMO nur, sie sprechen es nicht; Conversations,
-Dino und Gajim gibt es im Testaufbau nicht. Was bleibt, sind veröffentlichte
-Vektoren und buchstäblich hingeschriebene Vorschriften — beides prüft die
-Übereinstimmung mit dem Text, nicht mit der Wirklichkeit.
+The console now shows a message handed in later with a date and the note "(handed in
+later)" — without the date a time from yesterday would look like today.
 
 ---
 
-### D63. Vier Handschläge ✅ — OMEMO, Etappe 2 von 7: X3DH
+### D60. "I meant: tomorrow." ✅ — XEP-0308
 
-Eine Sitzung beginnt, ohne dass beide gleichzeitig da sind: Bob ist offline,
-Alice schreibt ihm trotzdem verschlüsselt. Das geht nur, weil sein Server seine
-Schlüssel vorrätig hält — **und damit ist der Server auch der naheliegende
-Angreifer.** Genau dagegen steht die Signatur über den Signed PreKey, und
-deshalb bricht ein Bundle mit falscher Signatur hier ab, statt eine Warnung zu
-melden: Eine Sitzung darauf wäre schlimmer als keine, denn sie sähe aus wie
-eine verschlüsselte.
+The correction is an ordinary message with an `id` of its own and the **complete**
+text; the `<replace/>` names only which one it replaces. That is intentional: a
+recipient that does not know the extension shows it as a second message — ugly, but
+complete. Whoever sent only the changed part instead would leave an empty line
+behind at their end.
 
-**Die vier Diffie-Hellman beantworten vier verschiedene Fragen** — wer schreibt
-(DH1), wer liest (DH2), ist es frisch (DH3), und ist diese erste Nachricht von
-jeder anderen verschieden (DH4). Der vierte entfällt, wenn der PreKey-Vorrat
-leer ist; das ist ausdrücklich vorgesehen und kostet genau diese eine
-Eigenschaft. Eine Verweigerung wäre die schlechtere Antwort — sie machte aus
-einem leeren Vorrat einen Ausfall der Erreichbarkeit.
+**The limit from section 5 is the actual decision.** Corrected can be only the
+message sent last to **the same recipient**. This is why the client remembers the
+last id *per recipient* and not in total: a single note would be wrong after every
+change of subject — and wrong in such a way that the correction lands at the
+previous partner in conversation. The mutation that separates the remembering from
+the recipient falls at exactly this case.
 
-**Der Fehler, den ich beim Schreiben gemacht habe, ist der, vor dem diese
-Erweiterung am lautesten warnt.** XEP-0384 überträgt den IdentityKey *immer* in
-Ed25519-Form (Abschnitt 5.3.2), der Diffie-Hellman rechnet aber in
-Montgomery-Form. Ich habe die eine Fassung an die Methode für die andere
-gegeben — und bekam keine Fehlermeldung: Beides sind 32 gültige Byte, die
-Umrechnung läuft durch, und heraus kommt ein Schlüssel, zu dem keine Signatur
-passt. Jetzt heissen die beiden Wege `Verify` und `VerifyEdwards`. **Ein
-`Boolean istEdwards` wäre an der Aufrufstelle unsichtbar gewesen, und die
-Aufrufstelle ist der Ort, an dem man sich irrt.**
+And the correction itself becomes the last message, so that a correction can in turn
+be corrected. No special case, but the usual one: whoever mistypes mistypes in the
+correction as well. Did the second correction still point at the original, the first
+would hang in the air at the recipient's end.
 
-**Zum dritten Mal dasselbe Muster bei den Mutationen, und es ist das Muster
-dieses ganzen Vorhabens:** Der `0xFF`-Vorspann, der Info-String und die
-Reihenfolge der beiden IdentityKeys in der Beigabe liessen sich alle drei
-ändern, ohne dass ein Test etwas sagte. Der Grund ist immer derselbe — **beide
-Seiten rechnen mit derselben Funktion und kommen weiterhin überein.** Ein Test,
-der prüft „beide bekommen dasselbe heraus", kann so etwas grundsätzlich nicht
-finden. Der Schaden träte erst gegenüber einem fremden Client auf, und den gibt
-es hier nicht.
+**At the receiving it is reported, not decided.** `ReplacesId` and `IsCorrection`
+stand at the message; what becomes of it is the business of the surface. A console
+cannot take back what is written — it puts a `✎` at the sender and shows both
+versions. That is more honest than keeping quiet about the correction: the reader
+sees that there was one, and which one holds.
 
-Dagegen hilft nur eines: **die Vorschrift ein zweites Mal wörtlich
-hinschreiben.** Die Ableitung wird jetzt mit einem zweiten HKDF nachgerechnet,
-und die Beigabe wird nicht auf „beide gleich" geprüft, sondern darauf, welche
-Hälfte wem gehört. Wer den Wert im Quelltext ändert, muss ihn zweimal ändern —
-und sieht dabei, dass er die Spezifikation verlässt.
+Incidentally the parameter list of the message event has disappeared. It had become
+longer with every extension — five values, with the delay stamp eight, with the
+correction nine —, and **a row of similar strings whose meaning hangs only on their
+position is a confusion waiting for its opportunity.** The connection now puts the
+`XMPPMessage` together itself; it is the only place anyway at which the stanza is
+still there. On exactly that the delay stamp in D59 had gone past.
 
-19 Mutationen, alle erschlagen: Signatur ungeprüft, DH1 und DH2 mit
-vertauschten Schlüsseln, Vorspann weg, Info-String weg, Beigabe verdreht
-(zweimal), gewechselter Signed PreKey übergangen, verbrauchter PreKey
-angenommen, PreKey beim Entnehmen nicht gelöscht, Kennungen wiederverwendet,
-gewechselter Schlüssel nicht neu unterschrieben, IdentityKey in falscher Form
-veröffentlicht, Signatur gegen die falsche Form geprüft.
+Six mutations, all struck down: note not read, whole stanza searched, empty `id` as
+the target, `<replace/>` does not go out along, correction does not become the new
+last one, the remembering does not hang on the recipient.
 
-**Eine ungeprüfte Annahme steht ausdrücklich im Quelltext:** Der Signed PreKey
-wird in Montgomery-Form unterschrieben. Abschnitt 5.3.2 sagt nur „the signed
-PreKey signature" und lässt offen, welche Kodierung gemeint ist. Stimmt die
-Lesart nicht, scheitert die Prüfung gegen fremde Clients an dieser einen Zeile —
-und es gibt hier keine Gegenstelle, an der sich das entscheiden liesse.
+Announced the extension is in disco#info (section 4) — without the announcement the
+other side has to assume that its correction appears as a second message, and then
+prefers to send none.
+
+---
+
+### D61. When nobody is looking ✅ — XEP-0352
+
+The protocol is read in one afternoon: two nonzas, `<active/>` and `<inactive/>`,
+announced in the features after the login (section 4.1), and **no answer to them**
+(section 4.2) — a confirmation would wake the device at exactly the moment at which
+it lies down to sleep.
+
+The work sits elsewhere. **What may be held back the server decides**; the XEP names
+only examples in section 3. My guideline: *held back is only what will still be true
+later.*
+
+- **Presence waits**, and the last one per full JID replaces the earlier ones ("push
+  the latest presence from each contact"). Per full JID and not per human: two
+  devices are two presences, and the one may not displace the other — otherwise
+  Bob's telephone would disappear from the list because his computer has signed off.
+- **A chat state is dropped**, not kept. That is the only point at which anything is
+  lost, and it is the most important one: a "is typing" from earlier is at the
+  handing in later no longer a late piece of information, but a wrong one.
+- **Text, `iq`, errors and every nonza go out at once.** XEP-0352 is a saving
+  measure for the battery and no do-not-disturb function for the human in front of
+  it. An `iq` is moreover a question with a deadline — whoever holds it back answers
+  it after it has run out, and the answer would come to a question nobody is putting
+  any more.
+- A subscription request is a presence and nevertheless no report of presence: it
+  waits for the decision of a human (RFC 6121, section 3.1.3) and goes out at once.
+
+**Two subtleties that show themselves only at the building:**
+
+- **What is held back goes out before the stanza that empties the buffer.** Without
+  this rule Bob's message would overtake his own presence, and RFC 6120, section
+  10.1 expressly demands the order between two entities. Alice would otherwise see
+  first "Bob writes: on my way" and after that that Bob has gone online.
+- **A nonza does not empty the buffer.** An `<r/>` of the server (XEP-0198) asks
+  after the counter of what has come in and carries no order; did it empty the
+  buffer, then every count query would be a wake-up call through the back door. The
+  counting stays coherent in doing so, because what is held back is not sent and
+  thereby not counted either.
+
+**The buffer has an upper bound** (`MaxHeldWhileInactive`, default 100). A client
+that declares itself inactive and then does not come back again would otherwise
+force unbounded memory on the server with a single `<inactive/>`. At an overflow the
+whole buffer goes out instead of anything being thrown away: the client then gets
+traffic it did not want at that moment — the friendlier of the two possibilities.
+
+**And at the end of the connection nothing stays lying.** What was held back has
+never reached the client and would not have landed in the buffer of unacknowledged
+stanzas either — a resumption would not find it, and nobody would learn of it, for a
+stanza never sent is missing from no counting either. The farewell therefore empties
+the buffer first; at a kept stream it thereby goes its accustomed way.
+
+**Section 5.2 takes the question about the resumption off one's hands:** "stream
+resumption does not affect the current CSI state, which always defaults to 'active'
+for new and resumed streams." The server therefore deliberately does *not* take the
+state over — and the client declares itself inactive anew after every setting up,
+for the device lies in the same pocket as before. Without this repetition every
+disturbance would be a silent end of the saving measure, and nobody would notice it:
+everything goes on working after all.
+
+Without an announcement the client sends nothing, and without an announcement of its
+own the server does not obey. The second case is the more dangerous one: a server
+that keeps silent and holds back all the same would let the client hold its contacts
+to be quiet. Before the login it does not hold either — otherwise somebody not
+logged in would have a state at a session that belongs to nobody yet.
+
+To section 6 (Security Considerations, "servers MUST NOT reveal the clients
+active/inactive state to other entities on the network") there was nothing to do and
+that is the point: the state changes nothing about the presence and leaves the
+session nowhere — there is no automatic "away" that would show it to the contacts.
+
+**21 mutations, all struck down** — subscription request waits, text does not count,
+an empty `<body/>` counts as text, all children instead of only the extensions, a
+message without an extension expires, replacement per human instead of per device,
+no replacement, `iq` held back, nothing held back at all, buffer not taken along,
+buffer emptied by nonzas as well, `<active/>` hands in nothing later, no upper bound,
+chat state kept instead of dropped, buffer stays lying at the end of the connection,
+feature not announced, server obeys without an announcement, somebody not logged in
+may set, client sends without an announcement, client does not repeat itself after
+the rebuilding, client does not remember its state.
+
+In the console: `/csi` shows the state, `/csi inactive` and `/csi active` report it.
+
+---
+
+### D62. Foreign numbers ✅ — OMEMO, stage 1 of 7: the crypto building blocks
+
+OMEMO is no extension one builds in in one evening. XEP-0384 (version 0.9.1,
+`urn:xmpp:omemo:2`) demands X3DH, the double ratchet, a protobuf wire format, PEP
+distribution of the device list and bundles, a session store that survives a
+restart, and a decision of trust for the human in front of it. That is seven stages;
+here is the first, and it is the only one that gets by without XMPP.
+
+**The substructure was there already.** BouncyCastle 2.6.2 hangs in the tree over
+Hermod anyway — X25519 and Ed25519 therefore exist without choosing a new
+dependency. .NET 10 does not have X25519: in `System.Security.Cryptography.dll` the
+string does not appear a single time. The package now stands expressly in the
+`.csproj` although it was already there transitively — whoever uses a transitive
+dependency directly loses it at the moment at which the previous owner puts it down.
+
+**One gap I had to fill myself, and the way there belongs written down.**
+BouncyCastle does not give its `ScalarMultBase` for Ed25519 out; public are only
+`Sign` and `Verify`, and both derive the scalar from a seed. XEdDSA however needs a
+*given* scalar. The obvious way out — to create the nonce over `GeneratePublicKey`
+from a random seed — is a trap: the scalar would then be **clamped**, that is, a
+multiple of 8 in a fixed window, about four bits predictable. Exactly at that the
+attack on biased nonces aims; a few hundred signatures suffice, and the identity key
+falls. **A biased nonce is no blemish, but the usual way such keys are stolen.** So
+the point arithmetic itself, with the complete formulas from RFC 8032, section 5.1.4
+— and with the express note in the source that it is **not** hardened against
+timing. For a client on the device of its user that is the right order of worries;
+for a server it would be the wrong one, and it stands there so that nobody later
+holds it to be settled.
+
+**Checked it is against foreign numbers.** An encryption checks itself too easily:
+whoever can decrypt what they have encrypted themselves has shown that they make the
+same error twice. Force of proof have only published vectors — RFC 7748 (sections
+5.2 and 6.1), RFC 8032 (section 7.1, three vectors, over the detour of the
+Ed25519-own forming of the scalar), RFC 5869, RFC 4231, NIST SP 800-38A. To that a
+point both curves name: the X25519 base point `u = 9` has to be the Ed25519 base
+point after the conversion.
+
+**The first run found two errors, and they are differently dangerous:**
+
+- `Aes.Create().DecryptCbc(…)` decrypted with a **random** key — I had hung it on
+  the object only at the encrypting. That fails always and comes out at once.
+- In XEdDSA one computes on with `-k` when `kB` carries the sign bit. My negation
+  ran out beyond the order of the group and yielded a negative number — and that
+  hits **every second key**. A test with one created key would have been green in
+  every second run. Against that there now stands one that goes through 32 keys
+  *and counts afterwards that both signs occurred* — otherwise it checks half the
+  way and does not say so.
+
+**26 mutations, 23 struck down, three provably equivalent:**
+
+- The check of the length of the signature — without it the foreign checker throws,
+  and the exception becomes "invalid" anyway.
+- The beginning of the loop at bit 254 instead of 253 — the scalar is reduced modulo
+  the order of the group beforehand, the upper bits are always zero afterwards.
+- The salt out of 32 zero bytes against 16 — HMAC pads every key below the length of
+  a block with zeros, both yield the same value. The 32 stand there all the same,
+  because the specification names them that way.
+
+**One surviving mutation was a real hole and forced a test:** the info string of the
+derivation could be set to `""` without anything failing — all tests checked the
+structure of the 80 bytes, none their value. The error would never have come out in
+this house: **two clients with the same wrong string understand each other
+perfectly.** Only a foreign far side would get gibberish, and that does not exist
+here. Now a second HKDF — the one of BouncyCastle instead of the one of the BCL —
+recomputes the same 80 bytes, with the parameters from section 4.4 written down
+literally.
+
+That is at the same time the limit of this stage and of the whole series, and it
+belongs said in advance: **against a real OMEMO client nothing is checked here.**
+Prosody and ejabberd only carry OMEMO, they do not speak it; Conversations, Dino and
+Gajim do not exist in the test setup. What remains are published vectors and
+prescriptions written down literally — both check the agreement with the text, not
+with reality.
+
+---
+
+### D63. Four handshakes ✅ — OMEMO, stage 2 of 7: X3DH
+
+A session begins without both being there at the same time: Bob is offline, Alice
+writes to him encrypted all the same. That works only because his server keeps his
+keys in stock — **and with that the server is also the obvious attacker.** Exactly
+against that stands the signature over the signed PreKey, and this is why a bundle
+with a wrong signature breaks off here instead of reporting a warning: a session on
+it would be worse than none, for it would look like an encrypted one.
+
+**The four Diffie-Hellmans answer four different questions** — who writes (DH1), who
+reads (DH2), is it fresh (DH3), and is this first message different from every other
+(DH4). The fourth falls away when the stock of PreKeys is empty; that is expressly
+provided for and costs exactly this one property. A refusal would be the poorer
+answer — it would make an outage of reachability out of an empty stock.
+
+**The error I made at the writing is the one this extension warns about most
+loudly.** XEP-0384 transmits the IdentityKey *always* in Ed25519 form (section
+5.3.2), the Diffie-Hellman however computes in Montgomery form. I gave the one
+version to the method for the other — and got no error message: both are 32 valid
+bytes, the conversion runs through, and out comes a key no signature fits. Now the
+two ways are called `Verify` and `VerifyEdwards`. **A `Boolean isEdwards` would have
+been invisible at the calling place, and the calling place is where one goes
+wrong.**
+
+**For the third time the same pattern at the mutations, and it is the pattern of
+this whole undertaking:** the `0xFF` prefix, the info string and the order of the two
+IdentityKeys in the associated data could all three be changed without a test saying
+anything. The reason is always the same — **both sides compute with the same function
+and still agree.** A test that checks "both get the same out" cannot find such a
+thing in principle. The damage would occur only against a foreign client, and that
+does not exist here.
+
+Against that only one thing helps: **write the prescription down a second time
+literally.** The derivation is now recomputed with a second HKDF, and the associated
+data is not checked on "both the same" but on which half belongs to whom. Whoever
+changes the value in the source has to change it twice — and sees in doing so that
+they are leaving the specification.
+
+19 mutations, all struck down: signature unchecked, DH1 and DH2 with swapped keys,
+prefix gone, info string gone, associated data twisted (twice), changed signed
+PreKey passed over, used-up PreKey accepted, PreKey not deleted at the taking out,
+identifiers reused, changed key not signed anew, IdentityKey published in the wrong
+form, signature checked against the wrong form.
+
+**An unchecked assumption stands expressly in the source:** the signed PreKey is
+signed in Montgomery form. Section 5.3.2 says only "the signed PreKey signature" and
+leaves open which encoding is meant. Is the reading not right, then the check against
+foreign clients fails at this one line — and there is no far side here at which that
+could be decided.
 
 ---
 
