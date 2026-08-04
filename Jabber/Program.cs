@@ -26,11 +26,11 @@ using org.GraphDefined.Vanaheimr.Ratatoskr.ConsoleUI;
 namespace org.GraphDefined.Vanaheimr.Ratatoskr;
 
 /// <summary>
-/// Konsolen-Frontend für den <see cref="XMPPClient"/>.
+/// Console front end for the <see cref="XMPPClient"/>.
 ///
-/// Diese Klasse enthält ausschließlich Benutzeroberfläche: Kommandozeilen-
-/// Parsing, Kommando-Dispatch und Darstellung. Die gesamte Sitzungslogik
-/// (Chatpartner, Kontaktanfragen, zusammengesetzte Operationen) liegt im
+/// This class holds nothing but user interface: command line parsing,
+/// command dispatch and presentation. The whole session logic (chat
+/// partners, contact requests, composite operations) lies in the
 /// <see cref="XMPPClient"/>.
 /// </summary>
 class Program
@@ -40,10 +40,10 @@ class Program
 
     private static XMPPClient? _client;
     /// <summary>
-    /// Die gemeinsame Ausgabe: Ereignisse, Systemmeldungen und das Protokoll
-    /// gehen durch dieselbe Sperre und lassen die Eingabezeile heil.
+    /// The shared output: events, system notices and the log all go through
+    /// the same lock and leave the input line whole.
     /// </summary>
-    private static ConsoleOutput? _ausgabe;
+    private static ConsoleOutput? _output;
 
     private static bool _showRawXml;
     private static volatile bool _running = true;
@@ -66,21 +66,21 @@ class Program
 
         if (string.IsNullOrEmpty(jid) || string.IsNullOrEmpty(password))
         {
-            Console.WriteLine("Fehler: JID und Passwort erforderlich");
+            Console.WriteLine("Error: JID and password required");
             return;
         }
 
-        // Alles, was auf die Konsole geht, geht durch dieselbe Tuer - auch das
-        // Protokoll. Ein AddSimpleConsole schriebe mitten in die halb getippte
-        // Eingabezeile und liesse den Anwender ohne Eingabeaufforderung zurueck
-        // (siehe ConsoleOutput).
-        _ausgabe = new ConsoleOutput(BuildPrompt);
+        // Everything that goes to the console goes through the same door - the
+        // log as well. An AddSimpleConsole would write into the middle of the
+        // half-typed input line and leave the user without a prompt (see
+        // ConsoleOutput).
+        _output = new ConsoleOutput(BuildPrompt);
 
         using var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
         {
             builder.AddProvider(
                 new ConsoleOutputLoggerProvider(
-                    _ausgabe,
+                    _output,
                     verbose ? LogLevel.Trace : LogLevel.Information));
 
             builder.SetMinimumLevel(verbose ? LogLevel.Trace : LogLevel.Information);
@@ -108,11 +108,11 @@ class Program
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine("\n[*] Beendet.");
+            Console.WriteLine("\n[*] Ended.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n[!] Fehler: {ex.Message}");
+            Console.WriteLine($"\n[!] Error: {ex.Message}");
             if (ex.InnerException != null)
                 Console.WriteLine($"    Inner: {ex.InnerException.Message}");
         }
@@ -124,7 +124,7 @@ class Program
 
     }
 
-    #region Verdrahtung der Anzeige
+    #region Wiring up the display
 
     private static void WireUpUserInterface(XMPPClient client)
     {
@@ -147,13 +147,13 @@ class Program
             switch (newState)
             {
                 case ConnectionState.Reconnecting:
-                    WriteSystemMessage("🔄 Verbindung verloren, versuche Reconnect...");
+                    WriteSystemMessage("🔄 Connection lost, trying to reconnect...");
                     break;
                 case ConnectionState.Connected when oldState == ConnectionState.Reconnecting:
-                    WriteSystemMessage("✅ Reconnect erfolgreich!");
+                    WriteSystemMessage("✅ Reconnect succeeded!");
                     break;
                 case ConnectionState.Disconnected when oldState == ConnectionState.Reconnecting:
-                    WriteWarning("❌ Reconnect fehlgeschlagen");
+                    WriteWarning("❌ Reconnect failed");
                     break;
             }
         };
@@ -164,20 +164,20 @@ class Program
                 WriteSystemMessage($"[Caps] {from}: {string.Join(", ", info.Identities)}");
         };
 
-        client.OnRosterItemAdded   += item => WriteSystemMessage($"Kontakt hinzugefügt: {item.DisplayName}");
-        client.OnRosterItemRemoved += jid  => WriteSystemMessage($"Kontakt entfernt: {jid}");
+        client.OnRosterItemAdded   += item => WriteSystemMessage($"Contact added: {item.DisplayName}");
+        client.OnRosterItemRemoved += jid  => WriteSystemMessage($"Contact removed: {jid}");
 
         client.OnSubscriptionRequest += (from, status) =>
         {
-            WriteSystemMessage($"📩 Kontaktanfrage von {from}: {status}");
-            WriteSystemMessage($"   Nutze /accept {from} oder /deny {from}");
+            WriteSystemMessage($"📩 Contact request from {from}: {status}");
+            WriteSystemMessage($"   Use /accept {from} or /deny {from}");
         };
 
     }
 
     #endregion
 
-    #region Kommandozeilen-Parsing
+    #region Command line parsing
 
     private static (string jid, string password, string? wsUri, bool verbose)? ParseArguments(string[] args)
     {
@@ -217,14 +217,14 @@ class Program
 
         if (string.IsNullOrEmpty(password))
         {
-            Console.Write("Passwort: ");
+            Console.Write("Password: ");
             password = ReadPassword();
             Console.WriteLine();
         }
 
         if (string.IsNullOrEmpty(wsUri))
         {
-            Console.Write("WebSocket URI (Enter: host-meta der Domain, sonst wss://{domain}:5443/ws): ");
+            Console.Write("WebSocket URI (Enter: host-meta of the domain, otherwise wss://{domain}:5443/ws): ");
             var input = Console.ReadLine()?.Trim();
             if (!string.IsNullOrEmpty(input))
                 wsUri = input;
@@ -264,7 +264,7 @@ class Program
 
     #endregion
 
-    #region Eingabeschleife und Kommandos
+    #region Input loop and commands
 
     private static async Task ProcessConsoleInputAsync(CancellationToken ct)
     {
@@ -295,9 +295,9 @@ class Program
             {
                 var messageId = await _client!.SendMessageAsync(input);
                 if (messageId == null)
-                    Console.WriteLine("Kein Empfänger gesetzt. Nutze /msg <jid> <nachricht> oder /to <jid>");
+                    Console.WriteLine("No recipient set. Use /msg <jid> <message> or /to <jid>");
                 else
-                    Console.WriteLine($"  → Gesendet an {GetShortJid(_client.CurrentChatPartner!)}");
+                    Console.WriteLine($"  → Sent to {GetShortJid(_client.CurrentChatPartner!)}");
             }
         }
 
@@ -324,40 +324,40 @@ class Program
             case "/to" or "/chat":
                 client.SetChatPartner(string.IsNullOrEmpty(args) ? null : args);
                 Console.WriteLine(client.CurrentChatPartner == null
-                                      ? "Chat-Empfänger zurückgesetzt"
-                                      : $"Chat mit: {client.CurrentChatPartner}");
+                                      ? "Chat recipient reset"
+                                      : $"Chatting with: {client.CurrentChatPartner}");
                 break;
 
             case "/msg" or "/m":
                 var msgParts = args.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
                 if (msgParts.Length < 2)
                 {
-                    Console.WriteLine("Syntax: /msg <jid> <nachricht>");
+                    Console.WriteLine("Syntax: /msg <jid> <message>");
                 }
                 else
                 {
                     await client.SendMessageAsync(msgParts[0], msgParts[1]);
-                    Console.WriteLine($"  → Gesendet an {GetShortJid(msgParts[0])}");
+                    Console.WriteLine($"  → Sent to {GetShortJid(msgParts[0])}");
                 }
                 break;
 
-            // XEP-0308: Berichtigt die letzte Nachricht an den aktuellen
-            // Gesprächspartner. Was hier steht, ist der vollständige neue Text
-            // und nicht die Änderung daran.
-            case "/fix" or "/korr":
+            // XEP-0308: corrects the last message to the current conversation
+            // partner. What stands here is the complete new text and not the
+            // change to it.
+            case "/fix" or "/corr":
                 if (args.Length == 0)
                 {
-                    Console.WriteLine("Syntax: /fix <richtiger text>");
+                    Console.WriteLine("Syntax: /fix <correct text>");
                 }
                 else if (await client.CorrectLastMessageAsync(args) is null)
                 {
                     Console.WriteLine(client.CurrentChatPartner is null
-                                          ? "Kein Empfänger gesetzt. Nutze /to <jid>"
-                                          : "An diesen Empfänger ist noch nichts hinausgegangen.");
+                                          ? "No recipient set. Use /to <jid>"
+                                          : "Nothing has gone out to this recipient yet.");
                 }
                 else
                 {
-                    Console.WriteLine($"  ✎ Berichtigt an {GetShortJid(client.CurrentChatPartner!)}");
+                    Console.WriteLine($"  ✎ Corrected to {GetShortJid(client.CurrentChatPartner!)}");
                 }
                 break;
 
@@ -365,7 +365,7 @@ class Program
                 await ProcessStatusCommandAsync(args);
                 break;
 
-            // === ROSTER-BEFEHLE ===
+            // === ROSTER COMMANDS ===
 
             case "/roster" or "/list" or "/contacts":
                 PrintRoster(args);
@@ -387,22 +387,22 @@ class Program
                 else
                 {
                     await client.RemoveContactAsync(args);
-                    Console.WriteLine($"Kontakt entfernt: {args.Trim()}");
+                    Console.WriteLine($"Contact removed: {args.Trim()}");
                 }
                 break;
 
             case "/accept":
                 var accepted = await client.AcceptSubscriptionAsync(args);
                 Console.WriteLine(accepted == null
-                                      ? "Keine ausstehenden Kontaktanfragen."
-                                      : $"Kontaktanfrage akzeptiert: {accepted}");
+                                      ? "No pending contact requests."
+                                      : $"Contact request accepted: {accepted}");
                 break;
 
             case "/deny":
                 var denied = await client.DenySubscriptionAsync(args);
                 Console.WriteLine(denied == null
-                                      ? "Keine ausstehenden Kontaktanfragen."
-                                      : $"Kontaktanfrage abgelehnt: {denied}");
+                                      ? "No pending contact requests."
+                                      : $"Contact request denied: {denied}");
                 break;
 
             case "/info":
@@ -421,19 +421,19 @@ class Program
 
             case "/typing":
                 if (!await client.SendChatStateAsync(ChatState.Composing))
-                    Console.WriteLine("Kein Empfänger gesetzt. Nutze /to <jid>");
+                    Console.WriteLine("No recipient set. Use /to <jid>");
                 else
-                    Console.WriteLine($"⌨️ Typing-Indicator gesendet an {GetShortJid(client.CurrentChatPartner!)}");
+                    Console.WriteLine($"⌨️ Typing indicator sent to {GetShortJid(client.CurrentChatPartner!)}");
                 break;
 
             case "/paused":
                 if (!await client.SendChatStateAsync(ChatState.Paused))
-                    Console.WriteLine("Kein Empfänger gesetzt. Nutze /to <jid>");
+                    Console.WriteLine("No recipient set. Use /to <jid>");
                 break;
 
             case "/gone":
                 var left = await client.LeaveChatAsync();
-                Console.WriteLine(left == null ? "Kein Chat aktiv." : "Chat beendet");
+                Console.WriteLine(left == null ? "No chat active." : "Chat ended");
                 break;
 
             // === XEP-0060: PUBSUB ===
@@ -442,17 +442,17 @@ class Program
                 await ProcessPubSubCommandAsync(args);
                 break;
 
-            // === SONSTIGE ===
+            // === OTHERS ===
 
             case "/carbons":
                 Console.WriteLine(client.CarbonsEnabled
-                                      ? "✓ Message Carbons sind AKTIVIERT"
-                                      : "✗ Message Carbons sind NICHT aktiviert");
+                                      ? "✓ Message Carbons are ENABLED"
+                                      : "✗ Message Carbons are NOT enabled");
                 break;
 
             case "/raw":
                 _showRawXml = !_showRawXml;
-                Console.WriteLine($"Raw XML Anzeige: {(_showRawXml ? "AN" : "AUS")}");
+                Console.WriteLine($"Raw XML display: {(_showRawXml ? "ON" : "OFF")}");
                 break;
 
             case "/who":
@@ -468,11 +468,11 @@ class Program
                 break;
 
             case "/features":
-                Console.WriteLine("Server-Features:");
+                Console.WriteLine("Server features:");
                 foreach (var feature in client.ServerFeatures)
                     Console.WriteLine($"  {feature}");
 
-                Console.WriteLine("\nLokal unterstützte Features:");
+                Console.WriteLine("\nLocally supported features:");
                 foreach (var feature in client.LocalFeatures)
                     Console.WriteLine($"  {feature}");
                 break;
@@ -500,23 +500,23 @@ class Program
             case "/reconnect":
                 if (client.IsConnected)
                 {
-                    Console.WriteLine("[*] Bereits verbunden. Trenne erst mit /disconnect");
+                    Console.WriteLine("[*] Already connected. Disconnect first with /disconnect");
                 }
                 else
                 {
-                    Console.WriteLine("[*] Manueller Reconnect...");
+                    Console.WriteLine("[*] Manual reconnect...");
                     await client.ConnectAsync(ct);
                 }
                 break;
 
             case "/disconnect":
-                Console.WriteLine("[*] Trenne Verbindung...");
+                Console.WriteLine("[*] Disconnecting...");
                 await client.DisconnectAsync();
-                Console.WriteLine("[+] Getrennt");
+                Console.WriteLine("[+] Disconnected");
                 break;
 
             default:
-                Console.WriteLine($"Unbekannter Befehl: {command}. Tippe /help für Hilfe.");
+                Console.WriteLine($"Unknown command: {command}. Type /help for help.");
                 break;
         }
 
@@ -531,7 +531,7 @@ class Program
 
         if (!XMPPClient.IsValidShow(show))
         {
-            Console.WriteLine("Status muss sein: available, away, chat, dnd, xa");
+            Console.WriteLine("Status has to be: available, away, chat, dnd, xa");
             return;
         }
 
@@ -546,12 +546,12 @@ class Program
         var target        = string.IsNullOrEmpty(args) ? null : args.Trim();
         var targetDisplay = target ?? "Server";
 
-        Console.WriteLine($"[*] Ping an {targetDisplay}...");
+        Console.WriteLine($"[*] Ping to {targetDisplay}...");
         var rtt = await _client!.PingAsync(target, ct);
 
         Console.WriteLine(rtt.HasValue
-                              ? $"[+] Pong von {targetDisplay}: {rtt.Value.TotalMilliseconds:F1}ms"
-                              : $"[!] Timeout - keine Antwort von {targetDisplay}");
+                              ? $"[+] Pong from {targetDisplay}: {rtt.Value.TotalMilliseconds:F1}ms"
+                              : $"[!] Timeout - no answer from {targetDisplay}");
 
     }
 
@@ -562,10 +562,10 @@ class Program
 
         if (parts.Length == 0)
         {
-            Console.WriteLine("Disco-Befehle:");
-            Console.WriteLine("  /disco info <jid>    Features abfragen");
-            Console.WriteLine("  /disco items <jid>   Services/Items abfragen");
-            Console.WriteLine("  /disco server        Server-Features abfragen");
+            Console.WriteLine("Disco commands:");
+            Console.WriteLine("  /disco info <jid>    query features");
+            Console.WriteLine("  /disco items <jid>   query services/items");
+            Console.WriteLine("  /disco server        query the server features");
             return;
         }
 
@@ -579,7 +579,7 @@ class Program
                 if (subCommand == "server")
                     jid = _client!.Domain;
 
-                Console.WriteLine($"[*] Disco#info für {jid}...");
+                Console.WriteLine($"[*] Disco#info for {jid}...");
                 var info = await _client!.DiscoverInfoAsync(jid, ct);
 
                 if (info != null)
@@ -593,16 +593,16 @@ class Program
                         Console.WriteLine($"  {feature}");
 
                     if (info.Features.Count > 20)
-                        Console.WriteLine($"  ... und {info.Features.Count - 20} weitere");
+                        Console.WriteLine($"  ... and {info.Features.Count - 20} more");
                 }
                 else
                 {
-                    Console.WriteLine("[!] Keine Antwort oder Timeout");
+                    Console.WriteLine("[!] No answer or timeout");
                 }
                 break;
 
             case "items":
-                Console.WriteLine($"[*] Disco#items für {jid}...");
+                Console.WriteLine($"[*] Disco#items for {jid}...");
                 var items = await _client!.DiscoverItemsAsync(jid, ct);
 
                 if (items != null)
@@ -613,12 +613,12 @@ class Program
                 }
                 else
                 {
-                    Console.WriteLine("[!] Keine Antwort oder Timeout");
+                    Console.WriteLine("[!] No answer or timeout");
                 }
                 break;
 
             default:
-                Console.WriteLine($"Unbekannter Disco-Befehl: {subCommand}");
+                Console.WriteLine($"Unknown disco command: {subCommand}");
                 break;
         }
 
@@ -631,8 +631,8 @@ class Program
 
         if (parts.Length == 0)
         {
-            Console.WriteLine("Verwendung: /mark <received|displayed|ack> [message-id]");
-            Console.WriteLine("            /mark displayed (für letzte Nachricht an aktuellen Empfänger)");
+            Console.WriteLine("Usage: /mark <received|displayed|ack> [message-id]");
+            Console.WriteLine("       /mark displayed (for the last message to the current recipient)");
             return;
         }
 
@@ -646,13 +646,13 @@ class Program
 
         if (!markerType.HasValue)
         {
-            Console.WriteLine($"[!] Unbekannter Marker-Typ: {parts[0]}");
+            Console.WriteLine($"[!] Unknown marker type: {parts[0]}");
             return;
         }
 
         if (_client!.CurrentChatPartner == null)
         {
-            Console.WriteLine("Kein Empfänger gesetzt. Nutze /to <jid>");
+            Console.WriteLine("No recipient set. Use /to <jid>");
             return;
         }
 
@@ -660,137 +660,137 @@ class Program
         var marked    = await _client.SendMarkerAsync(markerType.Value, messageId);
 
         Console.WriteLine(marked == null
-                              ? "[!] Keine Message-ID angegeben und keine letzte Nachricht bekannt"
-                              : $"[+] {ChatMarkers.GetSymbol(markerType.Value)} Marker gesendet");
+                              ? "[!] No message id given and no last message known"
+                              : $"[+] {ChatMarkers.GetSymbol(markerType.Value)} marker sent");
 
     }
 
     /// <summary>
-    /// XEP-0384: <c>/omemo an</c>, <c>/omemo fingerabdruecke</c>,
-    /// <c>/omemo vertrauen &lt;jid&gt; &lt;geraet&gt;</c> und
-    /// <c>/omemo an &lt;jid&gt; &lt;text&gt;</c>.
+    /// XEP-0384: <c>/omemo on</c>, <c>/omemo fingerprints</c>,
+    /// <c>/omemo trust &lt;jid&gt; &lt;device&gt;</c> and
+    /// <c>/omemo on &lt;jid&gt; &lt;text&gt;</c>.
     /// </summary>
     private static async Task ProcessOmemoCommandAsync(String args)
     {
 
-        var client = _client!;
-        var teile  = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-        var befehl = teile.Length > 0 ? teile[0].ToLowerInvariant() : "";
+        var client  = _client!;
+        var parts   = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        var command = parts.Length > 0 ? parts[0].ToLowerInvariant() : "";
 
-        switch (befehl)
+        switch (command)
         {
 
-            case "an" when teile.Length == 1:
+            case "on" when parts.Length == 1:
             {
 
-                // Der Speicher liegt neben der Anwendung und trägt den JID im
-                // Namen: Zwei Konten auf demselben Rechner sind zwei Geräte
-                // und dürfen sich keinen Fingerabdruck teilen.
-                var datei = Path.Combine(AppContext.BaseDirectory,
-                                         $"omemo-{client.BareJid.Replace('@', '_')}.json");
+                // The store lies next to the application and carries the JID in
+                // its name: two accounts on the same machine are two devices
+                // and must not share a fingerprint.
+                var file = Path.Combine(AppContext.BaseDirectory,
+                                        $"omemo-{client.BareJid.Replace('@', '_')}.json");
 
-                if (await client.EnableOmemoAsync(new OmemoFileStore(datei)))
+                if (await client.EnableOmemoAsync(new OmemoFileStore(file)))
                 {
-                    Console.WriteLine($"[+] OMEMO an. Gerät {client.Omemo!.Identity.DeviceId}");
-                    Console.WriteLine($"    Eigener Fingerabdruck: {Gruppiert(client.Omemo.Fingerprint)}");
-                    Console.WriteLine($"    Speicher: {datei}");
-                    Console.WriteLine("    Die Datei ist NICHT verschlüsselt - wer sie liest, liest mit.");
+                    Console.WriteLine($"[+] OMEMO on. Device {client.Omemo!.Identity.DeviceId}");
+                    Console.WriteLine($"    Own fingerprint: {Grouped(client.Omemo.Fingerprint)}");
+                    Console.WriteLine($"    Store: {file}");
+                    Console.WriteLine("    The file is NOT encrypted - whoever reads it reads along.");
                 }
                 else
-                    Console.WriteLine("[!] OMEMO liess sich nicht einschalten - der Server nimmt " +
-                                      "die Geräteliste nicht an.");
+                    Console.WriteLine("[!] OMEMO could not be switched on - the server does not " +
+                                      "accept the device list.");
 
                 return;
 
             }
 
-            case "an" when teile.Length >= 3:
+            case "on" when parts.Length >= 3:
             {
 
                 if (!client.OmemoEnabled)
                 {
-                    Console.WriteLine("[!] Erst /omemo an.");
+                    Console.WriteLine("[!] /omemo on first.");
                     return;
                 }
 
-                var uebersprungen = await client.SendEncryptedMessageAsync(teile[1], teile[2]);
+                var skipped = await client.SendEncryptedMessageAsync(parts[1], parts[2]);
 
-                Console.WriteLine($"[→] verschlüsselt an {teile[1]}");
+                Console.WriteLine($"[→] encrypted to {parts[1]}");
 
-                // Wer nicht mitlesen kann, wird genannt. Ein Absender, der das
-                // nicht erfährt, hält sein Gespräch für geführt.
-                foreach (var u in uebersprungen)
+                // Whoever cannot read along is named. A sender who does not
+                // learn of it takes their conversation for held.
+                foreach (var u in skipped)
                     Console.WriteLine($"    ✗ {u.Jid}/{u.DeviceId}: {u.Reason}");
 
                 return;
 
             }
 
-            case "fingerabdruecke" or "fp":
+            case "fingerprints" or "fp":
             {
 
                 if (!client.OmemoEnabled)
                 {
-                    Console.WriteLine("[!] Erst /omemo an.");
+                    Console.WriteLine("[!] /omemo on first.");
                     return;
                 }
 
-                Console.WriteLine($"Eigener Fingerabdruck ({client.Omemo!.Identity.DeviceId}):");
-                Console.WriteLine($"  {Gruppiert(client.Omemo.Fingerprint)}");
+                Console.WriteLine($"Own fingerprint ({client.Omemo!.Identity.DeviceId}):");
+                Console.WriteLine($"  {Grouped(client.Omemo.Fingerprint)}");
 
-                var bekannte = client.Omemo.KnownDevices();
+                var known = client.Omemo.KnownDevices();
 
-                if (bekannte.Count == 0)
+                if (known.Count == 0)
                 {
-                    Console.WriteLine("Bekannte Geräte: noch keine.");
+                    Console.WriteLine("Known devices: none yet.");
                     return;
                 }
 
-                Console.WriteLine("Bekannte Geräte:");
+                Console.WriteLine("Known devices:");
 
-                foreach (var d in bekannte.OrderBy(d => d.BareJid).ThenBy(d => d.DeviceId))
-                    Console.WriteLine($"  {Zeichen(d.Trust)} {d.BareJid}/{d.DeviceId}\n" +
-                                      $"      {Gruppiert(d.Fingerprint)}");
+                foreach (var d in known.OrderBy(d => d.BareJid).ThenBy(d => d.DeviceId))
+                    Console.WriteLine($"  {Symbol(d.Trust)} {d.BareJid}/{d.DeviceId}\n" +
+                                      $"      {Grouped(d.Fingerprint)}");
 
-                Console.WriteLine("\n  ✓ bestätigt   ? unentschieden   ✗ abgelehnt");
-                Console.WriteLine("  Vergleiche den Fingerabdruck über einen anderen Weg, nicht hier.");
+                Console.WriteLine("\n  ✓ confirmed   ? undecided   ✗ refused");
+                Console.WriteLine("  Compare the fingerprint over another way, not here.");
 
                 return;
 
             }
 
-            case "vertrauen" or "ablehnen" when teile.Length >= 3:
+            case "trust" or "distrust" when parts.Length >= 3:
             {
 
                 if (!client.OmemoEnabled)
                 {
-                    Console.WriteLine("[!] Erst /omemo an.");
+                    Console.WriteLine("[!] /omemo on first.");
                     return;
                 }
 
-                if (!UInt32.TryParse(teile[2], out var geraet))
+                if (!UInt32.TryParse(parts[2], out var device))
                 {
-                    Console.WriteLine("[!] Die Gerätekennung ist eine Zahl.");
+                    Console.WriteLine("[!] The device id is a number.");
                     return;
                 }
 
-                var entscheidung = befehl == "vertrauen" ? OmemoTrust.Trusted : OmemoTrust.Distrusted;
+                var decision = command == "trust" ? OmemoTrust.Trusted : OmemoTrust.Distrusted;
 
-                Console.WriteLine(client.Omemo!.SetTrust(teile[1], geraet, entscheidung)
-                                      ? $"[*] {teile[1]}/{geraet}: {entscheidung}"
-                                      : "[!] Dieses Gerät ist unbekannt - über einen Schlüssel, den " +
-                                        "man nie gesehen hat, lässt sich nicht entscheiden.");
+                Console.WriteLine(client.Omemo!.SetTrust(parts[1], device, decision)
+                                      ? $"[*] {parts[1]}/{device}: {decision}"
+                                      : "[!] This device is unknown - about a key one has never " +
+                                        "seen no decision can be made.");
 
                 return;
 
             }
 
             default:
-                Console.WriteLine("/omemo an                        OMEMO einschalten");
-                Console.WriteLine("/omemo an <jid> <text>           verschlüsselt senden");
-                Console.WriteLine("/omemo fingerabdruecke           eigenen und bekannte anzeigen");
-                Console.WriteLine("/omemo vertrauen <jid> <geraet>  Gerät bestätigen");
-                Console.WriteLine("/omemo ablehnen <jid> <geraet>   Gerät ablehnen");
+                Console.WriteLine("/omemo on                        switch OMEMO on");
+                Console.WriteLine("/omemo on <jid> <text>           send encrypted");
+                Console.WriteLine("/omemo fingerprints              show the own and the known ones");
+                Console.WriteLine("/omemo trust <jid> <device>      confirm a device");
+                Console.WriteLine("/omemo distrust <jid> <device>   refuse a device");
                 return;
 
         }
@@ -798,14 +798,14 @@ class Program
     }
 
     /// <summary>
-    /// Ein Fingerabdruck in Achtergruppen - so vergleicht ihn ein Mensch, ohne
-    /// die Stelle zu verlieren.
+    /// A fingerprint in groups of eight - that is how a human compares it
+    /// without losing their place.
     /// </summary>
-    private static String Gruppiert(String fingerprint)
+    private static String Grouped(String fingerprint)
         => String.Join(" ", Enumerable.Range(0, fingerprint.Length / 8)
                                       .Select(i => fingerprint.Substring(i * 8, 8)));
 
-    private static String Zeichen(OmemoTrust trust)
+    private static String Symbol(OmemoTrust trust)
         => trust switch {
                OmemoTrust.Trusted     => "✓",
                OmemoTrust.Distrusted  => "✗",
@@ -813,43 +813,43 @@ class Program
            };
 
     /// <summary>
-    /// XEP-0352: <c>/csi</c> zeigt den Zustand, <c>/csi aktiv|inaktiv</c>
-    /// meldet ihn dem Server.
+    /// XEP-0352: <c>/csi</c> shows the state, <c>/csi active|inactive</c>
+    /// reports it to the server.
     /// </summary>
     private static async Task ProcessClientStateCommandAsync(string args)
     {
 
         var client = _client!;
 
-        var gewuenscht = args.Trim().ToLowerInvariant() switch {
-                             "inaktiv" or "inactive" or "off"  => (bool?) false,
-                             "aktiv"   or "active"   or "on"   => true,
-                             _                                 => null
-                         };
+        var wanted = args.Trim().ToLowerInvariant() switch {
+                         "inactive" or "i" or "off"  => (bool?) false,
+                         "active"   or "a" or "on"   => true,
+                         _                           => null
+                     };
 
-        if (gewuenscht is null)
+        if (wanted is null)
         {
 
             Console.WriteLine("Client State Indication (XEP-0352):");
-            Console.WriteLine($"  Vom Server angekündigt: {(client.SupportsClientStateIndication ? "ja" : "nein")}");
-            Console.WriteLine($"  Zustand: {(client.IsActive ? "aktiv" : "inaktiv")}");
+            Console.WriteLine($"  Announced by the server: {(client.SupportsClientStateIndication ? "yes" : "no")}");
+            Console.WriteLine($"  State: {(client.IsActive ? "active" : "inactive")}");
 
             if (args.Trim().Length > 0)
-                Console.WriteLine("  Verwendung: /csi [aktiv|inaktiv]");
+                Console.WriteLine("  Usage: /csi [active|inactive]");
 
             return;
 
         }
 
-        if (!await client.SetActiveAsync(gewuenscht.Value))
+        if (!await client.SetActiveAsync(wanted.Value))
         {
-            Console.WriteLine("[!] Der Server bietet keine Client State Indication an.");
+            Console.WriteLine("[!] The server does not offer Client State Indication.");
             return;
         }
 
-        Console.WriteLine(gewuenscht.Value
-                              ? "[*] Aktiv - der Server schickt wieder alles."
-                              : "[*] Inaktiv - der Server hält zurück, was warten kann.");
+        Console.WriteLine(wanted.Value
+                              ? "[*] Active - the server sends everything again."
+                              : "[*] Inactive - the server holds back what can wait.");
 
     }
 
@@ -859,17 +859,17 @@ class Program
         var client = _client!;
 
         Console.WriteLine("Stream Management:");
-        Console.WriteLine($"  Konfiguriert: {client.StreamManagementEnabled}");
-        Console.WriteLine($"  Aktiv: {client.StreamManagement?.IsEnabled == true}");
+        Console.WriteLine($"  Configured: {client.StreamManagementEnabled}");
+        Console.WriteLine($"  Active: {client.StreamManagement?.IsEnabled == true}");
 
         if (client.StreamManagement?.IsEnabled == true)
         {
             var sm = client.StreamManagement;
-            Console.WriteLine($"  Eingehend: {sm.InboundCount}");
-            Console.WriteLine($"  Ausgehend: {sm.OutboundCount}");
-            Console.WriteLine($"  Unbestätigt: {sm.UnackedCount}");
+            Console.WriteLine($"  Inbound: {sm.InboundCount}");
+            Console.WriteLine($"  Outbound: {sm.OutboundCount}");
+            Console.WriteLine($"  Unacknowledged: {sm.UnackedCount}");
 
-            Console.WriteLine("[*] Fordere Ack an...");
+            Console.WriteLine("[*] Requesting an ack...");
             await client.RequestAckAsync();
         }
 
@@ -878,18 +878,18 @@ class Program
 
         switch (args.ToLower())
         {
-            // Hier stand eine Warnung, SM führe "bei einigen Servern
-            // (ejabberd) zu Disconnects". Ursache war die eigene fehlerhafte
-            // Zählung, nicht der Server; sie ist behoben und gegen Prosody 13
-            // belegt. SM ist inzwischen der Vorgabewert.
+            // A warning stood here that SM leads "to disconnects with some
+            // servers (ejabberd)". The cause was our own faulty counting, not
+            // the server; it is fixed and shown against Prosody 13. SM is the
+            // default by now.
             case "on":
                 client.StreamManagementEnabled = true;
-                Console.WriteLine("[*] SM aktiviert (wirkt nach Reconnect)");
+                Console.WriteLine("[*] SM enabled (takes effect after a reconnect)");
                 break;
 
             case "off":
                 client.StreamManagementEnabled = false;
-                Console.WriteLine("[*] SM deaktiviert (wirkt nach Reconnect)");
+                Console.WriteLine("[*] SM disabled (takes effect after a reconnect)");
                 break;
         }
 
@@ -900,10 +900,10 @@ class Program
 
         var client = _client!;
 
-        Console.WriteLine("Keepalive Status:");
-        Console.WriteLine($"  Aktiviert: {client.KeepaliveEnabled}");
+        Console.WriteLine("Keepalive status:");
+        Console.WriteLine($"  Enabled: {client.KeepaliveEnabled}");
         Console.WriteLine($"  Interval: {client.KeepaliveInterval.TotalSeconds}s");
-        Console.WriteLine($"  Methode: {(client.StreamManagement?.IsEnabled == true ? "Stream Management <r/>" : "XEP-0199 Ping")}");
+        Console.WriteLine($"  Method: {(client.StreamManagement?.IsEnabled == true ? "Stream Management <r/>" : "XEP-0199 Ping")}");
 
         if (string.IsNullOrEmpty(args))
             return;
@@ -911,17 +911,17 @@ class Program
         if (args.ToLower() is "off" or "0")
         {
             client.KeepaliveEnabled = false;
-            Console.WriteLine("[*] Keepalive deaktiviert");
+            Console.WriteLine("[*] Keepalive disabled");
         }
         else if (args.ToLower() is "on" or "1")
         {
             client.KeepaliveEnabled = true;
-            Console.WriteLine("[*] Keepalive aktiviert (wirkt nach Reconnect)");
+            Console.WriteLine("[*] Keepalive enabled (takes effect after a reconnect)");
         }
         else if (int.TryParse(args, out var seconds) && seconds > 0)
         {
             client.KeepaliveInterval = TimeSpan.FromSeconds(seconds);
-            Console.WriteLine($"[*] Keepalive-Interval auf {seconds}s gesetzt (wirkt nach Reconnect)");
+            Console.WriteLine($"[*] Keepalive interval set to {seconds}s (takes effect after a reconnect)");
         }
 
     }
@@ -933,30 +933,30 @@ class Program
 
         if (parts.Length == 0)
         {
-            Console.WriteLine("PubSub-Befehle:");
-            Console.WriteLine("  /pubsub sub <node> [jid]     Node abonnieren");
-            Console.WriteLine("  /pubsub unsub <node> [jid] [subid]  Abo beenden");
-            Console.WriteLine("  /pubsub abos                 Eigene Abonnements samt subid (was wir wissen)");
-            Console.WriteLine("  /pubsub sync [jid]           Abonnements beim Dienst holen (was er sagt)");
-            Console.WriteLine("  /pubsub opts <node> [subid]  Einstellungen des Abonnements");
-            Console.WriteLine("  /pubsub deliver <node> <on|off> [subid]  Zustellung ein/aus");
-            Console.WriteLine("  /pubsub pub <node> <id> <data>  Item veröffentlichen");
-            Console.WriteLine("  /pubsub get <node> [max]     Items abrufen");
-            Console.WriteLine("  /pubsub create <node> [zugriff]  Node erstellen");
-            Console.WriteLine("  /pubsub cfg <node>           Knoteneinstellungen");
-            Console.WriteLine("  /pubsub access <node> <open|presence|whitelist|roster>  Zugriff umstellen");
-            Console.WriteLine("  /pubsub gruppen <node> [gruppe...]  Rostergruppen für 'roster' (leer: alle)");
-            Console.WriteLine("  /pubsub antrag <node> <jid> <ja|nein>  Abonnementantrag beantworten");
-            Console.WriteLine("  /pubsub rollen <node>        Wer ist was an diesem Knoten");
-            Console.WriteLine("  /pubsub rolle <node> <jid> <rolle>  Rolle vergeben oder nehmen");
-            Console.WriteLine("  /pubsub abonnenten <node>    Wer hängt an diesem Knoten (Alias: subscribers)");
-            Console.WriteLine("  /pubsub raus <node> <jid> [subid]  Abonnent entfernen (Alias: kick)");
-            Console.WriteLine("  /pubsub retract <node> <id>  Einen Eintrag zurücknehmen");
-            Console.WriteLine("  /pubsub purge <node>         Node leeren, Abonnenten behalten");
-            Console.WriteLine("  /pubsub delete <node>        Node löschen");
+            Console.WriteLine("PubSub commands:");
+            Console.WriteLine("  /pubsub sub <node> [jid]     subscribe to a node");
+            Console.WriteLine("  /pubsub unsub <node> [jid] [subid]  end a subscription");
+            Console.WriteLine("  /pubsub subs                 own subscriptions with subid (what we know)");
+            Console.WriteLine("  /pubsub sync [jid]           fetch the subscriptions from the service (what it says)");
+            Console.WriteLine("  /pubsub opts <node> [subid]  options of the subscription");
+            Console.WriteLine("  /pubsub deliver <node> <on|off> [subid]  delivery on/off");
+            Console.WriteLine("  /pubsub pub <node> <id> <data>  publish an item");
+            Console.WriteLine("  /pubsub get <node> [max]     fetch items");
+            Console.WriteLine("  /pubsub create <node> [access]  create a node");
+            Console.WriteLine("  /pubsub cfg <node>           node settings");
+            Console.WriteLine("  /pubsub access <node> <open|presence|whitelist|roster>  change the access");
+            Console.WriteLine("  /pubsub groups <node> [group...]  roster groups for 'roster' (empty: all)");
+            Console.WriteLine("  /pubsub request <node> <jid> <yes|no>  answer a subscription request");
+            Console.WriteLine("  /pubsub roles <node>         who is what at this node");
+            Console.WriteLine("  /pubsub role <node> <jid> <role>  grant or take back a role");
+            Console.WriteLine("  /pubsub subscribers <node>   who hangs on this node (alias: who)");
+            Console.WriteLine("  /pubsub kick <node> <jid> [subid]  remove a subscriber (alias: remove)");
+            Console.WriteLine("  /pubsub retract <node> <id>  take back a single item");
+            Console.WriteLine("  /pubsub purge <node>         empty a node, keep the subscribers");
+            Console.WriteLine("  /pubsub delete <node>        delete a node");
             Console.WriteLine();
-            Console.WriteLine("  Ohne <jid> geht die Anfrage an pubsub.<domain>. Ein PEP-Knoten");
-            Console.WriteLine("  gehört einem Konto - dann steht dort dessen Bare-JID.");
+            Console.WriteLine("  Without a <jid> the request goes to pubsub.<domain>. A PEP node");
+            Console.WriteLine("  belongs to an account - then its bare JID stands there.");
             return;
         }
 
@@ -966,10 +966,10 @@ class Program
         string[] nodeCommands = ["sub", "subscribe", "unsub", "unsubscribe",
                                  "pub", "publish", "get", "items", "create", "delete",
                                  "opts", "options", "deliver", "cfg", "nodecfg", "access",
-                                 "rollen", "affiliations", "rolle",
-                                 "abonnenten", "subscribers", "raus", "kick",
-                                 "purge", "leeren", "retract", "zurueck",
-                                 "gruppen", "rostergroups", "antrag", "authorize"];
+                                 "roles", "affiliations", "role",
+                                 "subscribers", "who", "kick", "remove",
+                                 "purge", "empty", "retract", "undo",
+                                 "groups", "rostergroups", "request", "authorize"];
 
         if (nodeCommands.Contains(subCmd) && string.IsNullOrEmpty(nodeId))
         {
@@ -979,32 +979,32 @@ class Program
 
         switch (subCmd)
         {
-            // Ein Ziel ist angebbar, weil ein PEP-Knoten einem Konto gehört und
-            // nicht der PubSub-Komponente der Domain.
+            // A target can be given, because a PEP node belongs to an account
+            // and not to the PubSub component of the domain.
             case "sub" or "subscribe":
-                var abo = await _client!.PubSubSubscribeAsync(nodeId, parts.Length > 2 ? parts[2] : null);
-                Console.WriteLine(abo is not null
-                                      ? $"📢 Abonniert: {nodeId}" +
-                                        (abo.SubId is not null ? $" (subid {abo.SubId})" : "")
-                                      : $"⚠️ Nicht abonniert: {nodeId} - siehe Log");
+                var sub = await _client!.PubSubSubscribeAsync(nodeId, parts.Length > 2 ? parts[2] : null);
+                Console.WriteLine(sub is not null
+                                      ? $"📢 Subscribed: {nodeId}" +
+                                        (sub.SubId is not null ? $" (subid {sub.SubId})" : "")
+                                      : $"⚠️ Not subscribed: {nodeId} - see the log");
                 break;
 
             case "unsub" or "unsubscribe":
                 Console.WriteLine(await _client!.PubSubUnsubscribeAsync(nodeId,
                                                                         parts.Length > 2 ? parts[2] : null,
                                                                         parts.Length > 3 ? parts[3] : null)
-                                      ? $"🔕 Abo beendet: {nodeId}"
-                                      : $"⚠️ Abo nicht beendet: {nodeId} - siehe Log");
+                                      ? $"🔕 Subscription ended: {nodeId}"
+                                      : $"⚠️ Subscription not ended: {nodeId} - see the log");
                 break;
 
-            // Das Ziel kommt aus dem Abonnement selbst: Wer eingestellt hat,
-            // wo er abonniert hat, muss es nicht noch einmal sagen.
+            // The target comes from the subscription itself: whoever has set
+            // where they subscribed does not have to say it a second time.
             case "opts" or "options":
-                var optionen = await _client!.PubSubGetOptionsAsync(nodeId,
-                                                                    subId: parts.Length > 2 ? parts[2] : null);
-                Console.WriteLine(optionen is not null
-                                      ? $"⚙️ {nodeId}: Zustellung {(optionen.Deliver ? "an" : "aus")}"
-                                      : $"⚠️ Einstellungen nicht gelesen: {nodeId} - siehe Log");
+                var options = await _client!.PubSubGetOptionsAsync(nodeId,
+                                                                   subId: parts.Length > 2 ? parts[2] : null);
+                Console.WriteLine(options is not null
+                                      ? $"⚙️ {nodeId}: delivery {(options.Deliver ? "on" : "off")}"
+                                      : $"⚠️ Options not read: {nodeId} - see the log");
                 break;
 
             case "deliver":
@@ -1013,51 +1013,51 @@ class Program
                     Console.WriteLine("Syntax: /pubsub deliver <node> <on|off> [subid]");
                     return;
                 }
-                var an = parts[2].ToLower() == "on";
+                var on = parts[2].ToLower() == "on";
                 Console.WriteLine(await _client!.PubSubSetOptionsAsync(nodeId,
-                                                                       new PubSubSubscriptionOptions(an),
+                                                                       new PubSubSubscriptionOptions(on),
                                                                        subId: parts.Length > 3 ? parts[3] : null)
-                                      ? $"⚙️ {nodeId}: Zustellung {(an ? "an" : "aus")}"
-                                      : $"⚠️ Einstellung nicht gesetzt: {nodeId} - siehe Log");
+                                      ? $"⚙️ {nodeId}: delivery {(on ? "on" : "off")}"
+                                      : $"⚠️ Option not set: {nodeId} - see the log");
                 break;
 
-            // Zwei verschiedene Fragen, deshalb zwei Befehle: 'abos' zeigt,
-            // was dieser Client zu wissen glaubt, 'sync' fragt den Dienst.
-            // Nach einem Verbindungsabriss ist das erste leer und das zweite
-            // der einzige Weg zurück zu den Kennungen.
+            // Two different questions, so two commands: 'subs' shows what this
+            // client believes it knows, 'sync' asks the service. After a
+            // connection break the first is empty and the second the only way
+            // back to the ids.
             case "sync":
-                var geholt = await _client!.PubSubGetSubscriptionsAsync(parts.Length > 1 ? parts[1] : null);
+                var fetched = await _client!.PubSubGetSubscriptionsAsync(parts.Length > 1 ? parts[1] : null);
 
-                if (geholt is null)
-                    Console.WriteLine("⚠️ Abonnements nicht geholt - siehe Log");
+                if (fetched is null)
+                    Console.WriteLine("⚠️ Subscriptions not fetched - see the log");
 
                 else
                 {
-                    Console.WriteLine($"🔄 {geholt.Count} Abonnement(e) übernommen:");
-                    foreach (var eintrag in geholt)
-                        Console.WriteLine($"   {eintrag.NodeId}" +
-                                          (eintrag.SubId is not null ? $" (subid {eintrag.SubId})" : ""));
+                    Console.WriteLine($"🔄 {fetched.Count} subscription(s) taken over:");
+                    foreach (var entry in fetched)
+                        Console.WriteLine($"   {entry.NodeId}" +
+                                          (entry.SubId is not null ? $" (subid {entry.SubId})" : ""));
                 }
                 break;
 
-            // Bei mehreren Abonnements auf denselben Knoten ist die Kennung das
-            // einzige, was sie unterscheidet - wer abbestellen will, muss sie
-            // nachsehen können.
-            case "abos" or "subs":
-                var abos = _client!.Connection.PubSub!.Subscriptions;
+            // With several subscriptions to the same node the id is the only
+            // thing telling them apart - whoever wants to unsubscribe has to be
+            // able to look it up.
+            case "subscriptions" or "subs":
+                var subs = _client!.Connection.PubSub!.Subscriptions;
 
-                if (abos.Count == 0)
-                    Console.WriteLine("Keine Abonnements.");
+                if (subs.Count == 0)
+                    Console.WriteLine("No subscriptions.");
 
                 else
-                    foreach (var eintrag in abos)
-                        Console.WriteLine($"   {eintrag.NodeId} bei {eintrag.ServiceJid}" +
-                                          (eintrag.SubId is not null ? $" (subid {eintrag.SubId})" : "") +
-                                          // Ein beantragtes steht mit dabei und sagt, was es ist:
-                                          // Ohne den Zustand sähe es aus wie ein zugesagtes, und
-                                          // die ausbleibenden Meldungen sähen aus wie ein Fehler.
-                                          (eintrag.State != PubSubSubscriptionState.Subscribed
-                                               ? $" - {eintrag.State.ToString().ToLower()}"
+                    foreach (var entry in subs)
+                        Console.WriteLine($"   {entry.NodeId} at {entry.ServiceJid}" +
+                                          (entry.SubId is not null ? $" (subid {entry.SubId})" : "") +
+                                          // An applied-for one stands there too and says what it is:
+                                          // without the state it would look like a granted one, and
+                                          // the absent events would look like a mistake.
+                                          (entry.State != PubSubSubscriptionState.Subscribed
+                                               ? $" - {entry.State.ToString().ToLower()}"
                                                : ""));
                 break;
 
@@ -1070,242 +1070,242 @@ class Program
                 var itemId  = parts[2];
                 var payload = string.Join(' ', parts.Skip(3));
                 Console.WriteLine(await _client!.PubSubPublishAsync(nodeId, itemId, $"<data>{XmlEscaping.Escape(payload)}</data>")
-                                      ? $"📤 Veröffentlicht: {nodeId}/{itemId}"
-                                      : $"⚠️ Nicht veröffentlicht: {nodeId}/{itemId} - siehe Log");
+                                      ? $"📤 Published: {nodeId}/{itemId}"
+                                      : $"⚠️ Not published: {nodeId}/{itemId} - see the log");
                 break;
 
             case "get" or "items":
                 int? max = parts.Length > 2 && int.TryParse(parts[2], out var m) ? m : null;
-                var eintraege = await _client!.PubSubGetItemsAsync(nodeId, max);
+                var entries = await _client!.PubSubGetItemsAsync(nodeId, max);
 
-                if (eintraege is null)
-                    Console.WriteLine($"⚠️ Nicht abgerufen: {nodeId} - siehe Log");
+                if (entries is null)
+                    Console.WriteLine($"⚠️ Not fetched: {nodeId} - see the log");
 
                 else
                 {
-                    Console.WriteLine($"📥 {eintraege.Count} Eintrag/Einträge aus {nodeId}:");
-                    foreach (var eintrag in eintraege)
-                        Console.WriteLine($"   {eintrag.Id}: {eintrag.Payload}");
+                    Console.WriteLine($"📥 {entries.Count} item(s) from {nodeId}:");
+                    foreach (var entry in entries)
+                        Console.WriteLine($"   {entry.Id}: {entry.Payload}");
                 }
                 break;
 
-            // Anlegen und einstellen in einem Zug: Zwei Schritte hätten eine
-            // Lücke, in der der Knoten offen steht.
-            // Die Modellnamen kommen aus derselben Stelle wie beim 'access' und
-            // wie im Formular. Hier standen zwei davon fest im Text - alles
-            // andere wurde stillschweigend zu 'open', und wer 'whitelist'
-            // schrieb, bekam einen offenen Knoten und eine Erfolgsmeldung.
+            // Create and configure in one go: two steps would have a gap in
+            // which the node stands open.
+            // The model names come from the same place as with 'access' and as
+            // in the form. Two of them stood here fixed in the text -
+            // everything else silently became 'open', and whoever wrote
+            // 'whitelist' got an open node and a success message.
             case "create":
 
-                PubSubNodeConfiguration? zugang = null;
+                PubSubNodeConfiguration? access = null;
 
                 if (parts.Length > 2)
                 {
 
-                    if (!PubSubNodeConfiguration.TryReadAccessModel(parts[2].ToLower(), out var modellNeu))
+                    if (!PubSubNodeConfiguration.TryReadAccessModel(parts[2].ToLower(), out var newModel))
                     {
                         Console.WriteLine("Syntax: /pubsub create <node> [open|presence|whitelist|roster|authorize]");
                         return;
                     }
 
-                    zugang = new PubSubNodeConfiguration(modellNeu);
+                    access = new PubSubNodeConfiguration(newModel);
 
                 }
 
-                Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId, zugang)
-                                      ? $"➕ Node erstellt: {nodeId}" +
-                                        (zugang is not null
-                                             ? $" ({PubSubNodeConfiguration.NameOf(zugang.AccessModel)})"
+                Console.WriteLine(await _client!.PubSubCreateNodeAsync(nodeId, access)
+                                      ? $"➕ Node created: {nodeId}" +
+                                        (access is not null
+                                             ? $" ({PubSubNodeConfiguration.NameOf(access.AccessModel)})"
                                              : "")
-                                      : $"⚠️ Node nicht erstellt: {nodeId} - siehe Log");
+                                      : $"⚠️ Node not created: {nodeId} - see the log");
                 break;
 
-            // Wer ist was an meinem Knoten - und was bin ich anderswo?
-            case "rollen" or "affiliations":
-                var amKnoten = await _client!.PubSubGetNodeAffiliationsAsync(nodeId);
+            // Who is what at my node - and what am I elsewhere?
+            case "roles" or "affiliations":
+                var atTheNode = await _client!.PubSubGetNodeAffiliationsAsync(nodeId);
 
-                if (amKnoten is null)
-                    Console.WriteLine($"⚠️ Rollen nicht gelesen: {nodeId} - siehe Log");
+                if (atTheNode is null)
+                    Console.WriteLine($"⚠️ Roles not read: {nodeId} - see the log");
 
                 else
-                    foreach (var (wer, rolle) in amKnoten)
-                        Console.WriteLine($"   {wer}: {PubSubAffiliations.NameOf(rolle)}");
+                    foreach (var (who, role) in atTheNode)
+                        Console.WriteLine($"   {who}: {PubSubAffiliations.NameOf(role)}");
                 break;
 
-            case "rolle":
+            case "role":
                 if (parts.Length < 4)
                 {
-                    Console.WriteLine("Syntax: /pubsub rolle <node> <jid> <owner|publisher|member|outcast|none>");
+                    Console.WriteLine("Syntax: /pubsub role <node> <jid> <owner|publisher|member|outcast|none>");
                     return;
                 }
 
-                if (!PubSubAffiliations.TryRead(parts[3].ToLower(), out var gewuenschte))
+                if (!PubSubAffiliations.TryRead(parts[3].ToLower(), out var wanted))
                 {
-                    Console.WriteLine($"Unbekannte Rolle: {parts[3]}");
+                    Console.WriteLine($"Unknown role: {parts[3]}");
                     return;
                 }
 
-                Console.WriteLine(await _client!.PubSubSetAffiliationAsync(nodeId, parts[2], gewuenschte)
-                                      ? $"👤 {parts[2]} ist jetzt {parts[3].ToLower()} an {nodeId}"
-                                      : $"⚠️ Rolle nicht gesetzt: {nodeId} - siehe Log");
+                Console.WriteLine(await _client!.PubSubSetAffiliationAsync(nodeId, parts[2], wanted)
+                                      ? $"👤 {parts[2]} is now {parts[3].ToLower()} at {nodeId}"
+                                      : $"⚠️ Role not set: {nodeId} - see the log");
                 break;
 
-            // Die Gegenrichtung zu 'abos': Dort steht, wo dieser Client hängt -
-            // hier, wer an einem eigenen Knoten hängt.
-            case "abonnenten" or "subscribers":
-                var dran = await _client!.PubSubGetNodeSubscribersAsync(nodeId);
+            // The other direction from 'subs': there it says where this client
+            // hangs - here who hangs on a node of one's own.
+            case "subscribers" or "who":
+                var subscribers = await _client!.PubSubGetNodeSubscribersAsync(nodeId);
 
-                if (dran is null)
-                    Console.WriteLine($"⚠️ Abonnenten nicht gelesen: {nodeId} - siehe Log");
+                if (subscribers is null)
+                    Console.WriteLine($"⚠️ Subscribers not read: {nodeId} - see the log");
 
-                else if (dran.Count == 0)
-                    Console.WriteLine($"Niemand abonniert {nodeId}.");
+                else if (subscribers.Count == 0)
+                    Console.WriteLine($"Nobody subscribes to {nodeId}.");
 
                 else
-                    foreach (var (wer, kennung, zustand) in dran)
-                        Console.WriteLine($"   {wer}" +
-                                          (kennung is not null ? $" (subid {kennung})" : "") +
-                                          $": {zustand.ToString().ToLower()}");
+                    foreach (var (who, subId, state) in subscribers)
+                        Console.WriteLine($"   {who}" +
+                                          (subId is not null ? $" (subid {subId})" : "") +
+                                          $": {state.ToString().ToLower()}");
                 break;
 
-            case "raus" or "kick":
+            case "kick" or "remove":
                 if (parts.Length < 3)
                 {
-                    Console.WriteLine("Syntax: /pubsub raus <node> <jid> [subid]");
+                    Console.WriteLine("Syntax: /pubsub kick <node> <jid> [subid]");
                     return;
                 }
 
-                var welche = parts.Length > 3 ? parts[3] : null;
+                var which = parts.Length > 3 ? parts[3] : null;
 
-                Console.WriteLine(await _client!.PubSubRemoveSubscriberAsync(nodeId, parts[2], welche)
-                                      ? $"🚪 {parts[2]} abonniert {nodeId} nicht mehr" +
-                                        (welche is not null ? $" (subid {welche})" : " (alle Abonnements)")
-                                      : $"⚠️ Abonnent nicht entfernt: {nodeId} - siehe Log");
+                Console.WriteLine(await _client!.PubSubRemoveSubscriberAsync(nodeId, parts[2], which)
+                                      ? $"🚪 {parts[2]} does not subscribe to {nodeId} any more" +
+                                        (which is not null ? $" (subid {which})" : " (all subscriptions)")
+                                      : $"⚠️ Subscriber not removed: {nodeId} - see the log");
                 break;
 
             case "cfg" or "nodecfg":
-                var knoten = await _client!.PubSubGetNodeConfigAsync(nodeId);
-                Console.WriteLine(knoten is not null
-                                      ? $"⚙️ {nodeId}: Zugriff {PubSubNodeConfiguration.NameOf(knoten.AccessModel)}, " +
-                                        $"{knoten.MaxItems} Einträge, Ablage {(knoten.PersistItems ? "an" : "aus")}"
-                                      : $"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
+                var node = await _client!.PubSubGetNodeConfigAsync(nodeId);
+                Console.WriteLine(node is not null
+                                      ? $"⚙️ {nodeId}: access {PubSubNodeConfiguration.NameOf(node.AccessModel)}, " +
+                                        $"{node.MaxItems} items, storage {(node.PersistItems ? "on" : "off")}"
+                                      : $"⚠️ Node not read: {nodeId} - see the log");
                 break;
 
-            // Die Namen kommen aus derselben Stelle, die auch das Formular
-            // liest. Vorher standen hier zwei davon fest im Text - 'whitelist'
-            // gab es seit D82, im Hilfetext seit D82, und dieser Befehl wies
-            // es ab.
+            // The names come from the same place that reads the form as well.
+            // Before, two of them stood here fixed in the text - 'whitelist'
+            // had existed since D82, and in the help text since D82, and this
+            // command refused it.
             case "access":
                 if (parts.Length < 3 ||
-                    !PubSubNodeConfiguration.TryReadAccessModel(parts[2].ToLower(), out var modell))
+                    !PubSubNodeConfiguration.TryReadAccessModel(parts[2].ToLower(), out var model))
                 {
                     Console.WriteLine("Syntax: /pubsub access <node> <open|presence|whitelist|roster>");
                     return;
                 }
-                var bestand = await _client!.PubSubGetNodeConfigAsync(nodeId);
+                var existing = await _client!.PubSubGetNodeConfigAsync(nodeId);
 
-                if (bestand is null)
+                if (existing is null)
                 {
-                    Console.WriteLine($"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
+                    Console.WriteLine($"⚠️ Node not read: {nodeId} - see the log");
                     return;
                 }
 
-                // Auf dem gelesenen Stand aufsetzen und nicht auf der Vorgabe:
-                // Sonst setzte ein Umstellen des Zugriffs nebenbei die Ablage
-                // und die Zahl der Einträge zurück.
+                // Build on the state that was read and not on the default:
+                // otherwise changing the access would reset the storage and the
+                // number of items along the way.
                 Console.WriteLine(await _client!.PubSubConfigureNodeAsync(nodeId,
-                                                                          bestand with { AccessModel = modell })
-                                      ? $"⚙️ {nodeId}: Zugriff {PubSubNodeConfiguration.NameOf(modell)}"
-                                      : $"⚠️ Knoten nicht eingestellt: {nodeId} - siehe Log");
+                                                                          existing with { AccessModel = model })
+                                      ? $"⚙️ {nodeId}: access {PubSubNodeConfiguration.NameOf(model)}"
+                                      : $"⚠️ Node not configured: {nodeId} - see the log");
                 break;
 
-            // Ohne Gruppen kommt beim Zugriffsmodell 'roster' der ganze Roster
-            // herein - der Befehl ohne weitere Wörter setzt genau das.
-            case "gruppen" or "rostergroups":
-                var vorher = await _client!.PubSubGetNodeConfigAsync(nodeId);
+            // Without groups the whole roster comes in with the access model
+            // 'roster' - the command without further words sets exactly that.
+            case "groups" or "rostergroups":
+                var before = await _client!.PubSubGetNodeConfigAsync(nodeId);
 
-                if (vorher is null)
+                if (before is null)
                 {
-                    Console.WriteLine($"⚠️ Knoten nicht gelesen: {nodeId} - siehe Log");
+                    Console.WriteLine($"⚠️ Node not read: {nodeId} - see the log");
                     return;
                 }
 
-                var erlaubt = parts.Skip(2).ToArray();
+                var allowed = parts.Skip(2).ToArray();
 
                 Console.WriteLine(await _client!.PubSubConfigureNodeAsync(nodeId,
-                                                                          vorher with { RosterGroups = erlaubt })
-                                      ? $"⚙️ {nodeId}: Gruppen " +
-                                        (erlaubt.Length == 0 ? "(alle)" : String.Join(", ", erlaubt))
-                                      : $"⚠️ Knoten nicht eingestellt: {nodeId} - siehe Log");
+                                                                          before with { RosterGroups = allowed })
+                                      ? $"⚙️ {nodeId}: groups " +
+                                        (allowed.Length == 0 ? "(all)" : String.Join(", ", allowed))
+                                      : $"⚠️ Node not configured: {nodeId} - see the log");
                 break;
 
             case "delete":
                 Console.WriteLine(await _client!.PubSubDeleteNodeAsync(nodeId)
-                                      ? $"➖ Node gelöscht: {nodeId}"
-                                      : $"⚠️ Node nicht gelöscht: {nodeId} - siehe Log");
+                                      ? $"➖ Node deleted: {nodeId}"
+                                      : $"⚠️ Node not deleted: {nodeId} - see the log");
                 break;
 
-            // XEP-0060, Abschnitt 8.6.2: den offenen Antrag beantworten.
-            case "antrag" or "authorize":
-                if (parts.Length < 4 || parts[3].ToLower() is not ("ja" or "nein"))
+            // XEP-0060, section 8.6.2: answer the pending application.
+            case "request" or "authorize":
+                if (parts.Length < 4 || parts[3].ToLower() is not ("yes" or "no"))
                 {
-                    Console.WriteLine("Syntax: /pubsub antrag <node> <jid> <ja|nein>");
+                    Console.WriteLine("Syntax: /pubsub request <node> <jid> <yes|no>");
 
-                    lock (_offeneAntraege)
-                        foreach (var offen in _offeneAntraege)
-                            Console.WriteLine($"   offen: {offen.SubscriberJid} für {offen.NodeId}");
+                    lock (_pendingRequests)
+                        foreach (var pending in _pendingRequests)
+                            Console.WriteLine($"   pending: {pending.SubscriberJid} for {pending.NodeId}");
 
                     return;
                 }
 
-                PubSubSubscribeAuthorization? gesucht;
+                PubSubSubscribeAuthorization? sought;
 
-                lock (_offeneAntraege)
-                    gesucht = _offeneAntraege.FirstOrDefault(
+                lock (_pendingRequests)
+                    sought = _pendingRequests.FirstOrDefault(
                                   a => a.NodeId == nodeId &&
                                        a.SubscriberJid.Equals(parts[2], StringComparison.OrdinalIgnoreCase));
 
-                if (gesucht is null)
+                if (sought is null)
                 {
-                    Console.WriteLine($"Kein offener Antrag von {parts[2]} für {nodeId}.");
+                    Console.WriteLine($"No pending request from {parts[2]} for {nodeId}.");
                     return;
                 }
 
-                var ja = parts[3].ToLower() == "ja";
+                var yes = parts[3].ToLower() == "yes";
 
-                await _client!.PubSubAnswerSubscriptionRequestAsync(gesucht, ja, _client.BareJid);
+                await _client!.PubSubAnswerSubscriptionRequestAsync(sought, yes, _client.BareJid);
 
-                lock (_offeneAntraege)
-                    _offeneAntraege.Remove(gesucht);
+                lock (_pendingRequests)
+                    _pendingRequests.Remove(sought);
 
-                Console.WriteLine(ja
-                                      ? $"✅ {gesucht.SubscriberJid} abonniert {nodeId}"
-                                      : $"🚪 {gesucht.SubscriberJid} bleibt draussen");
+                Console.WriteLine(yes
+                                      ? $"✅ {sought.SubscriberJid} subscribes to {nodeId}"
+                                      : $"🚪 {sought.SubscriberJid} stays outside");
                 break;
 
-            // Ein einzelner Eintrag statt aller: 'retract' nimmt einen zurück,
-            // 'purge' alle, 'delete' den ganzen Knoten.
-            case "retract" or "zurueck":
+            // A single item instead of all of them: 'retract' takes one back,
+            // 'purge' all of them, 'delete' the whole node.
+            case "retract" or "undo":
                 if (parts.Length < 3)
                 {
                     Console.WriteLine("Syntax: /pubsub retract <node> <itemId>");
                     return;
                 }
                 Console.WriteLine(await _client!.PubSubRetractAsync(nodeId, parts[2])
-                                      ? $"🗑️ Zurückgenommen: {nodeId}/{parts[2]}"
-                                      : $"⚠️ Nicht zurückgenommen: {nodeId}/{parts[2]} - siehe Log");
+                                      ? $"🗑️ Retracted: {nodeId}/{parts[2]}"
+                                      : $"⚠️ Not retracted: {nodeId}/{parts[2]} - see the log");
                 break;
 
-            // Der kleine Bruder von 'delete': Der Knoten bleibt, sein Inhalt
-            // geht - und die Abonnenten bleiben ihm erhalten.
-            case "purge" or "leeren":
+            // The little brother of 'delete': the node stays, its content goes
+            // - and the subscribers are kept for it.
+            case "purge" or "empty":
                 Console.WriteLine(await _client!.PubSubPurgeNodeAsync(nodeId)
-                                      ? $"🧹 Node geleert: {nodeId}"
-                                      : $"⚠️ Node nicht geleert: {nodeId} - siehe Log");
+                                      ? $"🧹 Node emptied: {nodeId}"
+                                      : $"⚠️ Node not emptied: {nodeId} - see the log");
                 break;
 
             default:
-                Console.WriteLine($"Unbekannter PubSub-Befehl: {subCmd}");
+                Console.WriteLine($"Unknown PubSub command: {subCmd}");
                 break;
         }
 
@@ -1313,7 +1313,7 @@ class Program
 
     #endregion
 
-    #region Roster-Anzeige
+    #region Roster display
 
     private static void PrintRoster(string filter)
     {
@@ -1322,14 +1322,14 @@ class Program
 
         if (items.Count == 0)
         {
-            Console.WriteLine("Keine Kontakte gefunden.");
+            Console.WriteLine("No contacts found.");
             return;
         }
 
-        Console.WriteLine($"\n╔═══ Kontakte ({items.Count}) ═══");
+        Console.WriteLine($"\n╔═══ Contacts ({items.Count}) ═══");
 
         var grouped = items
-            .SelectMany(i => i.Groups.DefaultIfEmpty("(Keine Gruppe)"), (item, group) => (item, group))
+            .SelectMany(i => i.Groups.DefaultIfEmpty("(No group)"), (item, group) => (item, group))
             .GroupBy(x => x.group)
             .OrderBy(g => g.Key);
 
@@ -1354,7 +1354,7 @@ class Program
 
         if (online.Count == 0)
         {
-            Console.WriteLine("Keine Kontakte online.");
+            Console.WriteLine("No contacts online.");
             return;
         }
 
@@ -1375,7 +1375,7 @@ class Program
         var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
         {
-            Console.WriteLine("Syntax: /add <jid> [name] [gruppe1,gruppe2,...]");
+            Console.WriteLine("Syntax: /add <jid> [name] [group1,group2,...]");
             return;
         }
 
@@ -1386,7 +1386,7 @@ class Program
                          : null;
 
         await _client!.AddContactAsync(jid, name, groups);
-        Console.WriteLine($"Kontaktanfrage gesendet an: {jid}");
+        Console.WriteLine($"Contact request sent to: {jid}");
 
     }
 
@@ -1402,20 +1402,20 @@ class Program
         var item = _client!.GetContact(jid);
         if (item == null)
         {
-            Console.WriteLine($"Kontakt nicht gefunden: {jid}");
+            Console.WriteLine($"Contact not found: {jid}");
             return;
         }
 
-        Console.WriteLine("\n╔═══ Kontakt-Info ═══");
+        Console.WriteLine("\n╔═══ Contact info ═══");
         Console.WriteLine($"║ JID:          {item.Jid}");
-        Console.WriteLine($"║ Name:         {item.Name ?? "(nicht gesetzt)"}");
+        Console.WriteLine($"║ Name:         {item.Name ?? "(not set)"}");
         Console.WriteLine($"║ Subscription: {item.Subscription}");
-        Console.WriteLine($"║ Gruppen:      {(item.Groups.Count > 0 ? string.Join(", ", item.Groups) : "(keine)")}");
+        Console.WriteLine($"║ Groups:       {(item.Groups.Count > 0 ? string.Join(", ", item.Groups) : "(none)")}");
         Console.WriteLine($"║ Status:       {item.Presence}");
         if (!string.IsNullOrEmpty(item.PresenceStatus))
-            Console.WriteLine($"║ Status-Text:  {item.PresenceStatus}");
+            Console.WriteLine($"║ Status text:  {item.PresenceStatus}");
         if (item.LastSeen != default)
-            Console.WriteLine($"║ Zuletzt:      {item.LastSeen:yyyy-MM-dd HH:mm:ss}");
+            Console.WriteLine($"║ Last seen:    {item.LastSeen:yyyy-MM-dd HH:mm:ss}");
         Console.WriteLine("╚" + new string('═', 25));
 
     }
@@ -1427,15 +1427,15 @@ class Program
 
         if (groups.Count == 0)
         {
-            Console.WriteLine("Keine Gruppen definiert.");
+            Console.WriteLine("No groups defined.");
             return;
         }
 
-        Console.WriteLine("\nGruppen:");
+        Console.WriteLine("\nGroups:");
         foreach (var group in groups)
         {
             var count = _client.GetContactsByGroup(group).Count();
-            Console.WriteLine($"  [{group}] - {count} Kontakte");
+            Console.WriteLine($"  [{group}] - {count} contacts");
         }
 
     }
@@ -1447,15 +1447,15 @@ class Program
 
         if (pending.Count == 0)
         {
-            Console.WriteLine("Keine ausstehenden Kontaktanfragen.");
+            Console.WriteLine("No pending contact requests.");
             return;
         }
 
-        Console.WriteLine("\n📩 Ausstehende Kontaktanfragen:");
+        Console.WriteLine("\n📩 Pending contact requests:");
         for (int i = 0; i < pending.Count; i++)
             Console.WriteLine($"  {i + 1}. {pending[i]}");
 
-        Console.WriteLine("\nNutze /accept <jid> oder /deny <jid>");
+        Console.WriteLine("\nUse /accept <jid> or /deny <jid>");
 
     }
 
@@ -1464,31 +1464,31 @@ class Program
 
         var client = _client!;
 
-        Console.WriteLine($"Angemeldet als: {client.FullJid}");
+        Console.WriteLine($"Logged in as: {client.FullJid}");
         Console.WriteLine($"Bare JID: {client.BareJid}");
         Console.WriteLine($"Status: {client.State}");
         if (client.CurrentChatPartner != null)
-            Console.WriteLine($"Chat mit: {client.CurrentChatPartner}");
-        Console.WriteLine($"Carbons: {(client.CarbonsEnabled ? "aktiviert" : "deaktiviert")}");
-        Console.WriteLine($"Stream Mgmt: {(client.StreamManagement?.IsEnabled == true ? "aktiviert" : "deaktiviert")}");
-        Console.WriteLine($"Keepalive: {(client.KeepaliveEnabled ? $"alle {client.KeepaliveInterval.TotalSeconds}s" : "deaktiviert")}");
+            Console.WriteLine($"Chatting with: {client.CurrentChatPartner}");
+        Console.WriteLine($"Carbons: {(client.CarbonsEnabled ? "enabled" : "disabled")}");
+        Console.WriteLine($"Stream Mgmt: {(client.StreamManagement?.IsEnabled == true ? "enabled" : "disabled")}");
+        Console.WriteLine($"Keepalive: {(client.KeepaliveEnabled ? $"every {client.KeepaliveInterval.TotalSeconds}s" : "disabled")}");
         Console.WriteLine($"Transport: WebSocket (RFC 7395) - {client.WebSocketUri}");
 
     }
 
     #endregion
 
-    #region Event-Handler (Darstellung)
+    #region Event handlers (presentation)
 
     private static void HandleMessage(XMPPMessage message)
     {
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
 
         Console.ForegroundColor = ConsoleColor.Cyan;
 
-        // Eine nachgereichte Nachricht bekommt ihr Datum dazu (XEP-0203): Sie
-        // kann von gestern sein, und eine blosse Uhrzeit sähe aus wie heute.
+        // A message handed in late gets its date along (XEP-0203): it can be
+        // from yesterday, and a bare time of day would look like today.
         Console.Write(message.IsDelayed
                           ? $"[{message.Timestamp:dd.MM. HH:mm:ss}] "
                           : $"[{message.Timestamp:HH:mm:ss}] ");
@@ -1496,10 +1496,10 @@ class Program
         Console.ForegroundColor = ConsoleColor.Green;
         Console.Write($"{GetShortJid(message.From)}");
 
-        // XEP-0308: Eine Konsole kann Geschriebenes nicht zurücknehmen - die
-        // Korrektur erscheint deshalb als eigene Zeile und sagt dazu, dass sie
-        // eine ist. Das ist ehrlicher als sie zu verschweigen: Der Empfänger
-        // sieht beide Fassungen und weiss, welche gilt.
+        // XEP-0308: a console cannot take back what has been written - the
+        // correction therefore appears as a line of its own and says that it is
+        // one. That is more honest than keeping quiet about it: the receiver
+        // sees both versions and knows which one holds.
         if (message.IsCorrection)
         {
             Console.ForegroundColor = ConsoleColor.DarkYellow;
@@ -1514,7 +1514,7 @@ class Program
         if (message.IsDelayed)
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write("  (nachgereicht)");
+            Console.Write("  (handed in late)");
             Console.ResetColor();
         }
 
@@ -1530,16 +1530,16 @@ class Program
 
         if (state == ChatState.Composing)
         {
-            using var sperre = Ausgabe();
+            using var scope = Output();
             Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"✏️ {shortFrom} tippt...");
+            Console.WriteLine($"✏️ {shortFrom} is typing...");
             Console.ResetColor();
         }
         else if (state == ChatState.Paused)
         {
-            using var sperre = Ausgabe();
+            using var scope = Output();
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine($"⏸️ {shortFrom} hat aufgehört zu tippen");
+            Console.WriteLine($"⏸️ {shortFrom} has stopped typing");
             Console.ResetColor();
         }
 
@@ -1548,9 +1548,9 @@ class Program
     private static void HandleReceipt(string from, string messageId)
     {
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.DarkGreen;
-        Console.WriteLine($"✓ Zugestellt an {GetShortJid(from)}");
+        Console.WriteLine($"✓ Delivered to {GetShortJid(from)}");
         Console.ResetColor();
 
     }
@@ -1560,33 +1560,33 @@ class Program
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.Magenta;
 
         if (carbon.IsSent)
         {
-            // Von mir auf anderem Gerät gesendet
+            // Sent by me on another device
             Console.Write($"[{timestamp}] ");
             Console.ForegroundColor = ConsoleColor.DarkMagenta;
-            Console.Write($"📤 Ich → {GetShortJid(carbon.OriginalTo)}: ");
+            Console.Write($"📤 Me → {GetShortJid(carbon.OriginalTo)}: ");
         }
         else
         {
-            // Auf anderem Gerät empfangen
+            // Received on another device
             Console.Write($"[{timestamp}] ");
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.Write($"📥 {GetShortJid(carbon.OriginalFrom)} (Carbon): ");
         }
 
         Console.ResetColor();
-        Console.WriteLine(carbon.Body ?? "(kein Inhalt)");
+        Console.WriteLine(carbon.Body ?? "(no content)");
 
     }
 
     private static void HandleChatMarker(ChatMarker marker)
     {
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         var shortFrom = GetShortJid(marker.From);
         var symbol    = ChatMarkers.GetSymbol(marker.Type);
 
@@ -1599,39 +1599,39 @@ class Program
     private static void HandlePubSubEvent(PubSubEvent evt)
     {
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.Yellow;
 
         switch (evt.Type)
         {
             case PubSubEventType.Items:
-                Console.WriteLine($"📢 PubSub [{evt.NodeId}]: {evt.Items.Count} Item(s)");
+                Console.WriteLine($"📢 PubSub [{evt.NodeId}]: {evt.Items.Count} item(s)");
                 foreach (var item in evt.Items)
                     Console.WriteLine($"   - {item.Id}: {item.Payload[..Math.Min(50, item.Payload.Length)]}...");
                 break;
 
             case PubSubEventType.Retract:
-                Console.WriteLine($"🗑️ PubSub [{evt.NodeId}]: Item(s) entfernt: {string.Join(", ", evt.RetractedIds)}");
+                Console.WriteLine($"🗑️ PubSub [{evt.NodeId}]: item(s) removed: {string.Join(", ", evt.RetractedIds)}");
                 break;
 
             case PubSubEventType.Purge:
-                Console.WriteLine($"🧹 PubSub [{evt.NodeId}]: Node geleert");
+                Console.WriteLine($"🧹 PubSub [{evt.NodeId}]: node emptied");
                 break;
 
             case PubSubEventType.Delete:
-                Console.WriteLine($"❌ PubSub [{evt.NodeId}]: Node gelöscht");
+                Console.WriteLine($"❌ PubSub [{evt.NodeId}]: node deleted");
                 break;
 
-            // Ungefragt beendet - und deshalb die einzige Meldung hier, die
-            // von etwas handelt, das dieser Client nicht ausgelöst hat.
+            // Ended unasked - and therefore the only event here that is about
+            // something this client did not set off.
             case PubSubEventType.SubscriptionEnded:
-                Console.WriteLine($"🚪 PubSub [{evt.NodeId}]: Abonnement beendet" +
+                Console.WriteLine($"🚪 PubSub [{evt.NodeId}]: subscription ended" +
                                   (evt.SubId is not null ? $" (subid {evt.SubId})" : ""));
                 break;
 
-            // Die späte Antwort auf eine eigene Frage.
+            // The late answer to a question of one's own.
             case PubSubEventType.SubscriptionApproved:
-                Console.WriteLine($"✅ PubSub [{evt.NodeId}]: Abonnement zugesagt" +
+                Console.WriteLine($"✅ PubSub [{evt.NodeId}]: subscription granted" +
                                   (evt.SubId is not null ? $" (subid {evt.SubId})" : ""));
                 break;
         }
@@ -1641,42 +1641,42 @@ class Program
     }
 
     /// <summary>
-    /// XEP-0060, Abschnitt 8.6.1: Jemand fragt nach einem Abonnement.
+    /// XEP-0060, section 8.6.1: somebody asks for a subscription.
     /// </summary>
     /// <remarks>
-    /// Angezeigt und nicht beantwortet: Wer zusagt, ist ein Mensch. Der offene
-    /// Antrag steht danach in <see cref="_offeneAntraege"/> und wartet auf
-    /// <c>/pubsub antrag</c>.
+    /// Shown and not answered: whoever grants it is a human being. The pending
+    /// application afterwards stands in <see cref="_pendingRequests"/> and
+    /// waits for <c>/pubsub request</c>.
     /// </remarks>
-    private static void HandlePubSubRequest(PubSubSubscribeAuthorization antrag)
+    private static void HandlePubSubRequest(PubSubSubscribeAuthorization application)
     {
 
-        lock (_offeneAntraege)
-            _offeneAntraege.Add(antrag);
+        lock (_pendingRequests)
+            _pendingRequests.Add(application);
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
 
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine($"🔔 {antrag.SubscriberJid} möchte {antrag.NodeId} abonnieren" +
-                          (antrag.SubId is not null ? $" (subid {antrag.SubId})" : ""));
-        Console.WriteLine($"   /pubsub antrag {antrag.NodeId} {antrag.SubscriberJid} <ja|nein>");
+        Console.WriteLine($"🔔 {application.SubscriberJid} would like to subscribe to {application.NodeId}" +
+                          (application.SubId is not null ? $" (subid {application.SubId})" : ""));
+        Console.WriteLine($"   /pubsub request {application.NodeId} {application.SubscriberJid} <yes|no>");
         Console.ResetColor();
 
     }
 
-    /// <summary>Die Anträge, die noch niemand beantwortet hat.</summary>
-    private static readonly List<PubSubSubscribeAuthorization> _offeneAntraege = [];
+    /// <summary>The applications nobody has answered yet.</summary>
+    private static readonly List<PubSubSubscribeAuthorization> _pendingRequests = [];
 
     private static void HandlePresence(string from, string type)
     {
 
-        if (_showRawXml) return; // Bei Raw-Mode wird das schon angezeigt
+        if (_showRawXml) return; // in raw mode this is shown already
 
-        // Eigene Presence ignorieren
+        // Ignore our own presence
         if (JidUtilities.Bare(from).Equals(_client!.BareJid, StringComparison.OrdinalIgnoreCase))
             return;
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {GetShortJid(from)} → {type}");
         Console.ResetColor();
@@ -1686,7 +1686,7 @@ class Program
     private static void HandleError(string error)
     {
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"[!] {error}");
         Console.ResetColor();
@@ -1698,7 +1698,7 @@ class Program
 
         if (!_showRawXml) return;
 
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.DarkMagenta;
         Console.WriteLine($"[XML] {xml.Trim()}");
         Console.ResetColor();
@@ -1707,11 +1707,11 @@ class Program
 
     #endregion
 
-    #region Ausgabe-Hilfsfunktionen
+    #region Output helpers
 
     private static void WriteSystemMessage(string message)
     {
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"[*] {message}");
         Console.ResetColor();
@@ -1719,35 +1719,34 @@ class Program
 
     private static void WriteWarning(string message)
     {
-        using var sperre = Ausgabe();
+        using var scope = Output();
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"[!] {message}");
         Console.ResetColor();
     }
 
     /// <summary>
-    /// Eröffnet einen Ausgabebereich: Die angefangene Eingabezeile weicht,
-    /// beim Verlassen steht die Eingabeaufforderung wieder da - und dazwischen
-    /// gehört die Konsole dem Aufrufer allein.
+    /// Opens an output scope: the line begun gives way, on leaving the prompt
+    /// stands there again - and in between the console belongs to the caller
+    /// alone.
     /// </summary>
     /// <remarks>
-    /// Hier standen bis D58 zwei getrennte Aufrufe, die jede
-    /// Ereignisbehandlung selbst um ihre Ausgabe legen musste: Zeile löschen,
-    /// schreiben, Eingabeaufforderung nachziehen. Elfmal dieselben zwei Zeilen,
-    /// und wer eine davon vergass, merkte es erst im Betrieb. Vor allem aber
-    /// fehlte die Sperre dazwischen - und der Logger schrieb ohnehin daran
-    /// vorbei.
+    /// Until D58 two separate calls stood here that every event handler had to
+    /// put around its output itself: erase the line, write, draw the prompt
+    /// back. Eleven times the same two lines, and whoever forgot one of them
+    /// noticed it only in operation. Above all, though, the lock in between
+    /// was missing - and the logger wrote past it anyway.
     ///
-    /// Vor dem Verbinden gibt es die gemeinsame Ausgabe noch nicht; dann ist
-    /// auch keine Eingabezeile zu retten, und der Bereich tut nichts.
+    /// Before connecting there is no shared output yet; then there is no input
+    /// line to save either, and the scope does nothing.
     /// </remarks>
-    private static IDisposable Ausgabe()
-        => _ausgabe?.Begin() ?? Nichts.Instanz;
+    private static IDisposable Output()
+        => _output?.Begin() ?? Nothing.Instance;
 
-    /// <summary>Ein Ausgabebereich, der nichts tut.</summary>
-    private sealed class Nichts : IDisposable
+    /// <summary>An output scope that does nothing.</summary>
+    private sealed class Nothing : IDisposable
     {
-        internal static readonly Nichts Instanz = new();
+        internal static readonly Nothing Instance = new();
         public void Dispose() { }
     }
 
@@ -1757,22 +1756,22 @@ class Program
                : "> ";
 
     /// <summary>
-    /// Schreibt etwas, das ungefragt kommt, und stellt die Eingabezeile wieder
-    /// her. Vor <see cref="_ausgabe"/> - also vor dem Verbinden - gibt es noch
-    /// keine Eingabeaufforderung, die zu retten waere.
+    /// Writes something that comes unasked and restores the input line. Before
+    /// <see cref="_output"/> - that is, before connecting - there is no prompt
+    /// yet that would need saving.
     /// </summary>
-    private static void Melden(Action<TextWriter> ausgabe)
+    private static void Report(Action<TextWriter> output)
     {
 
-        if (_ausgabe is not null)
-            _ausgabe.Write(ausgabe);
+        if (_output is not null)
+            _output.Write(output);
 
         else
-            ausgabe(Console.Out);
+            output(Console.Out);
 
     }
 
-    private static void WritePrompt() => _ausgabe?.WritePrompt();
+    private static void WritePrompt() => _output?.WritePrompt();
 
     private static string GetShortJid(string jid)
     {
@@ -1782,7 +1781,7 @@ class Program
 
     #endregion
 
-    #region Hilfetexte
+    #region Help texts
 
     private static void PrintHeader()
     {
@@ -1799,89 +1798,89 @@ class Program
     private static void PrintHelp()
     {
         Console.WriteLine(@"
-Nachrichten:
-  /to <jid>          Chat-Partner setzen (dann direkt tippen)
-  /to                Chat-Partner zurücksetzen
-  /msg <jid> <text>  Einzelne Nachricht senden
-  /fix <text>        Letzte Nachricht berichtigen (XEP-0308)
-  /status [show] [text]  Status ändern (available/away/chat/dnd/xa)
+Messages:
+  /to <jid>          set the chat partner (then just type)
+  /to                reset the chat partner
+  /msg <jid> <text>  send a single message
+  /fix <text>        correct the last message (XEP-0308)
+  /status [show] [text]  change the status (available/away/chat/dnd/xa)
 
-Kontakte (Roster):
-  /roster [filter]   Alle Kontakte anzeigen
-  /online            Nur Online-Kontakte
-  /add <jid> [name] [g1,g2]  Kontakt hinzufügen
-  /remove <jid>      Kontakt entfernen
-  /info <jid>        Kontakt-Details anzeigen
-  /groups            Gruppen mit Kontaktanzahl
-  /pending           Offene Kontaktanfragen
-  /accept [jid]      Kontaktanfrage annehmen
-  /deny [jid]        Kontaktanfrage ablehnen
+Contacts (roster):
+  /roster [filter]   show all contacts
+  /online            only the online contacts
+  /add <jid> [name] [g1,g2]  add a contact
+  /remove <jid>      remove a contact
+  /info <jid>        show the contact details
+  /groups            groups with the number of contacts
+  /pending           pending contact requests
+  /accept [jid]      accept a contact request
+  /deny [jid]        deny a contact request
 
-Chat-Status (XEP-0085):
-  /typing    'Tippt gerade...' senden
-  /paused    'Hat aufgehört zu tippen'
-  /gone      Chat verlassen
+Chat state (XEP-0085):
+  /typing    send 'is typing...'
+  /paused    'has stopped typing'
+  /gone      leave the chat
 
-Chat Markers (XEP-0333):
-  /mark received [id]   Als empfangen markieren
-  /mark displayed [id]  Als gelesen markieren
-  /mark ack [id]        Nachricht bestätigen
+Chat markers (XEP-0333):
+  /mark received [id]   mark as received
+  /mark displayed [id]  mark as read
+  /mark ack [id]        acknowledge a message
 
-Service Discovery (XEP-0030):
-  /disco server      Server-Features abfragen
-  /disco info <jid>  Features eines JIDs abfragen
-  /disco items <jid> Services auflisten
-  /features          Server- und eigene Features anzeigen
+Service discovery (XEP-0030):
+  /disco server      query the server features
+  /disco info <jid>  query the features of a JID
+  /disco items <jid> list the services
+  /features          show the server and our own features
 
 PubSub (XEP-0060):
-  /pubsub sub <node>              Node abonnieren
-  /pubsub unsub <node>            Abo beenden
-  /pubsub pub <node> <id> <data>  Item veröffentlichen
-  /pubsub get <node> [max]        Items abrufen
-  /pubsub create|delete <node>    Node anlegen/löschen
-  /pubsub …                       die übrigen zwanzig, /pubsub für die Hilfe
+  /pubsub sub <node>              subscribe to a node
+  /pubsub unsub <node>            end a subscription
+  /pubsub pub <node> <id> <data>  publish an item
+  /pubsub get <node> [max]        fetch items
+  /pubsub create|delete <node>    create/delete a node
+  /pubsub …                       the other twenty, /pubsub for the help
 
-Verbindung:
-  /ping [jid]     Ping senden (XEP-0199)
-  /sm [on|off]    Stream Management (XEP-0198, experimentell)
-  /csi [aktiv|inaktiv]  Client State Indication (XEP-0352)
-  /omemo …        Ende-zu-Ende-Verschlüsselung (XEP-0384), /omemo für die Hilfe
-  /keepalive [s]  Keepalive Status/Interval setzen
-  /who            Status anzeigen
-  /carbons        Message-Carbons-Status
-  /raw            XML-Debug-Anzeige umschalten
-  /reconnect      Neu verbinden
-  /disconnect     Trennen
-  /quit           Beenden
+Connection:
+  /ping [jid]     send a ping (XEP-0199)
+  /sm [on|off]    stream management (XEP-0198, experimental)
+  /csi [active|inactive]  client state indication (XEP-0352)
+  /omemo …        end-to-end encryption (XEP-0384), /omemo for the help
+  /keepalive [s]  show or set the keepalive interval
+  /who            show the status
+  /carbons        message carbons status
+  /raw            toggle the XML debug display
+  /reconnect      connect again
+  /disconnect     disconnect
+  /quit           quit
 
 Features:
-  ✓ SCRAM-SHA-1/256 + SASL PLAIN Authentifizierung
-  ✓ WebSocket Transport (RFC 7395)
-  ✓ Auto-Reconnect mit Exponential Backoff
-  ✓ Keepalive (verhindert Server-Timeout)
+  ✓ SCRAM-SHA-1/256 + SASL PLAIN authentication
+  ✓ WebSocket transport (RFC 7395)
+  ✓ Auto-reconnect with exponential backoff
+  ✓ Keepalive (prevents the server timeout)
   ✓ Service Discovery (XEP-0030)
   ✓ Entity Capabilities (XEP-0115)
   ✓ Ping (XEP-0199)
   ✓ Chat Markers (XEP-0333)
-  ✓ Receipts (XEP-0184) mit Spoofing-Schutz
-  ✓ Carbons (XEP-0280) mit Spoofing-Schutz
+  ✓ Receipts (XEP-0184) with spoofing protection
+  ✓ Carbons (XEP-0280) with spoofing protection
 ");
     }
 
     private static void PrintUsage()
     {
         Console.WriteLine(@"
-Verwendung: XmppClient [Optionen]
+Usage: XmppClient [options]
 
-Optionen:
-  -j, --jid <jid>         JID (z.B. user@jabber.org)
-  -p, --password <pw>     Passwort
-  -w, --websocket <uri>   WebSocket URI (z.B. wss://jabber.org:5443/ws)
-  -v, --verbose           Ausführliches Logging (Trace-Level)
-  -h, --help              Diese Hilfe anzeigen
+Options:
+  -j, --jid <jid>         JID (e.g. user@jabber.org)
+  -p, --password <pw>     password
+  -w, --websocket <uri>   WebSocket URI (e.g. wss://jabber.org:5443/ws)
+  -v, --verbose           verbose logging (trace level)
+  -h, --help              show this help
 
-Beispiele:
-  XmppClient -j user@jabber.org -p geheim
+Examples:
+  XmppClient -j user@jabber.org -p secret
   XmppClient -j user@example.com -p pw -w wss://xmpp.example.com/ws
 ");
     }
