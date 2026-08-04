@@ -1,208 +1,203 @@
-﻿# Arbeitsplan
+﻿# Work plan
 
-Was an Client und Server offen ist, in welcher Reihenfolge es sinnvoll ist und
-warum. Die ausführliche Beschreibung der einzelnen Lücken steht in
-[Jabber/README.md](Jabber/README.md) — hier steht nur, was zu **tun** ist.
+What is open on the client and the server, in what order that makes sense and
+why. The detailed description of the individual gaps stands in
+[Jabber/README.md](Jabber/README.md) — here stands only what is to be **done**.
 
-Stand: 2026-07-27
+State: 2026-07-27
 
 ---
 
-## Erledigt
+## Done
 
-| Was | Beleg |
+| What | Evidence |
 |-----|-------|
-| Aufteilung in eine Klasse pro Datei, einheitlicher Namespace, Lizenzheader | `e42c684` |
-| `XMPPClient` als echte Client-Klasse, `Program.cs` nur noch Konsolen-UI | `e42c684` |
-| `ILogger` statt `Console.WriteLine` in der Bibliothek | `e42c684` |
-| Sende-Lock, CTS-Leak, Roster-Push-Prüfung, Close-Handshake-Timeout | `e42c684` |
-| `Jabber.Tests` mit `XMPPServer` als Gegenstelle, Mehr-Client-Szenarien | `e42c684` |
-| SCRAM- und Caps-Testvektoren aus RFC 5802/7677 und XEP-0115 | `e42c684` |
-| SCRAM `ExtractValue` verankert, Caps-Sortierung oktettweise | `78fdb1c` |
-| XEP-0198 zählt korrekt (beide Richtungen, Nonzas, Überlauf) | `78fdb1c` |
-| `XMPPServer` ins Hauptprojekt, „Fake" aus den Typnamen | `78fdb1c` |
-| `#region Usings` in allen Dateien | `78fdb1c` |
-| RFC 6120 §8.2.3: unbeantwortete IQs bekommen `<service-unavailable/>` | `87f3dd6` |
-| RFC 6120 §8.3/§4.9: Stanza- und Stream-Fehler werden ausgewertet | `0249de1` |
-| Stanza-Rahmen und Roster über `XElement` statt Regex | `15a11aa` |
-| `message`- und `presence`-Nutzlasten über `XElement` (XEP-0085/0115/0184/0280/0333) | `107aa87` |
-| `iq`-Nutzlasten über `XElement` (XEP-0030/0060/0199); Rohtext-Parameter entfallen | `39cb6fb` |
-| Aufbauphase entwirrt: IQ-Korrelation statt Verwerfen, Aushandlung über `XElement` | `cc9dccb` |
-| S3: Presence nur an Subscriber, Presence-Probe, Zustand beim Anmelden | `4fe23cd` |
-| S3c: Abmeldung beim Verbindungsende, auch bei Abriss | `fdb8c3b` |
-| S3b: Subscription-Handshake, Roster-Set lässt die Subscription in Ruhe | `590d38c` |
-| Client wertet `subscribed`/`unsubscribed`/`unsubscribe` aus, statt sie als Anwesenheit zu lesen | `a5bc49d` |
-| Resource einstellbar, `<conflict/>` führt zu einem zweiten Bind ohne Wunsch | `2f6f830` |
-| Ein Test verbrachte sechs Minuten in zwanzig Reconnects | `4a2b3b6` |
-| S1: Transport auf Hermods WebSocket-Server, Server spricht `wss://` | `a92583e`, `b97db5e`, `2ebc805` |
-| S2: Zugangsdaten abgeleitet statt im Klartext, SCRAM auf dem Server, Kontenspeicher | `d54dacb`, `c35ae85`, `d29dc3c` |
-| Abmeldung wurde als letzte Presence gemerkt und nachgeliefert — Ursache des sporadischen Fehlschlags | `bccf648` |
-| S4: Domain-Weiche, Fehlerpfad, Föderation zweier Server (ohne echten Transport) | `d9c4333`, `323795f` |
-| S4b-1: S2S-Protokollschicht ohne Transport (`S2SStream`) | `f0a4bbd` |
-| S4b-2: WebSocket-S2S über echte Sockets samt TLS | `8e0aec3` |
-| S4b-3: Dialback (XEP-0220) gegen den Vektor des XEP, Domain belegt statt behauptet | `c92560d`, `a60631c` |
-| S4b-4: Rahmung austauschbar, XML-Zerleger, TCP mit `jabber:server`-Streams | `a24d1f2`, `e0d88f4` |
-| S4b-6: STARTTLS (RFC 6120 §5.4) samt Downgrade-Schutz | `f4a9c80` |
-| S4b-7: SASL-EXTERNAL (XEP-0178) über das TLS-Zertifikat | `031f8ca` |
-| S4b-8: SRV-Auflösung (RFC 6120 §3.2, RFC 2782) | `0d1391f` |
-| S5: Domainübergreifende Subscriptions (RFC 6121 §3) | `a94b416` |
-| S6: Subscription-Pre-Approval (RFC 6121 §3.4) | *(dieser Commit)* |
+| Split into one class per file, uniform namespace, licence header | `e42c684` |
+| `XMPPClient` as a real client class, `Program.cs` nothing but console UI | `e42c684` |
+| `ILogger` instead of `Console.WriteLine` in the library | `e42c684` |
+| Send lock, CTS leak, roster push check, close handshake timeout | `e42c684` |
+| `Jabber.Tests` with `XMPPServer` as the far side, multi-client scenarios | `e42c684` |
+| SCRAM and caps test vectors from RFC 5802/7677 and XEP-0115 | `e42c684` |
+| SCRAM `ExtractValue` anchored, caps sorting octet by octet | `78fdb1c` |
+| XEP-0198 counts correctly (both directions, nonzas, overflow) | `78fdb1c` |
+| `XMPPServer` into the main project, "fake" out of the type names | `78fdb1c` |
+| `#region Usings` in every file | `78fdb1c` |
+| RFC 6120 §8.2.3: unanswered IQs get `<service-unavailable/>` | `87f3dd6` |
+| RFC 6120 §8.3/§4.9: stanza and stream errors are evaluated | `0249de1` |
+| Stanza frames and roster over `XElement` instead of regex | `15a11aa` |
+| `message` and `presence` payloads over `XElement` (XEP-0085/0115/0184/0280/0333) | `107aa87` |
+| `iq` payloads over `XElement` (XEP-0030/0060/0199); raw text parameters gone | `39cb6fb` |
+| Setup phase untangled: IQ correlation instead of discarding, negotiation over `XElement` | `cc9dccb` |
+| S3: presence only to subscribers, presence probe, state on login | `4fe23cd` |
+| S3c: sign-off at the end of the connection, on a break as well | `fdb8c3b` |
+| S3b: subscription handshake, a roster set leaves the subscription alone | `590d38c` |
+| The client evaluates `subscribed`/`unsubscribed`/`unsubscribe` instead of reading them as presence | `a5bc49d` |
+| Resource settable, a `<conflict/>` leads to a second bind without a wish | `2f6f830` |
+| One test spent six minutes in twenty reconnects | `4a2b3b6` |
+| S1: transport on Hermod's WebSocket server, the server speaks `wss://` | `a92583e`, `b97db5e`, `2ebc805` |
+| S2: credentials derived instead of in the clear, SCRAM on the server, account store | `d54dacb`, `c35ae85`, `d29dc3c` |
+| A sign-off was remembered as the last presence and handed in later — cause of the sporadic failure | `bccf648` |
+| S4: domain branch, error path, federation of two servers (without a real transport) | `d9c4333`, `323795f` |
+| S4b-1: S2S protocol layer without a transport (`S2SStream`) | `f0a4bbd` |
+| S4b-2: WebSocket S2S over real sockets together with TLS | `8e0aec3` |
+| S4b-3: dialback (XEP-0220) against the vector of the XEP, the domain shown instead of claimed | `c92560d`, `a60631c` |
+| S4b-4: framing exchangeable, XML splitter, TCP with `jabber:server` streams | `a24d1f2`, `e0d88f4` |
+| S4b-6: STARTTLS (RFC 6120 §5.4) together with downgrade protection | `f4a9c80` |
+| S4b-7: SASL EXTERNAL (XEP-0178) over the TLS certificate | `031f8ca` |
+| S4b-8: SRV resolution (RFC 6120 §3.2, RFC 2782) | `0d1391f` |
+| S5: cross-domain subscriptions (RFC 6121 §3) | `a94b416` |
+| S6: subscription pre-approval (RFC 6121 §3.4) | *(this commit)* |
 
-Jede dieser Korrekturen ist durch Mutationstests abgesichert: Fix zurückgedreht,
-geprüft dass genau die zuständigen Tests fehlschlagen, Fix wieder eingesetzt.
-Aktueller Stand der Suite: **709 Tests, 0 Fehler** in gut drei Minuten, und
-seit dem Default-Umstieg läuft sie mit ausgehandeltem XEP-0198. Übersprungen
-wird, was ohne fremde Gegenstelle nichts zu prüfen hat — sechs Föderationstests,
-die nur innerhalb von WSL laufen können — sowie einer, der eine Eigenschaft
-prüft, die es nur im STARTTLS-Betrieb gibt.
-Sechs benannte Ausnahmen, wo eine Mutation grün bleibt: die zwei Zeilen
-im WebSocket-Verbindungsabbau (siehe S4b-2), der Vergleich in
-`DialbackKey.Verify` über `FixedTimeEquals` (ein Timing-Seitenkanal ist
-funktional nicht beobachtbar), die Slot-Identität im Verbindungs-Cache
-(siehe S4b-3), der Zeitpunkt der SASL-Anheftung (siehe D1), die Abkürzung
-über die leere Offline-Ablage (siehe D14) und das Zurücksetzen von
-`_lastConnectError` (siehe D31). Es waren sechs: Die Herkunftsfrage
-vor den `<sent>`-Carbons im Offline-Zweig (D15) überlebte nur, weil ihr Wurf im
-`catch` beim Verarbeiten eines Frames verschwand — seit D18 wird er gemeldet,
-und sechs Tests erschlagen die Mutation.
+Every one of these corrections is secured by mutation testing: the fix turned
+back, checked that exactly the responsible tests fail, the fix put in again.
+Current state of the suite: **709 tests, 0 failures** in a good three minutes,
+and since the switch of the default it runs with XEP-0198 negotiated. Skipped
+is what has nothing to check without a foreign far side — six federation tests
+that can run only inside WSL — as well as one that checks a property which
+exists only in STARTTLS operation.
+Six named exceptions, where a mutation stays green: the two lines in the
+WebSocket connection teardown (see S4b-2), the comparison in
+`DialbackKey.Verify` over `FixedTimeEquals` (a timing side channel is not
+observable functionally), the slot identity in the connection cache
+(see S4b-3), the moment of the SASL pinning (see D1), the shortcut over the
+empty offline store (see D14) and the resetting of
+`_lastConnectError` (see D31). There were six: the question of origin
+before the `<sent>` carbons in the offline branch (D15) survived only because
+its throw vanished in the `catch` while a frame was being processed — since D18
+it is reported, and six tests strike the mutation down.
 
 ---
 
-## Der Server soll ein richtiger Server werden
+## The server is to become a real server
 
-`XMPPServer` ist als Gegenstelle für Tests entstanden. Er soll das Image des
-reinen Testservers verlieren — dafür fehlten drei Dinge, das erste davon ist
-jetzt erledigt, und ein viertes wäre der Beweis, dass es funktioniert. Die
-vollständige Lückenliste steht in
-[Jabber/README.md](Jabber/README.md#was-dem-server-zum-produktivbetrieb-fehlt).
+`XMPPServer` came about as a far side for tests. It is to lose the image of a
+mere test server — for that three things were missing, the first of them is
+done now, and a fourth would be the proof that it works. The complete list of
+gaps stands in
+[Jabber/README.md](Jabber/README.md#what-the-server-lacks-for-production-use).
 
 ### S1. TLS ✅
 
-Erledigt. Der Server spricht `wss://` mit einem selbst signierten Zertifikat,
-wie RFC 6120 §5 es verlangt; die gesamte Suite läuft darüber. Umgesetzt in vier
-Schritten: `a92583e` (Referenz auf Hermod), `b97db5e` (Transport),
-`2ebc805` (TLS), plus `4a2b3b6` als Zwischenfund.
+Done. The server speaks `wss://` with a self-signed certificate, as RFC 6120 §5
+demands it; the whole suite runs over it. Implemented in four steps: `a92583e`
+(reference to Hermod), `b97db5e` (transport), `2ebc805` (TLS), plus `4a2b3b6`
+as a find along the way.
 
-Den Transport liefert Hermods `AWebSocketServer` — `HttpListener` und die
-selbstgeschriebene Empfangsschleife sind weg. `XMPPServer` erbt ihn nicht,
-sondern hält eine private Ableitung, die `ProcessTextMessage` überschreibt; so
-bleibt seine öffentliche Oberfläche klein und alle Tests kompilierten
-unverändert weiter.
+The transport is delivered by Hermod's `AWebSocketServer` — `HttpListener` and
+the hand-written receiving loop are gone. `XMPPServer` does not inherit it but
+holds a private derivation that overrides `ProcessTextMessage`; that way its
+public surface stays small and all the tests went on compiling unchanged.
 
-Was beim Umbau anders lag als erwartet:
+What lay differently than expected during the rebuild:
 
-- Nicht eine Namenskollision, sondern zwei: neben `WebSocket` auch `IPAddress`.
-  Beide Aliase müssen **innerhalb** der Namespace-Deklaration stehen — auf
-  Ebene der Compilation Unit gewinnt das Namespace-Member.
-- Empfangen läuft nicht über `OnTextMessageReceived`, sondern über die
-  überschriebene Methode `ProcessTextMessage`; das Ereignis gehört der
-  Beispielklasse `WebSocketMirrorServer`, nicht der Basisklasse.
-- Der Konstruktorparameter heißt `TCPPort`, nicht `HTTPPort`.
-- Close, Ping und Subprotokoll-Aushandlung waren **kein** Problem — die
-  Suite war beim ersten vollen Lauf grün. Die einzige echte Abweichung: Hermod
-  beantwortet ein Close-Frame immer und bietet keinen Schalter dagegen.
-  `CompleteCloseHandshake = false` verzögert die Antwort daher, statt sie zu
-  unterdrücken.
+- Not one name collision but two: besides `WebSocket` also `IPAddress`. Both
+  aliases have to stand **inside** the namespace declaration — at the level of
+  the compilation unit the namespace member wins.
+- Receiving does not run over `OnTextMessageReceived` but over the overridden
+  method `ProcessTextMessage`; the event belongs to the example class
+  `WebSocketMirrorServer`, not to the base class.
+- The constructor parameter is called `TCPPort`, not `HTTPPort`.
+- Close, ping and subprotocol negotiation were **no** problem — the suite was
+  green on the first full run. The only real deviation: Hermod always answers a
+  close frame and offers no switch against it. `CompleteCloseHandshake = false`
+  therefore delays the answer instead of suppressing it.
 
-**Was daran offen blieb:**
+**What stayed open about it:**
 
-- Kein STARTTLS (RFC 6120 §5.4), und TLS ist nicht erzwungen — wer den Server
-  mit `useTLS: false` baut, bekommt weiter `ws://`.
-- Das Zertifikat ist selbst signiert und wird zur Laufzeit erzeugt. Für den
-  Betrieb bräuchte es einen Weg, ein eigenes zu hinterlegen.
-- Der ursprüngliche Nebeneffekt steht noch aus: der Server bietet weiterhin
-  nur PLAIN an, also ist der SCRAM-Pfad des Clients nach wie vor nur gegen die
-  RFC-Vektoren getestet.
+- No STARTTLS (RFC 6120 §5.4), and TLS is not enforced — whoever builds the
+  server with `useTLS: false` still gets `ws://`.
+- The certificate is self-signed and created at runtime. For operation there
+  would have to be a way to deposit one of one's own.
+- The original side effect is still outstanding: the server still offers PLAIN
+  alone, so the SCRAM path of the client is as before tested only against the
+  RFC vectors.
 
-### S2. Dauerhafte Kontenverwaltung ✅
+### S2. Permanent account management ✅
 
-Erledigt in drei Schritten: `d54dacb` (Zugangsdaten), `c35ae85` (SCRAM auf dem
-Server), `d29dc3c` (Kontenspeicher).
+Done in three steps: `d54dacb` (credentials), `c35ae85` (SCRAM on the server),
+`d29dc3c` (account store).
 
-Passwörter liegen nicht mehr im Klartext, sondern als das, was RFC 5802 §3
-dafür vorsieht: Salt, Iterationszahl und je Mechanismus `StoredKey` und
-`ServerKey`. `IXMPPAccountStore` trägt Konten und Roster; `InMemoryAccountStore`
-bleibt die Vorgabe, `FileAccountStore` schreibt eine JSON-Datei.
+Passwords no longer lie in the clear but as what RFC 5802 §3 provides for:
+salt, iteration count and per mechanism `StoredKey` and `ServerKey`.
+`IXMPPAccountStore` carries accounts and rosters; `InMemoryAccountStore`
+remains the default, `FileAccountStore` writes a JSON file.
 
-**Der Nebeneffekt aus S1 ist damit eingelöst:** der Server bietet
-SCRAM-SHA-256, SCRAM-SHA-1 und PLAIN an, und weil der Client von sich aus den
-stärksten nimmt, läuft die gesamte Suite über SCRAM-SHA-256. Der SCRAM-Pfad des
-Clients ist damit zum ersten Mal integrativ geprüft — insbesondere seine
-Prüfung der Serversignatur, für die es zuvor keinen Test gab, der ihr Versagen
-bemerkt hätte.
+**The side effect from S1 is thereby redeemed:** the server offers
+SCRAM-SHA-256, SCRAM-SHA-1 and PLAIN, and because the client takes the
+strongest by itself, the whole suite runs over SCRAM-SHA-256. The SCRAM path of
+the client is thereby checked integratively for the first time — its check of
+the server signature in particular, for which there was no test before that
+would have noticed its failure.
 
-**Was daran offen blieb:**
+**What stayed open about it:**
 
-- **Kein Channel Binding** (`SCRAM-SHA-*-PLUS`). Der GS2-Header wird auf
-  Übereinstimmung geprüft, mehr verlangt RFC 5802 §6 von einem Server ohne
-  Channel Binding auch nicht.
-- ~~**Ein unbekanntes Konto wird abgelehnt, bevor der Austausch beginnt.** Damit
-  verrät der Server, ob es ein Konto gibt; RFC 5802 §7 empfiehlt, mit einem
-  erfundenen Salt weiterzumachen.~~ ✅ erledigt in D50 — und die Quellenangabe
-  war falsch: §7 des RFC 5802 ist die formale Syntax, und der RFC empfiehlt
-  dazu nichts. Die Empfehlung steht in RFC 6120 §13.11.
-- **Die Kontendatei ist unverschlüsselt** und ihre Zugriffsrechte werden nicht
-  gesetzt. Die abgelegten Schlüssel sind keine Passwörter, erlauben aber, eine
-  Anmeldung zu prüfen.
-- **Kein Anlegen von Konten über XMPP** (XEP-0077 In-Band Registration) und
-  keine Passwortänderung.
-- Die Iterationszahl steht auf 4096, der Untergrenze aus RFC 7677 §4. Für den
-  Betrieb zu wenig; je Konto einstellbar.
+- **No channel binding** (`SCRAM-SHA-*-PLUS`). The GS2 header is checked for
+  agreement, and RFC 5802 §6 demands no more than that of a server without
+  channel binding either.
+- ~~**An unknown account is refused before the exchange begins.** With that the
+  server betrays whether an account exists; RFC 5802 §7 recommends carrying on
+  with a made-up salt.~~ ✅ done in D50 — and the source given was wrong: §7 of
+  RFC 5802 is the formal syntax, and the RFC recommends nothing about this. The
+  recommendation stands in RFC 6120 §13.11.
+- **The account file is unencrypted** and its access rights are not set. The
+  keys stored are no passwords, but they do allow a login to be checked.
+- **No creating of accounts over XMPP** (XEP-0077 In-Band Registration) and no
+  password change.
+- The iteration count stands at 4096, the lower bound from RFC 7677 §4. Too
+  little for operation; settable per account.
 
-### S3. Presence nur an Subscriber ✅
+### S3. Presence only to subscribers ✅
 
-Erledigt. Ungerichtete Presence geht nur noch an Kontakte mit `from` oder
-`both` und an die eigenen weiteren Resourcen; dazu kommen Presence-Probes und
-das Nachliefern des Kontaktzustands beim Anmelden.
+Done. Undirected presence now goes only to contacts with `from` or `both` and
+to our own further resources; to that come presence probes and the handing in
+of the contact state on login.
 
-### S3b. Subscription-Handshake (RFC 6121 §3) ✅
+### S3b. Subscription handshake (RFC 6121 §3) ✅
 
-Erledigt. Die vier Schritte ändern die Roster beider Seiten und lösen
-Roster-Pushes aus; `ask='subscribe'` hält eine offene Anfrage fest. Nach der
-Annahme geht die aktuelle Presence sofort an den Antragsteller (§3.1.5), nach
-einem Entzug ein `unavailable` (§3.2.2). Ein Roster-Set fasst den
-Subscription-Zustand nicht mehr an (§2.3).
+Done. The four steps change the rosters of both sides and set off roster
+pushes; `ask='subscribe'` holds a pending request fast. After the acceptance
+the current presence goes to the applicant at once (§3.1.5), after a withdrawal
+an `unavailable` (§3.2.2). A roster set no longer touches the subscription
+state (§2.3).
 
-Was daran offen blieb:
-- ~~Pre-Approval (§3.4) fehlt~~ ✅ erledigt in S6.
-- ~~Eine Anfrage an ein gerade nicht verbundenes Konto wird nicht aufbewahrt
-  (§3.1.3)~~ ✅ erledigt in S7.
+What stayed open about it:
+- ~~Pre-approval (§3.4) is missing~~ ✅ done in S6.
+- ~~A request to an account that is not connected at the time is not kept
+  (§3.1.3)~~ ✅ done in S7.
 
-### S3c. `unavailable` beim Verbindungsende ✅
+### S3c. `unavailable` at the end of the connection ✅
 
-Erledigt. Endet eine Sitzung — ordentlich, abgerissen oder an einer Ausnahme —,
-meldet der Server die Resource bei denselben Empfängern ab, die auch ihre
-Anmeldung bekommen haben. Hat der Client sich selbst abgemeldet, unterbleibt
-die Wiederholung.
+Done. When a session ends — orderly, broken off or at an exception — the server
+signs the resource off with the same recipients that got its sign-on. If the
+client has signed off itself, the repetition is left out.
 
-### S4. Zwei Server, zwei Clients, eine Nachricht ✅ (Routing) / ⚠️ (Transport)
+### S4. Two servers, two clients, one message ✅ (routing) / ⚠️ (transport)
 
-Das Zielbild steht: zwei `XMPPServer`-Instanzen mit verschiedenen Domains, an
-jeder ein echter `XMPPClient`, und eine Nachricht geht von einem zum anderen —
-samt Antwort zurück und samt Presence. Erledigt in zwei Schritten: `d9c4333`
-(Domain-Weiche und Fehlerpfad), `323795f` (Föderation).
+The target picture stands: two `XMPPServer` instances with different domains, a
+real `XMPPClient` at each, and a message goes from one to the other — together
+with the answer back and together with presence. Done in two steps: `d9c4333`
+(domain branch and error path), `323795f` (federation).
 
-**Entschieden:** erst Routing und Adressierung, der Transport später. `IServerLinks`
-ist die Stelle, an der er eingesetzt wird; `DirectServerLinks` verbindet zwei
-Server im selben Prozess.
+**Decided:** routing and addressing first, the transport later. `IServerLinks`
+is the place where it is put in; `DirectServerLinks` connects two servers in
+the same process.
 
-Was dabei mitkam: eine Stanza an eine fremde Domain verschwand bisher
-spurlos. Jetzt kommt `<remote-server-not-found/>` zurück (RFC 6120 §10.4.3,
-Bedingung aus §8.3.3).
+What came along with it: a stanza to a foreign domain used to vanish without a
+trace. Now a `<remote-server-not-found/>` comes back (RFC 6120 §10.4.3, the
+condition from §8.3.3).
 
-**Was offen bleibt — und der Grund, warum das hier kein ✅ allein ist:**
+**What stays open — and the reason why this is no ✅ on its own:**
 
-- **Es gibt keinen echten Transport.** `DirectServerLinks` hat keinen Stream,
-  kein TLS, keinen Dialback und keine Authentifizierung: die Domain, für die
-  eine Gegenstelle sprechen darf, wird schlicht behauptet. Für den Betrieb ist
-  das nichts.
-- **Kein Dialback (XEP-0220) und kein SASL-EXTERNAL.** Die Absenderprüfung im
-  Eingang ist da und scharf — sie ist genau das, worauf ein echter Transport
-  danach baut —, aber es gibt nichts, was die Behauptung der Gegenstelle
-  belegt.
-- ~~Domainübergreifende Subscriptions fehlen~~ ✅ **erledigt (S5).** Der
-  Handshake läuft jetzt auch über die Grenze.
-- ~~Keine Auflösung über DNS~~ — erledigt in S4b-8.
+- **There is no real transport.** `DirectServerLinks` has no stream, no TLS, no
+  dialback and no authentication: the domain a far side may speak for is simply
+  claimed. For operation that is nothing.
+- **No dialback (XEP-0220) and no SASL EXTERNAL.** The sender check on the way
+  in is there and sharp — it is exactly what a real transport builds on
+  afterwards — but there is nothing that shows the claim of the far side to be
+  true.
+- ~~Cross-domain subscriptions are missing~~ ✅ **done (S5).** The handshake now
+  runs across the border as well.
+- ~~No resolution over DNS~~ — done in S4b-8.
 
 ### S4b. Der eigentliche S2S-Transport
 
