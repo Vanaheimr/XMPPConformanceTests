@@ -5265,504 +5265,464 @@ Seventeen tests, fifteen mutations, all struck down. Full run: 977 passed, 7 ski
 
 ---
 
-### D72. Wofür es die subid gibt ✅ — mehrere Abonnements auf denselben Knoten
+### D72. What the subid exists for ✅ — several subscriptions to the same node
 
-Am Ende von D71 stand die Grenze im README: mehrere gleichzeitige Abonnements
-desselben JIDs auf denselben Knoten — **der Fall, für den es die `subid`
-überhaupt gibt** — sind nicht umgesetzt. Bis dahin gab ein zweites `subscribe`
-dieselbe Kennung zurück, und damit war die Kennung Zierde: Wo es nie zwei gibt,
-benennt sie nichts, was der Knoten nicht auch benennt.
+At the end of D71 the limit stood in the README: several simultaneous
+subscriptions of the same JID to the same node — **the case the `subid` exists for
+in the first place** — are not implemented. Until then a second `subscribe` gave
+the same id back, and with that the id was decoration: where there are never two,
+it names nothing the node does not name as well.
 
-**Der Fall ist nicht ausgedacht.** Er entsteht von selbst, wenn ein Client neu
-startet und wieder abonniert, ohne seine alte Kennung zu kennen. Danach hat der
-Dienst zwei, und von da an ist jedes Abbestellen ohne Kennung zweideutig — der
-Client aus D71 kann genau dort landen.
+**The case is not invented.** It arises of itself when a client restarts and
+subscribes again without knowing its old id. Afterwards the service has two, and
+from then on every cancelling without an id is ambiguous — the client from D71 can
+land exactly there.
 
-Jetzt ist jedes `subscribe` ein eigenes Abonnement mit eigener Kennung. Daraus
-folgt dreierlei, und jedes davon ist eine Entscheidung, die auch anders hätte
-ausfallen können:
+Now every `subscribe` is a subscription of its own with an id of its own. Three
+things follow from that, and each of them is a decision that could have turned out
+differently:
 
-- **Abbestellen ohne Kennung wird bei mehreren abgewiesen** —
-  `<bad-request/>` mit `<subid-required/>` (Abschnitt 6.2.3.1). Sich eines
-  auszusuchen wäre die bequeme Antwort und die falsche: Der Dienst beendete
-  vielleicht das andere und bestätigte dem Absender, es sei seines gewesen.
-- **Zugestellt wird je Abonnement**, nicht je Abonnent, und jede Zustellung
-  nennt ihr Abonnement in der SHIM-Kopfzeile `SubID` (Abschnitt 12.20).
-- **Ausdrücklich schlägt beiläufig.** Wer den Knoten abonniert hat, bekommt die
-  Meldung nicht zusätzlich über die Presence — sonst hinge die Zahl der
-  Zustellungen daran, ob jemand nebenbei auch noch im Roster steht. Und die
-  Presence-Zustellung trägt keine Kennung, denn es gibt keine: eine erfundene
-  wäre schlimmer als keine, der Empfänger könnte danach abbestellen wollen, was
-  nie bestellt wurde.
+- **Cancelling without an id is refused when there are several** —
+  `<bad-request/>` with `<subid-required/>` (section 6.2.3.1). To choose one would
+  be the convenient answer and the wrong one: the service would perhaps end the
+  other and confirm to the sender that it had been theirs.
+- **Delivered is per subscription**, not per subscriber, and every delivery names
+  its subscription in the SHIM header `SubID` (section 12.20).
+- **Express beats incidental.** Whoever has subscribed to the node does not get the
+  report additionally over the presence — otherwise the number of deliveries would
+  hang on whether somebody also happens to stand in the roster. And the presence
+  delivery carries no id, for there is none: an invented one would be worse than
+  none, the recipient could afterwards want to cancel what was never ordered.
 
-Ein Test der vorigen Etappe behauptete das Gegenteil (`SubscribingTwice_KeepsOneSubscription`)
-und ist ersetzt. Das war nicht falsch gewesen — ein Dienst darf so verfahren —,
-aber es war die Fassung ohne die Sache.
+A test of the previous stage claimed the opposite
+(`SubscribingTwice_KeepsOneSubscription`) and is replaced. That had not been wrong
+— a service may proceed that way — but it was the version without the thing.
 
-**Was weiterhin fehlt**, und es ist der Grund, aus dem sich zwei Abonnements
-sonst überhaupt unterscheiden: die Konfiguration je Abonnement (Abschnitt 6.3).
-Ohne sie bringt ein zweites nichts ein als eine zweite Zustellung. Der Server
-muss trotzdem richtig antworten, wenn es eines gibt — das ist der ganze Punkt
-dieser Etappe.
+**What is still missing**, and it is the reason two subscriptions otherwise differ
+at all: the configuration per subscription (section 6.3). Without it a second
+brings in nothing but a second delivery. The server has to answer rightly all the
+same when there is one — that is the whole point of this stage.
 
-Fünfzehn Tests, zehn Mutationen, alle erschlagen. Voller Lauf: 980 bestanden,
-7 übersprungen.
+Fifteen tests, ten mutations, all struck down. Full run: 980 passed, 7 skipped.
 
 ---
 
-### D73. Zwei Abonnements, die niemand verwechselt ✅ — die Kennung auf der Clientseite
+### D73. Two subscriptions nobody confuses ✅ — the id on the client side
 
-Die Gegenseite zu D72, und sie hatte einen eigenen Fehler: **Der Client hielt je
-Knoten genau ein Abonnement fest**, und ein zweites überschrieb das erste. Damit
-war dessen Kennung weg — und weg heisst hier mehr als „vergessen": Es liess sich
-**nie wieder abbestellen**, denn der Dienst verlangt bei mehreren eine Kennung,
-und die kannte niemand mehr.
+The other side to D72, and it had an error of its own: **the client held exactly
+one subscription per node**, and a second overwrote the first. With that its id was
+gone — and gone means here more than "forgotten": it could **never be cancelled
+again**, for the service demands an id when there are several, and nobody knew it
+any more.
 
-Jetzt steht je Knoten eine Liste. Daraus folgt das Verhalten, auf das es
-ankommt: **Bei mehreren und ohne Kennung fragt der Client gar nicht erst.** Der
-Dienst wiese es mit `<subid-required/>` ab, das weiss der Client selbst — und
-was er nicht tut, ist wichtiger als was er tut: sich eines aussuchen. Das
-beendete vielleicht das falsche, und der Aufrufer hielte es für das gemeinte.
+Now there stands a list per node. From that follows the behaviour that matters: **at
+several and without an id the client does not ask in the first place.** The service
+would refuse it with `<subid-required/>`, the client knows that itself — and what it
+does not do is more important than what it does: choose one. That would perhaps end
+the wrong one, and the caller would hold it to be the one meant.
 
-Eine Kennung, die hier nicht steht, geht trotzdem hinaus, wenn der Aufrufer sie
-nennt: Ein anderes Gerät desselben Kontos kann ein Abonnement halten, von dem
-dieser Client nichts weiss. Die Buchführung ist die eigene Sicht und nicht die
-Wahrheit über den Dienst.
+An id that does not stand here goes out all the same when the caller names it:
+another device of the same account can hold a subscription this client knows nothing
+about. The bookkeeping is our own view and not the truth about the service.
 
-Eingehend liest der Client jetzt die SHIM-Kopfzeile `SubID` und hängt sie an das
-Ereignis. Sie steht **neben** dem `event` und nicht darin, und das ist keine
-Formsache: Sie sagt etwas über die Zustellung, nicht über das Ereignis.
-Dieselbe Veröffentlichung kommt bei zwei Abonnements zweimal an — dann ist diese
-Kopfzeile das einzige, worin sich die beiden Meldungen unterscheiden.
+Incoming the client now reads the SHIM header `SubID` and hangs it on the event. It
+stands **beside** the `event` and not in it, and that is no formality: it says
+something about the delivery, not about the event. The same publication arrives twice
+at two subscriptions — then this header is the only thing in which the two reports
+differ.
 
-Ein Test hält fest, was leicht verlorengeht: **Nach dem letzten Abbestellen ist
-der Absender wieder ein Fremder.** Die Erlaubnis des Spoofing-Schutzes hängt an
-der Buchführung; bliebe dort ein leerer Rest stehen, bliebe auch die Erlaubnis,
-und der Schutz wäre für diesen Knoten dauerhaft offen. Genau das war eine der
-acht Mutationen.
+A test holds fast what easily gets lost: **after the last cancelling the sender is a
+stranger again.** The permission of the protection against spoofing hangs on the
+bookkeeping; would an empty remainder stay standing there, the permission would stay
+as well, and the protection would be permanently open for this node. Exactly that was
+one of the eight mutations.
 
-Die Konsole kann jetzt `/pubsub abos` — bei mehreren Abonnements auf denselben
-Knoten ist die Kennung das einzige, was sie unterscheidet, und wer abbestellen
-will, muss sie nachsehen können.
+The console can now do `/pubsub subs` — at several subscriptions to the same node
+the id is the only thing that distinguishes them, and whoever wants to cancel has to
+be able to look it up.
 
-Zweiundzwanzig Tests, acht Mutationen, alle erschlagen. Voller Lauf: 985
-bestanden, 7 übersprungen.
+Twenty-two tests, eight mutations, all struck down. Full run: 985 passed, 7 skipped.
 
 ---
 
-### D74. Ein Feld, und das ist die Aussage ✅ — Konfiguration je Abonnement
+### D74. One field, and that is the statement ✅ — configuration per subscription
 
-Der letzte offene Punkt aus D72: **die Konfiguration je Abonnement** (XEP-0060,
-Abschnitt 6.3) — der Grund, aus dem sich zwei Abonnements desselben JIDs auf
-denselben Knoten überhaupt unterscheiden können. Bis hierher waren zwei
-Abonnements zwei gleiche Dinge, und das zweite brachte nichts ein als eine
-zweite Zustellung. Jetzt ist die `subid` nicht nur eine Kennung, sondern **die
-Adresse einer Einstellung**.
+The last open point from D72: **the configuration per subscription** (XEP-0060,
+section 6.3) — the reason two subscriptions of the same JID to the same node can
+differ at all. Up to here two subscriptions were two identical things, and the second
+brought in nothing but a second delivery. Now the `subid` is not only an id but **the
+address of a setting**.
 
-**Das Formular hat genau ein Feld: `pubsub#deliver`.** XEP-0060 kennt ein
-Dutzend weitere — Zusammenfassungen, Ablauffristen, Tiefe, Presence-Filter. Was
-dieser Server nicht kann, bietet er auch nicht an: Ein Formular mit
-`pubsub#digest` darin, das dann nichts bewirkt, wäre eine Zusage ohne Deckung,
-und zwar eine, die der Abonnent nicht nachprüfen kann — **eine ausbleibende
-Zusammenfassung sieht aus wie Ruhe.**
+**The form has exactly one field: `pubsub#deliver`.** XEP-0060 knows a dozen others —
+digests, expiry deadlines, depth, presence filters. What this server cannot do it
+does not offer either: a form with `pubsub#digest` in it that then has no effect
+would be a promise without backing, and one the subscriber cannot check at that — **a
+digest that stays out looks like quiet.**
 
-Aus demselben Grund wird ein Feld, das im Angebot nicht stand, **abgewiesen
-statt übergangen**. Das ist strenger, als XEP-0004 verlangt: Wer Unbekanntes
-stillschweigend schluckt, lässt den Absender in dem Glauben, seine Einstellung
-gelte. Eine Absage kann man lesen, eine ausbleibende Wirkung nicht.
+For the same reason a field that did not stand in the offer is **refused instead of
+passed over**. That is stricter than XEP-0004 demands: whoever swallows the unknown
+silently leaves the sender in the belief that their setting holds. A refusal one can
+read, an effect that stays out one cannot.
 
-Drei Entscheidungen, die auch anders hätten ausfallen können:
+Three decisions that could have turned out differently:
 
-- **Ein stillgelegtes Abonnement fällt nicht auf die Presence-Zustellung
-  zurück.** Wer gesagt hat, dass er nichts bekommen will, bekommt nichts — auch
-  wenn er nebenbei im Roster steht. Alles andere hiesse, eine ausdrückliche
-  Einstellung über einen zweiten Weg zu unterlaufen.
-- **Ein `set` ohne Formular wird abgewiesen**, statt die Vorgaben einzusetzen.
-  Aus einer unvollständigen Anfrage würde sonst eine Änderung, die niemand
-  verlangt hat — und sie träfe ausgerechnet den, der gerade etwas anderes
-  eingestellt hatte.
-- **Fehlt bei mehreren die Kennung, ist der Fehler ein anderer als beim
-  Abbestellen**: `<not-acceptable/>` statt `<bad-request/>` (Abschnitte 6.3.3
-  gegen 6.2.3.1). Das ist keine Willkür des XEP — dort ist die Anfrage
-  unvollständig, hier ist sie in Ordnung und nur in dieser Lage nicht zu
-  beantworten. Eine Umsetzung, die beide Stellen gleich behandelt, hat eine
-  davon nicht gelesen. Deshalb liefert die gemeinsame Suche den **Befund** und
-  nicht die Antwort.
+- **A silenced subscription does not fall back on the presence delivery.** Whoever
+  has said that they want to get nothing gets nothing — even when they happen to
+  stand in the roster. Anything else would mean undermining an express setting over
+  a second way.
+- **A `set` without a form is refused**, instead of the defaults being put in. Out of
+  an incomplete request would otherwise become a change nobody demanded — and it
+  would hit of all people the one who had just set something else.
+- **If the id is missing at several, the error is a different one than at the
+  cancelling**: `<not-acceptable/>` instead of `<bad-request/>` (sections 6.3.3
+  against 6.2.3.1). That is no arbitrariness of the XEP — there the request is
+  incomplete, here it is in order and only not answerable in this situation. An
+  implementation that treats both places alike has not read one of them. This is why
+  the common lookup delivers the **finding** and not the answer.
 
-Die JID-Prüfung steht jetzt an drei Stellen, und die dritte ist die stillste:
-**Wer fremde Abonnements einstellen dürfte, könnte sie lautlos abschalten.** Das
-Abonnement bliebe stehen — es käme nur nichts mehr an, und der Betroffene fände
-in seiner eigenen Liste nichts Auffälliges.
+The JID check now stands at three places, and the third is the quietest: **whoever
+were allowed to configure foreign subscriptions could switch them off silently.** The
+subscription would stay standing — only nothing would arrive any more, and the one
+concerned would find nothing conspicuous in their own list.
 
-Sechsundzwanzig Tests, elf Mutationen, alle erschlagen. Voller Lauf: 996
-bestanden, 7 übersprungen — und damit hat die Sammlung die tausend überschritten.
+Twenty-six tests, eleven mutations, all struck down. Full run: 996 passed, 7 skipped
+— and with that the suite has passed the thousand.
 
 ---
 
-### D75. Streng beim Befolgen, nachsichtig beim Lesen ✅ — die Einstellung auf der Clientseite
+### D75. Strict at obeying, lenient at reading ✅ — the setting on the client side
 
-Die Gegenseite zu D74, und sie brachte eine Unterscheidung mit, die vorher
-nirgends stand: **Dasselbe Formular wird in zwei Richtungen verschieden
-gelesen.**
+The other side to D74, and it brought a distinction along that stood nowhere before:
+**the same form is read differently in two directions.**
 
-- Ein **abgeschicktes** Formular ist eine *Anweisung*. Ein Feld darin, das
-  niemand angeboten hat, wird abgewiesen — ein übergangenes wäre eine
-  verworfene Anweisung, von der der Absender nichts erfährt.
-- Ein **angebotenes** Formular ist eine *Auskunft*. Ein Feld darin, das dieser
-  Client nicht setzen kann, wird übergangen — wer daran scheiterte, könnte mit
-  keinem echten Dienst sprechen, denn der bietet ein Dutzend an.
+- A **sent** form is an *instruction*. A field in it that nobody offered is refused —
+  one passed over would be a discarded instruction the sender learns nothing about.
+- An **offered** form is a piece of *information*. A field in it this client cannot
+  set is passed over — whoever failed at that could speak with no real service, for
+  that one offers a dozen.
 
-Das ist kein Widerspruch, sondern die Richtung. Es hat auch eine Grenze, und
-die zeigte eine überlebende Mutation: **Ein Angebot, das die Zustellung gar
-nicht nennt, sagt über sie nichts** — die Vorgabe einzusetzen hiesse, sie zu
-erfinden. Dasselbe eine Ebene höher, ebenfalls von einer Mutation gefunden: Ein
-`result` ohne Formular ist keine Auskunft über die Einstellungen. Aus dem
-Ausbleiben eines Fehlers auf einen Zustand zu schliessen ist die bequemste Art,
-sich etwas einzubilden — und hier besonders heikel, weil die Vorgabe „wird
-zugestellt" sagt: Der Client hielte ein stillgelegtes Abonnement für ein lautes.
+That is no contradiction, but the direction. It also has a limit, and a surviving
+mutation showed it: **an offer that does not name the delivery at all says nothing
+about it** — to put the default in would mean inventing it. The same one level
+higher, likewise found by a mutation: a `result` without a form is no information
+about the settings. To conclude from the staying out of an error to a state is the
+most convenient way of imagining something — and here especially delicate, because
+the default says "is delivered": the client would hold a silenced subscription to be
+a loud one.
 
-Vermerkt wird erst, was der Dienst bestätigt hat — derselbe Fehler wie in D71,
-nur eine Ebene tiefer. Und die Vormerkung trifft **das benannte Abonnement**,
-nicht den Knoten: Eine dritte überlebende Mutation zeigte, dass der Fehler
-stumm wäre, denn der Dienst stellte das richtige ein und nur die eigene
-Buchführung zeigte danach einen Zustand, den es nicht gibt.
+Noted is only what the service has confirmed — the same error as in D71, only one
+level deeper. And the note hits **the named subscription**, not the node: a third
+surviving mutation showed that the error would be mute, for the service set the right
+one and only our own bookkeeping showed a state afterwards that does not exist.
 
-`null` heisst in dieser Buchführung **„nicht gefragt" und nicht „Vorgabe"**.
-Gefragt wird auch dann, wenn schon etwas dasteht: Ein anderes Gerät desselben
-Kontos kann dasselbe Abonnement inzwischen umgestellt haben, und dann wäre die
-eigene Angabe eine Erinnerung und keine Auskunft.
+`null` means in this bookkeeping **"not asked" and not "default"**. Asked it is even
+when something stands there already: another device of the same account can have
+changed the same subscription in the meantime, and then our own entry would be a
+memory and no information.
 
-Die Auswahl des gemeinten Abonnements teilen Abbestellen und Einstellen sich
-jetzt — dieselbe Regel, eine Stelle: **Bei mehreren und ohne Kennung wird gar
-nicht erst gefragt.**
+The choice of the subscription meant is now shared by cancelling and configuring —
+the same rule, one place: **at several and without an id it does not ask in the first
+place.**
 
-Neunundzwanzig Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 1003
-bestanden, 7 übersprungen.
+Twenty-nine tests, fourteen mutations, all struck down. Full run: 1003 passed, 7
+skipped.
 
 ---
 
-### D76. Ein Knoten, bevor etwas darin steht ✅ — Anlegen und Konfigurieren
+### D76. A node before anything stands in it ✅ — creating and configuring
 
-Bisher hiess „es gibt den Knoten" dasselbe wie „es steht etwas darin". Das
-klang harmlos und war es nicht: **Das Anlegen war folgenlos** — der Client
-konnte `<create/>` schicken und bekam `<service-unavailable/>` —, und ein
-Knoten ohne Ablage wäre überhaupt nie abonnierbar gewesen.
+Until now "the node exists" meant the same as "something stands in it". That sounded
+harmless and was not: **the creating was without consequence** — the client could
+send `<create/>` and got `<service-unavailable/>` —, and a node without a store would
+never have been subscribable at all.
 
-Jetzt gibt es beides getrennt: die Einstellungen eines Knotens und seinen
-Inhalt. Ein angelegter Knoten existiert, bevor etwas darin steht.
+Now there are the two separately: the settings of a node and its content. A created
+node exists before anything stands in it.
 
-**Drei Felder, und jedes tut etwas** (XEP-0060 kennt zwei Dutzend):
+**Three fields, and each does something** (XEP-0060 knows two dozen):
 
-- `pubsub#max_items` — was der Knoten behält. Eine kleinere Grenze gilt
-  **sofort** und nicht erst beim nächsten Veröffentlichen: Wer sie setzt, will
-  nicht so viele aufbewahrt wissen, und auf einem Knoten, in dem nie wieder
-  etwas erscheint, bliebe sonst alles liegen.
-- `pubsub#persist_items` — behalten oder nur melden. Ein Knoten ohne Ablage
-  meldet weiterhin; wer nicht zuhörte, hat es verpasst.
-- `pubsub#access_model` — wer an die Einträge kommt. **Gespeichert, aber noch
-  nicht durchgesetzt**; das ist K8, und bis dahin steht es so im README.
+- `pubsub#max_items` — what the node keeps. A smaller bound holds **at once** and
+  not only at the next publishing: whoever sets it does not want so many kept, and on
+  a node in which nothing ever appears again everything would otherwise stay lying.
+- `pubsub#persist_items` — keep or only report. A node without a store still reports;
+  whoever was not listening has missed it.
+- `pubsub#access_model` — who gets at the items. **Stored but not yet enforced**;
+  that is K8, and until then it stands so in the README.
 
-Angeboten wird nur, was wirkt. Bei einem Zugriffsmodell wäre eine Zusage ohne
-Deckung am teuersten: **Wer `whitelist` einstellt und `open` bekommt, glaubt
-seine Einträge geschützt und hat sie veröffentlicht.** Deshalb kennt dieser
-Server `open` und `presence` — und weist alles andere ab, statt es
-freundlich zu `open` zu verkürzen. Eine Mutation, die genau das tat, wurde
-erschlagen.
+Offered is only what has an effect. At an access model a promise without backing
+would be the dearest: **whoever sets `whitelist` and gets `open` believes their items
+protected and has published them.** This is why this server knows `open` and
+`presence` — and refuses everything else instead of kindly shortening it to `open`. A
+mutation that did exactly that was struck down.
 
-Ein Teilformular ändert nur, was darin steht (Abschnitt 8.2.4). Die fehlenden
-Felder mit der Vorgabe zu füllen wäre die naheliegende Abkürzung und eine
-lautlose Änderung dessen, wonach niemand gefragt hat — auch dafür gab es eine
-Mutation.
+A partial form changes only what stands in it (section 8.2.4). To fill the missing
+fields with the default would be the obvious shortcut and a silent change of what
+nobody asked for — for that too there was a mutation.
 
-Und `max_items=0` ist kein Formfehler, sondern eine Falle: Ein Knoten, der
-nichts behalten darf, sähe aus wie einer, in den niemand schreibt.
+And `max_items=0` is no formal error but a trap: a node that may keep nothing would
+look like one nobody writes into.
 
-Nebenbei entstand ein kleiner gemeinsamer Baustein für XEP-0004
-(`DataForm`): Zwei Formulare bauen dieselben Felder und lesen denselben
-Wahrheitswert — zweimal dasselbe zu schreiben heisst, es einmal zu ändern und
-einmal zu vergessen. Ein Formularmodell ist es ausdrücklich nicht.
+Incidentally a small common building block for XEP-0004 arose (`DataForm`): two forms
+build the same fields and read the same truth value — to write the same thing twice
+means changing it once and forgetting it once. A model of forms it expressly is not.
 
-Neununddreissig Tests, vierzehn Mutationen, alle erschlagen. Voller Lauf: 1016
-bestanden, 7 übersprungen.
+Thirty-nine tests, fourteen mutations, all struck down. Full run: 1016 passed, 7
+skipped.
 
 ---
 
-### D77. Eine Bedingung, die seit D66 niemand gelesen hat ✅ — Zugriffsmodell und publish-options
+### D77. A condition nobody has read since D66 ✅ — access model and publish-options
 
-Zwei Dinge, die zusammengehören: Das Zugriffsmodell aus D76 war **gespeichert
-und wirkungslos** — genau die Sorte Zusage, gegen die diese ganze Reihe
-argumentiert. Und die Bedingungen, die OMEMO seit D66 mit jeder Veröffentlichung
-mitschickt, hat **nie jemand angesehen**.
+Two things that belong together: the access model from D76 was **stored and without
+effect** — exactly the sort of promise this whole series argues against. And the
+conditions OMEMO has sent along with every publication since D66 **nobody has ever
+looked at**.
 
-Das zweite ist der stillere Fehler. Der Client verlangte einen offenen Knoten
-für sein Bundle, bekam ein `result` und durfte annehmen, es sei abrufbar. Ein
-`result` auf eine Anfrage mit Bedingungen heisst „Bedingungen erfüllt" — es gab
-sie nur nie. XEP-0384, Abschnitt 5.2 verlangt das offene Modell aus einem
-konkreten Grund: **Wer verschlüsselt schreiben will, muss das Bundle lesen
-können, und das ist im Zweifel jemand, der in keinem Roster steht.**
+The second is the quieter error. The client demanded an open node for its bundle, got
+a `result` and was allowed to assume it was fetchable. A `result` to a request with
+conditions means "conditions fulfilled" — there just never were any. XEP-0384,
+section 5.2 demands the open model for a concrete reason: **whoever wants to write
+encrypted has to be able to read the bundle, and that is in case of doubt somebody who
+stands in no roster.**
 
-Jetzt wirkt beides. `presence` sperrt aus, wer die Presence des Eigentümers
-nicht sehen darf — beim Abrufen wie beim Abonnieren, mit
-`<not-authorized/>` und `<presence-subscription-required/>`. Der Eigentümer
-kommt immer an seinen Knoten; er ist bei sich selbst kein Presence-Abonnent,
-und ein Modell, das ihn aussperrt, hätte den Namen nicht verdient.
+Now both have an effect. `presence` shuts out whoever may not see the presence of the
+owner — at the fetching as at the subscribing, with `<not-authorized/>` and
+`<presence-subscription-required/>`. The owner always gets at their node; they are no
+presence subscriber at themselves, and a model that shut them out would not deserve
+the name.
 
-**Bedingung und Einstellung sind nicht dasselbe**, und der Unterschied liegt in
-einem `null`: Es heisst „danach wird nicht gefragt" und nicht „Vorgabe". Wer
-beides verwechselt, weist eine Veröffentlichung ab, weil der Knoten in einem
-Punkt von der Vorgabe abweicht, über den der Absender nie etwas gesagt hat. Das
-war die einzige überlebende Mutation, und der nachgezogene Test prüft genau
-diesen Satz.
+**A condition and a setting are not the same**, and the difference lies in a `null`:
+it means "that is not asked about" and not "default". Whoever confuses the two refuses
+a publication because the node deviates from the default in a point the sender never
+said anything about. That was the only surviving mutation, and the added test checks
+exactly this sentence.
 
-Eine unerfüllte Bedingung hält die Veröffentlichung **ganz** auf: Ein Dienst,
-der die Bedingung abwiese und den Eintrag trotzdem ablegte, hätte das Gegenteil
-dessen getan, wofür es Bedingungen gibt.
+An unfulfilled condition holds the publication up **entirely**: a service that refused
+the condition and laid the item down all the same would have done the opposite of what
+conditions exist for.
 
-Ehrlich dazugesagt: Das Modell verrät, dass es den Knoten gibt — wer keinen
-Zugriff hat, bekommt `<not-authorized/>` und nicht `<item-not-found/>`. So sieht
-es das XEP vor, und es bleibt eine Auskunft: Für einen Knoten, dessen blosse
-Existenz ein Geheimnis wäre, ist `presence` das falsche Mittel.
+Honestly said with it: the model betrays that the node exists — whoever has no access
+gets `<not-authorized/>` and not `<item-not-found/>`. That is how the XEP provides for
+it, and it stays a piece of information: for a node whose mere existence would be a
+secret, `presence` is the wrong means.
 
-Achtundvierzig Tests, elf Mutationen, alle erschlagen. Voller Lauf: 1025
-bestanden, 7 übersprungen.
-
----
-
-### D78. Anlegen und einstellen in einem Zug ✅ — die Knoten auf der Clientseite
-
-Die Clientseite von D76/D77, und sie hat eine eigene Pointe: **`<create/>` und
-`<configure/>` gehen zusammen hinaus.** Zwei Schritte hätten eine Lücke — der
-Knoten stünde zwischen dem Anlegen und dem Einstellen offen, und wer in dieser
-Zeit fragt, bekommt. XEP-0060, Abschnitt 8.1.3 sieht das nicht ohne Grund vor.
-
-Ansonsten dieselben Regeln wie in D75, und das ist der Punkt: Sie sind nicht
-für die Abonnement-Einstellungen erfunden worden, sondern für Formulare
-überhaupt. Ein `result` ohne Formular ist keine Auskunft — hier wäre die
-Vorgabe besonders irreführend, denn sie sagt `open`, und der Client zeigte
-einen geschützten Knoten als offen an. Ein `type='error'` bleibt eine Absage,
-auch wenn ein vollständiges Formular darin steht; das war die einzige
-überlebende Mutation, und der Test dazu ist wörtlich derselbe Gedanke wie in
-D71.
-
-Die Konsole setzt beim Umstellen des Zugriffs auf dem **gelesenen Stand** auf
-und nicht auf der Vorgabe. Sonst setzte ein `/pubsub access` nebenbei die
-Ablage und die Zahl der Einträge zurück — eine Änderung, nach der niemand
-gefragt hat, und die stillste Art, die eigene Konfiguration zu verlieren.
-
-Vierunddreissig Tests, acht Mutationen, alle erschlagen. Voller Lauf: 1030
-bestanden, 7 übersprungen.
-
-Damit ist die PubSub-Reihe (D70–D78) abgeschlossen. **Was von XEP-0060
-weiterhin fehlt**, und es steht so im README: Sammelabfragen (`<subscriptions/>`,
-`<affiliations/>`), das Löschen und Leeren von Knoten, `<retract/>`, die
-Genehmigungsvorgänge hinter `authorize`, und die Zugriffsmodelle `roster` und
-`whitelist`.
+Forty-eight tests, eleven mutations, all struck down. Full run: 1025 passed, 7
+skipped.
 
 ---
 
-### D79. Die Frage, die sich niemand selbst beantworten kann ✅ — `<subscriptions/>`
+### D78. Creating and setting in one go ✅ — the nodes on the client side
 
-XEP-0060, Abschnitt 5.6: eine Anfrage, und alle eigenen Abonnements stehen da —
-über alle Knoten hinweg, mit Knoten, Kennung und Zustand; auf Wunsch auf einen
-Knoten eingeschränkt.
+The client side of D76/D77, and it has a point of its own: **`<create/>` and
+`<configure/>` go out together.** Two steps would have a gap — the node would stand
+open between the creating and the setting, and whoever asks in this time gets. XEP-0060,
+section 8.1.3 does not provide for that without a reason.
 
-**Der Anlass ist ein Loch, das die letzten Etappen selbst aufgemacht haben.**
-Der `PubSubManager` wird in `InitialiseManagers` erzeugt, und das läuft bei
-jedem Verbindungsaufbau — nur der Stream-Management-Manager überlebt einen
-Reconnect, ausdrücklich und kommentiert. Danach ist die Buchführung leer, die
-Abonnements aber nicht: Sie stehen am Konto und überdauern. Der Client kennt
-also keine einzige `subid` mehr, und seit D72 weist der Dienst ein `unsubscribe`
-ohne Kennung ab, sobald es mehrere gibt. Wer dann neu abonniert, hat zwei und
-kann keines davon beenden.
+Otherwise the same rules as in D75, and that is the point: they were not invented for
+the settings of subscriptions, but for forms in general. A `result` without a form is
+no information — here the default would be especially misleading, for it says `open`,
+and the client would show a protected node as an open one. A `type='error'` stays a
+refusal even when a complete form stands in it; that was the only surviving mutation,
+and the test for it is word for word the same thought as in D71.
 
-Das ist genau die Klemme, mit der ich D72 begründet habe („ein Client startet
-neu und abonniert wieder") — **ohne zu bemerken, dass unser eigener Client bei
-jedem Abriss hineinläuft.**
+The console builds on the **state it has read** at the changing of the access and not
+on the default. Otherwise a `/pubsub access` would incidentally reset the store and
+the number of items — a change nobody asked for, and the quietest way of losing one's
+own configuration.
 
-Die schärfste Regel steht in einem Satz: **Aufgezählt werden die Abonnements
-des Fragenden, nie die eines anderen.** Das ist keine Auslegungsfrage — wer
-fremde aufzählen dürfte, erführe, wer sich wofür interessiert. Eine Auskunft
-über Menschen, nicht über Knoten.
+Thirty-four tests, eight mutations, all struck down. Full run: 1030 passed, 7 skipped.
 
-Und keine Abonnements sind eine leere Liste und kein Fehler: Die Frage war
-beantwortbar, die Antwort lautet „keine". Ein Fehler hiesse etwas anderes —
-dass sich die Frage nicht stellen liess —, und ein Client müsste anschliessend
-raten, woran es lag.
-
-Dreiundfünfzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1035
-bestanden, 7 übersprungen.
+With that the PubSub series (D70–D78) is closed. **What is still missing of
+XEP-0060**, and it stands so in the README: collective queries (`<subscriptions/>`,
+`<affiliations/>`), the deleting and emptying of nodes, `<retract/>`, the procedures
+of approval behind `authorize`, and the access models `roster` and `whitelist`.
 
 ---
 
-### D80. Zurück zu den Kennungen ✅ — die Sammelabfrage auf der Clientseite
+### D79. The question nobody can answer for themselves ✅ — `<subscriptions/>`
 
-Die Gegenseite zu D79, und mit ihr ist die Klemme aus D72 auflösbar: Der Client
-holt seine Abonnements beim Dienst und weiss danach wieder, was er hält. **Ein
-Test spannt den ganzen Bogen** — zwei Abonnements anlegen, die Verbindung
-abreissen lassen, prüfen dass die Buchführung wirklich leer ist (sonst prüfte er
-nichts), abholen, und mit der wiedergefundenen Kennung abbestellen.
+XEP-0060, section 5.6: one request, and all our own subscriptions stand there —
+across all nodes, with node, id and state; on request narrowed to one node.
 
-Drei Unterscheidungen, jede von einer überlebenden Mutation erzwungen:
+**The occasion is a hole the last stages made themselves.** The `PubSubManager` is
+created in `InitialiseManagers`, and that runs at every building of a connection —
+only the stream management manager survives a reconnect, expressly and with a comment.
+Afterwards the bookkeeping is empty, the subscriptions however are not: they stand at
+the account and outlast. The client therefore knows not a single `subid` any more, and
+since D72 the service refuses an `unsubscribe` without an id as soon as there are
+several. Whoever then subscribes anew has two and can end none of them.
 
-- **Eine leere Aufzählung ist etwas anderes als eine fehlende.** Leer heisst „du
-  hast keine" und leert die Buchführung zu Recht; fehlend heisst „darüber steht
-  hier nichts". Beides gleichzusetzen kostet die ganze Buchführung — die
-  Kennungen wären weg, obwohl die Abonnements bestehen.
-- **Eine Aufzählung gilt für ihren Dienst**, nicht für alle. Aus dem Schweigen
-  des einen auf das Ende der Abonnements beim anderen zu schliessen wäre ein
-  Verlust ohne Anlass. Ebenso bei der Einschränkung auf einen Knoten: Wonach
-  nicht gefragt wurde, bleibt stehen.
-- **Was aufgezählt wird, ist nicht immer ein Abonnement.** Abschnitt 5.6 nennt
-  jeden Zustand, auch `pending`. Der eigene Server sagt immer `subscribed`; ein
-  fremder mit Genehmigungsvorgang tut es nicht — und dann stünde ein
-  beantragtes Abonnement als bestehendes da. Derselbe Fehler wie in D71, nur
-  über die Sammelabfrage hereingetragen.
+That is exactly the fix I gave as the reason for D72 ("a client restarts and
+subscribes again") — **without noticing that our own client runs into it at every
+break.**
 
-**Von selbst geschieht nichts.** Ein Client, der bei jedem Verbindungsaufbau
-ungefragt einen PubSub-Dienst anspräche, schickte eine Anfrage für ein Merkmal,
-das die meisten nie benutzen — und gegen eine Adresse, die es womöglich gar
-nicht gibt. Die Konsole hat dafür zwei Befehle statt eines: `abos` zeigt, was
-dieser Client zu wissen glaubt, `sync` fragt den Dienst. Das sind zwei
-verschiedene Fragen, und diese Reihe hat sich neun Etappen lang daran
-abgearbeitet, sie auseinanderzuhalten.
+The sharpest rule stands in one sentence: **enumerated are the subscriptions of the
+one asking, never those of another.** That is no question of interpretation — whoever
+were allowed to enumerate foreign ones would learn who is interested in what. A piece
+of information about humans, not about nodes.
 
-Einundvierzig Tests, neun Mutationen, alle erschlagen. Voller Lauf: 1042
-bestanden, 7 übersprungen.
+And no subscriptions are an empty list and no error: the question was answerable, the
+answer reads "none". An error would mean something else — that the question could not
+be put —, and a client would afterwards have to guess what it was down to.
 
-**Was von den Sammelabfragen bleibt**: `<affiliations/>` (Abschnitt 5.7) und die
-Eigentümer-Sicht auf die Abonnenten eines Knotens (Abschnitt 8.8). Das erste
-wäre heute fast leer — dieser Server kennt keine Affiliations, ein PEP-Knoten
-gehört seinem Konto und alle anderen haben nichts. Es lohnt sich erst, wenn
-`publisher`, `member` und `outcast` beim Veröffentlichen und Abonnieren
-tatsächlich etwas entscheiden; vorher stellte man eine Rolle ein, die niemand
-prüft.
+Fifty-three tests, seven mutations, all struck down. Full run: 1035 passed, 7 skipped.
 
 ---
 
-### D81. Rollen, die etwas entscheiden ✅ — Affiliations
+### D80. Back to the ids ✅ — the collective query on the client side
 
-In D80 stand, `<affiliations/>` lohne sich erst, wenn `publisher`, `member` und
-`outcast` beim Veröffentlichen und Abonnieren tatsächlich etwas entscheiden.
-Also nicht die Aufzählung zuerst, sondern das, was sie aufzählt:
+The other side to D79, and with it the fix from D72 is resolvable: the client fetches
+its subscriptions from the service and knows afterwards again what it holds. **One
+test spans the whole arc** — create two subscriptions, let the connection break,
+check that the bookkeeping really is empty (otherwise it would check nothing), fetch,
+and cancel with the id found again.
 
-- **`publisher`** darf in einen fremden Knoten schreiben. Die Meldung kommt
-  trotzdem **vom Eigentümer** — käme sie vom Schreibenden, wäre sie eine
-  Falschaussage über die Herkunft, und der Spoofing-Schutz des Empfängers hätte
-  recht, sie zu verwerfen.
-- **`outcast`** kommt an keinen Knoten, gleich wie offen der steht, **und
-  verliert bestehende Abonnements** (Abschnitt 8.9.4). Ihn nur an neuen zu
-  hindern hiesse, den Ausschluss von dem Zufall abhängig zu machen, ob er
-  vorher schon da war.
-- **`member`** entscheidet noch nichts — das ist K13, und bis dahin steht es so
-  im README. Angeboten wird die Rolle trotzdem, weil sie sich sonst nicht
-  vergeben liesse, bevor das Zugriffsmodell sie braucht.
+Three distinctions, each forced by a surviving mutation:
 
-**Der Eigentümer ist kein Eintrag, sondern das Konto.** Er steht in der Liste,
-ohne dass ihn jemand eingetragen hätte, und lässt sich nicht umtragen: Wer das
-könnte, könnte einem anderen sein eigenes Konto wegnehmen.
+- **An empty enumeration is something other than a missing one.** Empty means "you
+  have none" and empties the bookkeeping rightly; missing means "about that nothing
+  stands here". To equate the two costs the whole bookkeeping — the ids would be gone
+  although the subscriptions exist.
+- **An enumeration holds for its service**, not for all. To conclude from the silence
+  of the one to the end of the subscriptions at the other would be a loss without an
+  occasion. Likewise at the narrowing to one node: what was not asked about stays
+  standing.
+- **What is enumerated is not always a subscription.** Section 5.6 names every state,
+  `pending` as well. Our own server always says `subscribed`; a foreign one with a
+  procedure of approval does not — and then an applied-for subscription would stand
+  there as an existing one. The same error as in D71, only carried in over the
+  collective query.
 
-Zwei Absagen statt einer, weil sie Verschiedenes sagen: `<not-authorized/>`
-heisst „dieser Knoten steht dir nicht offen" und nennt mit
-`<presence-subscription-required/>` den Weg hinein; `<forbidden/>` für einen
-Ausgeschlossenen sagt „du nicht", und einen Weg gibt es nicht. Ihn auf eine
-Presence-Anfrage zu schicken, die nichts ändern wird, wäre eine falsche
-Auskunft.
+**Of itself nothing happens.** A client that spoke to a PubSub service unasked at
+every building of a connection would send a request for a feature most never use — and
+against an address that possibly does not exist at all. The console has two commands
+for that instead of one: `subs` shows what this client believes it knows, `sync` asks
+the service. Those are two different questions, and this series has worked at telling
+them apart for nine stages.
 
-## Drei Mutationen gegen Code, der nichts entschied
+Forty-one tests, nine mutations, all struck down. Full run: 1042 passed, 7 skipped.
 
-Sie überlebten nicht, weil Tests fehlten, sondern weil es an drei Stellen
-**zwei Wege zu derselben Entscheidung** gab:
-
-- Die Eigentümer-Erkennung in `PepAffiliationOf` wurde nirgends benutzt — das
-  Veröffentlichen verglich stattdessen JIDs. Jetzt fragt es nach der Rolle, und
-  die Regel steht einmal statt zweimal: **schreiben darf, wer besitzt oder wem
-  der Besitzer es erlaubt hat.**
-- Der Ausschluss wurde in `MayAccessPepNode` <i>und</i> in der Fehlerauswahl
-  geprüft. Die zweite Prüfung entscheidet, also ist die erste weg.
-- Und die eigens geschriebene Prüfung „ein Publizierender legt keine Knoten an"
-  war unerreichbar: **An einem Knoten, den es nicht gibt, hat niemand eine
-  Rolle**, die Absage kommt schon von der Rollenprüfung. Der Test dazu prüft
-  jetzt die Regel dahinter — eine Rolle gehört einem Knoten und nicht einem
-  Konto.
-
-Vierundsechzig Tests, fünfzehn Mutationen, alle erschlagen. Voller Lauf: 1053
-bestanden, 7 übersprungen.
+**What remains of the collective queries**: `<affiliations/>` (section 5.7) and the
+owner's view of the subscribers of a node (section 8.8). The first would be almost
+empty today — this server knows no affiliations, a PEP node belongs to its account and
+all others have nothing. It is worth it only when `publisher`, `member` and `outcast`
+really decide something at the publishing and subscribing; before that one would set a
+role nobody checks.
 
 ---
 
-### D82. Eine Liste entsteht nicht nebenbei ✅ — `whitelist`
+### D81. Roles that decide something ✅ — affiliations
 
-Das dritte Zugriffsmodell, und der einzige Grund, aus dem es diese Etappe gibt:
-**`member` entschied bis hierher nichts.** Die Rolle war vergebbar und
-folgenlos — in D81 ausdrücklich so notiert, damit sie sich vergeben lässt,
-bevor das Modell sie braucht. Jetzt braucht es sie.
+In D80 it stood that `<affiliations/>` is worth it only when `publisher`, `member` and
+`outcast` really decide something at the publishing and subscribing. So not the
+enumeration first, but what it enumerates:
 
-Der Unterschied zu `presence` ist der Punkt: **Presence-Berechtigung entsteht
-nebenbei.** Jemand nimmt einen Kontakt auf, und schon sieht er mehr. Eine Liste
-entsteht nicht nebenbei — auf ihr steht nur, wen der Eigentümer ausdrücklich
-daraufgesetzt hat. Der Test hält das fest, indem Carol Kontakt ist und trotzdem
-draussen bleibt.
+- **`publisher`** may write into a foreign node. The report comes **from the owner**
+  all the same — came it from the one writing, it would be a false statement about the
+  origin, and the protection against spoofing of the recipient would be right to
+  discard it.
+- **`outcast`** gets at no node, however open it stands, **and loses existing
+  subscriptions** (section 8.9.4). To hinder them only at new ones would mean making
+  the exclusion depend on the chance of whether they were there before.
+- **`member`** decides nothing yet — that is K13, and until then it stands so in the
+  README. The role is offered all the same, because it could otherwise not be given
+  out before the access model needs it.
 
-Zwei Entscheidungen, die auch anders hätten ausfallen können:
+**The owner is no entry but the account.** They stand in the list without anybody
+having entered them, and cannot be re-entered: whoever could do that could take their
+own account away from another.
 
-- **Ein `publisher` steht auch auf der Liste.** Alles andere wäre eine Rolle,
-  die man nur mit einer zweiten zusammen gebrauchen kann, und der Eigentümer
-  müsste bei jedem Publizierenden daran denken, ihn zusätzlich zum Mitglied zu
-  machen.
-- **Der Ausschluss steht über dem Modell.** Ein Ausgeschlossener, den jemand
-  versehentlich auf die Liste setzt, bleibt draussen — sonst hinge der
-  Ausschluss davon ab, in welcher Reihenfolge zwei Anweisungen kamen.
+Two refusals instead of one, because they say different things: `<not-authorized/>`
+means "this node does not stand open to you" and names the way in with
+`<presence-subscription-required/>`; `<forbidden/>` for somebody excluded says "not
+you", and there is no way. To send them onto a presence request that will change
+nothing would be a piece of false information.
 
-Nebenbei aufgeräumt: Das Zugriffsmodell wurde an **vier Stellen** gelesen und
-geschrieben — Knotenformular hin, Knotenformular zurück, Bedingungen einer
-Veröffentlichung, Serverprüfung. Vier Stellen, die dieselbe Liste führen,
-führen sie irgendwann verschieden, und die eine, die ein Modell nicht kennt,
-lässt es still als `open` durchgehen. Jetzt gibt es eine.
+## Three mutations against code that decided nothing
 
-Ein Test aus D76 musste umgeschrieben werden: Er benutzte `whitelist` als
-Beispiel für ein nicht angebotenes Modell. Er prüft jetzt `authorize` — der
-Genehmigungsvorgang dahinter fehlt weiterhin, und darum wird es abgewiesen.
+They survived not because tests were missing, but because there were **two ways to the
+same decision** at three places:
 
-Achtundsechzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1057
-bestanden, 7 übersprungen.
+- The recognition of the owner in `PepAffiliationOf` was used nowhere — the publishing
+  compared JIDs instead. Now it asks after the role, and the rule stands once instead
+  of twice: **write may whoever owns or whoever the owner has allowed it.**
+- The exclusion was checked in `MayAccessPepNode` <i>and</i> in the choice of the
+  error. The second check decides, so the first is gone.
+- And the specially written check "somebody publishing creates no nodes" was
+  unreachable: **at a node that does not exist nobody has a role**, the refusal comes
+  from the check of the role already. The test for it now checks the rule behind it —
+  a role belongs to a node and not to an account.
+
+Sixty-four tests, fifteen mutations, all struck down. Full run: 1053 passed, 7 skipped.
 
 ---
 
-### D83. Zum dritten Mal dieselbe Stelle ✅ — Rollen auf der Clientseite
+### D82. A list does not arise incidentally ✅ — `whitelist`
 
-Vergeben, nachsehen, wirken lassen — die Clientseite von D81/D82. Drei Fragen,
-die auseinandergehalten gehören: **was habe ich vergeben** (Abschnitt 8.9.1),
-**was bin ich anderswo** (5.7), und darf ich, was die Rolle verspricht.
+The third access model, and the only reason this stage exists: **`member` decided
+nothing up to here.** The role was givable and without consequence — noted expressly
+that way in D81 so that it can be given out before the model needs it. Now it needs
+it.
 
-Beide Listen sehen gleich aus und werden von einer Stelle gelesen; sie
-unterscheiden sich im Namensraum und darin, ob der Eintrag einen Knoten oder
-einen JID nennt. Zwei Mutationen haben genau diese Verwechslung geprüft.
+The difference to `presence` is the point: **presence authorisation arises
+incidentally.** Somebody takes a contact on, and already they see more. A list does not
+arise incidentally — on it stands only whoever the owner has expressly put on it. The
+test holds that fast by Carol being a contact and staying outside all the same.
 
-**Ein Eintrag mit einer unbekannten Rolle lässt die ganze Liste scheitern**,
-statt still zu fehlen. Eine Liste, aus der einzelne Zeilen verschwinden, ist
-schlimmer als keine: Wer sie ansieht, hält jemanden für rechtlos, der es nicht
-ist — und nimmt ihm womöglich auch noch die Rolle, die er zu haben glaubte.
+Two decisions that could have turned out differently:
 
-Und die überlebende Mutation war zum dritten Mal dieselbe: **Ein `type='error'`
-bleibt eine Absage, auch wenn eine vollständige Liste darin steht.** Ohne die
-Prüfung auf den Typ hinge die Ablehnung daran, dass in einer Fehlerantwort
-zufällig keine Liste steht. Hier wäre die Verwechslung besonders unangenehm —
-der Client zeigte eine Rollenliste an, die er nicht einsehen darf, und der
-Eigentümer erführe daraus, dass sein Knoten offener steht, als er steht.
+- **A `publisher` stands on the list as well.** Anything else would be a role one can
+  use only together with a second, and the owner would have to think at every one
+  publishing of additionally making them a member.
+- **The exclusion stands above the model.** Somebody excluded whom another puts on the
+  list by mistake stays outside — otherwise the exclusion would depend on the order in
+  which two instructions came.
 
-Beim Testschreiben eine eigene Falle vermieden: `Assert.Multiple` nimmt eine
-`Action`. Ein `async`-Lambda darin liefe als `async void` weiter, und die
-Zusicherungen fielen womöglich nach dem Block — also nirgends. Erst awaiten,
-dann prüfen.
+Incidentally cleared up: the access model was read and written at **four places** —
+node form there, node form back, conditions of a publication, check at the server.
+Four places that keep the same list keep it differently at some point, and the one
+that does not know a model lets it through silently as `open`. Now there is one.
 
-Fünfundvierzig Tests, sieben Mutationen, alle erschlagen. Voller Lauf: 1061
-bestanden, 7 übersprungen.
+A test from D76 had to be rewritten: it used `whitelist` as an example of a model not
+offered. It now checks `authorize` — the procedure of approval behind it is still
+missing, and that is why it is refused.
 
-Damit sind die Rollen fertig (D81–D83) und von XEP-0060 bleibt: die
-Eigentümer-Sicht auf die **Abonnenten** eines Knotens (Abschnitt 8.8), das
-Löschen und Leeren von Knoten, `<retract/>`, sowie die Zugriffsmodelle
-`authorize` und `roster` — für die es einen Genehmigungsvorgang und
-Rostergruppen als Zugriffsregel bräuchte.
+Sixty-eight tests, seven mutations, all struck down. Full run: 1057 passed, 7 skipped.
+
+---
+
+### D83. The same place for the third time ✅ — roles on the client side
+
+Give out, look up, let take effect — the client side of D81/D82. Three questions that
+belong told apart: **what have I given out** (section 8.9.1), **what am I elsewhere**
+(5.7), and may I do what the role promises.
+
+Both lists look the same and are read by one place; they differ in the namespace and
+in whether the entry names a node or a JID. Two mutations checked exactly this
+confusion.
+
+**An entry with an unknown role lets the whole list fail**, instead of being missing
+silently. A list from which single lines disappear is worse than none: whoever looks at
+it holds somebody to be without rights who is not — and possibly takes from them the
+role they believed they had as well.
+
+And the surviving mutation was the same one for the third time: **a `type='error'`
+stays a refusal even when a complete list stands in it.** Without the check on the type
+the refusal would hang on there happening to be no list in an error answer. Here the
+confusion would be especially unpleasant — the client would show a list of roles it
+may not see, and the owner would learn from it that their node stands more open than it
+does.
+
+At the writing of the tests a trap of my own avoided: `Assert.Multiple` takes an
+`Action`. An `async` lambda in it would run on as `async void`, and the assurances
+would possibly fall after the block — that is, nowhere. First await, then check.
+
+Forty-five tests, seven mutations, all struck down. Full run: 1061 passed, 7 skipped.
+
+With that the roles are finished (D81–D83) and of XEP-0060 there remains: the owner's
+view of the **subscribers** of a node (section 8.8), the deleting and emptying of
+nodes, `<retract/>`, as well as the access models `authorize` and `roster` — for which
+a procedure of approval and roster groups as a rule of access would be needed.
 
 ---
 
