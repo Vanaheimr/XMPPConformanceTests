@@ -44,8 +44,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// What is checked stands in
     /// <see cref="AForeignPeerStreamManagementTests"/>.
     /// </remarks>
+    // No WSL category here either - see the note in ProsodyStreamManagementTests.
     [TestFixture]
-    [Category("ejabberd")]
+    [Category(TestCategories.Ejabberd)]
     public class EjabberdStreamManagementTests : AForeignPeerStreamManagementTests
     {
 

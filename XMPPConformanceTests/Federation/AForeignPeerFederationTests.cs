@@ -322,7 +322,12 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         ///
         /// <b>Only inside WSL.</b> From Windows the far end does not reach us.
         /// </remarks>
+        // On the method rather than on this class, to keep one rule for both
+        // abstract bases: the stream-management one has a test that needs no
+        // far side, so the category has to sit per method there. Here every
+        // test would qualify, and stating it the same way costs nothing.
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task ThePeerTakesTheReturnPathWeOffered()
         {
 

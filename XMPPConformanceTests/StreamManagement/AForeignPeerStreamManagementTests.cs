@@ -384,7 +384,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// - after the bind, before everything further. If it stands wrongly, a
         /// <c>&lt;failed/&gt;</c> comes instead of an <c>&lt;enabled/&gt;</c>.
         /// </remarks>
+        // The category sits on the methods and not on this class, which is
+        // unusual and load-bearing: seven of these eight tests need the far
+        // side, and ThePatienceCoversWhatTheClientMayTake does not. A category
+        // on the fixture would cover that one too - NUnit has no way to take
+        // one off again - and `TestCategory!=WSL` would then select nothing at
+        // all. A gate that runs zero tests passes.
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task TheServerAcceptsOurEnable()
         {
 
@@ -414,6 +421,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// would get away with it.
         /// </remarks>
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task TheServerCountsTheSetupExactlyAsWeDo()
         {
 
@@ -468,6 +476,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// that something is measured at all.
         /// </remarks>
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task NonzasDoNotAdvanceTheCount()
         {
 
@@ -580,6 +589,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// admissible and would not show up here.
         /// </remarks>
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task OurInboundCountIsNotTooHigh()
         {
 
@@ -608,6 +618,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// <c>&lt;enable resume='true'/&gt;</c>.
         /// </remarks>
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task TheServerPromisesToKeepTheStream()
         {
 
@@ -649,6 +660,11 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// computation: otherwise the test would check the formula against
         /// itself.
         /// </remarks>
+        // Deliberately without a category: this one reads two numbers out of
+        // our own code and compares them. It touches no socket and needs no far
+        // side, which makes it the entire content of the CI gate - `dotnet test
+        // --filter "TestCategory!=WSL"` selects this method, once per concrete
+        // fixture, and nothing else.
         [Test]
         public void ThePatienceCoversWhatTheClientMayTake()
         {
@@ -686,6 +702,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// address.
         /// </remarks>
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task TheStreamSurvivesABrokenConnection()
         {
 
@@ -741,6 +758,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// one, only presence does not.
         /// </remarks>
         [Test]
+        [Category(TestCategories.Wsl)]
         public async Task TheServerHoldsBackWhatArrivedDuringTheOutage()
         {
 

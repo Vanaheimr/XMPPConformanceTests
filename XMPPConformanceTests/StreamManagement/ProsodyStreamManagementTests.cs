@@ -37,8 +37,11 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// What is checked stands in
     /// <see cref="AForeignPeerStreamManagementTests"/>.
     /// </remarks>
+    // No WSL category here, and that is not an oversight: it would cover
+    // ThePatienceCoversWhatTheClientMayTake as well, which needs no far side
+    // and is what the gate runs. The base class carries it per method instead.
     [TestFixture]
-    [Category("Prosody")]
+    [Category(TestCategories.Prosody)]
     public class ProsodyStreamManagementTests : AForeignPeerStreamManagementTests
     {
 

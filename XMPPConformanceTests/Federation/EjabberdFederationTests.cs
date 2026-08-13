@@ -44,7 +44,8 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// when no ejabberd answers on 25269.
     /// </remarks>
     [TestFixture]
-    [Category("ejabberd")]
+    [Category(TestCategories.Ejabberd)]
+    [Category(TestCategories.Wsl)]
     public class EjabberdFederationTests : AForeignPeerFederationTests
     {
 

@@ -38,8 +38,12 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// <see cref="AForeignPeerFederationTests"/>; what stands here is only what
     /// is peculiar to Prosody.
     /// </remarks>
+    // Here the WSL category can sit on the fixture, because every test in it
+    // needs Prosody - the four of its own and the one it inherits. That is not
+    // so in the stream-management pair, where it has to go per method.
     [TestFixture]
-    [Category("Prosody")]
+    [Category(TestCategories.Prosody)]
+    [Category(TestCategories.Wsl)]
     public class ProsodyFederationTests : AForeignPeerFederationTests
     {
 

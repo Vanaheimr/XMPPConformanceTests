@@ -26,6 +26,12 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Ratatoskr;
 
+// System.ComponentModel is here for the Win32Exception the oracle call catches,
+// and it brings a CategoryAttribute of its own along with it. Against NUnit's
+// that is CS0104 and not a silent pick of the wrong one - but only for this
+// file, which is why the alias stands here and not with the other tests.
+using Category = NUnit.Framework.CategoryAttribute;
+
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
@@ -61,7 +67,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// envelope stays out of it - python-omemo leaves it to the application
     /// using it.
     /// </remarks>
+    // The whole fixture needs the far side, so the category sits here. Since
+    // d39656e a missing one skips instead of throwing out of [OneTimeSetUp],
+    // which is what makes the category a selector rather than a shield: the
+    // gate excludes these because they cannot measure anything without
+    // python-omemo, not because they would go red.
     [TestFixture]
+    [Category(TestCategories.Wsl)]
+    [Category(TestCategories.Omemo)]
     public class OmemoOracleTests
     {
 
