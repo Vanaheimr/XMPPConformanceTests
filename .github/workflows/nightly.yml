@@ -1,0 +1,291 @@
+name: Nightly
+
+# The counterpart to ci.yml, which gates every push on a build and two tests.
+# This is where the repository actually does what its name says: it installs
+# Prosody and ejabberd and runs the federation and stream-management suites
+# against them.
+#
+# Why that cannot be the gate: the setups fetch Debian packages at run time, so
+# a red run can mean "the mirror was slow" as easily as "the federation broke".
+# A merge must not hang on that. Read this workflow for the conformance
+# verdict and ci.yml for whether it compiles.
+#
+# The interop lane is the main reason this workflow exists, and the reason it
+# can exist at all is a detail of how the tests decide to skip: the ones marked
+# "only inside WSL" gate on `OperatingSystem.IsLinux()`, not on WSL. On the
+# Windows developer machine they skip because the Hyper-V firewall discards
+# every connection from WSL to the host, so the far side cannot dial *in*. In
+# this container there is no such border — the peers are native, on the same
+# loopback as the server under test — so those tests run instead of skipping.
+# Measured before this file was written: with Prosody alone, on Debian 13, all
+# thirteen Prosody tests pass, including the four that skip on Windows.
+#
+# The OMEMO oracle is the third far side here, and it took the same step to get
+# in. It used to be reached with `wsl -d Debian` and a Windows path rewritten to
+# /mnt/c/… — a Windows-host assumption baked into the test rather than into the
+# oracle — so on Linux `Process.Start("wsl")` threw before the probe could
+# decide to skip and the three tests came out RED, saying "the oracle is not to
+# be found" while the checkout was perfectly fine. They now gate on
+# `OperatingSystem.IsLinux()` like everything else and start python3 directly,
+# which is why this container installs python-omemo and runs them instead of
+# excluding them by name.
+#
+# Two things worth knowing about scheduled workflows: they only ever run on the
+# default branch, and GitHub disables them after 60 days without repository
+# activity. If this stops reporting, that is the first thing to check.
+on:
+  schedule:
+    # 03:41 UTC. Off the hour on purpose: GitHub's scheduler is busiest then
+    # and delays runs by tens of minutes.
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # The suite against real far sides, at the revisions the gitlinks pin.
+  # ---------------------------------------------------------------------------
+  interop:
+    name: interop (pinned submodules)
+    runs-on: ubuntu-latest
+    container: debian:13
+    steps:
+
+      # git must be installed BEFORE the checkout: without a git binary,
+      # actions/checkout silently falls back to a REST tarball, which cannot
+      # fetch submodules — and libs/Ratatoskr IS the system under test.
+      - name: Install git and the .NET prerequisites
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata
+
+      # What the two setup scripts need beyond the packages they fetch
+      # themselves. They deliberately install nothing: `apt-get download` plus
+      # `dpkg-deb -x` unpacks Prosody and ejabberd into a prefix under $HOME, so
+      # neither needs root and neither leaves anything behind — which is why
+      # the same scripts serve the developer's WSL and this container without a
+      # variant. openssl generates the test CA and the certificates, procps
+      # provides the `pkill` they use to clear a previous run.
+      #
+      # `apt-get download` still needs the package lists, which the step above
+      # has already fetched.
+      # openssl generates the test CA and the certificates, procps provides the
+      # `pkill` both scripts use to clear a previous run, and wget is how the
+      # ejabberd setup fetches its forty-one Erlang packages — it asks apt for
+      # the URIs (`--print-uris`) rather than maintaining the list, then
+      # downloads them itself. None of the three is in the bare debian:13
+      # image; ca-certificates, which wget needs for HTTPS, came with the step
+      # above. No xz-utils: dpkg-deb decompresses the data member itself.
+      #
+      # python3 is the third far side's interpreter. Trixie ships 3.13.5, and
+      # fetch_oracle.py asks PyPI for manylinux/cp313 wheels — the two have to
+      # agree, or the native parts of the reference implementation do not
+      # import.
+      - name: Install what the far sides need
+        run: apt-get install -y --no-install-recommends openssl procps python3 wget
+
+      # `true` rather than `recursive`; none of the four carries submodules of
+      # its own, so the two do the same thing today. See the longer note in
+      # ci.yml for why that was not always true.
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release
+
+      # Prosody 13.0.1 and ejabberd 24.12 out of trixie — the versions Debian
+      # 13 ships, which is what the developer's WSL Debian installs too, so
+      # this lane and that machine judge Ratatoskr by the same peers.
+      #
+      # Both scripts start their peer and then check that it came up; a failure
+      # to launch exits non-zero here rather than turning into a wall of
+      # skipped tests further down. That distinction is the whole point of the
+      # skip counts below.
+      - name: Set up Prosody
+        run: bash tools/prosody/setup.sh
+
+      - name: Set up ejabberd
+        run: bash tools/ejabberd/setup.sh
+
+      # The third far side, and the one this repository cannot do without on
+      # principle: OMEMO checked against ourselves agrees even where both sides
+      # compute the same wrong thing, which in D62 to D65 was the finding five
+      # times over. python-omemo (Syndace) is the reference implementation for
+      # `urn:xmpp:omemo:2` and the only peer here nobody in this house wrote.
+      #
+      # The script fetches wheels and unpacks them onto a directory — no pip,
+      # no venv, nothing installed, nothing left behind — into exactly the path
+      # OmemoOracleTests puts on the PYTHONPATH.
+      #
+      # No `continue-on-error`, for the same reason the two peer setups check
+      # that their peer came up: a fetch that failed has to be a failed step
+      # here and not three quietly skipped tests further down.
+      - name: Set up the OMEMO oracle
+        run: python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
+
+      # The two variables are what the tests read to find the test CA; without
+      # them every far-side test skips with "points at no test CA", which is a
+      # green run that measured nothing. They still say JABBER_ rather than
+      # XMPP_: D99 left them alone on purpose, because they live in the
+      # environment of whoever runs the tests and renaming them would silently
+      # skip every check until each machine had been changed over.
+      #
+      # Unfiltered since the OMEMO lane came in. It used to exclude
+      # OmemoOracleTests by name, because the oracle was reached through
+      # `wsl -d Debian` and the three tests went red on any Linux; now they run
+      # here like everything else, and the exclusion would be the one thing
+      # keeping the reference implementation out of CI.
+      #
+      # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
+      # the gate's `TestCategory!=WSL` and would run 27 of these 29. The two
+      # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
+      # side and costs nothing to run again here — and running the whole suite
+      # in one step keeps the expected numbers below a single pair rather than
+      # two that have to be added up.
+      #
+      # Expect 29 tests, 29 passed, 0 skipped. The 26 without OMEMO were
+      # measured on Debian 13 with both peers, in eleven seconds; the three
+      # OMEMO tests were measured against python-omemo in WSL Debian 13. A skip
+      # here is a finding: it means a peer did not come up or the oracle did
+      # not import, and the reason will be in the TRX.
+      #
+      # The two variables are exported in the shell rather than declared under
+      # `env:`, because they have to contain $HOME and a step-level `env:`
+      # value is not passed through a shell — `$HOME/prosody-test/certs` would
+      # arrive at the test as those literal eleven characters plus a path, and
+      # every far-side test would skip with "points at no test CA". A green run
+      # that measured nothing, in other words, which is the one failure mode
+      # this repository has been caught by twice.
+      - name: Test (federation, stream management and OMEMO against real far sides)
+        timeout-minutes: 45
+        run: |
+          export JABBER_PROSODY_CERTS="$HOME/prosody-test/certs"
+          export JABBER_EJABBERD_CERTS="$HOME/ejabberd-test/certs"
+          dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release --no-build \
+            --logger "console;verbosity=normal" \
+            --logger "trx;LogFilePrefix=interop" \
+            --results-directory artifacts
+
+      # When a federation test goes red the peer's own log is usually the
+      # shorter way to the reason than the stanza trace on our side — Prosody
+      # says plainly when it rejected a certificate or refused a dialback.
+      - name: Collect the peer logs
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p artifacts/peer-logs
+          cp "$HOME/prosody-test/prosody.log"   artifacts/peer-logs/ 2>/dev/null || true
+          cp "$HOME/prosody-test/prosody.out"   artifacts/peer-logs/ 2>/dev/null || true
+          cp "$HOME/ejabberd-test"/logs/*.log   artifacts/peer-logs/ 2>/dev/null || true
+
+      # TRX preserves the skip reasons, which in this repository is most of
+      # what a run says when something did not come up — and the evidence when
+      # a lane goes red.
+      #
+      # !cancelled() rather than success(): a red run is when these files
+      # matter most, and uploading only on green would throw away the evidence
+      # in exactly that case.
+      - name: Upload test results and peer logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-interop
+          path: artifacts/**
+
+  # ---------------------------------------------------------------------------
+  # The referee job: the same lane, against Ratatoskr's current master.
+  # ---------------------------------------------------------------------------
+  against-ratatoskr-master:
+    # The job above tests the revisions the gitlinks pin, which is the right
+    # question for "would a fresh clone still federate". It is the wrong
+    # question for what this repository is — a suite that can be pointed at any
+    # Ratatoskr revision. Nothing in the gate notices when Ratatoskr moves,
+    # because a push over there does not touch this repository at all, and the
+    # pins do drift: at the time of writing libs/Hermod was pinned 59 commits
+    # behind the master it is built against on the developer's machine.
+    #
+    # Same lane, one variable changed. Red here and green above means
+    # Ratatoskr (or Hermod or Styx underneath it) changed in a way a real far
+    # side can see — which is a finding, not a build failure, and that is why
+    # it is a separate job rather than a second step.
+    name: interop (submodules at master)
+    runs-on: ubuntu-latest
+    container: debian:13
+    steps:
+      - name: Install git and the .NET prerequisites
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata
+
+      # openssl generates the test CA and the certificates, procps provides the
+      # `pkill` both scripts use to clear a previous run, and wget is how the
+      # ejabberd setup fetches its forty-one Erlang packages — it asks apt for
+      # the URIs (`--print-uris`) rather than maintaining the list, then
+      # downloads them itself. None of the three is in the bare debian:13
+      # image; ca-certificates, which wget needs for HTTPS, came with the step
+      # above. No xz-utils: dpkg-deb decompresses the data member itself.
+      # python3 is the OMEMO oracle's interpreter; the longer note stands in
+      # the job above.
+      - name: Install what the far sides need
+        run: apt-get install -y --no-install-recommends openssl procps python3 wget
+
+      # `true` rather than `recursive`; none of the four carries submodules of
+      # its own, so the two do the same thing today. See the longer note in
+      # ci.yml for why that was not always true.
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # safe.directory because the checkout is owned by a different uid than
+      # the one this container runs as, and git refuses to operate otherwise.
+      - name: Move the submodules to master
+        run: |
+          git config --global --add safe.directory '*'
+          git submodule foreach 'git fetch origin master && git checkout FETCH_HEAD'
+          echo "### Submodule revisions under test" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git submodule status >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release
+
+      - name: Set up Prosody
+        run: bash tools/prosody/setup.sh
+
+      - name: Set up ejabberd
+        run: bash tools/ejabberd/setup.sh
+
+      # The same third far side as above, and it belongs here for the reason
+      # this job exists at all: OMEMO is Ratatoskr's own code, so the question
+      # "did master break what a foreign implementation can read" is exactly
+      # the one this lane is meant to answer. Left out, the three would skip
+      # here and pass there, and the referee would be silent about the one
+      # thing it is closest to.
+      - name: Set up the OMEMO oracle
+        run: python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
+
+      - name: Test (against Ratatoskr master)
+        timeout-minutes: 45
+        run: |
+          export JABBER_PROSODY_CERTS="$HOME/prosody-test/certs"
+          export JABBER_EJABBERD_CERTS="$HOME/ejabberd-test/certs"
+          dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release --no-build \
+            --logger "console;verbosity=normal" \
+            --logger "trx;LogFilePrefix=interop-master" \
+            --results-directory artifacts
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-interop-master
+          path: artifacts/*.trx

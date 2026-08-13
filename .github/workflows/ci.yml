@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  # Manual runs from the Actions tab ("Run workflow"), same as nightly.yml.
+  workflow_dispatch:
+
+concurrency:
+  # Pull requests: one run per branch, newest wins — a run against a head
+  # that has been superseded is answering a question nobody is asking any
+  # more.
+  #
+  # Pushes: one run per commit, and nothing cancels anything. A commit with
+  # no verdict is a hole nobody comes back to fill: the next commit contains
+  # it, so the code does get tested eventually, but once that run is red
+  # there is no longer any way to say which of the two commits did it.
+  #
+  # Keying the group on the SHA, rather than only turning cancel-in-progress
+  # off, is what makes that hold for more than two pushes: a group keeps at
+  # most one run *pending*, so a third push discards the second before it
+  # ever starts.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-gate:
+    # Read what this gate is honestly, because it is not what the gate in the
+    # DNS or NTS suites is. Every check in this repository needs a foreign far
+    # side — Prosody, ejabberd or python-omemo — and a hosted runner has none
+    # of them until nightly.yml installs them. So of 29 tests, 2 run here and
+    # 27 skip with a reason. That is not a conformance verdict.
+    #
+    # What it IS, and why it is worth a gate: this is the only place where the
+    # pinned Ratatoskr is compiled together with the assembly that consumes its
+    # internals. D99 named that risk exactly — `InternalsVisibleTo` in
+    # Ratatoskr.csproj spells out
+    # `org.GraphDefined.Vanaheimr.Ratatoskr.XMPPConformanceTests`, a name that
+    # lives in *this* repository's csproj. Move one and not the other and the
+    # build fails with CS0122, the guard from D54 falls away, and a programming
+    # error in the server goes back to landing in Hermod's log instead of
+    # failing a test. Nothing but a compile catches that, and a compile does.
+    #
+    # The interop lanes are nightly.yml's, where a peer that failed to install
+    # can be read as a peer that failed to install instead of turning a merge
+    # red.
+    #
+    # Both platforms, and here that is not inherited caution: Ratatoskr builds
+    # on Hermod, which pulls in System.Diagnostics.PerformanceCounter,
+    # System.IO.Ports and System.Drawing.Common. Ratatoskr's own CI stays on
+    # Windows alone with the note that Linux was "worth a second matrix entry -
+    # but not before someone has seen it pass". It has now been seen to pass:
+    # `dotnet build` of this suite on Debian 13 (trixie), .NET 10.0.302, 0
+    # errors. That is what this leg keeps true.
+    #
+    # fail-fast is off on purpose — "red on exactly one platform" is the most
+    # informative thing this matrix can produce, so one leg must not cancel the
+    # other.
+    #
+    # `leg` exists so the two runs can be told apart by name rather than by
+    # runner image: the Linux leg runs on ubuntu-latest but IS Debian 13, and
+    # an artifact called "test-results-ubuntu-latest" would say the opposite of
+    # what it contains.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            leg: windows-latest
+          - os: ubuntu-latest
+            container: debian:13
+            leg: debian-13-container
+    name: ${{ matrix.leg }}
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+
+      # This runs BEFORE the checkout, which is the unusual part — and it has
+      # to. actions/checkout only produces a git clone when it finds a git
+      # binary; without one it silently falls back to downloading a source
+      # tarball over the REST API, and that path cannot fetch submodules at
+      # all. Here that would not merely fail: libs/Ratatoskr IS the system
+      # under test, so a tarball checkout would build nothing and say so
+      # confusingly.
+      #
+      # The rest is what a bare debian:13 needs before setup-dotnet can install
+      # the SDK: curl for the install script, ICU and tzdata for globalization,
+      # libssl3t64 for crypto, ca-certificates for NuGet over HTTPS. Package
+      # names verified on trixie.
+      - name: Install git and the .NET prerequisites (Debian container)
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata
+
+      # Windows only: Hermod carries FontAwesome icon files whose paths exceed
+      # MAX_PATH once nested under the runner's workspace and libs/Hermod.
+      # Without this the submodule checkout fails with "Filename too long" and
+      # leaves the working tree half-populated.
+      - name: Allow long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
+      # The checkout gets Styx, Hermod, Ratatoskr and XMPPConsole at the
+      # revisions the gitlinks name. That is the point: the gate tests the
+      # pinned set, which is what a fresh clone would build. Testing against
+      # Ratatoskr's current master is the nightly's job, and deliberately a
+      # different question. All four .gitmodules URLs are public
+      # (https://github.com/Vanaheimr/…), which is what lets this work with no
+      # deploy key and no URL rewriting.
+      #
+      # `true` rather than `recursive`, and today the two would do the same
+      # thing: none of the four carries submodules of its own. It said
+      # `recursive` in the sibling suites because there it costs nothing;
+      # here it briefly cost a great deal. XMPPConsole used to pin its own
+      # Hermod, Styx and Ratatoskr — a *different* Ratatoskr from the one this
+      # repository names — so recursing put two revisions of the library under
+      # test into one tree with some 130 MB of duplicate Hermod and Styx
+      # beside them. That is fixed at the source now: XMPPConsole reaches
+      # sideways for ..\..\Ratatoskr, which inside libs/ is the pin above.
+      # `true` stays because it says what this build needs and cannot quietly
+      # grow a second copy of anything if a submodule is added somewhere below.
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The csproj rather than XMPPConformanceTests.slnx, and that is a real
+      # difference from the sibling suites. Their .slnx names only the *library*
+      # projects out of libs/; this one also names HermodTests, StyxTests and
+      # RatatoskrTests, so building the solution would compile three foreign
+      # test suites and testing it would run some 1200 checks that belong to
+      # Ratatoskr's own CI. One question per workflow: this repository's
+      # question is whether its own suite builds and runs against the pinned
+      # submodules.
+      - name: Build
+        run: dotnet build XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release
+
+      # TestCategory!=WSL, the same filter the DNS and NTS gates use, and it
+      # replaces an exclusion by fixture name (FullyQualifiedName!~
+      # OmemoOracleTests) that said which type to leave out and never why.
+      #
+      # What the split buys is that this lane owes **zero skips**. Unfiltered
+      # this suite reports "2 passed, 27 skipped" here and "29 passed" in the
+      # nightly container, and both are green — so the one number that says
+      # whether anything was measured has to be read by hand every time. With
+      # the filter the gate owes 2 passed / 0 skipped and the interop lane owes
+      # 27 passed / 0 skipped, and any skip at all is a finding. This project
+      # has twice been caught by a green run that measured nothing (D54, D97).
+      #
+      # Expect 2 passed, 0 skipped. Both are ThePatienceCoversWhatTheClientMayTake,
+      # once per concrete stream-management fixture: it reads two numbers out of
+      # our own code and compares them, which is the only thing in this
+      # repository that needs no far side.
+      - name: Test (everything that needs no foreign far side)
+        timeout-minutes: 20
+        run: >
+          dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release --no-build
+          --filter "TestCategory!=WSL"
+          --logger "console;verbosity=normal"
+          --logger "trx;LogFilePrefix=${{ matrix.leg }}"
+          --results-directory artifacts
+
+      # Which checks ran, which skipped and with what reason is the single most
+      # useful thing this workflow knows, and in a repository where 27 of 29
+      # skip it is very nearly the whole content of a run. TRX keeps it per
+      # test, including the skip reason; the console log does not survive the
+      # run ageing out.
+      #
+      # !cancelled() rather than success(): a red run is when these files
+      # matter most, and uploading only on green would throw away the evidence
+      # in exactly that case. A build that fails before the test step leaves no
+      # .trx at all, which upload-artifact reports as a warning rather than a
+      # second failure — the build error is the finding there.
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.leg }}
+          path: artifacts/*.trx

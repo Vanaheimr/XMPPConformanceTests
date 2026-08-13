@@ -1,5 +1,20 @@
 ﻿# XMPP Conformance & Interoperability Test Suite
 
+[![CI](https://github.com/Vanaheimr/XMPPConformanceTests/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanaheimr/XMPPConformanceTests/actions/workflows/ci.yml)
+[![Nightly](https://github.com/Vanaheimr/XMPPConformanceTests/actions/workflows/nightly.yml/badge.svg)](https://github.com/Vanaheimr/XMPPConformanceTests/actions/workflows/nightly.yml)
+
+Two badges, and they answer different questions — which matters more here than
+in the sibling suites, because every check in this repository needs a far side
+that a hosted runner does not have. **CI** builds the suite against the pinned
+submodules on Windows and Debian 13 and runs what needs no peer: 2 tests, 27
+skipped. It is a build gate, and the thing it guards is real — the
+`InternalsVisibleTo` that gives these tests the server's internals names this
+assembly from inside Ratatoskr, so the two repositories can only be moved
+together (D99). **Nightly** is where the conformance verdict lives: it installs
+Prosody 13 and ejabberd 24.12 into the container and runs the federation and
+stream-management suites against them, 26 of 26, and then repeats the lane
+against Ratatoskr's current master to catch what the pins hide.
+
 What this repository checks is a claim: that the client and the server of
 **[Ratatoskr](libs/Ratatoskr/README.md)** keep to the RFCs and XEPs they
 name. Measured twice — against the specifications, and against implementations
