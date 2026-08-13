@@ -86,9 +86,10 @@ jobs:
       - name: Install what the far sides need
         run: apt-get install -y --no-install-recommends openssl procps python3 wget
 
-      # `true` rather than `recursive`; none of the four carries submodules of
-      # its own, so the two do the same thing today. See the longer note in
-      # ci.yml for why that was not always true.
+      # `true` rather than `recursive`, and not interchangeable: XMPPConsole
+      # pins its own Hermod, Styx and Ratatoskr, so recursing would put a second
+      # revision of the library under test in this tree. The longer note stands
+      # in ci.yml.
       - uses: actions/checkout@v7
         with:
           submodules: true
@@ -233,9 +234,10 @@ jobs:
       - name: Install what the far sides need
         run: apt-get install -y --no-install-recommends openssl procps python3 wget
 
-      # `true` rather than `recursive`; none of the four carries submodules of
-      # its own, so the two do the same thing today. See the longer note in
-      # ci.yml for why that was not always true.
+      # `true` rather than `recursive`, and not interchangeable: XMPPConsole
+      # pins its own Hermod, Styx and Ratatoskr, so recursing would put a second
+      # revision of the library under test in this tree. The longer note stands
+      # in ci.yml.
       - uses: actions/checkout@v7
         with:
           submodules: true

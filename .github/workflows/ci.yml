@@ -109,17 +109,21 @@ jobs:
       # (https://github.com/Vanaheimr/…), which is what lets this work with no
       # deploy key and no URL rewriting.
       #
-      # `true` rather than `recursive`, and today the two would do the same
-      # thing: none of the four carries submodules of its own. It said
-      # `recursive` in the sibling suites because there it costs nothing;
-      # here it briefly cost a great deal. XMPPConsole used to pin its own
-      # Hermod, Styx and Ratatoskr — a *different* Ratatoskr from the one this
-      # repository names — so recursing put two revisions of the library under
-      # test into one tree with some 130 MB of duplicate Hermod and Styx
-      # beside them. That is fixed at the source now: XMPPConsole reaches
-      # sideways for ..\..\Ratatoskr, which inside libs/ is the pin above.
-      # `true` stays because it says what this build needs and cannot quietly
-      # grow a second copy of anything if a submodule is added somewhere below.
+      # `true` rather than `recursive`, and here the difference is load-bearing:
+      # do not change it. XMPPConsole pins its own Hermod, Styx and Ratatoskr
+      # under libs/ — a *different* Ratatoskr from the one this repository names
+      # — because a repository nobody can clone and build is of no use to
+      # whoever clones it. Recursing would fetch those too: two revisions of the
+      # library under test in one tree, some 130 MB of duplicate Hermod and Styx
+      # beside them, and two Ratatoskr.csproj in this solution building the same
+      # assembly twice.
+      #
+      # `true` stops at the top level, so libs/XMPPConsole/libs/ stays empty,
+      # and that emptiness is what XMPPConsole.csproj tests: it names
+      # ..\libs\Ratatoskr under Exists() and ..\..\Ratatoskr under its negation,
+      # so here the second wins and resolves to the libs/Ratatoskr pinned above.
+      # Its own clone takes the first and builds against what it pins. Neither
+      # tree sees two.
       - uses: actions/checkout@v7
         with:
           submodules: true

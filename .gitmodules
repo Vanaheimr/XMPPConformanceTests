@@ -24,18 +24,17 @@
 	path = libs/Ratatoskr
 	url = https://github.com/Vanaheimr/Ratatoskr.git
 # XMPPConsole is the console that drives the protocol, moved out in E20. It is
-# in the solution rather than only in the checkout, and this is the only place
-# where it can be built against a *pinned* Ratatoskr: its own repository
-# reaches sideways for a sibling, so there it compiles against whatever master
-# stands beside it.
+# in the solution rather than only in the checkout, and here it is built against
+# the Ratatoskr named above rather than against the one it pins itself.
 #
-# It arrived here carrying its own Hermod, Styx and Ratatoskr as submodules -
-# a different Ratatoskr from the one named above, so a recursive checkout gave
-# two revisions of the library under test in one tree and no solution could
-# hold both. Those submodules are gone; XMPPConsole.csproj now reaches for
-# ..\..\Ratatoskr, which inside libs/ is exactly the pin above. None of the
-# four carries submodules of its own any more, so --recursive and a plain init
-# now do the same thing.
+# It carries its own Hermod, Styx and Ratatoskr as submodules - a different
+# Ratatoskr from the one named above - so that a plain clone of it builds. That
+# is why nothing in this repository may check out submodules recursively: two
+# revisions of the library under test in one tree, and two Ratatoskr.csproj in
+# one solution building the same assembly. A non-recursive init leaves
+# libs/XMPPConsole/libs/ empty, and XMPPConsole.csproj conditions on exactly
+# that: it takes ..\..\Ratatoskr when its own libs/ is not there, which inside
+# this libs/ is the pin above.
 [submodule "libs/XMPPConsole"]
 	path = libs/XMPPConsole
 	url = https://github.com/Vanaheimr/XMPPConsole.git
