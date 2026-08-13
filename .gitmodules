@@ -1,9 +1,41 @@
+# The public GitHub mirrors, not ssh://git@git.graphdefined.com:5001/. Both
+# carry the same commits, but only one of them a hosted CI runner can reach:
+# the internal host is not routable from GitHub Actions, and an SSH URL would
+# need a deploy key for three repositories before the first clone succeeded.
+# The other conformance suites (DNS, NTS, SSH) name the same URLs for the same
+# reason, which is what lets `submodules: recursive` work there with no secret
+# at all.
+#
+# Whoever prefers to push through the internal host sets that per clone rather
+# than here:
+#
+#     git config submodule.libs/Hermod.url ssh://git@git.graphdefined.com:5001/Vanaheimr/Hermod.git
+#     git submodule sync libs/Hermod
+#
+# An existing checkout is not affected by this file at all - .git/config keeps
+# the URL it was cloned with until `git submodule sync` is run.
 [submodule "libs/Styx"]
 	path = libs/Styx
-	url = ssh://git@git.graphdefined.com:5001/Vanaheimr/Styx.git
+	url = https://github.com/Vanaheimr/Styx.git
 [submodule "libs/Hermod"]
 	path = libs/Hermod
-	url = ssh://git@git.graphdefined.com:5001/Vanaheimr/Hermod.git
+	url = https://github.com/Vanaheimr/Hermod.git
 [submodule "libs/Ratatoskr"]
 	path = libs/Ratatoskr
-	url = ssh://git@git.graphdefined.com:5001/Vanaheimr/Ratatoskr.git
+	url = https://github.com/Vanaheimr/Ratatoskr.git
+# XMPPConsole is the console that drives the protocol, moved out in E20. It is
+# in the solution rather than only in the checkout, and this is the only place
+# where it can be built against a *pinned* Ratatoskr: its own repository
+# reaches sideways for a sibling, so there it compiles against whatever master
+# stands beside it.
+#
+# It arrived here carrying its own Hermod, Styx and Ratatoskr as submodules -
+# a different Ratatoskr from the one named above, so a recursive checkout gave
+# two revisions of the library under test in one tree and no solution could
+# hold both. Those submodules are gone; XMPPConsole.csproj now reaches for
+# ..\..\Ratatoskr, which inside libs/ is exactly the pin above. None of the
+# four carries submodules of its own any more, so --recursive and a plain init
+# now do the same thing.
+[submodule "libs/XMPPConsole"]
+	path = libs/XMPPConsole
+	url = https://github.com/Vanaheimr/XMPPConsole.git

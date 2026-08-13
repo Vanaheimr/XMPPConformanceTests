@@ -7,5 +7,16 @@
     <Project Path="libs/Styx/Styx/Styx.csproj" />
     <Project Path="libs/Styx/StyxTests/StyxTests.csproj" />
   </Folder>
+  <!--
+    Not under Dependencies: nothing here builds against the console, it builds
+    against this. It is in the solution because this is the only checkout in
+    which it can be built against a pinned Ratatoskr - its own repository has
+    reached sideways for a sibling since the submodules came out of it, so
+    there it compiles against whatever master happens to be beside it.
+  -->
+  <Folder Name="/Console/">
+    <Project Path="libs/XMPPConsole/XMPPConsole/XMPPConsole.csproj" />
+    <Project Path="libs/XMPPConsole/XMPPConsole.Tests/XMPPConsole.Tests.csproj" />
+  </Folder>
   <Project Path="XMPPConformanceTests/XMPPConformanceTests.csproj" />
 </Solution>
