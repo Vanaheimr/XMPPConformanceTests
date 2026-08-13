@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -45,9 +46,15 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// The only thing that helps against that is a far end nobody here wrote.
     ///
     /// <b>These tests skip themselves</b> when the oracle is not reachable -
-    /// like the tests against Prosody and ejabberd. A run without WSL is not
-    /// supposed to be red, only to say less. How many are skipped says
+    /// like the tests against Prosody and ejabberd. A run without python-omemo
+    /// is not supposed to be red, only to say less. How many are skipped says
     /// afterwards what was measured.
+    ///
+    /// Where the oracle runs depends on where the tests run: on Windows in
+    /// WSL, because python-omemo is not a Windows library, and on Linux -
+    /// developer's WSL, container in CI - directly. Only the detour is
+    /// platform-bound; the reference implementation is the same one either
+    /// way.
     ///
     /// What is checked is everything from the payload downwards: bundle
     /// format, X3DH, the beginning of the ratchet, the wire format. The SCE
@@ -63,16 +70,27 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         private const String LibPath     = "/tmp/omemo-oracle/lib";
 
         /// <summary>
-        /// The oracle, relative to the test project.
+        /// The oracle, relative to the test assembly.
         /// </summary>
         /// <remarks>
-        /// The search goes upwards from the output until precisely this file
-        /// lies there - not after a mark of the surrounding repository. Until
-        /// D97 the mark was `WORKPLAN.md`, and the path pointed at
-        /// `Jabber.Tests/` (this suite under its name of back then): both
-        /// belonged to the program, not to the library, and both were wrong
-        /// here after the move. Ratatoskr has to be able to run its own tests
-        /// even when nobody has checked this repository out next to it.
+        /// The csproj copies `XEPs/Oracle/**` into the output directory, and
+        /// that copy is what makes this path hold at all. Before it, the file
+        /// was searched for by walking upwards from the output until precisely
+        /// it lay there - and that walk finds nothing the moment the output
+        /// lies outside the repository. Which is exactly what the run both
+        /// setup scripts print does: `--artifacts-path /tmp/conformance-artifacts`
+        /// keeps the Linux build out of the Windows tree, so the documented
+        /// command turned three tests red with "the oracle is not to be found"
+        /// while the checkout was perfectly fine.
+        ///
+        /// The walk stays behind the copy as a fallback, for an output
+        /// directory built before it existed.
+        ///
+        /// Until D97 the walk went by `WORKPLAN.md` instead, and the path
+        /// pointed at `Jabber.Tests/` (this suite under its name of back then):
+        /// both belonged to the program, not to the library, and both were
+        /// wrong here after the move. Ratatoskr has to be able to run its own
+        /// tests even when nobody has checked this repository out next to it.
         /// </remarks>
         private static readonly String ScriptPath = Path.Combine("XEPs", "Oracle", "omemo_oracle.py");
 
@@ -86,8 +104,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             if (code != 0)
                 _reasonForSkipping =
-                    "The oracle is not reachable (python-omemo in WSL under " +
-                    $"{LibPath}): {errors.Split('\n').LastOrDefault(line => line.Trim().Length > 0)?.Trim()}";
+                    $"The oracle is not reachable (python-omemo under {LibPath}" +
+                    (OperatingSystem.IsLinux() ? "" : ", in WSL") + "): " +
+                    $"{errors.Split('\n').LastOrDefault(line => line.Trim().Length > 0)?.Trim()}";
 
         }
 
@@ -99,70 +118,166 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         }
 
         /// <summary>
-        /// Starts the oracle in WSL and returns what it said.
+        /// Where the oracle lies: next to the test assembly, where the csproj
+        /// copies it - and otherwise upwards from there.
         /// </summary>
-        /// <remarks>
-        /// The job goes over a file and not over the command line: a bundle
-        /// with a hundred PreKeys blows every line length, and base64 in
-        /// quotation marks across two operating system borders is a source of
-        /// errors nobody needs.
-        /// </remarks>
-        private static (Int32 Code, String Output, String Errors) Call(String            mode,
-                                                                       Object?           job,
-                                                                        Boolean           check = true)
+        private static String? WhereTheOracleLies()
         {
+
+            var beside = Path.Combine(AppContext.BaseDirectory, ScriptPath);
+
+            if (File.Exists(beside))
+                return beside;
 
             var root = new DirectoryInfo(AppContext.BaseDirectory);
 
             while (root is not null && !File.Exists(Path.Combine(root.FullName, ScriptPath)))
                 root = root.Parent;
 
-            // No Assert.Ignore: the oracle lies in this project. If it is
-            // missing, the checkout is broken - and a broken checkout is
-            // supposed to be red and not skipped. What is skipped is only the
-            // case where python-omemo in WSL is missing.
-            Assert.That(root, Is.Not.Null,
-                        $"The oracle is not to be found: '{ScriptPath}' lies in no directory " +
-                        $"above '{AppContext.BaseDirectory}'.");
-
-            String? jobFile = null;
-
-            if (job is not null)
-            {
-                jobFile = Path.Combine(Path.GetTempPath(), $"orakel-{Guid.NewGuid():N}.json");
-                File.WriteAllText(jobFile, JsonSerializer.Serialize(job));
-            }
-
-            var command = $"PYTHONPATH={LibPath} python3 '{WslPath(Path.Combine(root!.FullName, ScriptPath))}'" +
-                         $" {mode}" +
-                         (jobFile is not null ? $" '{WslPath(jobFile)}'" : "");
-
-            var start                   = new ProcessStartInfo("wsl", $"-d Debian -- bash -c \"{command}\"") {
-                RedirectStandardOutput  = true,
-                RedirectStandardError   = true,
-                UseShellExecute         = false
-            };
-
-            using var process = Process.Start(start)!;
-
-            var output = process.StandardOutput.ReadToEnd();
-            var errors = process.StandardError.ReadToEnd();
-
-            process.WaitForExit(120_000);
-
-            if (jobFile is not null)
-                try { File.Delete(jobFile); } catch { /* does not matter */ }
-
-            if (check && process.ExitCode != 0)
-                Assert.Fail($"The oracle failed in mode '{mode}':\n{errors}");
-
-            return (process.ExitCode, output, errors);
+            return root is not null
+                       ? Path.Combine(root.FullName, ScriptPath)
+                       : null;
 
         }
 
-        private static String WslPath(String windowsPath)
-            => "/mnt/" + Char.ToLowerInvariant(windowsPath[0]) +
-               windowsPath[2..].Replace('\\', '/');
+        /// <summary>
+        /// Starts the oracle and returns what it said - on Linux directly, on
+        /// Windows through WSL.
+        /// </summary>
+        /// <remarks>
+        /// The job goes over a file and not over the command line: a bundle
+        /// with a hundred PreKeys blows every line length, and base64 in
+        /// quotation marks across two operating system borders is a source of
+        /// errors nobody needs.
+        ///
+        /// <b>The split by platform is what lets this suite run in a Linux
+        /// container at all.</b> `wsl.exe` is a Windows program; where the
+        /// tests already run on Linux there is no border left to cross, and
+        /// python3 is started directly - with the arguments as a list, so the
+        /// quoting the detour through `bash -c` needs falls away with it.
+        /// </remarks>
+        private static (Int32 Code, String Output, String Errors) Call(String   mode,
+                                                                       Object?  job,
+                                                                       Boolean  check = true)
+        {
+
+            var script = WhereTheOracleLies();
+
+            // No Assert.Ignore: the oracle lies in this project. If it is
+            // missing, the checkout is broken - and a broken checkout is
+            // supposed to be red and not skipped. What is skipped is only the
+            // case where python-omemo is missing.
+            Assert.That(script, Is.Not.Null,
+                        $"The oracle is not to be found: '{ScriptPath}' lies neither next to " +
+                        $"'{AppContext.BaseDirectory}' nor in any directory above it.");
+
+            String? jobFile = null;
+
+            try
+            {
+
+                if (job is not null)
+                {
+                    jobFile = Path.Combine(Path.GetTempPath(), $"orakel-{Guid.NewGuid():N}.json");
+                    File.WriteAllText(jobFile, JsonSerializer.Serialize(job));
+                }
+
+                ProcessStartInfo start;
+
+                if (OperatingSystem.IsLinux())
+                {
+
+                    start                       = new ProcessStartInfo("python3") {
+                        RedirectStandardOutput  = true,
+                        RedirectStandardError   = true,
+                        UseShellExecute         = false
+                    };
+
+                    start.ArgumentList.Add(script!);
+                    start.ArgumentList.Add(mode);
+
+                    if (jobFile is not null)
+                        start.ArgumentList.Add(jobFile);
+
+                    start.Environment["PYTHONPATH"] = LibPath;
+
+                }
+
+                else
+                {
+
+                    var command = $"PYTHONPATH={LibPath} python3 '{WslPath(script!)}'" +
+                                  $" {mode}" +
+                                  (jobFile is not null ? $" '{WslPath(jobFile)}'" : "");
+
+                    start                       = new ProcessStartInfo("wsl", $"-d Debian -- bash -c \"{command}\"") {
+                        RedirectStandardOutput  = true,
+                        RedirectStandardError   = true,
+                        UseShellExecute         = false
+                    };
+
+                }
+
+                Process process;
+
+                try
+                {
+                    process = Process.Start(start)!;
+                }
+                catch (Win32Exception exception)
+                {
+                    // There is nothing there to start: no python3 on this Linux,
+                    // no wsl.exe on this Windows. That is a property of the
+                    // environment, exactly like a missing python-omemo, and it
+                    // has to reach the probe as an exit code rather than as an
+                    // exception - what comes out of [OneTimeSetUp] as an
+                    // exception turns the whole fixture red, and on Linux, where
+                    // `wsl` is no program, that is what used to happen: three
+                    // failures instead of three skips.
+                    return (127, "", $"{start.FileName}: {exception.Message}");
+                }
+
+                using (process)
+                {
+
+                    var output = process.StandardOutput.ReadToEnd();
+                    var errors = process.StandardError.ReadToEnd();
+
+                    process.WaitForExit(120_000);
+
+                    if (check && process.ExitCode != 0)
+                        Assert.Fail($"The oracle failed in mode '{mode}':\n{errors}");
+
+                    return (process.ExitCode, output, errors);
+
+                }
+
+            }
+            finally
+            {
+                if (jobFile is not null)
+                    try { File.Delete(jobFile); } catch { /* does not matter */ }
+            }
+
+        }
+
+        /// <summary>
+        /// A path as the oracle sees it.
+        /// </summary>
+        /// <remarks>
+        /// Only the Windows host has a border to cross - there `C:\...` has to
+        /// become `/mnt/c/...`, because the oracle runs in WSL. Where the tests
+        /// themselves run on Linux, the path is already the path, and the
+        /// rewrite would make `/mnt//mp/...` out of `/tmp/...`. That is not
+        /// only a matter of the arguments: the state file of
+        /// <see cref="TheReferenceCanReadWhatWeWrote"/> goes through here too,
+        /// and it travels inside the job, where no argument list can help.
+        /// </remarks>
+        private static String WslPath(String path)
+            => OperatingSystem.IsLinux()
+                   ? path
+                   : "/mnt/" + Char.ToLowerInvariant(path[0]) +
+                     path[2..].Replace('\\', '/');
 
         private static JsonElement Reply(String output)
             => JsonDocument.Parse(output.Trim()).RootElement;

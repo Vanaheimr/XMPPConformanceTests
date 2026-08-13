@@ -12,14 +12,30 @@ reference implementation for `urn:xmpp:omemo:2` — the same version we speak.
 
 ## Setting it up
 
+From Windows:
+
 ```bash
 wsl -d Debian -- python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
+```
+
+On Linux — the developer's WSL, the container in `nightly.yml` — the same
+thing without the detour:
+
+```bash
+python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
 ```
 
 That downloads the wheels and unpacks them — **no pip, no venv, no sudo,
 nothing changed on the system**. Wheels are zip files; unpacked onto the
 `PYTHONPATH` they are importable. For a test setup that is even better than an
 installation: reproducible, and nothing is left behind.
+
+Where the tests then start the oracle follows from where they themselves run:
+on Windows through `wsl -d Debian`, because python-omemo is not a Windows
+library, and on Linux as `python3` directly. Only the detour is
+platform-bound. Debian 13 ships Python 3.13.5 and `fetch_oracle.py` asks PyPI
+for manylinux/cp313 wheels — the two have to agree, or the native parts do not
+import.
 
 Two stumbling blocks are already solved inside it:
 
@@ -31,12 +47,19 @@ Two stumbling blocks are already solved inside it:
   work pip otherwise does; for this one case ten lines are enough.
 
 If the directory is not there, **the tests skip themselves** — as do the ones
-against Prosody and ejabberd. A run without WSL should not be red, it should
-just say less.
+against Prosody and ejabberd. A run without python-omemo should not be red, it
+should just say less. The same holds when there is nothing to start at all: no
+`python3` on this Linux, no `wsl.exe` on this Windows. That is the environment
+speaking, not the checkout.
 
 If the *script* is not there, the run is **red**. The oracle lives in this
 project, so a missing one is a broken checkout and not a property of the
-environment.
+environment. So that the two cases stay apart, the csproj copies this directory
+into the output next to the test assembly: the script used to be searched for
+by walking upwards from the output, and that walk finds nothing as soon as the
+output lies elsewhere — which is what the artifacts path in the run both setup
+scripts print does. A documented command that turns three tests red is the one
+thing this distinction may not do.
 
 ## What is checked
 

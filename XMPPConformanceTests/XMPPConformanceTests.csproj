@@ -25,4 +25,22 @@
     <ProjectReference Include="..\libs\Ratatoskr\Ratatoskr\Ratatoskr.csproj" />
   </ItemGroup>
 
+  <!--
+    The oracle travels with the assembly. OmemoOracleTests used to look for
+    omemo_oracle.py by walking upwards from the output directory, which holds
+    only as long as the output lies inside the repository - and the run both
+    setup scripts print does not: the artifacts path they pass to `dotnet test`
+    (/tmp/conformance-artifacts) keeps the Linux build out of the Windows tree,
+    and with it the walk found nothing and three tests went red saying the
+    checkout was broken when it was not. Copied next to the assembly, the
+    oracle is found wherever the output goes.
+
+    `None Remove` first, because the SDK has already taken these files into
+    `None` by its default glob and the same file may not arrive twice.
+  -->
+  <ItemGroup>
+    <None Remove="XEPs\Oracle\**" />
+    <Content Include="XEPs\Oracle\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
