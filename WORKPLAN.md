@@ -6637,6 +6637,64 @@ inbound connections has no counterpart in the container.
 
 ---
 
+### D104. The oracle only Windows could ask ✅ — OMEMO becomes runnable in CI
+
+*This landed before D100 to D103 and is written down after them; the number
+follows the writing, not the work.*
+
+Of the twenty-nine checks in this suite, twenty-six answer a missing far side
+with `Assert.Ignore` and a reason. The three `OmemoOracleTests` answered it with
+**failure**, and that made them the one fixture no runner could simply be
+pointed at.
+
+**The oracle was reached through Windows.** `Call` started
+`wsl -d Debian -- bash -c "…"` and rewrote a Windows drive path to `/mnt/c/…` —
+a host assumption baked into the *test*, not into the oracle, which is plain
+Python and cares about neither. On Linux `Process.Start("wsl")` therefore threw
+a `Win32Exception` inside the `[OneTimeSetUp]` probe, before
+`_reasonForSkipping` could be set — and an exception out of `OneTimeSetUp` is
+not a skip, NUnit fails every test in the fixture with it. Measured on Debian 13
+before the fix: **14 passed, 3 failed, 12 skipped**, and the three failures said
+*"the oracle is not to be found"* while the checkout was perfectly sound.
+
+The call now splits on `OperatingSystem.IsLinux()`: `python3` directly, with the
+arguments as a list, so the quoting that the detour through `bash -c` needed
+falls away with the detour. `wsl.exe` stays for the Windows host alone, and
+`WslPath` is a no-op on Linux — not only for the arguments, because the state
+file of `TheReferenceCanReadWhatWeWrote` travels *inside* the job, where no
+argument list can help. A failure to start is caught and handed to the probe as
+an exit code: **nothing there to start — no `python3` on this Linux, no
+`wsl.exe` on this Windows — is the environment speaking**, exactly like a
+missing python-omemo, and skips.
+
+**A second trigger for the same red, and this one fired on any platform.** The
+oracle was located by walking upwards from `AppContext.BaseDirectory` until
+`XEPs/Oracle/omemo_oracle.py` appeared. That walk finds nothing the moment the
+output lies outside the repository — which is precisely what the invocation
+**both setup scripts print** does: `--artifacts-path /tmp/conformance-artifacts`
+keeps the Linux build out of the Windows tree. The project's own documented
+command thereby made three of its own tests fail. `XMPPConformanceTests.csproj`
+now copies `XEPs/Oracle/**` next to the assembly, so the lookup no longer
+depends on where the artifacts go.
+
+**D97's decision stays intact**, and it is the reason the fix is a split rather
+than a blanket `Assert.Ignore`: a missing oracle is RED, because the oracle lies
+in this project and a broken checkout is not a property of the environment. Only
+a missing python-omemo skips.
+
+| where | with python-omemo | without it | without python3 | script removed |
+|---|---|---|---|---|
+| WSL Debian 13, artifacts outside the repo | 3 passed | 3 skipped | 3 skipped | red |
+| Windows host, through WSL | 3 passed | — | — | — |
+
+**What it unlocked.** Until this landed the gate had to exclude the fixture by
+name — `FullyQualifiedName!~OmemoOracleTests`, the filter D101 replaced with a
+category — and the nightly could install python-omemo without being able to get
+anything out of it. Since D103 the three run in the container like everything
+else, and they are three of the 29 that pass there with nothing skipped.
+
+---
+
 ## Later
 
 ### Test suite
