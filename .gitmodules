@@ -16,17 +16,27 @@
 # the URL it was cloned with until `git submodule sync` is run.
 #
 # The branch is named on every entry, and not for tidiness. Without it
-# `git submodule update --remote` has no branch to follow and takes whatever the
-# clone happens to point at - which is not the same thing in every clone. Here
-# libs/Ratatoskr has grown a second remote (git2, the internal host) and a local
-# branch 'main' left over from the rename, and --remote walked it *backwards* to
-# 7f11723, a revision from before the suite was called this. The tree looked
-# updated and was old.
+# `git submodule update --remote` follows the default branch of the far side -
+# except it does not ask the far side. It reads refs/remotes/origin/HEAD, which
+# is a local note taken at clone time and never revised afterwards.
+#
+# In libs/Ratatoskr that note still said origin/main, on 7f11723. GitHub carries
+# a single branch there, master, and has not had a main for a long time; the
+# remote-tracking ref survived here because nothing prunes by itself. --remote
+# therefore walked the submodule *backwards* to a revision from around the
+# rename. The tree looked updated and was old, which is the worse of the two ways
+# to be wrong about a revision: nothing fails, everything is merely answered from
+# the past.
+#
+# The local half of that is repaired per clone rather than by this file:
+#
+#     git remote prune origin        # drops the ref the far side no longer has
+#     git remote set-head origin -a  # points origin/HEAD back at master
 #
 # What is named here is where each of the four is developed, so --remote means
-# the same thing in every checkout. It changes nothing about the pins: they are
-# the gitlinks in the commit, and a plain `git submodule update` still restores
-# exactly those.
+# the same thing in every checkout, however old and however often re-pointed. It
+# changes nothing about the pins: they are the gitlinks in the commit, and a
+# plain `git submodule update` still restores exactly those.
 [submodule "libs/Styx"]
 	path = libs/Styx
 	url = https://github.com/Vanaheimr/Styx.git
