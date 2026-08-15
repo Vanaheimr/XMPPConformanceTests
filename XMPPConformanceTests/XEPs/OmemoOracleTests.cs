@@ -17,8 +17,6 @@
 
 #region Usings
 
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -26,11 +24,13 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Ratatoskr;
 
-// System.ComponentModel is here for the Win32Exception the oracle call catches,
-// and it brings a CategoryAttribute of its own along with it. Against NUnit's
-// that is CS0104 and not a silent pick of the wrong one - but only for this
-// file, which is why the alias stands here and not with the other tests.
-using Category = NUnit.Framework.CategoryAttribute;
+// System.ComponentModel and System.Diagnostics stood here until D107, for the
+// Win32Exception and the ProcessStartInfo of the oracle call - and with them an
+// alias, because System.ComponentModel brings a CategoryAttribute of its own
+// and NUnit's [Category] is ambiguous against it (CS0104). Starting the far
+// side moved to ForeignSide, so both are gone and the alias with them: the
+// three lines of workaround were the last thing the duplicated process handling
+// was still costing this file.
 
 #endregion
 
@@ -154,8 +154,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         }
 
         /// <summary>
-        /// Starts the oracle and returns what it said - on Linux directly, on
-        /// Windows through WSL.
+        /// Starts the oracle and returns what it said.
         /// </summary>
         /// <remarks>
         /// The job goes over a file and not over the command line: a bundle
@@ -163,11 +162,22 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// quotation marks across two operating system borders is a source of
         /// errors nobody needs.
         ///
-        /// <b>The split by platform is what lets this suite run in a Linux
-        /// container at all.</b> `wsl.exe` is a Windows program; where the
-        /// tests already run on Linux there is no border left to cross, and
-        /// python3 is started directly - with the arguments as a list, so the
-        /// quoting the detour through `bash -c` needs falls away with it.
+        /// Where the far side lives, and how a path reaches it, is
+        /// <see cref="ForeignSide"/>'s business. This fixture carried its own
+        /// copy of that split until D107 - the third of them, which is what
+        /// <see cref="TestEnvironment"/> had said would be one too many. What
+        /// kept it here longest was not the split itself but
+        /// <see cref="PathOver"/> below: the state file of
+        /// <see cref="TheReferenceCanReadWhatWeWrote"/> travels *inside* the
+        /// job, as a value in JSON, where an argument list cannot help it and
+        /// only a translated path will do.
+        ///
+        /// A missing interpreter comes back as a non-zero code rather than as
+        /// an exception, and that matters here beyond tidiness: what leaves
+        /// <c>[OneTimeSetUp]</c> as an exception turns the whole fixture red,
+        /// and on Linux - where `wsl` is no program at all - that used to mean
+        /// three failures where three skips belonged. That guarantee now sits
+        /// in <see cref="ForeignSide.Run"/>, where the other callers get it too.
         /// </remarks>
         private static (Int32 Code, String Output, String Errors) Call(String   mode,
                                                                        Object?  job,
@@ -195,75 +205,16 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                     File.WriteAllText(jobFile, JsonSerializer.Serialize(job));
                 }
 
-                ProcessStartInfo start;
+                var command = $"PYTHONPATH={LibPath} python3 '{PathOver(script!)}'" +
+                              $" {mode}" +
+                              (jobFile is not null ? $" '{PathOver(jobFile)}'" : "");
 
-                if (OperatingSystem.IsLinux())
-                {
+                var (code, output, errors) = ForeignSide.Run(command);
 
-                    start                       = new ProcessStartInfo("python3") {
-                        RedirectStandardOutput  = true,
-                        RedirectStandardError   = true,
-                        UseShellExecute         = false
-                    };
+                if (check && code != 0)
+                    Assert.Fail($"The oracle failed in mode '{mode}':\n{errors}");
 
-                    start.ArgumentList.Add(script!);
-                    start.ArgumentList.Add(mode);
-
-                    if (jobFile is not null)
-                        start.ArgumentList.Add(jobFile);
-
-                    start.Environment["PYTHONPATH"] = LibPath;
-
-                }
-
-                else
-                {
-
-                    var command = $"PYTHONPATH={LibPath} python3 '{WslPath(script!)}'" +
-                                  $" {mode}" +
-                                  (jobFile is not null ? $" '{WslPath(jobFile)}'" : "");
-
-                    start                       = new ProcessStartInfo("wsl", $"-d Debian -- bash -c \"{command}\"") {
-                        RedirectStandardOutput  = true,
-                        RedirectStandardError   = true,
-                        UseShellExecute         = false
-                    };
-
-                }
-
-                Process process;
-
-                try
-                {
-                    process = Process.Start(start)!;
-                }
-                catch (Win32Exception exception)
-                {
-                    // There is nothing there to start: no python3 on this Linux,
-                    // no wsl.exe on this Windows. That is a property of the
-                    // environment, exactly like a missing python-omemo, and it
-                    // has to reach the probe as an exit code rather than as an
-                    // exception - what comes out of [OneTimeSetUp] as an
-                    // exception turns the whole fixture red, and on Linux, where
-                    // `wsl` is no program, that is what used to happen: three
-                    // failures instead of three skips.
-                    return (127, "", $"{start.FileName}: {exception.Message}");
-                }
-
-                using (process)
-                {
-
-                    var output = process.StandardOutput.ReadToEnd();
-                    var errors = process.StandardError.ReadToEnd();
-
-                    process.WaitForExit(120_000);
-
-                    if (check && process.ExitCode != 0)
-                        Assert.Fail($"The oracle failed in mode '{mode}':\n{errors}");
-
-                    return (process.ExitCode, output, errors);
-
-                }
+                return (code, output, errors);
 
             }
             finally
@@ -278,19 +229,15 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// A path as the oracle sees it.
         /// </summary>
         /// <remarks>
-        /// Only the Windows host has a border to cross - there `C:\...` has to
-        /// become `/mnt/c/...`, because the oracle runs in WSL. Where the tests
-        /// themselves run on Linux, the path is already the path, and the
-        /// rewrite would make `/mnt//mp/...` out of `/tmp/...`. That is not
-        /// only a matter of the arguments: the state file of
-        /// <see cref="TheReferenceCanReadWhatWeWrote"/> goes through here too,
-        /// and it travels inside the job, where no argument list can help.
+        /// <see cref="ForeignSide.PathOver"/> under a name that says what it is
+        /// for here. It is kept as a name of its own because the jobs use it in
+        /// a place a reader does not expect: not only for the arguments, but
+        /// for the state file that travels as a value inside the JSON of
+        /// <see cref="TheReferenceCanReadWhatWeWrote"/>, where no argument list
+        /// can translate anything.
         /// </remarks>
-        private static String WslPath(String path)
-            => OperatingSystem.IsLinux()
-                   ? path
-                   : "/mnt/" + Char.ToLowerInvariant(path[0]) +
-                     path[2..].Replace('\\', '/');
+        private static String PathOver(String path)
+            => ForeignSide.PathOver(path);
 
         private static JsonElement Reply(String output)
             => JsonDocument.Parse(output.Trim()).RootElement;
@@ -464,7 +411,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 //    in a file, otherwise the second call would be a different
                 //    device.
                 var (_, bundleOutput, _) = Call("bundle", new Dictionary<String, Object> {
-                                                              ["state"] = WslPath(state)
+                                                              ["state"] = PathOver(state)
                                                            });
 
                 var b = Reply(bundleOutput);
@@ -501,7 +448,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 // 3. The oracle reads.
                 var (code, output, errors) = Call("decrypt",
                                                   new Dictionary<String, Object> {
-                                                       ["state"]             = WslPath(state),
+                                                       ["state"]             = PathOver(state),
                                                        ["key"]               = B64(exchange.Encode()),
                                                        ["payload"]           = B64(payload.Ciphertext),
                                                        ["sender_jid"]        = "us@example.org",
