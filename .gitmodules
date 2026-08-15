@@ -14,15 +14,31 @@
 #
 # An existing checkout is not affected by this file at all - .git/config keeps
 # the URL it was cloned with until `git submodule sync` is run.
+#
+# The branch is named on every entry, and not for tidiness. Without it
+# `git submodule update --remote` has no branch to follow and takes whatever the
+# clone happens to point at - which is not the same thing in every clone. Here
+# libs/Ratatoskr has grown a second remote (git2, the internal host) and a local
+# branch 'main' left over from the rename, and --remote walked it *backwards* to
+# 7f11723, a revision from before the suite was called this. The tree looked
+# updated and was old.
+#
+# What is named here is where each of the four is developed, so --remote means
+# the same thing in every checkout. It changes nothing about the pins: they are
+# the gitlinks in the commit, and a plain `git submodule update` still restores
+# exactly those.
 [submodule "libs/Styx"]
 	path = libs/Styx
 	url = https://github.com/Vanaheimr/Styx.git
+	branch = master
 [submodule "libs/Hermod"]
 	path = libs/Hermod
 	url = https://github.com/Vanaheimr/Hermod.git
+	branch = master
 [submodule "libs/Ratatoskr"]
 	path = libs/Ratatoskr
 	url = https://github.com/Vanaheimr/Ratatoskr.git
+	branch = master
 # XMPPConsole is the console that drives the protocol, moved out in E20. It is
 # in the solution rather than only in the checkout, and here it is built against
 # the Ratatoskr named above rather than against the one it pins itself.
@@ -38,3 +54,4 @@
 [submodule "libs/XMPPConsole"]
 	path = libs/XMPPConsole
 	url = https://github.com/Vanaheimr/XMPPConsole.git
+	branch = master
