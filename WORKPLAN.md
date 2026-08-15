@@ -6695,10 +6695,73 @@ else, and they are three of the 29 that pass there with nothing skipped.
 
 ---
 
+### D105. Which platform is not the question ✅ — and the firewall was innocent
+
+The four inbound federation tests decided whether to run by asking
+`OperatingSystem.IsLinux()` and skipped with *"only inside WSL"*. The entry
+under "Later" that asked for this said the stand-in agrees today by a
+coincidence of two firewalls. **Measuring it showed the coincidence was not the
+one written there** — and the correction is worth more than the switch.
+
+`TestEnvironment.RequireInboundFromThePeer` now opens a listener on `0.0.0.0`,
+drives a connection from the peer's side through bash's `/dev/tcp`, and reports
+whether it arrived. The DNS and NTS suites carry the same class for the same
+reason.
+
+**It is not NTS's `RequireWslInboundTcp` with the names changed, and copying
+that one would have been wrong.** It probes the Windows host *address*, because
+its tools dial the host. Ours dial the domain `localhost` — the only name the
+setups can hand our side without an `/etc/hosts` entry and thereby without root.
+Different path, different question, and the wrong one would have returned "ok"
+here and let four tests run into a failure that says nothing about the code.
+
+**Two obstacles where the tests had always named one:**
+
+| leg | result | what it means |
+|---|---|---|
+| `localhost` from WSL | refused in milliseconds | never leaves the VM — under default NAT networking that name is WSL's own loopback. No firewall involved |
+| host address, listener in `python.exe` | connected | the host is reachable from WSL, and the subnet is not blocked |
+| host address, listener in `testhost.exe` | nothing arrived | **two `Block` rules** for this repository's testhost.exe on the Public profile — where the WSL vEthernet interface lands |
+
+Windows Firewall filters **per executable**, a dismissed prompt leaves a `Block`
+rule behind, and Block beats any number of Allow rules beside it — there were
+dozens for the same binary, and they changed nothing. That the two legs
+disagreed only because one listener belonged to Python and the other to the test
+host is the whole finding: a probe that had asked "is this host reachable" would
+have answered yes and been useless.
+
+So *"the Hyper-V firewall discards every connection from WSL to the host"*,
+which these tests said about themselves since P4, was the wrong shape twice
+over: it is not the subnet, it is the program — and for the path the peer
+actually takes it is not the firewall at all. The comments are corrected rather
+than removed, because what they got wrong is the instructive part.
+
+The skip message names both possibilities and hands over the command that tells
+them apart:
+
+```
+Get-NetFirewallApplicationFilter |
+    Where-Object { $_.Program -match 'testhost\.exe$' } |
+    Get-NetFirewallRule | Where-Object Action -eq Block
+```
+
+Verified on Linux with all three far sides up: **29 passed, 0 skipped** — the
+four still run where they always ran. On Windows they skip as before, but with a
+reason somebody can act on, and on a machine where the path *is* open they would
+now run instead of being turned away by their own platform check.
+
+**What this does not do.** The probe answers for TCP to a listener of ours; it
+does not check that the peer resolves our domain to the right address, and
+`localhost` is chosen precisely because resolution cannot be arranged without
+root. Should the setups ever gain an `/etc/hosts` entry, that is a second
+question and wants a second probe.
+
+---
+
 ## Later
 
 ### Test suite
-- **The far-side tests decide by platform, not by reachability.** The ones
+- ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
   marked "only inside WSL" ask `OperatingSystem.IsLinux()`, which is a stand-in
   for the real question: can the far side open a connection *to* us? On Windows
   the answer is no because the Hyper-V firewall discards it, and the stand-in
@@ -6709,6 +6772,9 @@ else, and they are three of the 29 that pass there with nothing skipped.
   `TestEnvironment.RequireWslInboundTcp()` probes the path and puts the
   diagnosis into the skip reason. Nothing is wrong today; the reason it is
   right is a coincidence of two firewalls
+  ✅ done in D105 — and the coincidence was not the one written here: the
+  firewall does not block the path the peer takes, and it does block one this
+  entry never suspected
 - ~~**`AFailureWhileHandlingAFrame_IsReported` has been flaky under load since
   D68.**~~ Fixed in D69, and the reason was no problem of timing but a race: after the
   building of the connection something is still on its way — the first presence, the
