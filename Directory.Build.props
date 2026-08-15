@@ -1,0 +1,35 @@
+<Project>
+
+  <!--
+    Windows and WSL build the same checkout over /mnt/d, and until now into the
+    same bin/ and obj/. That is not merely untidy, it fails silently: after a
+    Linux run, a Windows `dotnet test` that skips the build produced no output
+    at all - no error, no summary, exit code 0 - because the test host and the
+    .deps.json it reads had been written for the other platform. A tool that
+    says nothing is worse than one that fails, and this one had to be caught by
+    noticing that a run which used to print thirty lines printed none.
+
+    UseArtifactsOutput moves every project in this tree into one directory, and
+    the condition gives each platform its own. The two no longer meet.
+
+    Why "build/" and not "artifacts/", which is what the SDK calls this by
+    default: nightly.yml uploads everything under `artifacts/` for the .trx
+    files and the peer logs, and pointing the build output there would sweep the
+    whole compiled tree into that upload.
+
+    This file sits at the root of the superproject, so it reaches the submodule
+    projects as well - which is the point, since libs/Hermod and the rest share
+    their bin/ across the same border. A standalone checkout of Ratatoskr or
+    XMPPConsole walks up past its own root and never finds this, so their own
+    builds and their own CI are untouched.
+
+    (No double hyphen anywhere above: an XML comment may not contain one, and
+    naming the flag that started this cost a build.)
+  -->
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath Condition=" '$(OS)' == 'Windows_NT' ">$(MSBuildThisFileDirectory)build\windows</ArtifactsPath>
+    <ArtifactsPath Condition=" '$(OS)' != 'Windows_NT' ">$(MSBuildThisFileDirectory)build/linux</ArtifactsPath>
+  </PropertyGroup>
+
+</Project>

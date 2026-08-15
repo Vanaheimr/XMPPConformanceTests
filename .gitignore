@@ -4,6 +4,7 @@ __pycache__/
 *.suo
 bin/
 obj/
+build/
 .vs
 .vs/*
 TestResults/
