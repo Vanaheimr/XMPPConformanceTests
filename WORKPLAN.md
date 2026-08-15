@@ -6881,9 +6881,14 @@ claiming something it had not tested.
 
 `ForeignSide` is the third caller `TestEnvironment` predicted in D105 when it
 wrote the wsl/sh split a second time, so the mechanism moved there and
-`TestEnvironment` delegates. `OmemoOracleTests` keeps its own for now: it carries
-a Windows path across the border inside a JSON job, where an argument list
-cannot help it.
+`TestEnvironment` delegates. `OmemoOracleTests` was expected to keep its own -
+it carries a Windows path across the border inside a JSON job, where an
+argument list cannot help it - and "for now" lasted exactly one commit:
+db3ae67 sent it over the same border as the others. The path translation was
+the argument *for* sharing rather than against it, since it is the same
+wherever it is needed, and the `Category` alias D101 had to add went with it:
+`System.ComponentModel` was only ever imported for the `Win32Exception` that
+`ForeignSide` now catches.
 
 Twenty-nine tests became thirty-three, and both gates say so:
 

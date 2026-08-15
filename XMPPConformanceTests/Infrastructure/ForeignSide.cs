@@ -39,10 +39,12 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// This exists because <see cref="TestEnvironment"/> said, when it wrote
     /// the split a second time, that a third caller would mean the copies
     /// belong together. The third caller arrived with
-    /// <see cref="AesGcmUrlOracleTests"/>. <c>OmemoOracleTests</c> still has one
-    /// of its own and is deliberately left alone for now: it carries a Windows
-    /// path across the border inside a JSON job, where an argument list cannot
-    /// help it, and untangling that is a separate step from adding tests.
+    /// <see cref="AesGcmUrlOracleTests"/>, and all three go through here now:
+    /// <c>OmemoOracleTests</c> was the last one out, in db3ae67. The reason it
+    /// was expected to stay behind - it carries a Windows path across the
+    /// border inside a JSON job, where an argument list cannot help it - turned
+    /// out to be an argument for <see cref="PathOver"/> rather than against
+    /// sharing, since that translation is the same wherever it is needed.
     /// </para>
     /// </remarks>
     public static class ForeignSide
