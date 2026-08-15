@@ -150,17 +150,29 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// our listener has to accept. With bidi the answer would come over the
         /// existing stream, and the inbound path would stay unchecked again.
         ///
-        /// <b>This test runs only inside WSL.</b> From Windows Prosody does not
-        /// reach us - the Hyper-V firewall discards every connection from WSL
-        /// to the host, and to change that would mean setting a firewall rule.
-        /// In the same net everything is loopback.
+        /// <b>This test needs the far side to be able to dial in</b>, which
+        /// <see cref="TestEnvironment.RequireInboundFromThePeer"/> measures
+        /// rather than infers from the platform.
+        ///
+        /// What stood here was "the Hyper-V firewall discards every connection
+        /// from WSL to the host", and probing it found that to be the wrong
+        /// shape twice over. Prosody dials the domain <c>localhost</c> - the
+        /// only name the setup can give us without an /etc/hosts entry and
+        /// thereby without root - and under WSL's default NAT networking that is
+        /// WSL's own loopback, so the connection never leaves the VM and no
+        /// firewall is involved. Independently of that, the host IS reachable by
+        /// address from WSL, but not by this process: Windows Firewall filters
+        /// per executable, and a dismissed prompt had left two Block rules for
+        /// this repository's testhost.exe. See
+        /// <see cref="TestEnvironment"/> for the measurement and for how to find
+        /// them. Inside WSL, or in the CI container, peer and server share one
+        /// loopback and neither question arises.
         /// </remarks>
         [Test]
         public async Task ProsodyDialsUsAndTheAnswerArrives()
         {
 
-            if (!OperatingSystem.IsLinux())
-                Assert.Ignore("Only inside WSL: from Windows Prosody does not reach this server.");
+            TestEnvironment.RequireInboundFromThePeer();
 
             BuildUp(reachable: true);
 
@@ -230,8 +242,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         public async Task DialbackCarriesBothDirections()
         {
 
-            if (!OperatingSystem.IsLinux())
-                Assert.Ignore("Only inside WSL: Prosody's query does not reach this server otherwise.");
+            TestEnvironment.RequireInboundFromThePeer();
 
             BuildUp(reachable: true, dialback: true);
 

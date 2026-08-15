@@ -163,17 +163,17 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// our listener has to accept. With bidi the answer would come over the
         /// existing stream, and the inbound path would stay unchecked.
         ///
-        /// <b>This test runs only inside WSL.</b> From Windows ejabberd does
-        /// not reach us - the Hyper-V firewall discards every connection from
-        /// WSL to the host, and to change that would mean setting a firewall
-        /// rule. In the same net everything is loopback.
+        /// <b>This test needs the far side to be able to dial in</b>, which
+        /// <see cref="TestEnvironment.RequireInboundFromThePeer"/> measures
+        /// rather than infers from the platform. The firewall this used to
+        /// blame is not what stops it - see the note in
+        /// <see cref="ProsodyFederationTests"/>, which probed it.
         /// </remarks>
         [Test]
         public async Task EjabberdDialsUsAndTheAnswerArrives()
         {
 
-            if (!OperatingSystem.IsLinux())
-                Assert.Ignore("Only inside WSL: from Windows ejabberd does not reach this server.");
+            TestEnvironment.RequireInboundFromThePeer();
 
             BuildUp(reachable: true);
 
@@ -226,8 +226,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         public async Task DialbackCarriesBothDirections()
         {
 
-            if (!OperatingSystem.IsLinux())
-                Assert.Ignore("Only inside WSL: ejabberd's query does not reach this server otherwise.");
+            TestEnvironment.RequireInboundFromThePeer();
 
             BuildUp(reachable: true, dialback: true);
 

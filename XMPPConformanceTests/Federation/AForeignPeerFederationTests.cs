@@ -331,8 +331,10 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         public async Task ThePeerTakesTheReturnPathWeOffered()
         {
 
-            if (!OperatingSystem.IsLinux())
-                Assert.Ignore($"Only inside WSL: from Windows {PeerName} does not reach this server.");
+            // Measured, not guessed. This used to ask OperatingSystem.IsLinux()
+            // and say "only inside WSL", which is a stand-in for the real
+            // question - can the far side dial in? - that happens to agree.
+            TestEnvironment.RequireInboundFromThePeer();
 
             BuildUp(offerOnly: true, reachable: true);
 
