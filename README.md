@@ -6,21 +6,29 @@
 Two badges, and they answer different questions — which matters more here than
 in the sibling suites, because every check in this repository needs a far side
 that a hosted runner does not have. **CI** builds the suite against the pinned
-submodules on Windows and Debian 13 and runs what needs no peer: 2 tests, 27
-skipped. It is a build gate, and the thing it guards is real — the
-`InternalsVisibleTo` that gives these tests the server's internals names this
-assembly from inside Ratatoskr, so the two repositories can only be moved
-together (D99). **Nightly** is where the conformance verdict lives: it installs
-Prosody 13 and ejabberd 24.12 into the container and runs the federation and
-stream-management suites against them, 26 of 26, and then repeats the lane
-against Ratatoskr's current master to catch what the pins hide.
+submodules on Windows and Debian 13 and runs the two checks that need no peer:
+**2 of 2, nothing skipped**. It is a build gate, and the thing it guards is
+real — the `InternalsVisibleTo` that gives these tests the server's internals
+names this assembly from inside Ratatoskr, so the two repositories can only be
+moved together (D99). **Nightly** is where the conformance verdict lives: it
+installs Prosody 13, ejabberd 24.12 and python-omemo into the container and
+runs everything against them — federation, stream management, OMEMO and
+XEP-0454 — **33 of 33, nothing skipped**, and then repeats the lane against
+Ratatoskr's current master to catch what the pins hide.
+
+**Both lanes owe zero skips, and that is the point of the split.** Unfiltered
+this suite is green at "2 passed, 27 skipped" on a bare runner and green at "33
+passed" in the container — the same colour for the run that measured everything
+and the run that measured nothing. Selected by category, each lane has a number
+it must hit, and any skip at all is a finding (D101).
 
 What this repository checks is a claim: that the client and the server of
 **[Ratatoskr](libs/Ratatoskr/README.md)** keep to the RFCs and XEPs they
 name. Measured twice — against the specifications, and against implementations
-nobody here wrote: Prosody 13, ejabberd 24.12 and python-omemo. The setups that
-produce those far sides stand under `tools/`, the checks in
-`XMPPConformanceTests/`.
+nobody here wrote: Prosody 13, ejabberd 24.12, python-omemo, and pyca
+`cryptography` as the encryptor for XEP-0454. The setups that produce those far
+sides stand under `tools/` and `XMPPConformanceTests/XEPs/Oracle/`, the checks
+in `XMPPConformanceTests/`.
 
 > **Maturity:** experimental — of the thing under test, not of the checks.
 > Client and server connect, authenticate and chat against Prosody 13 over
@@ -97,6 +105,7 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0333 | Chat Markers | ✅ | Sending + receiving, namespace-checked against being confused with XEP-0184 |
 | XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo, in both directions (D69) |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
+| XEP-0454 | OMEMO Media Sharing | ⚠️ | The receiving half only: `AesGcmUrl` reads `aesgcm://host/path#[iv][key]`, hands back the `https` address without the fragment — which is the key — and decrypts the payload with the tag checked. Fetching is deliberately not in the library: whether an incoming message may cause a request at all belongs to whoever runs the client, not to whoever sent the message. The upload side is missing entirely. **The IV is 12 bytes and the older 16 byte reading is refused rather than misread** — 16+32 is 96 hex characters where 12+32 is 88, so a reader taking the first 12 bytes would find a well-formed key, fail at the tag, and blame the file. Checked here against pyca `cryptography` rather than against ourselves, because the layout of the fragment is the one thing two implementations can hold differently while each stays consistent — see [WORKPLAN.md](WORKPLAN.md), D107 |
 | XEP-0352 | Client State Indication | ✅ | Both sides. The server announces `<csi/>` after the login (§4.1) and does not answer `<active/>`/`<inactive/>` (§4.2). Held back is only what will still be true later: presence waits and **the last one per full JID replaces the earlier ones** (§3), a message with text, an `iq`, an error and every nonza go out at once, a chat state (XEP-0085) is dropped — it would not be late on being handed in later, it would be wrong. What was held back goes out **before** the stanza that empties the buffer (RFC 6120 §10.1), and at the end of the connection into the buffer of unacknowledged stanzas. Upper bound `MaxHeldWhileInactive` (default 100); on overflow the buffer goes out instead of anything being thrown away. After a resumption "active" holds again (§5.2) — this is why the client declares itself anew after every setup. In the console `/csi active|inactive` (D61) |
 
 ## RFC conformance
@@ -259,12 +268,25 @@ The namespace is flat throughout: `org.GraphDefined.Vanaheimr.Ratatoskr` (like
 XMPPConformanceTests/                    the checks against foreign peers
 ├── Federation/                          S2S against Prosody 13, ejabberd 24.12
 ├── StreamManagement/                    XEP-0198 against the same two
-├── XEPs/Oracle/                         python-omemo, fetched into WSL
-└── Infrastructure/                      the guard against internal errors
+├── XEPs/                                OMEMO and XEP-0454 against references
+│   └── Oracle/                          python-omemo and a pyca encryptor,
+│                                        copied next to the assembly at build
+└── Infrastructure/                      TestCategories (which lane a check is
+                                         in), TestEnvironment (can the far side
+                                         dial in), ForeignSide (the one door to
+                                         WSL or the container), and the guard
+                                         against internal errors
 
 tools/                                   the foreign far sides
-├── prosody/setup.sh                     Prosody 13 rootless in WSL
-└── ejabberd/setup.sh                    ejabberd 24.12 rootless in WSL
+├── prosody/setup.sh                     Prosody 13, no root needed
+└── ejabberd/setup.sh                    ejabberd 24.12, no root needed
+
+Directory.Build.props                    one build tree per platform:
+build/windows, build/linux               Windows and WSL share this checkout
+                                         over /mnt/d and used to share bin/,
+                                         where a test host built for the other
+                                         platform made `dotnet test` print
+                                         nothing at all
 
 libs/Ratatoskr/Ratatoskr/                the protocol
 ├── Client/       XMPPClient, XMPPMessage, MessageType
@@ -296,6 +318,39 @@ dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 dotnet test libs/Ratatoskr/RatatoskrTests/RatatoskrTests.csproj
 ```
 
+**Two variables decide whether the first command measures anything.** The
+far-side checks look for the test CA the setups generate, and without them every
+one of them skips with "points at no test CA" — a green run that measured
+nothing, which is the failure this repository has been caught by twice (D54,
+D97):
+
+```bash
+export JABBER_PROSODY_CERTS="$HOME/prosody-test/certs"     # inside WSL or Linux
+export JABBER_EJABBERD_CERTS="$HOME/ejabberd-test/certs"
+```
+
+From a Windows host the same two point at `\\wsl.localhost\Debian\home\<you>\…`
+instead; both `setup.sh` print the line for the side they were run from. They
+still say `JABBER_`, which is what this suite was called until E20 — renaming
+them would silently skip every check on every machine that had not been changed
+over, and a rename that needs the skip count to be noticed is one to make
+deliberately (D99).
+
+The suite is driven in two lanes, and **each owes zero skips**:
+
+```bash
+# The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
+dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
+
+# The verdict: with Prosody, ejabberd and both oracles up. 33 of 33
+dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
+```
+
+The `WSL` category is named after the developer's machine and means "needs a
+far side": on Windows that is WSL, in CI the `debian:13` container, where the
+peers are native on the same loopback and the checks that need the peer to dial
+*in* run instead of skipping.
+
 NUnit in the same versions as `HermodTests` (NUnit 4.6.1, NUnit3TestAdapter
 6.2.0, Test.Sdk 18.8.1). The fixtures are grouped by topic; the namespace stays
 flat throughout at `org.GraphDefined.Vanaheimr.Ratatoskr.Tests`, the folders
@@ -315,10 +370,12 @@ libs/Ratatoskr/RatatoskrTests/
 └── XEPs/               XEP-0115 caps and the payloads of the other XEPs
 
 XMPPConformanceTests/
-├── Infrastructure/     the same guard against internal errors, once per suite
+├── Infrastructure/     the guard against internal errors, the test categories,
+│                       the inbound probe and the one door to the far sides
 ├── Federation/         S2S against Prosody 13 and ejabberd 24.12
 ├── StreamManagement/   XEP-0198 against the same two
-└── XEPs/Oracle/        python-omemo as a reference, fetched into WSL
+└── XEPs/               OMEMO against python-omemo, XEP-0454 against pyca
+    └── Oracle/         both reference scripts, copied to the output at build
 ```
 
 **Here stands what needs a far side nobody here wrote, and nothing else.**
