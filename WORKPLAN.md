@@ -6811,6 +6811,96 @@ master.
 
 ---
 
+### D107. Reading a file nobody here encrypted ✅ — XEP-0454 against pyca
+
+OMEMO Media Sharing arrived from two sides at once: Ratatoskr `76c0a11` put
+`AesGcmUrl` in the library — parsing the fragment and decrypting, no HTTP client
+— and XMPPConsole `11eaf6f` grew `--chatlogs` and `--storeChatMedia` around it.
+The cut between them is worth naming, because it is what makes this entry
+possible: **the console decides whether to fetch, the library decides what the
+bytes mean, and only the second is a protocol question.** So the checks belong
+neither with the console nor with the transport but here.
+
+Ratatoskr brought 260 lines of its own tests along, and they are not the problem
+this solves. **They check `AesGcmUrl` against itself**, which settles the
+arithmetic and settles nothing about the one thing at stake: the layout of the
+fragment is contested between implementations, and a suite that encrypts and
+decrypts with the same code agrees with itself whichever reading it picked. D62
+to D65 found exactly that shape five times over — both sides computing the same
+wrong thing and confirming each other.
+
+The far side is `cryptography` (pyca), driven through
+`XEPs/Oracle/aesgcm_oracle.py`. **It costs no new dependency**: the OMEMO oracle
+already fetches that package because xeddsa needs it, so `fetch_oracle.py` and
+the container setup are untouched.
+
+| | what it pins |
+|---|---|
+| `WeReadWhatTheReferenceWrote` | fragment is IV then key, the stored file is ciphertext then the 16 byte tag, the plaintext survives — and `ToHttps` hands back a URL with no key in it |
+| `TheOlderSixteenByteIvIsRefusedAndNotMisread` | a 16 byte IV is **refused**, not misread |
+| `ATamperedFileDoesNotDecrypt` | one flipped bit in the ciphertext has to fail at the tag |
+| `TheFragmentIsReadInEitherCase` | upper and lower case hex mean the same thing |
+
+The second is why the fixture exists. XEP-0454 was read as a 16 byte IV for
+years and older Conversations sent it that way; `AesGcmUrl` takes only 12,
+because .NET's `AesGcm` accepts no other nonce length. **The point is not that
+we refuse it — it is that we refuse it instead of misreading it.** A 16+32
+fragment is 96 hex characters where 12+32 is 88, so a reader that simply took
+the first 12 bytes would find a well-formed key and nonce, fail at the tag, and
+blame the file.
+
+**The mutation, because green proves nothing on its own.** Not the code this
+time but the *oracle*: it was turned round to emit `key‖nonce`, which is what a
+disagreeing implementation puts on the wire.
+
+| test | under `key‖nonce` | why |
+|---|---|---|
+| `WeReadWhatTheReferenceWrote` | **red** | with its intended message, for key *and* nonce |
+| `ATamperedFileDoesNotDecrypt` | **red** | at its own guard — the one insisting the untouched payload decrypts before tampering is claimed to show anything |
+| `TheOlderSixteenByteIvIsRefused…` | green | rejects on length; order is nothing to it |
+| `TheFragmentIsReadInEitherCase` | green | compares upper against lower of the same fragment |
+
+Two of four catch a layout disagreement and two structurally cannot, which is
+the right answer rather than a weak one — a test that went red at every mutation
+would be measuring the oracle, not the reader.
+
+**And the mutation found something about the harness before it found anything
+about the code.** The first attempt changed nothing: four green tests against an
+oracle that had been turned round. `XEPs/Oracle/**` is `Content` copied to the
+output at *build* time, so `--no-build` left the old script standing next to the
+assembly. The mutation had never arrived. Ten minutes of a test suite that
+looked worthless and was merely unbuilt — the same class as D103's empty
+`prosody.log`: nothing failed, the answer simply came from the past.
+
+**What this deliberately does not do is test against Prosody and ejabberd.** An
+`aesgcm://` link is text in a body to them — the ciphertext lies on an HTTP
+upload service (XEP-0363, which Ratatoskr does not implement) and the decryption
+never leaves the client. That a body arrives byte for byte is already shown by
+the federation lane; measuring it again under this name would be a green run
+claiming something it had not tested.
+
+`ForeignSide` is the third caller `TestEnvironment` predicted in D105 when it
+wrote the wsl/sh split a second time, so the mechanism moved there and
+`TestEnvironment` delegates. `OmemoOracleTests` keeps its own for now: it carries
+a Windows path across the border inside a JSON job, where an argument list
+cannot help it.
+
+Twenty-nine tests became thirty-three, and both gates say so:
+
+| | measured |
+|---|---|
+| suite on Debian 13, every far side up | 33 passed, 0 skipped |
+| gate filter, Windows and Debian 13 | 2 passed, 0 skipped |
+| CI, both legs | green |
+| nightly, pinned and against master | 33 passed, 0 skipped, twice |
+
+The nightly is the one that answers the question the developer machine could
+not: `cryptography` imports in the bare container, `fetch_oracle.py` picks the
+right manylinux/cp313 wheels against Debian 13's Python 3.13.5, and the count is
+33 rather than 29 — so the fixture ran instead of merely being compiled.
+
+---
+
 ## Later
 
 ### Test suite
