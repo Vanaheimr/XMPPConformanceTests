@@ -145,6 +145,24 @@ daemonize          = false
 pidfile            = "$PREFIX/run/prosody.pid"
 allow_registration = false
 
+-- Prosody refuses to start as root and says so in a way that does not reach
+-- this script: it writes "Danger, Will Robinson!" to stdout and leaves
+-- prosody.log empty, so the check further down reports "no certificates
+-- loaded" - which points at the certificates, and those were fine.
+--
+-- On the developer machine this never comes up; in the CI container everything
+-- runs as root. The switch is the one Prosody provides for exactly this case
+-- (util/startup.lua checks pposix.getuid() == 0 against it), and off root it
+-- does nothing at all, so the same file serves both without a variant.
+--
+-- It has to stand HERE, above the first VirtualHost, and that is not a matter
+-- of taste: the check reads config.get("*", "run_as_root") - the global
+-- section - and in Prosody's config language every setting after a VirtualHost
+-- belongs to that host. Appended at the end of the file it parses, loads, and
+-- silently does nothing; measured, not assumed. It is the same trap the
+-- s2s_secure_auth comment below describes.
+run_as_root        = true
+
 modules_enabled = {
     "roster"; "saslauth"; "tls"; "dialback"; "disco";
     "posix"; "ping"; "time"; "uptime"; "version";
@@ -258,8 +276,18 @@ if grep -q "Certificates loaded" "$PREFIX/prosody.log"; then
         && echo "   WebSocket endpoint on $HTTPS_PORT." \
         || echo "   WARNING - no WebSocket endpoint on $HTTPS_PORT; the XEP-0198 run falls away."
 else
-    echo "   ERROR - Prosody has loaded no certificates:"
-    tail -20 "$PREFIX/prosody.log"
+    # Both files, and prosody.out first, because the case that actually
+    # happened had prosody.log empty: Prosody had refused to start at all and
+    # said so on stdout. "No certificates loaded" was then the only thing this
+    # script reported, and it named the one thing that was not wrong - the
+    # certificates had been generated and verified twenty lines earlier. A
+    # start that never happened has to be told apart from a start that failed
+    # to read its keys, and only prosody.out can do that.
+    echo "   ERROR - Prosody did not report loaded certificates."
+    echo "   --- prosody.out (stdout; a refusal to start shows up here) ---"
+    tail -20 "$PREFIX/prosody.out" 2>/dev/null || echo "   (no prosody.out)"
+    echo "   --- prosody.log (empty if Prosody never got that far) ---"
+    tail -20 "$PREFIX/prosody.log" 2>/dev/null || echo "   (no prosody.log)"
     exit 1
 fi
 
