@@ -6758,6 +6758,59 @@ question and wants a second probe.
 
 ---
 
+### D106. A pin nobody advances ✅ — Hermod +3, Styx +31
+
+The pins do not follow their upstreams, and that is the point: a fresh clone
+builds one known set, and D100 says so. What the arrangement does not provide is
+an occasion to move them. Nothing in the gate notices when Hermod or Styx moves,
+because a push over there does not touch this repository — so the gap grows
+quietly, and **a pin nobody ever advances stops being reproducible and starts
+being stale**. Styx had reached 31 commits.
+
+What came in is not cosmetic, and it is worth naming because none of it is XMPP
+while all of it lies underneath XMPP: Styx gained a self-contained CBOR library
+(RFC 8949) with metrological values and COSE_Sign1 signing, and with it a run of
+corrections that read like the entries in this plan — `Kilogram.FromG` shifted
+by three decimal powers, metrology text parsing that read milliwatt as megawatt,
+percentages that could be printed but not read back with `!=` inverted into the
+bargain. Hermod ports `ExtractECPointFromCOSEKey` onto that reader.
+
+**Measured before the commit, not after.** The order matters: a pin bump that is
+pushed and then tested is a pin bump whose verdict arrives too late to change
+it.
+
+| what | result |
+|---|---|
+| solution, all nine projects | 0 errors |
+| conformance suite, Windows | 5 passed, 24 skipped |
+| gate filter, `TestCategory!=WSL` | 2 passed, 0 skipped |
+| XMPPConsole | 8 passed, 0 skipped |
+| **conformance suite, Debian 13** | **29 passed, 0 skipped** |
+| **RatatoskrTests** | **1111 passed, 1 skipped** (6 m 21 s) |
+
+The last two carry the statement. 29 of 29 means all three foreign far sides
+answered — Prosody 13.0.1, ejabberd 24.12 and python-omemo — so the federation
+still holds against implementations nobody here wrote, with 34 commits of new
+ground underneath it. The single skip in RatatoskrTests is the documented one: a
+property that exists only in STARTTLS operation.
+
+Confirmed afterwards where it could not be arranged by hand: the gate green on
+both platforms out of a **fresh clone** — no grown working directory, no 31
+commits that arrived here one at a time — and the nightly green in the
+container, 29 of 29 in both lanes.
+
+**One consequence to know about, because it is easy to misread as a result.**
+All four pins now equal their remote `master`, so `interop (submodules at
+master)` checks out exactly what `interop (pinned submodules)` already has. Its
+29 of 29 is a repetition, not a second opinion. The referee earns its keep again
+at the next drift — which is the moment this entry is about, and the reason to
+look at it before the gap is 31 commits wide.
+
+Ratatoskr and XMPPConsole needed no move; both already stood at their remote
+master.
+
+---
+
 ## Later
 
 ### Test suite
