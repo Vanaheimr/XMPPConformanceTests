@@ -4,7 +4,7 @@ What is open on the client and the server, in what order that makes sense and
 why. The detailed description of the individual gaps stands in
 [README.md](README.md) — here stands only what is to be **done**.
 
-State: 2026-07-27
+State: 2026-08-15
 
 ---
 
@@ -6475,9 +6475,182 @@ URLs. Those are not in the repository's hand.
 
 ---
 
+### D100. A gate that could not exist ✅ — and what it is honest to call it
+
+This repository had no CI, and the reason was one line: the three `.gitmodules`
+URLs read `ssh://git@git.graphdefined.com:5001/`. That host is not routable from
+a hosted runner, and an SSH URL would want a deploy key per repository before
+the first clone. Nothing else could be tried until that changed. They are the
+public GitHub mirrors now, the same ones the DNS, NTS and SSH conformance suites
+name, which is what lets `submodules: true` work with no secret at all.
+
+**What the gate is, said plainly.** Every check here needs a far side a hosted
+runner does not have, so `ci.yml` runs `TestCategory!=WSL`: two tests. Calling
+that a conformance gate would be a lie. What it really guards is the compile,
+and that is not nothing — the `InternalsVisibleTo` that gives these tests the
+server's internals is written inside Ratatoskr and names *this* assembly, so the
+two repositories can only be moved together. D99 named that risk; nothing but a
+compile catches it, and a compile does.
+
+**The Linux leg is no longer a question.** Ratatoskr's own CI has said since
+E18a that a second matrix entry was "worth it — but not before someone has seen
+it pass". It has now been seen: this suite builds on Debian 13, .NET 10.0.302,
+0 errors, and the Debian leg finishes faster than the Windows one.
+
+**`submodules: true`, not `recursive`.** XMPPConsole came in as a fourth
+submodule and brought its own Hermod, Styx and Ratatoskr — pinned at revisions
+that are not these. Recursing put two revisions of the library under test in one
+tree, with some 130 MB of duplicates beside them. The console has since gone
+back to pinned submodules of its own, so the reason stands even though the
+sibling-layout detour did not.
+
+| | measured |
+|---|-----|
+| gate, windows-latest | 2 passed, 0 skipped |
+| gate, debian-13-container | 2 passed, 0 skipped |
+
+---
+
+### D101. Two lanes that owe no skips ✅ — the prerequisite gets a name
+
+Unfiltered, this suite is green at "2 passed, 27 skipped" on a bare runner and
+green at "29 passed" in the container. **The same colour for the run that
+measured everything and the run that measured nothing** — and which it was has
+to be read off a second number by hand, every time. D54 and D97 were both
+exactly that failure, twice caught by luck.
+
+`TestCategories` follows the DNS and NTS suites, down to the name of the
+category CI filters on: `WSL`. It is not the truest word — the far side is WSL
+on the developer machine and a `debian:13` container in CI — but one filter that
+reads the same in every sibling repository is worth more than a better name. The
+two strings already in use keep their spelling exactly, lower-case `ejabberd`
+included, so a saved filter keeps working.
+
+Now each lane owes **zero skips**: the gate 2/0, the interop lane 27/0. Any skip
+anywhere is a finding.
+
+**The placement is not uniform, and that is the whole of it.** Seven of the eight
+tests in `AForeignPeerStreamManagementTests` need the far side;
+`ThePatienceCoversWhatTheClientMayTake` does not. A category on the fixture
+covers that one too — NUnit has no way to take one off again — and
+`TestCategory!=WSL` would then select nothing at all. **A gate that runs zero
+tests passes.** So it sits per method there, and on the class where every test
+qualifies.
+
+The filter this replaced was `FullyQualifiedName!~OmemoOracleTests`: a name that
+says which type to leave out and never why.
+
+---
+
+### D102. A trigger that matched nothing ✅ — and a cancel that erased the attribution
+
+Two faults in the workflows of the neighbouring repositories, and both were
+invisible in the same way: the thing that would have reported them read as if
+there were nothing to report.
+
+**Ratatoskr's CI never fired.** It said `on: push: branches: [main]`, and after
+the rename to `master` no such branch existed on any of its three remotes. A
+trigger that matches no branch name produces no error — the Actions tab simply
+stays empty, and the badge added in E18b reads *"no status"*, which looks like
+"has not run yet" rather than "cannot run". The history proves the sequence:
+successful runs on `main` on 4 and 11 August, then silence. Hermod and Styx both
+said `master`; this was the outlier.
+
+**The concurrency group cancelled the wrong runs.** `group: ci-${{ github.ref }}`
+with `cancel-in-progress: true` is right for pull requests and wrong for pushes:
+the first of two quick pushes has its run killed, gets no verdict, and nobody
+comes back to fill the hole. The code is still tested — the second commit
+contains the first — what is lost is **the attribution**. Once the surviving run
+is red there is no way left to say which commit did it.
+
+Measured before changing it, and the answer differed per repository:
+
+| | push runs | cancelled | commits with no verdict |
+|---|---|---|---|
+| Ratatoskr | 4 | 0 | 0 |
+| XMPPConsole | 5 | 1 | 1 — `be6e872` |
+
+Ratatoskr had not yet paid, and only because it was firing on a branch that did
+not exist. XMPPConsole had: `be6e872` was superseded ninety seconds in and
+carries a grey cancellation mark, which reads as though something had gone wrong
+with it. Nothing did. Nobody asked.
+
+Keying the group on the SHA, and not merely turning `cancel-in-progress` off, is
+what makes it hold for more than two pushes: a group keeps at most one run
+*pending*, so a third push would discard the second before it ever started.
+
+---
+
+### D103. The far side that would not start ✅ — root, and a message that pointed elsewhere
+
+Every nightly run failed at `Set up Prosody`, in both jobs, before a single test
+had been reached. The cause was neither the setup nor the certificates:
+**Prosody refuses to run as root.** On the developer machine the script runs as
+an ordinary user; in the container everything is root. So it could only ever
+appear here — and the workflow had been merged on the strength of a WSL run,
+which is precisely the difference between an indication and a proof.
+
+**The switch is placement-dependent, and that was measured rather than assumed.**
+Prosody provides `run_as_root` for this case, and the first attempt appended it
+to the end of the generated config. It parsed, it loaded, and **the daemon still
+refused**: the check reads `config.get("*", "run_as_root")` — the *global*
+section — and in Prosody's config language every setting after a `VirtualHost`
+belongs to that host. This is the same trap the `s2s_secure_auth` comment in
+that very file has described all along, and it caught the next reader of it.
+
+| at uid 0 | result |
+|---|---|
+| no setting | "Danger, Will Robinson!", `prosody.log` empty |
+| setting after `VirtualHost` | *unchanged* — parsed, loaded, no effect |
+| setting in the global section | certificates loaded, WebSocket serving |
+
+Reproduced with `unshare -r`, which grants uid 0 without any real privilege —
+and uid 0 is exactly what Prosody's check reads.
+
+**The second defect is the one that made this expensive to read.** The script
+reported `ERROR - Prosody has loaded no certificates` and tailed `prosody.log`,
+which was empty because Prosody had never got as far as writing it. **It named
+the one thing that was not wrong** — the certificates had been generated and
+verified with `openssl verify` twenty lines earlier. What said what actually
+happened was `prosody.out`, and nothing looked there. The failure branch now
+shows both, stdout first, and says what an empty log means. A start that never
+happened has to be distinguishable from one that could not read its keys.
+
+ejabberd does not share the problem, and that was checked rather than hoped: its
+launcher only warns under root, and only because this setup already blanks
+`INSTALLUSER` — with it set, `ejabberdctl` would try to `su` to a user the
+container does not have.
+
+**The first run in which this repository measured what it exists for:**
+
+| | tests | passed | skipped |
+|---|---|---|---|
+| interop, pinned submodules | 29 | 29 | 0 |
+| interop, submodules at master | 29 | 29 | 0 |
+
+The referee and the pinned set say the same thing, so the pins are hiding
+nothing at present. Prosody 13.0.1, ejabberd 24.12 and python-omemo, native in
+the container and on the same loopback as the server under test — which is why
+the four tests that skip on Windows as "only inside WSL" run here: they gate on
+`OperatingSystem.IsLinux()`, and the Hyper-V firewall that discards WSL's
+inbound connections has no counterpart in the container.
+
+---
+
 ## Later
 
 ### Test suite
+- **The far-side tests decide by platform, not by reachability.** The ones
+  marked "only inside WSL" ask `OperatingSystem.IsLinux()`, which is a stand-in
+  for the real question: can the far side open a connection *to* us? On Windows
+  the answer is no because the Hyper-V firewall discards it, and the stand-in
+  happens to agree — that is why they run in the container (D103). It would
+  also skip on a Windows machine where the firewall rule *has* been set, and it
+  would run on a Linux host where something else blocks the way, reporting the
+  block as a test failure. The NTS suite measures instead of guessing:
+  `TestEnvironment.RequireWslInboundTcp()` probes the path and puts the
+  diagnosis into the skip reason. Nothing is wrong today; the reason it is
+  right is a coincidence of two firewalls
 - ~~**`AFailureWhileHandlingAFrame_IsReported` has been flaky under load since
   D68.**~~ Fixed in D69, and the reason was no problem of timing but a race: after the
   building of the connection something is still on its way — the first presence, the
