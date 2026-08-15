@@ -145,17 +145,18 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 27 of these 29. The two
+      # the gate's `TestCategory!=WSL` and would run 31 of these 33. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 29 tests, 29 passed, 0 skipped. The 26 without OMEMO were
-      # measured on Debian 13 with both peers, in eleven seconds; the three
-      # OMEMO tests were measured against python-omemo in WSL Debian 13. A skip
-      # here is a finding: it means a peer did not come up or the oracle did
-      # not import, and the reason will be in the TRX.
+      # Expect 33 tests, 33 passed, 0 skipped, measured on Debian 13 with every
+      # far side up. It was 29 until the XEP-0454 fixture came in: four checks
+      # of OMEMO Media Sharing against an encryptor written by pyca rather than
+      # by us, which need no new package because the OMEMO oracle already brings
+      # `cryptography` along. A skip here is a finding: it means a peer did not
+      # come up or an oracle did not import, and the reason will be in the TRX.
       #
       # The two variables are exported in the shell rather than declared under
       # `env:`, because they have to contain $HOME and a step-level `env:`

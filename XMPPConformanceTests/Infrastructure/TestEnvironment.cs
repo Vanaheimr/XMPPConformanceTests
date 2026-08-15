@@ -212,60 +212,15 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// same loopback.
         /// </summary>
         /// <remarks>
-        /// The same split <see cref="OmemoOracleTests"/> makes for the oracle,
-        /// and it is written twice on purpose rather than shared prematurely -
-        /// that one has to carry Windows paths across the border as well, which
-        /// this does not. Should a third caller appear, the two belong together.
-        ///
-        /// A missing interpreter comes back as code -1 and not as an exception:
-        /// no wsl.exe on this Windows, no /bin/sh on this Linux, is the
-        /// environment speaking, and it has to end in a skip. That is the lesson
-        /// of d39656e, where exactly this threw out of a [OneTimeSetUp] and
-        /// NUnit turned it into three failures.
+        /// This used to carry its own copy of the split, with a note that a
+        /// third caller would mean the copies belong together. The third caller
+        /// arrived with <see cref="AesGcmUrlOracleTests"/>, so the mechanism now
+        /// lives in <see cref="ForeignSide"/> and this is the name it is reached
+        /// under here.
         /// </remarks>
         private static (Int32 Code, String Output, String Error) OnThePeerSide(String shellCommand)
-        {
 
-            var start = OperatingSystem.IsLinux()
-
-                            ? new ProcessStartInfo("/bin/sh") {
-                                  RedirectStandardOutput  = true,
-                                  RedirectStandardError   = true,
-                                  UseShellExecute         = false
-                              }
-
-                            : new ProcessStartInfo("wsl",
-                                                   $"-d Debian -- bash -c \"{shellCommand.Replace("\"", "\\\"")}\"") {
-                                  RedirectStandardOutput  = true,
-                                  RedirectStandardError   = true,
-                                  UseShellExecute         = false
-                              };
-
-            if (OperatingSystem.IsLinux())
-            {
-                start.ArgumentList.Add("-c");
-                start.ArgumentList.Add(shellCommand);
-            }
-
-            try
-            {
-
-                using var process = Process.Start(start)!;
-
-                var output = process.StandardOutput.ReadToEnd();
-                var error  = process.StandardError. ReadToEnd();
-
-                process.WaitForExit(30_000);
-
-                return (process.ExitCode, output, error);
-
-            }
-            catch (Win32Exception e)
-            {
-                return (-1, "", $"No shell to reach the far side with: {e.Message}");
-            }
-
-        }
+            => ForeignSide.Run(shellCommand);
 
         #endregion
 
