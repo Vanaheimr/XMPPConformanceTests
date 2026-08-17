@@ -64,7 +64,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region Properties
 
-        /// <summary>The internal errors reported so far.</summary>
+        /// <summary>
+        /// The internal errors reported so far.
+        /// </summary>
         public IReadOnlyList<String> Errors
         {
             get { lock (_lock) return _errors.ToList(); }

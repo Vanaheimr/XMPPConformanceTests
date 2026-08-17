@@ -73,7 +73,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region Properties
 
-        /// <summary>What was reported in this test.</summary>
+        /// <summary>
+        /// What was reported in this test.
+        /// </summary>
         internal static IReadOnlyList<String> Errors
         {
             get { lock (_lock) return _errors.ToList(); }

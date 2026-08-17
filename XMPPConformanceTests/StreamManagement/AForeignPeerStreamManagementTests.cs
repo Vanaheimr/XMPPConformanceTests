@@ -61,16 +61,24 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region What makes up the counterpart
 
-        /// <summary>Name of the counterpart - for error messages only.</summary>
+        /// <summary>
+        /// Name of the counterpart - for error messages only.
+        /// </summary>
         protected abstract String  PeerName      { get; }
 
-        /// <summary>The domain the counterpart serves.</summary>
+        /// <summary>
+        /// The domain the counterpart serves.
+        /// </summary>
         protected abstract String  PeerDomain    { get; }
 
-        /// <summary>The WebSocket endpoint (RFC 7395).</summary>
+        /// <summary>
+        /// The WebSocket endpoint (RFC 7395).
+        /// </summary>
         protected abstract String  Endpoint      { get; }
 
-        /// <summary>The port behind it - for the reachability check.</summary>
+        /// <summary>
+        /// The port behind it - for the reachability check.
+        /// </summary>
         protected abstract Int32   EndpointPort  { get; }
 
         /// <summary>
@@ -83,10 +91,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region Data
 
-        /// <summary>The account of the client itself.</summary>
+        /// <summary>
+        /// The account of the client itself.
+        /// </summary>
         protected const String User      = "alice";
 
-        /// <summary>A second account as the sender.</summary>
+        /// <summary>
+        /// A second account as the sender.
+        /// </summary>
         protected const String User2     = "bob";
 
         // Stays German on purpose: this is the password of the real accounts
@@ -282,7 +294,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             }
 
-            /// <summary>Has the client finished the setup at least once?</summary>
+            /// <summary>
+            /// Has the client finished the setup at least once?
+            /// </summary>
             public Boolean Reconnected
                 => Volatile.Read(ref _connected) > 0;
 
@@ -557,7 +571,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         }
 
-        /// <summary>How many stanzas stand in the recording.</summary>
+        /// <summary>
+        /// How many stanzas stand in the recording.
+        /// </summary>
         private static UInt32 Counted(IEnumerable<String> frames)
             => (UInt32) frames.Count(IsStanza);
 

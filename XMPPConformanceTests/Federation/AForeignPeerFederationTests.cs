@@ -52,13 +52,19 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region What makes up the far end
 
-        /// <summary>Name of the far end - only for error messages.</summary>
+        /// <summary>
+        /// Name of the far end - only for error messages.
+        /// </summary>
         protected abstract String  PeerName      { get; }
 
-        /// <summary>The domain the far end serves.</summary>
+        /// <summary>
+        /// The domain the far end serves.
+        /// </summary>
         protected abstract String  PeerDomain    { get; }
 
-        /// <summary>The port on which it accepts S2S connections.</summary>
+        /// <summary>
+        /// The port on which it accepts S2S connections.
+        /// </summary>
         protected abstract Int32   PeerPort      { get; }
 
         /// <summary>
@@ -77,7 +83,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #region Data
 
-        /// <summary>Our domain in the outbound run.</summary>
+        /// <summary>
+        /// Our domain in the outbound run.
+        /// </summary>
         protected const String LocalDomain    = "jabber.test";
 
         /// <summary>
@@ -95,10 +103,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         private   X509Certificate2  _ca       = null!;
         private   X509Certificate2  _ourCert  = null!;
 
-        /// <summary>Our server in the running test.</summary>
+        /// <summary>
+        /// Our server in the running test.
+        /// </summary>
         protected XMPPServer?      Server  { get; private set; }
 
-        /// <summary>Our S2S branch in the running test.</summary>
+        /// <summary>
+        /// Our S2S branch in the running test.
+        /// </summary>
         protected TcpServerLinks?  Links   { get; private set; }
 
         #endregion
@@ -107,7 +119,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         private readonly InternalErrorGuard _guard = new();
 
-        /// <summary>Arm the guard before every test.</summary>
+        /// <summary>
+        /// Arm the guard before every test.
+        /// </summary>
         [SetUp]
         public void ArmTheGuard()
             => _guard.Reset();

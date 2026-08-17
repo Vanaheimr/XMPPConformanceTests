@@ -63,10 +63,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// </remarks>
         public const String Wsl       = "WSL";
 
-        /// <summary>Needs the Prosody set-up from <c>tools/prosody/setup.sh</c>.</summary>
+        /// <summary>
+        /// Needs the Prosody set-up from <c>tools/prosody/setup.sh</c>.
+        /// </summary>
         public const String Prosody   = "Prosody";
 
-        /// <summary>Needs the ejabberd set-up from <c>tools/ejabberd/setup.sh</c>.</summary>
+        /// <summary>
+        /// Needs the ejabberd set-up from <c>tools/ejabberd/setup.sh</c>.
+        /// </summary>
         /// <remarks>
         /// Lower case, because that is how the project spells itself and how
         /// this string already stood in the two fixtures. A filter somebody has
@@ -74,7 +78,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// </remarks>
         public const String Ejabberd  = "ejabberd";
 
-        /// <summary>Needs python-omemo, the reference implementation for <c>urn:xmpp:omemo:2</c>.</summary>
+        /// <summary>
+        /// Needs python-omemo, the reference implementation for <c>urn:xmpp:omemo:2</c>.
+        /// </summary>
         public const String Omemo     = "OMEMO";
 
     }
