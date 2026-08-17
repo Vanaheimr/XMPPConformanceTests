@@ -802,7 +802,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             // goes into the stream that is being held.
             alice.KillConnection();
 
-            await bob.SendMessageAsync($"{User}@{PeerDomain}", "Sent in the dark");
+            await bob.SendMessageAsync(JID.Parse($"{User}@{PeerDomain}"), "Sent in the dark");
 
             await WaitForResumptionAsync(reconnected, alice);
 

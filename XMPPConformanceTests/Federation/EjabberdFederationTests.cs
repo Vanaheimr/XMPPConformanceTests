@@ -138,7 +138,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             var alice = await AliceAsync();
 
-            var duration = await alice.PingAsync(PeerDomain);
+            var duration = await alice.PingAsync(JID.Parse(PeerDomain));
 
             Assert.That(duration, Is.Not.Null,
                         "ejabberd did not answer the ping over the return direction.");
@@ -179,7 +179,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             var alice = await AliceAsync();
 
-            var duration = await alice.PingAsync(PeerDomain);
+            var duration = await alice.PingAsync(JID.Parse(PeerDomain));
 
             Assert.Multiple(() =>
             {
@@ -232,7 +232,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             var alice = await AliceAsync();
 
-            var duration = await alice.PingAsync(PeerDomain);
+            var duration = await alice.PingAsync(JID.Parse(PeerDomain));
 
             Assert.Multiple(() =>
             {

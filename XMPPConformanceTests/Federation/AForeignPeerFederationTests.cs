@@ -354,7 +354,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             var alice = await AliceAsync();
 
-            Assert.That(await alice.PingAsync(PeerDomain), Is.Not.Null,
+            Assert.That(await alice.PingAsync(JID.Parse(PeerDomain)), Is.Not.Null,
                         "Even the first ping did not come back.");
 
             Assert.That(await XMPPServer.WaitUntilAsync(() => Links!.InboundConnectionCount > 0,
@@ -362,7 +362,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                         Is.True,
                         $"No inbound connection from {PeerName}.");
 
-            var duration = await alice.PingAsync(PeerDomain);
+            var duration = await alice.PingAsync(JID.Parse(PeerDomain));
 
             Assert.Multiple(() =>
             {
