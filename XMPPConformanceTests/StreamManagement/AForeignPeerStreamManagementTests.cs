@@ -265,7 +265,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             public History(XMPPClient client)
             {
 
-                client.OnStateChanged += (oldState, newState) =>
+                client.OnStateChanged += (timestamp, sender, oldState, newState, ct) =>
                 {
 
                     _steps.Enqueue($"{oldState}->{newState}");
@@ -273,9 +273,12 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                     if (newState == ConnectionState.Connected)
                         Interlocked.Increment(ref _connected);
 
+
+                    return Task.CompletedTask;
+
                 };
 
-                client.OnError += message => _steps.Enqueue($"Error: {message}");
+                client.OnError += (timestamp, sender, message, ct) => { _steps.Enqueue($"Error: {message}"); return Task.CompletedTask; };
 
             }
 
@@ -488,10 +491,13 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             // the recording is there; now it is also the yardstick.
             var outgoing = new ConcurrentQueue<String>();
 
-            client.Connection.OnRawXml += x =>
+            client.Connection.OnRawXml += (timestamp, sender, x, ct) =>
             {
                 if (x.StartsWith(">>> ", StringComparison.Ordinal))
                     outgoing.Enqueue(x[4..]);
+
+                return Task.CompletedTask;
+
             };
 
             var before  = sm.OutboundCount;
@@ -772,7 +778,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                         $"{PeerName} has not promised the resumption at all.");
 
             var arrived = new List<String>();
-            alice.OnMessage += m => { lock (arrived) arrived.Add(m.Body); };
+            alice.OnMessage += (timestamp, sender, m, ct) => { lock (arrived) arrived.Add(m.Body);  return Task.CompletedTask; };
 
             var reconnected = CountReconnects(alice);
 

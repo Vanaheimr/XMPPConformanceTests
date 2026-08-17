@@ -653,7 +653,12 @@ and talk to each other:
 var alice = await ConnectClientAsync("alice");
 var bob   = await ConnectClientAsync("bob");
 
-bob.OnMessage += m => Console.WriteLine($"{m.FromBareJid}: {m.Body}");
+bob.OnMessage += (timestamp, sender, m, ct) =>
+{
+    Console.WriteLine($"{m.FromBareJid}: {m.Body}");
+    return Task.CompletedTask;
+};
+
 await alice.SendMessageAsync(bob.BareJid, "Hello Bob!");
 ```
 
