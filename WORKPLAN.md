@@ -6906,6 +6906,87 @@ right manylinux/cp313 wheels against Debian 13's Python 3.13.5, and the count is
 
 ---
 
+### D108. A binding nobody else offers ⚠️ — client login broken against both far sides
+
+**This is the first time this suite has caught a defect in a change it did not
+make.** Everything before it checked work that was being done alongside; this
+one arrived from Ratatoskr, was green in 1226 of its own tests, and is broken
+against every foreign server.
+
+`3cc2aa6 Bind the login to the certificate it arrived over` gave the client
+channel binding, and `SaslMechanismPolicy` ranks the bound mechanism above the
+stronger unbound hash — `SCRAM-SHA-1-PLUS` over `SCRAM-SHA-256`. The comment
+there calls that ordering "the one point in this ranking worth arguing about"
+and argues it well: channel binding is the only thing in the list that notices a
+man in the middle holding a certificate some trusted CA issued him. The argument
+is right. **The binding it reaches for is one the far sides do not have.**
+
+Ratatoskr binds with `tls-server-end-point` (RFC 5929), a hash of the server
+certificate. Prosody 13 over TLS 1.3 says, in its own log:
+
+```
+Channel binding 'tls-unique'   undefined in context of TLS 1.3
+Channel binding 'tls-exporter' supported
+Offering usable mechanisms: {SCRAM-SHA-1-PLUS, OAUTHBEARER, PLAIN, SCRAM-SHA-1}
+Received[c2s_unauthed]: <auth … mechanism='SCRAM-SHA-1-PLUS'>
+Sending [c2s_unauthed]: <failure …/>
+```
+
+So the client picks the bound mechanism, sends `p=tls-server-end-point,,` in the
+GS2 header, and the server refuses it outright. `AuthenticationException: SCRAM
+failed: not-authorized`. **There is no second attempt**: a SASL `<failure/>`
+ends the exchange, so a mechanism chosen wrongly is not a slower login, it is no
+login.
+
+`TlsServerEndPoint.cs` names the alternative itself — *"Why this binding and not
+`tls-exporter`"* — and declines RFC 9266 because it needs the TLS exporter API.
+That reason has expired: .NET 10 has `SslStream.ExportKeyingMaterial`.
+
+**What broke, and what did not:**
+
+| | result |
+|---|---|
+| StreamManagement against Prosody and ejabberd | **14 failed** — 7 per peer, every one at the login |
+| Federation against the same two | passed — S2S authenticates with SASL EXTERNAL and dialback, not with client SCRAM |
+| OMEMO and XEP-0454 against their oracles | passed — no login involved |
+| `ThePatienceCoversWhatTheClientMayTake` | passed — reads two numbers out of our own code |
+| RatatoskrTests | **1223 passed, 3 skipped** |
+| XMPPConsole | 29 passed |
+| the gate, `TestCategory!=WSL` | 2 passed |
+
+**The row that matters is the fifth.** Against `XMPPServer` both sides compute
+`tls-server-end-point`, agree, and confirm each other — 1226 tests cannot see
+this, and no amount of adding more of them would. It is the same shape as D62 to
+D65, where five OMEMO defects survived because both sides computed the same
+wrong thing, and as D107, where the fragment layout had to be checked against
+somebody else's encryptor. **A self-test answers the question you asked it. A
+foreign implementation answers the one you did not.**
+
+Measured four ways, so that none of the cheap explanations survives:
+
+- locally against the working tree — 14 red
+- the nightly, pinned submodules — 14 red, same numbers, in the container with
+  peers it installed itself. Not this machine, not these WSL peers
+- the nightly, submodules at master — also red, so it is not a stale pin
+- the gate and the neighbouring suites — green, so it is not the build
+
+The three uncommitted files in `StreamManagement/` at the time are **not** the
+cause and were checked rather than assumed: they move `Endpoint` from `String`
+to `URL`, the connection is established, and the failure is at SASL afterwards.
+
+**Not fixed here, and the two ways out are different in kind:**
+
+- *The immediate one.* Do not offer a binding the server has not advertised. The
+  GS2 header has `y,,` for exactly this — "I can bind, you did not offer it" —
+  and the client falls back to `SCRAM-SHA-1` instead of failing. This restores
+  the login and gives up nothing that works today.
+- *The real one.* Implement `tls-exporter` (RFC 9266). It is what Prosody 13 and
+  ejabberd 24.12 actually offer, it is what TLS 1.3 leaves available now that
+  `tls-unique` is undefined there, and it is the only version of this feature
+  that binds anything against a real server rather than against ourselves.
+
+---
+
 ## Later
 
 ### Test suite
