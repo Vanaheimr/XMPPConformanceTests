@@ -6906,7 +6906,7 @@ right manylinux/cp313 wheels against Debian 13's Python 3.13.5, and the count is
 
 ---
 
-### D108. A binding nobody else offers ⚠️ — client login broken against both far sides
+### D108. A binding nobody else offers ✅ — and a flag that cannot be claimed
 
 **This is the first time this suite has caught a defect in a change it did not
 make.** Everything before it checked work that was being done alongside; this
@@ -6981,27 +6981,52 @@ The three uncommitted files in `StreamManagement/` at the time are **not** the
 cause and were checked rather than assumed: they move `Endpoint` from `String`
 to `URL`, the connection is established, and the failure is at SASL afterwards.
 
-**Not fixed here, and the second way out is further off than it first looked:**
+**Fixed in Ratatoskr `caf476e`, and it took two goes at the second half.**
 
-- *The one that is available.* Do not offer a binding the server has not
-  advertised. The GS2 header has `y,,` for exactly this — "I can bind, you did
-  not offer it" — and the client falls back to `SCRAM-SHA-1` instead of failing.
-  This restores the login and gives up nothing that works today, because nothing
-  bound works today.
-- *The one that would make the feature mean something.* `tls-exporter`
-  (RFC 9266) is what Prosody 13 and ejabberd 24.12 actually offer, and what
-  TLS 1.3 leaves available now that `tls-unique` is undefined there. **It cannot
-  be written against .NET as it stands**: the runtime exposes no TLS exporter,
-  so it would take a TLS stack this client does not use, or an API that does not
-  exist yet.
+The selection was the easy part: a `-PLUS` mechanism is now a candidate only
+when the server names *our* binding type in its XEP-0440 announcement. Having
+the data was never the question — `tls-server-end-point` is derivable from any
+server certificate, which is why that condition was true over every TLS
+connection.
 
-Which leaves an uncomfortable reading worth stating rather than leaving to be
-noticed: **against a server that speaks TLS 1.3, this client currently has no
-channel binding it can perform at all.** `tls-unique` is undefined there,
-`tls-exporter` is out of reach, and `tls-server-end-point` is offered by neither
-far side. The `-PLUS` mechanisms in the ranking are therefore not a stronger
-choice that occasionally fails — they are a choice that cannot succeed, ranked
-first.
+**The `y,,` flag was the hard part, and the answer is that it cannot be claimed
+at all.** RFC 5802 section 6 obliges a server that supports channel binding to
+fail on `y`: from where it stands, "I could bind and you offered nothing" is a
+lie or a stripped announcement. What it costs to guess wrong is the whole login,
+because a SASL `<failure/>` ends the exchange. Two conditions were tried:
+
+| condition | Prosody 13 | ejabberd 24.12 |
+|---|---|---|
+| no `-PLUS` mechanism offered | fixed — it does offer `SCRAM-SHA-1-PLUS` | still `y`, still *"Invalid channel binding"* — it offers none |
+| …and no XEP-0440 announcement | fixed | **unchanged** — its features over this connection carry `<mechanisms/>` and nothing else, and it refuses `y` regardless |
+
+So **there is no signal in the announcement from which a client can conclude
+that `y` is safe.** It is a claim about the server that only the server can
+check. It is off until there is a binding worth claiming.
+
+What that gives up is downgrade detection, and here it is worth nothing: this
+client can perform no binding a real server accepts, so an attacker stripping
+the `-PLUS` announcement removes something we were never going to use. That is
+the uncomfortable reading, and it is better said than left to be noticed —
+**against a server speaking TLS 1.3 this client has no channel binding it can
+perform at all.** `tls-unique` is undefined there, `tls-exporter` is out of
+reach, `tls-server-end-point` is taken by neither far side. The `-PLUS`
+mechanisms were not a stronger choice that occasionally failed; they were a
+choice that could not succeed, ranked first.
+
+**33 of 33 afterwards, nothing skipped**, against Prosody 13, ejabberd 24.12 and
+both oracles.
+
+And one number did not move: RatatoskrTests stayed at 1223 passed, 3 skipped —
+**not one test noticed the downgrade protection being switched off**, because
+none of them can reach the case. The suite that found this could not have
+checked the repair either; only the far sides did.
+
+*Still open, and it is what would make the feature mean something:*
+`tls-exporter` (RFC 9266) is what both far sides actually offer and what TLS 1.3
+leaves available. It cannot be written against .NET as it stands — the runtime
+exposes no TLS exporter — so it needs a TLS stack this client does not use, or
+an API that does not exist yet.
 
 ---
 
