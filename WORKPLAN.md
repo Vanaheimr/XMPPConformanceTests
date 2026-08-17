@@ -6940,7 +6940,14 @@ login.
 
 `TlsServerEndPoint.cs` names the alternative itself — *"Why this binding and not
 `tls-exporter`"* — and declines RFC 9266 because it needs the TLS exporter API.
-That reason has expired: .NET 10 has `SslStream.ExportKeyingMaterial`.
+**That reason still holds.** This entry first claimed the opposite, that .NET 10
+had `SslStream.ExportKeyingMaterial`; it does not. Checked by reflection over
+.NET 10.0.11: `SslStream` has no member whose name contains *Export*, *Keying* or
+*Material*, and neither `System.Net.Security` nor
+`System.Security.Cryptography` carries an exporter under any name. The comment
+in that file was right and the correction here is the whole reason to reread it:
+`tls-exporter` is not something this client can implement by calling an API that
+exists.
 
 **What broke, and what did not:**
 
@@ -6974,16 +6981,27 @@ The three uncommitted files in `StreamManagement/` at the time are **not** the
 cause and were checked rather than assumed: they move `Endpoint` from `String`
 to `URL`, the connection is established, and the failure is at SASL afterwards.
 
-**Not fixed here, and the two ways out are different in kind:**
+**Not fixed here, and the second way out is further off than it first looked:**
 
-- *The immediate one.* Do not offer a binding the server has not advertised. The
-  GS2 header has `y,,` for exactly this — "I can bind, you did not offer it" —
-  and the client falls back to `SCRAM-SHA-1` instead of failing. This restores
-  the login and gives up nothing that works today.
-- *The real one.* Implement `tls-exporter` (RFC 9266). It is what Prosody 13 and
-  ejabberd 24.12 actually offer, it is what TLS 1.3 leaves available now that
-  `tls-unique` is undefined there, and it is the only version of this feature
-  that binds anything against a real server rather than against ourselves.
+- *The one that is available.* Do not offer a binding the server has not
+  advertised. The GS2 header has `y,,` for exactly this — "I can bind, you did
+  not offer it" — and the client falls back to `SCRAM-SHA-1` instead of failing.
+  This restores the login and gives up nothing that works today, because nothing
+  bound works today.
+- *The one that would make the feature mean something.* `tls-exporter`
+  (RFC 9266) is what Prosody 13 and ejabberd 24.12 actually offer, and what
+  TLS 1.3 leaves available now that `tls-unique` is undefined there. **It cannot
+  be written against .NET as it stands**: the runtime exposes no TLS exporter,
+  so it would take a TLS stack this client does not use, or an API that does not
+  exist yet.
+
+Which leaves an uncomfortable reading worth stating rather than leaving to be
+noticed: **against a server that speaks TLS 1.3, this client currently has no
+channel binding it can perform at all.** `tls-unique` is undefined there,
+`tls-exporter` is out of reach, and `tls-server-end-point` is offered by neither
+far side. The `-PLUS` mechanisms in the ranking are therefore not a stronger
+choice that occasionally fails — they are a choice that cannot succeed, ranked
+first.
 
 ---
 
