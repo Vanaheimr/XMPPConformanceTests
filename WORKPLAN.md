@@ -6989,20 +6989,34 @@ the data was never the question — `tls-server-end-point` is derivable from any
 server certificate, which is why that condition was true over every TLS
 connection.
 
-**The `y,,` flag was the hard part, and the answer is that it cannot be claimed
-at all.** RFC 5802 section 6 obliges a server that supports channel binding to
-fail on `y`: from where it stands, "I could bind and you offered nothing" is a
-lie or a stripped announcement. What it costs to guess wrong is the whole login,
-because a SASL `<failure/>` ends the exchange. Two conditions were tried:
+**The `y,,` flag took two attempts, and both were the wrong question.**
+
+`y` says: *I support channel binding, and you appear not to.* The search was for
+a condition under which the second half is true — and the first half is already
+false. **A client that cannot perform any binding a server will accept does not
+support channel binding**, whatever it is able to compute for itself. So `n,,`
+is not a fallback from `y,,`, and `y,,` is not a weaker `p=`: it was never this
+client's to send, and no condition on the announcement could have made it so.
+
+The two attempts are worth keeping because they are how that was learned, and
+because each is a fact about a real server:
 
 | condition | Prosody 13 | ejabberd 24.12 |
 |---|---|---|
 | no `-PLUS` mechanism offered | fixed — it does offer `SCRAM-SHA-1-PLUS` | still `y`, still *"Invalid channel binding"* — it offers none |
 | …and no XEP-0440 announcement | fixed | **unchanged** — its features over this connection carry `<mechanisms/>` and nothing else, and it refuses `y` regardless |
 
-So **there is no signal in the announcement from which a client can conclude
-that `y` is safe.** It is a claim about the server that only the server can
-check. It is off until there is a binding worth claiming.
+The second row is what ended the search: ejabberd announces nothing this client
+could read as "I can bind", and refuses `y` all the same. Correctly — RFC 5802
+section 6 obliges a server that supports channel binding to fail on `y`, and
+from where it stands the claim is a lie or an announcement stripped in flight.
+Guessing wrong costs the whole login, because a SASL `<failure/>` ends the
+exchange.
+
+Read forward, that also says when `y` becomes available again, and it is not
+"when a better condition is found": **when this client can bind at all.** Then
+the first half of the claim is true, the second is the ordinary case of a server
+that offers no `-PLUS`, and the flag means what it says.
 
 What that gives up is downgrade detection, and here it is worth nothing: this
 client can perform no binding a real server accepts, so an attacker stripping
