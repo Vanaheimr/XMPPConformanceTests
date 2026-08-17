@@ -139,7 +139,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             _ca = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(directory, "ca.crt"));
 
-            var connection = new XMPPConnection($"{localPart}@{PeerDomain}", Password, Endpoint) {
+            var connection = new XMPPConnection(JID.Parse($"{localPart}@{PeerDomain}"), Password, Endpoint) {
                                  KeepaliveEnabled            = false,
                                  MaxReconnectAttempts        = reconnect,
                                  InitialReconnectDelay       = TimeSpan.FromMilliseconds(300),
@@ -691,7 +691,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         public void ThePatienceCoversWhatTheClientMayTake()
         {
 
-            var connection = new XMPPConnection($"{User}@{PeerDomain}", Password, Endpoint)
+            var connection = new XMPPConnection(JID.Parse($"{User}@{PeerDomain}"), Password, Endpoint)
             {
                 MaxReconnectAttempts   = 5,
                 InitialReconnectDelay  = TimeSpan.FromMilliseconds(300),

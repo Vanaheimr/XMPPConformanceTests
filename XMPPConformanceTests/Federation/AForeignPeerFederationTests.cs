@@ -278,7 +278,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         protected async Task<XMPPClient> AliceAsync()
         {
 
-            var connection                                   = new XMPPConnection($"alice@{Server!.Domain}", "pw", Server.Uri) {
+            var connection                                   = new XMPPConnection(JID.Parse($"alice@{Server!.Domain}"), "pw", Server.Uri) {
                                  KeepaliveEnabled            = false,
                                  MaxReconnectAttempts        = 0,
                                  ServerCertificateValidator  = (_, c, _, _) =>
