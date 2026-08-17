@@ -24,7 +24,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 
 using NUnit.Framework;
-
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Ratatoskr;
 using org.GraphDefined.Vanaheimr.Ratatoskr.Server;
 
@@ -74,7 +74,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// <summary>
         /// The WebSocket endpoint (RFC 7395).
         /// </summary>
-        protected abstract String  Endpoint      { get; }
+        protected abstract URL     Endpoint      { get; }
 
         /// <summary>
         /// The port behind it - for the reachability check.
@@ -126,7 +126,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// the background at the end of the test.
         /// </param>
         protected async Task<XMPPClient> ConnectAsync(String  localPart  = User,
-                                                       Int32   reconnect  = 0)
+                                                      Int32   reconnect  = 0)
         {
 
             var directory = CertDirectory;
@@ -139,7 +139,11 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             _ca = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(directory, "ca.crt"));
 
-            var connection = new XMPPConnection(JID.Parse($"{localPart}@{PeerDomain}"), Password, Endpoint) {
+            var connection = new XMPPConnection(
+                                 JID.Parse($"{localPart}@{PeerDomain}"),
+                                 Password,
+                                 Endpoint
+                             ) {
                                  KeepaliveEnabled            = false,
                                  MaxReconnectAttempts        = reconnect,
                                  InitialReconnectDelay       = TimeSpan.FromMilliseconds(300),

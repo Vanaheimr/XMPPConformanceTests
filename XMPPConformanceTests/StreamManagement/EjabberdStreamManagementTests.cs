@@ -19,6 +19,8 @@
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
@@ -52,7 +54,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         protected override String  PeerName      => "ejabberd";
         protected override String  PeerDomain    => "ejabberd.test";
-        protected override String  Endpoint      => "wss://127.0.0.1:5443/websocket";
+        protected override URL     Endpoint      => URL.Parse("wss://127.0.0.1:5443/websocket");
         protected override Int32   EndpointPort  => 5443;
         protected override String  CertVariable  => "JABBER_EJABBERD_CERTS";
 

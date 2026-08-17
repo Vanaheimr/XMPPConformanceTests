@@ -19,6 +19,8 @@
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+
 #endregion
 
 namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
@@ -47,7 +49,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         protected override String  PeerName      => "Prosody";
         protected override String  PeerDomain    => "prosody.test";
-        protected override String  Endpoint      => "wss://127.0.0.1:5281/xmpp-websocket";
+        protected override URL     Endpoint      => URL.Parse("wss://127.0.0.1:5281/xmpp-websocket");
         protected override Int32   EndpointPort  => 5281;
         protected override String  CertVariable  => "JABBER_PROSODY_CERTS";
 
