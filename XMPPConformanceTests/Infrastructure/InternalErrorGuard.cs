@@ -94,8 +94,11 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// </summary>
         public void Watch(XMPPServer server)
 
-            => server.OnInternalError += (session, frame, e)
-                   => Record(e.GetType().Name + ": " + e.Message, frame);
+            => server.OnInternalError += (timestamp, sender, session, frame, e, ct) =>
+               {
+                   Record(e.GetType().Name + ": " + e.Message, frame);
+                   return Task.CompletedTask;
+               };
 
         /// <summary>
         /// Like <see cref="Watch"/>, but gives the server back - so that a

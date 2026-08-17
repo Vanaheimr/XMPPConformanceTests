@@ -186,10 +186,13 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         private static void Attach(XMPPServer server)
 
-            => server.OnInternalError += (session, frame, e)
-                   => Record($"{e.GetType().Name}: {e.Message}" +
-                             Environment.NewLine +
-                             $"    at the frame: {frame}");
+            => server.OnInternalError += (timestamp, sender, session, frame, e, ct) =>
+               {
+                   Record($"{e.GetType().Name}: {e.Message}" +
+                          Environment.NewLine +
+                          $"    at the frame: {frame}");
+                   return Task.CompletedTask;
+               };
 
         #endregion
 
