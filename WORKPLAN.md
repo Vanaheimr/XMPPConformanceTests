@@ -7044,6 +7044,92 @@ an API that does not exist yet.
 
 ---
 
+### D109. A firewall that let go ✅ — and the leg that noticed
+
+D105 built a probe with two legs and found two obstacles behind them. The first
+is WSL's default NAT networking, where the peer's `localhost` is the peer's own
+loopback and a connection to it never leaves the VM. The second was per-program
+and was the surprise: two `Block` rules for this repository's `testhost.exe` on
+the Public profile, left behind by a firewall prompt somebody once dismissed.
+
+**One of the two is gone, and the probe said so before anybody looked.**
+
+Today's run under Windows skips the six inbound tests as always, and the message
+is no longer the one D105 recorded. Where it used to name both possibilities, it
+now names one:
+
+> The far side dials the domain 'localhost', and under WSL's default NAT
+> networking that is WSL's own loopback — the connection never leaves the VM.
+> **This host IS reachable from there (172.23.32.1 answered)**, so no firewall
+> rule is what is missing: 'networkingMode=mirrored' in
+> `%USERPROFILE%\.wslconfig` makes localhost shared between Windows and WSL, and
+> only then does an inbound firewall rule become the next question.
+
+Confirmed by hand, because a message is not a measurement:
+
+```
+Get-NetFirewallApplicationFilter |
+    Where-Object { $_.Program -match 'testhost\.exe$' } |
+    Get-NetFirewallRule | Where-Object Action -eq Block
+```
+
+**Zero rules, where D105 counted two.**
+
+The part worth keeping is not that a firewall rule disappeared — that happens,
+and nobody here recorded doing it. It is that **the diagnosis changed by
+itself.** Nothing in the probe was touched between D105 and today. Its second
+leg opens a listener *in the test host process* and drives a connection to the
+host address from the peer's side — which is exactly the path the two Block
+rules named — and when that leg started answering, the message it composes
+changed with it. D105 said the pair is what makes the diagnosis actionable, and
+this is the pair earning it: a probe that had only asked *did the peer reach us*
+would still be answering "no", with the reason it gave three entries ago and no
+way to notice that reason had expired.
+
+**What this entry predicts, and does not measure.** With
+`networkingMode=mirrored` in `%USERPROFILE%\.wslconfig` the peer's `localhost`
+becomes this host's, and the six should run under Windows as well — leaving the
+inbound firewall rule as the last question, and that one now has no Block rule
+standing against it. Not tried here: mirrored networking changes WSL for the
+whole machine rather than for this suite, and that is not a test's call to make.
+
+The six are the same six either way. `RequireInboundFromThePeer` is reached from
+five places in the source — one in the shared base, which runs once per far
+side, and two each in `ProsodyFederationTests` and `EjabberdFederationTests` —
+so six tests at run time. On Debian 13 all six run, as they always have.
+
+**The measurement series this came out of.** All four pins stood at their remote
+`master`, and this was measured before the bump rather than after:
+
+| what | result |
+|---|---|
+| solution, all nine projects, Windows | 0 errors |
+| **conformance suite, Debian 13** | **33 passed, 0 skipped** |
+| conformance suite, Windows | 27 passed, 6 skipped |
+| gate filter, `TestCategory!=WSL`, both platforms | 2 passed, 0 skipped |
+| RatatoskrTests, Windows | 1223 passed, 3 skipped |
+| HermodTests, Windows | 2141 passed, 0 skipped |
+| StyxTests, Windows | 421 passed, 0 skipped |
+| XMPPConsole.Tests, Windows | 29 passed, 0 skipped |
+
+3850 tests under Windows — 3841 passed, 9 skipped, none failed — and 33 of 33 on
+Debian 13. The pins followed in `dbde47d`, and `25ed22f` for the XMPPConsole
+revision that landed seventeen seconds before the first of them was written.
+
+**And one number that is two numbers.** RatatoskrTests reports 1223 passed and 3
+skipped on Windows, 1225 passed and 1 skipped on Debian — the same 1226 total,
+two different lines. The two extra Windows skips are
+`TheAccountFile_IsReadableByItsOwnerOnly` and
+`TheOmemoStoreFile_IsReadableByItsOwnerOnly`, which read Unix file modes; the
+build points at the same place through two `CA1416` warnings. It is worth
+writing down because D108 records "1223 passed, 3 skipped" as *the* figure.
+Measured before and after on one platform, so what it says is true — it simply
+does not say which machine, and a count that only holds on one of two legs is a
+check waiting to be misread. Ratatoskr's own `ci.yml` still expects "1119
+passed, 1 skipped", which no leg has matched for some time.
+
+---
+
 ## Later
 
 ### Test suite
