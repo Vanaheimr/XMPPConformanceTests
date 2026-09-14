@@ -9,14 +9,46 @@
   </Folder>
   <!--
     Not under Dependencies: nothing here builds against the console, it builds
-    against this. It is in the solution because this is the only checkout in
-    which it can be built against a pinned Ratatoskr - its own repository has
-    reached sideways for a sibling since the submodules came out of it, so
-    there it compiles against whatever master happens to be beside it.
+    against this. It is in the solution because this checkout builds it against
+    the Ratatoskr *this* repository pins, while its own clone builds it against
+    the one it pins itself - and those two are not the same revision for as long
+    as it takes somebody to move the second. That gap is not a nuisance, it is
+    the early warning: three signature changes have turned up here first because
+    of it, most recently OmemoSent (D110).
+
+    (This comment used to say the console "reached sideways for a sibling since
+    the submodules came out of it". They went back in - it pins Hermod, Styx and
+    Ratatoskr again, so that a plain clone of it builds - and what makes the two
+    trees differ is the pin, not the absence of one.)
   -->
   <Folder Name="/Console/">
     <Project Path="libs/XMPPConsole/XMPPConsole/XMPPConsole.csproj" />
     <Project Path="libs/XMPPConsole/XMPPConsole.Tests/XMPPConsole.Tests.csproj" />
+  </Folder>
+  <!--
+    The second application, here for the same reason, with one consequence the
+    console does not have: XMPPWebApp embeds a webpack frontend, and building it
+    runs "npm ci" and "npm run build" unless -p:SkipFrontendBuild=true is given.
+    So building THIS solution now needs npm on the machine, which it did not
+    before. XMPPWebApp.Tests passes SkipFrontendBuild itself, but the embedding
+    step still insists on a src/Frontend/dist that exists, so the frontend has to
+    have been built once either way.
+
+    Neither workflow is touched by that. ci.yml and nightly.yml both build
+    XMPPConformanceTests/XMPPConformanceTests.csproj by name and never this file
+    - a difference from the sibling suites that ci.yml explains where it makes
+    it.
+
+    It took a change over there to be buildable here at all: its two references
+    named ..\..\libs\Ratatoskr and ..\..\libs\Hermod outright, and with the
+    nested libs/ empty MSBuild skips a missing ProjectReference with a message
+    rather than failing on it - then 452 errors about types those references
+    would have brought. XMPPWebApp 23b2564 gives each one a conditional sibling,
+    as XMPPConsole has carried since D97.
+  -->
+  <Folder Name="/WebApp/">
+    <Project Path="libs/XMPPWebApp/src/XMPPWebApp/XMPPWebApp.csproj" />
+    <Project Path="libs/XMPPWebApp/src/XMPPWebApp.Tests/XMPPWebApp.Tests.csproj" />
   </Folder>
   <Project Path="XMPPConformanceTests/XMPPConformanceTests.csproj" />
 </Solution>
