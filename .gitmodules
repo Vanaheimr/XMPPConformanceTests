@@ -65,3 +65,39 @@
 	path = libs/XMPPConsole
 	url = https://github.com/Vanaheimr/XMPPConsole.git
 	branch = master
+# XMPPWebApp is the second application on this protocol: an HTTP server in
+# front of the XMPP client, with a TypeScript frontend that webpack builds and
+# the project embeds as manifest resources.
+#
+# Like XMPPConsole it carries its own Hermod, Styx and Ratatoskr under libs/, so
+# that a plain clone of it builds - and for the same reason nothing here may
+# init submodules recursively. What is different is what happens then, and it is
+# why this one is NOT in XMPPConformanceTests.slnx:
+#
+#   XMPPConsole.csproj  asks Exists('..\libs\Ratatoskr\...') and takes
+#                       ..\..\Ratatoskr when its own libs/ is empty - which
+#                       inside this libs/ is the pin above.
+#
+#   XMPPWebApp.csproj   names ..\..\libs\Ratatoskr\... and ..\..\libs\Hermod\...
+#                       unconditionally. With libs/ empty, MSBuild SKIPS both
+#                       references - "wird uebersprungen, da es nicht gefunden
+#                       wurde", a message and not an error - and the build then
+#                       fails 452 times over missing Newtonsoft and Hermod
+#                       types. The one line that names the cause passes by; the
+#                       452 that do not are what gets reported.
+#
+# So it is checked out here and built from its own solution, not from this one.
+# What it would take to join: the same conditional pair XMPPConsole carries,
+# one directory deeper, because its project sits at src/XMPPWebApp rather than
+# at the repository root -
+#
+#     ..\..\..\Ratatoskr\Ratatoskr\Ratatoskr.csproj
+#
+# from libs/XMPPWebApp/src/XMPPWebApp/ resolves to libs/Ratatoskr, which is the
+# pin above. Its frontend is no obstacle to that: npm ci and npm run build run
+# as part of the build and did so here, and -p:SkipFrontendBuild=true exists for
+# a backend-only pass.
+[submodule "libs/XMPPWebApp"]
+	path = libs/XMPPWebApp
+	url = https://github.com/Vanaheimr/XMPPWebApp.git
+	branch = master
