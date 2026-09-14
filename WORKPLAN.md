@@ -7125,8 +7125,140 @@ build points at the same place through two `CA1416` warnings. It is worth
 writing down because D108 records "1223 passed, 3 skipped" as *the* figure.
 Measured before and after on one platform, so what it says is true — it simply
 does not say which machine, and a count that only holds on one of two legs is a
-check waiting to be misread. Ratatoskr's own `ci.yml` still expects "1119
-passed, 1 skipped", which no leg has matched for some time.
+check waiting to be misread. Ratatoskr's own `ci.yml` carries the same split
+and the same staleness: it expected 1204 where the suite owed 1226, corrected
+with both its workflows in `d8ce7a8`.
+
+*(This paragraph first said that file expected "1119 passed, 1 skipped". That
+was wrong, and wrong in the direction that flatters the entry: the file had
+carried per-leg lines for some time, and only the totals were behind. The figure
+came from memory rather than from the file — in a paragraph whose whole subject
+is numbers nobody re-reads.)*
+
+---
+
+### D110. A pin that stays behind ✅ — and a certificate that asked the wrong question
+
+A month of drift, five submodules brought forward, one new one added, and two
+defects that turn out to have the same shape: something asks the question that
+is easy to ask instead of the one that decides.
+
+#### The certificate
+
+Both far-side setups minted their test chain with `-days 30` and guarded the
+block with
+
+```sh
+if [ ! -f ca.crt ]; then
+```
+
+On day 31 the file is still a file, the block is skipped, and the peer comes up
+on an expired chain — and goes on doing so at every run afterwards, because
+nothing in that condition can ever become true again.
+
+Nothing says so at the time, which is what makes it expensive. Prosody loads an
+expired certificate without complaint and writes *"Certificates loaded"*; the
+setup prints its endpoints and reports success. What speaks up is the next
+suite, somewhere else entirely:
+
+| | conformance suite, Windows |
+|---|---|
+| before | **9 failed**, 9 passed, 15 skipped |
+| after | **0 failed**, 18 passed, 15 skipped |
+
+Nine tests red on *"The remote certificate was rejected by the provided
+RemoteCertificateValidationCallback"*, in fixtures that have nothing to do with
+the clock. Measured thirty days after these setups last ran: the CA said
+`notAfter=Sep 12`, while the file's mtime was an hour old, because the script
+rewrites other things around it at every run. **Fresh timestamp, dead
+certificate** — and the timestamp is what somebody checks first.
+
+`-checkend 86400` asks whether it will still be valid tomorrow, which is the
+question that was meant all along. The leaf certificates need no test of their
+own: same block, same `-days`, signed by this CA, so they stand and fall with
+it. Fixed in `e53e534`, and it is **D105's mistake in a second place** — there
+the tests asked *which platform am I on* when they meant *can the peer reach
+me*, and the two agreed until the day they did not.
+
+#### The pin, and this one is a rule rather than a repair
+
+Ratatoskr `ca8bce3` changed `SendEncryptedMessageAsync` from returning the
+skipped devices to returning an `OmemoSent` record. XMPPConsole still ran
+`foreach` over it and stopped compiling — **found here**, because this
+repository builds the console against the Ratatoskr pinned *here*, two commits
+ahead of the one the console pins itself. That much is the arrangement doing its
+work, for the fourth time.
+
+Then the console was repaired and its own `libs/Ratatoskr` left at `57f2a9b`,
+and its gate went red on both legs:
+
+```
+Program.cs(1086,26): error CS1061: 'IReadOnlyList<OmemoSkippedDevice>'
+    does not contain a definition for 'Readable'
+```
+
+**Third occurrence, same file, same direction.** D99 through
+`InternalsVisibleTo`, `bbca8ae` through a signature in the fixtures, `a74a127`
+through a signature in the console — and this one committed while quoting
+`a74a127` in its own commit message. Three is not bad luck any more. It is a
+missing rule:
+
+> **A change that reaches across a repository boundary moves its pins in the
+> same commit.** The code and the revision it was written against are one
+> change. Split them and the result is the one defect that *cannot* fail where
+> it was made — the other half is already present in the tree where the repair
+> happened, so the build is green and the work looks finished — and that
+> therefore reaches CI every time, never the author.
+
+The check before pushing is narrow enough to actually perform: **if a diff names
+an API that moved, some pin has to move with it.** Not noted for later; in the
+same commit, or the commit is half of one.
+
+Repaired in XMPPConsole `e359623` with the three revisions this repository had
+*already* measured rather than a guessed combination, and verified in
+**Release** — which is what the gate builds, and the one thing the earlier
+measurement had not covered: 0 errors, 29 of 29. The gitlinks were set with
+`git update-index --cacheinfo` so that `libs/XMPPConsole/libs/` stayed empty; a
+`submodule update` there would have produced exactly the nesting `.gitmodules`
+forbids.
+
+#### The round it came out of
+
+Five pins forward — Hermod +57, Styx +3, Ratatoskr +3, XMPPConsole +2 — and
+XMPPWebApp added as the fifth submodule, in `13bc7e5` and `195d0ee`:
+
+| what | result |
+|---|---|
+| solution, all nine projects, Windows | 0 errors |
+| conformance suite, Windows | 18 passed, 0 failed, 15 skipped |
+| gate filter, `TestCategory!=WSL` | 2 passed, 0 skipped |
+| RatatoskrTests | 1226 passed, 3 skipped |
+| HermodTests | 2734 passed, 1 skipped |
+| StyxTests | 489 passed, 1 skipped |
+| XMPPConsole.Tests | 29 passed, 0 skipped |
+
+4516 tests, 4496 passed, 20 skipped, none red; both gates green on both legs.
+
+**XMPPWebApp is checked out and deliberately not in the solution.** Its csproj
+names `..\..\libs\Ratatoskr` and `..\..\libs\Hermod` unconditionally, where
+XMPPConsole's asks `Exists()` and falls back to the sibling. With the nested
+`libs/` empty — which is what a non-recursive init leaves, and what keeps two
+revisions of the library under test out of one solution — MSBuild does not fail
+on that. It **skips** both references with a message, and the build then reports
+452 errors about missing `Newtonsoft` and `Hermod` types. The one line naming
+the cause goes by in passing; the 452 that do not are what gets shown. Joining
+would take one conditional pair, a directory deeper than the console's because
+its project sits under `src/`: `..\..\..\Ratatoskr\Ratatoskr\Ratatoskr.csproj`.
+The frontend is not in the way — `npm ci` and `npm run build` ran here without
+trouble.
+
+*Still open:* ejabberd does not install on this machine. Its setup resolves the
+package set with `apt-get install --print-uris` against the **local** index, and
+on a WSL whose index is a month old that names `libodbc2_2.3.12-2`, which the
+mirror has since replaced. wget answers 404 and the script stops with exit 8 —
+correctly, but `-q` swallows the one line that says why, so it reads as a run
+that simply ended. Nine of the fifteen skips above are that; `apt-get update`
+needs a root this session does not have.
 
 ---
 
@@ -7297,3 +7429,9 @@ What has proved itself in this project and should be kept:
 - **Implement the test server independently.** `XMPPServer` counts XEP-0198
   deliberately with logic of its own. Used both sides the same helper function, a
   shared error of thought would stay invisible.
+- **A change that crosses a repository boundary moves its pins in the same commit.**
+  The code and the revision it was written against are one change; split, they
+  produce the one defect that cannot fail on the machine where it was made, because
+  the other half is already lying there. The check is narrow: if the diff names an
+  API that moved, some pin moves with it, now and not later. Three times in one file
+  before this was written down — D99, `a74a127`, D110.
