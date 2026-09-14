@@ -116,7 +116,25 @@ cd "$PREFIX/certs"
 # A CA of its own, not the one from the Prosody setup: that way each far side
 # stays buildable by itself, and a run against the one cannot silently live
 # off a certificate of the other.
-if [ ! -f ca.crt ]; then
+# Existence is not the question, validity is - and this condition used to ask
+# only the first. The certificates below are minted with "-days 30", so on day
+# 31 ca.crt is still a file, this block is skipped, and the far side comes up
+# with an expired chain.
+#
+# Nothing says so at the time. Prosody and ejabberd both load an expired
+# certificate without complaint and report their certificates loaded; the
+# failure arrives much later, in a suite that has nothing to do with the clock,
+# as "The remote certificate was rejected by the provided
+# RemoteCertificateValidationCallback" on every TLS test at once. That is the
+# same mistake D105 describes for the inbound probe: a check that asks what is
+# convenient to ask rather than what it needs to know, and that agrees with the
+# truth right up to the day it does not.
+#
+# "-checkend 86400" answers "will this still be valid in a day": the margin
+# keeps a suite that starts now from expiring halfway through. The leaf
+# certificates need no check of their own - they are minted in this same block,
+# with the same -days, and signed by this CA, so they stand and fall with it.
+if [ ! -f ca.crt ] || ! openssl x509 -in ca.crt -noout -checkend 86400 >/dev/null 2>&1; then
 
     openssl req -x509 -newkey rsa:2048 -keyout ca.key -out ca.crt -days 30 -nodes \
         -subj "/CN=XMPPConformanceTests ejabberd Test CA" \
