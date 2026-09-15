@@ -1212,6 +1212,135 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region AForeignMessageNamingAnotherSenderIsRefused()
+
+        /// <summary>
+        /// A message the reference implementation really encrypted, carrying an
+        /// envelope that names somebody else as its sender - and our side has to
+        /// throw it away.
+        /// </summary>
+        /// <remarks>
+        /// <b>This one runs the other way round, and the reason is in the
+        /// oracle's own preface:</b> python-omemo *"leaves the SCE envelope to
+        /// the application using it"*. There is nobody over there to refuse a
+        /// forged affix, so asking the reference to do it would measure a check
+        /// that does not exist. What the far side can supply is the other half -
+        /// a message that is genuine in every respect but the one under test.
+        ///
+        /// So the envelope is written here, handed to the oracle as plaintext,
+        /// and comes back inside a real key exchange with a real ratchet and a
+        /// real payload cipher. <see cref="OmemoManager.DecryptAsync"/> then has
+        /// to get all the way through that and still refuse it, because
+        /// <c>&lt;envelope/&gt;</c> says <c>mallory@</c> where the stanza says
+        /// <c>oracle@</c>.
+        ///
+        /// <b>What this can find that a unit test cannot.</b> The affix check
+        /// itself is ours either way - that much is honest to say. What is not
+        /// ours is the path to it: a check that sits in a helper and is skipped
+        /// in the real decryption, or is applied to the wrong string of the two
+        /// the envelope carries, passes a test that hands the checker a
+        /// hand-built element and fails here. XEP-0420 exists for precisely one
+        /// attack - the outer sender can be changed by anybody, the inner one
+        /// cannot - and a check that is only reached in the easy path defends
+        /// against nothing.
+        ///
+        /// The control half is not decoration. Without a message that must be
+        /// *accepted*, a decryption path that refused everything would pass this
+        /// test and look like rigour.
+        /// </remarks>
+        [Test]
+        public async Task AForeignMessageNamingAnotherSenderIsRefused()
+        {
+
+            const String secret     = "Written by the oracle, sealed in an envelope";
+
+            var oracleJid  = JID.Parse("oracle@example.org");
+            var ourJid     = JID.Parse(TheirViewOfUs);
+            var mallory    = JID.Parse("mallory@example.org");
+
+            // The honest one first, so that what follows is a comparison and not
+            // an assertion standing on its own.
+            var accepted = await WhatWeMakeOf(FromTheOracle(oracleJid, ourJid, secret), oracleJid, ourJid);
+
+            Assert.That(accepted, Is.Not.Null,
+                        "We threw away a message whose envelope names the sender it came from. Then " +
+                        "the refusal below says nothing - a path that refuses everything refuses the " +
+                        "forgery too.");
+
+            Assert.That(accepted!.Content.First().Value, Is.EqualTo(secret));
+
+            Assert.That(accepted.EnvelopeFrom, Is.EqualTo(oracleJid),
+                        "The sender out of the envelope did not arrive at the caller, so nobody above " +
+                        "us could tell the two apart even if they wanted to.");
+
+            // And the same message again, with one name changed inside the seal.
+            var forged = await WhatWeMakeOf(FromTheOracle(mallory, ourJid, secret), oracleJid, ourJid);
+
+            Assert.That(forged, Is.Null,
+                        "We read a message whose envelope names a sender other than the one it came " +
+                        "from. That is the one thing XEP-0420's affix is for: the outer sender can be " +
+                        "changed by anybody on the way, the inner one cannot, and a message where the " +
+                        "two disagree has been passed on under a foreign name.");
+
+        }
+
+        /// <summary>
+        /// An envelope with a sender of our choosing, encrypted by the reference
+        /// against our bundle.
+        /// </summary>
+        private static (JsonElement Reply, OmemoIdentity Own, OmemoManager Manager) FromTheOracle(JID  envelopeFrom,
+                                                                                                  JID  ourJid,
+                                                                                                  String text)
+        {
+
+            // A store and a manager of its own per message: a key exchange uses
+            // up a prekey and opens a session, and two of them from what the
+            // manager takes for one device would be answered as a changed
+            // identity key rather than as the second message.
+            var manager = new OmemoManager(
+                              new OmemoMemoryStore(),
+                              ourJid,
+                              fetchDeviceList: _ => Task.FromResult<OmemoDeviceList?>(new OmemoDeviceList([])),
+                              fetchBundle:     (_, _) => Task.FromResult<OmemoBundle?>(null));
+
+            var envelope = new SceEnvelope([new XElement("body", text)],
+                                           From: envelopeFrom.ToString(),
+                                           Time: DateTimeOffset.UtcNow).ToXml();
+
+            var (_, output, _) = Call("encrypt",
+                                      AsJob(manager.Identity,
+                                            ourJid.ToString(),
+                                            envelope.ToString(SaveOptions.DisableFormatting)));
+
+            return (Reply(output), manager.Identity, manager);
+
+        }
+
+        /// <summary>
+        /// What our own decryption makes of it - the whole way, not a shortcut
+        /// into the envelope check.
+        /// </summary>
+        private static async Task<OmemoDecrypted?> WhatWeMakeOf((JsonElement Reply, OmemoIdentity Own, OmemoManager Manager) from,
+                                                                JID  senderJid,
+                                                                JID  ourJid)
+        {
+
+            var element = new OmemoEncryptedElement(
+                              from.Reply.GetProperty("sender_device_id").GetUInt32(),
+                              new Dictionary<JID, IReadOnlyList<OmemoKey>> {
+                                  [ourJid] = [new OmemoKey(
+                                                  from.Own.DeviceId,
+                                                  Convert.FromBase64String(from.Reply.GetProperty("key").GetString()!),
+                                                  IsKeyExchange: true)]
+                              },
+                              Convert.FromBase64String(from.Reply.GetProperty("payload").GetString()!));
+
+            return await from.Manager.DecryptAsync(element, senderJid);
+
+        }
+
+        #endregion
+
         #region (private) Building a session against the oracle
 
         /// <summary>

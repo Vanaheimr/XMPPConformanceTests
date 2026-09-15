@@ -145,14 +145,14 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 37 of these 39. The two
+      # the gate's `TestCategory!=WSL` and would run 38 of these 40. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 39 tests, 39 passed, 0 skipped, measured on Debian 13 at 9b08b96
-      # plus the fan-out check, with every far side up. The revision is named because a count that says
+      # Expect 40 tests, 40 passed, 0 skipped, measured on Debian 13 at 6883eb4
+      # plus the affix check, with every far side up. The revision is named because a count that says
       # nothing about when it was taken cannot be told apart from one that has
       # gone stale, and this figure has moved three times in three entries.
       #
@@ -166,7 +166,11 @@ jobs:
       # open a session in the same moment, and when one carries nothing at all.
       # And 38 until one message went to four devices at once - the first check
       # of the fan-out, and the first of any kind for the list of devices a
-      # message could not reach.
+      # message could not reach. And 39 until a message the reference really
+      # encrypted, carrying an envelope that names somebody else, had to be
+      # refused - the one check here that runs the other way round, because
+      # python-omemo leaves the envelope to the application and has nothing to
+      # refuse with.
       #
       # All five of those needed a new oracle mode and none of them needs
       # anything new installed - which is why this lane's package list has not
