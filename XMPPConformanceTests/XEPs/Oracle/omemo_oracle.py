@@ -17,9 +17,16 @@ Usage
 -----
     omemo_oracle.py bundle               prints its own bundle
     omemo_oracle.py encrypt <job.json>   encrypts against our bundle
+    omemo_oracle.py empty <job.json>     the same, with no content at all - the
+                                         key transport a client sends to heal a
+                                         session
     omemo_oracle.py decrypt <job.json>   decrypts the FIRST message of a session
     omemo_oracle.py continue <job.json>  decrypts a LATER one, in a session
                                          that already exists
+
+`encrypt` and `empty` take an optional "state", and then the session they open
+stays. Without it every call is a device of its own, which is right for a single
+question and wrong for every one that has a second half.
 
 Input and output are JSON on stdout, byte fields base64.
 
@@ -150,6 +157,43 @@ async def mode_bundle(job: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def open_session_to_us(job: Dict[str, Any], content, key_material) -> Dict[str, Any]:
+    """
+    The half `encrypt` and `empty` have in common: open a session against our
+    bundle and hand out what belongs inside a <key kex='true'/>.
+
+    The storage takes "state" when there is one. Without it every call is a
+    device of its own - right for a single question, and wrong for every one
+    with a second half, because the follow-up would arrive at a stranger.
+    """
+
+    storage = InMemoryStorage(job.get("state"))
+    backend = Twomemo(storage)
+
+    session, encrypted = await backend.build_session_active(
+        job["jid"],
+        job["device_id"],
+        await our_bundle(job),
+        key_material,
+    )
+
+    # Only worth anything with a state behind it, and harmless without.
+    await backend.store_session(session)
+
+    # Exactly the bytes that belong inside a <key kex='true'/>: the
+    # OMEMOAuthenticatedMessage, wrapped in an OMEMOKeyExchange.
+    authenticated = encrypted.serialize()
+
+    return {
+        "payload": b64(content.ciphertext),
+        "key": b64(session.key_exchange.serialize(authenticated)),
+        "authenticated_message": b64(authenticated),
+        "sender_device_id": 1,
+        "sender_jid": "oracle@example.org",
+        "empty": content.empty,
+    }
+
+
 async def mode_encrypt(job: Dict[str, Any]) -> Dict[str, Any]:
     """
     Encrypts a message against our bundle.
@@ -166,24 +210,28 @@ async def mode_encrypt(job: Dict[str, Any]) -> Dict[str, Any]:
         job["plaintext"].encode("utf-8")
     )
 
-    session, encrypted = await backend.build_session_active(
-        job["jid"],
-        job["device_id"],
-        await our_bundle(job),
-        key_material,
-    )
+    return await open_session_to_us(job, content, key_material)
 
-    # Exactly the bytes that belong inside a <key kex='true'/>: the
-    # OMEMOAuthenticatedMessage, wrapped in an OMEMOKeyExchange.
-    authenticated = encrypted.serialize()
 
-    return {
-        "payload": b64(content.ciphertext),
-        "key": b64(session.key_exchange.serialize(authenticated)),
-        "authenticated_message": b64(authenticated),
-        "sender_device_id": 1,
-        "sender_jid": "oracle@example.org",
-    }
+async def mode_empty(job: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    The same, with no content at all.
+
+    This is what a client sends when it wants a session and has nothing to say -
+    after a restart, after a device appears, whenever a ratchet has to be
+    brought forward. The specification calls it a key transport element, and it
+    is not an edge case: it is how most sessions in a real conversation come
+    about, because the first thing between two clients is usually a repair and
+    not a sentence.
+
+    The ciphertext is empty and `content.empty` is True, which is reported so
+    that the other side can be held to leaving the <payload/> away rather than
+    sending an empty one.
+    """
+
+    content, key_material = await Twomemo(InMemoryStorage()).encrypt_empty()
+
+    return await open_session_to_us(job, content, key_material)
 
 
 async def mode_decrypt(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -291,6 +339,8 @@ async def main() -> None:
         result = await mode_bundle(job)
     elif mode == "encrypt":
         result = await mode_encrypt(job)
+    elif mode == "empty":
+        result = await mode_empty(job)
     elif mode == "decrypt":
         result = await mode_decrypt(job)
     elif mode == "continue":

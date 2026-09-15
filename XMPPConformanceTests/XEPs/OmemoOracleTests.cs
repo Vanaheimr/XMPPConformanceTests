@@ -239,6 +239,39 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         private static String PathOver(String path)
             => ForeignSide.PathOver(path);
 
+        /// <summary>
+        /// Hands one message to the oracle and returns what it read.
+        /// </summary>
+        /// <remarks>
+        /// The three stateful tests differ in which messages they hand over and
+        /// in which order, and in nothing else. Written out each time, that
+        /// order - which is the entire subject - would be buried in six
+        /// identical dictionaries.
+        /// </remarks>
+        private static String? Hand(String          mode,
+                                    String          state,
+                                    OmemoIdentity   own,
+                                    String          key,
+                                    Byte[]          payload)
+        {
+
+            var (code, output, errors) = Call(mode,
+                                              new Dictionary<String, Object> {
+                                                  ["state"]             = PathOver(state),
+                                                  ["key"]               = key,
+                                                  ["payload"]           = B64(payload),
+                                                  ["sender_jid"]        = TheirViewOfUs,
+                                                  ["sender_device_id"]  = (Int32) own.DeviceId
+                                              },
+                                              check: false);
+
+            Assert.That(code, Is.EqualTo(0),
+                        $"The oracle could not read this message in mode '{mode}':\n{errors}");
+
+            return Reply(output).GetProperty("plaintext").GetString();
+
+        }
+
         private static JsonElement Reply(String output)
             => JsonDocument.Parse(output.Trim()).RootElement;
 
@@ -675,6 +708,290 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                             "The replay was refused, but not for the reason this test is about. " +
                             "Expected the prekey our first session named to be gone; what came back " +
                             $"instead was:\n{replayErrors}");
+
+            }
+            finally
+            {
+                try { File.Delete(state); } catch { /* does not matter */ }
+            }
+
+        }
+
+        #endregion
+
+        #region TheReferenceReadsMessagesThatArriveOutOfOrder()
+
+        /// <summary>
+        /// Three messages, handed over as 1, 3, 2. The reference has to set the
+        /// key for the one that is missing aside and still have it when it
+        /// arrives.
+        /// </summary>
+        /// <remarks>
+        /// XMPP does not reorder, but everything around it does: a message held
+        /// by carbons, a resumed stream that replays what was in flight, two
+        /// devices answering at once. The Double Ratchet is built for it - a
+        /// message that is ahead makes the chain step forward and the keys
+        /// stepped over are kept - and that machinery is precisely where two
+        /// implementations can agree on every single message and still not agree
+        /// on the pair.
+        ///
+        /// What this can find and the second-message test cannot: the counter in
+        /// the header is not only <i>a</i> number that goes up, it has to be the
+        /// number the far side counts keys by. A client whose counter runs on
+        /// its own scale reads every message that arrives in order and none that
+        /// does not.
+        /// </remarks>
+        [Test]
+        public void TheReferenceReadsMessagesThatArriveOutOfOrder()
+        {
+
+            const String one    = "One, which opens the session";
+            const String two    = "Two, which is going to arrive last";
+            const String three  = "Three, which overtakes it";
+
+            var state = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+
+            try
+            {
+
+                var (own, bundle, x3dh, ratchet) = SessionAgainstTheOracle(state);
+
+                var first   = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(one));
+                var c1      = ratchet.Encrypt(first.KeyAndHmac, x3dh.AssociatedData);
+
+                var second  = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(two));
+                var c2      = ratchet.Encrypt(second.KeyAndHmac, x3dh.AssociatedData);
+
+                var third   = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(three));
+                var c3      = ratchet.Encrypt(third.KeyAndHmac, x3dh.AssociatedData);
+
+                var exchange = new OmemoKeyExchange(x3dh.UsedPreKeyId ?? 0,
+                                                    bundle.SignedPreKeyId,
+                                                    own.PublicIdentityKey,
+                                                    x3dh.EphemeralKey!,
+                                                    OmemoWireFormat.Encode(c1));
+
+                // The first has to go first - it carries the key exchange, and
+                // without it there is no session for the others to be early or
+                // late in.
+                Assert.That(Hand("decrypt", state, own, B64(exchange.Encode()), first.Ciphertext),
+                            Is.EqualTo(one));
+
+                // Then the third, over the second's head.
+                Assert.That(Hand("continue", state, own, B64(OmemoWireFormat.Encode(c3)), third.Ciphertext),
+                            Is.EqualTo(three),
+                            "The reference could not read a message that arrived early. Either the " +
+                            "counter in our header does not mean what it counts by, or the step it " +
+                            "was asked to jump is not the step it makes.");
+
+                // And now the one that was stepped over. Its key was set aside
+                // three messages ago; if it was not, this is where that shows.
+                Assert.That(Hand("continue", state, own, B64(OmemoWireFormat.Encode(c2)), second.Ciphertext),
+                            Is.EqualTo(two),
+                            "The reference read the message that overtook and then not the one it " +
+                            "overtook. The key stepped over was not kept - or was kept under a " +
+                            "number our header does not name.");
+
+            }
+            finally
+            {
+                try { File.Delete(state); } catch { /* does not matter */ }
+            }
+
+        }
+
+        #endregion
+
+        #region BothSidesOpeningAtOnceLeavesBothMessagesReadable()
+
+        /// <summary>
+        /// Both sides start a session before either has seen the other's - and
+        /// both messages stay readable.
+        /// </summary>
+        /// <remarks>
+        /// <b>The oldest interop defect in OMEMO, and the one a user describes
+        /// as "he can see me but I cannot see him".</b> Two clients write to
+        /// each other at almost the same moment; each fetches the other's
+        /// bundle, each opens a session actively, and each then receives a key
+        /// exchange for a device it already has a session with. Whoever
+        /// discards the incoming one because "there is a session already"
+        /// keeps a chain the other side has thrown away.
+        ///
+        /// Here the oracle opens the first one, into a state it keeps, and our
+        /// key exchange arrives afterwards at a device that is already talking
+        /// to us. The check is in both directions, because the failure is
+        /// one-sided by nature: the message from over there is decrypted
+        /// locally out of the session <i>it</i> opened, and ours is handed to
+        /// the reference in the session <i>we</i> opened.
+        ///
+        /// Which session either side keeps afterwards is deliberately not
+        /// asserted. The specification lets that be decided per implementation,
+        /// and what a user notices is only whether both messages arrived.
+        /// </remarks>
+        [Test]
+        public void BothSidesOpeningAtOnceLeavesBothMessagesReadable()
+        {
+
+            const String theirs  = "Written by them, before ours arrived";
+            const String ours    = "Written by us, before theirs arrived";
+
+            var state = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+
+            try
+            {
+
+                // The oracle's bundle first, so that our half can be built
+                // against the same device the other half comes from.
+                var (own, bundle, _, _) = SessionAgainstTheOracle(state, buildSession: false);
+
+                // They open one to us - actively, against our bundle, and into
+                // the state they keep.
+                var theirJob = new Dictionary<String, Object?>(
+                                   (Dictionary<String, Object?>) AsJob(own, TheirViewOfUs, theirs)) {
+                                   ["state"] = PathOver(state)
+                               };
+
+                var (_, theirOutput, _) = Call("encrypt", theirJob);
+                var fromThem            = Reply(theirOutput);
+
+                // We open one to them, knowing nothing of theirs.
+                var x3dh     = X3DH.Initiate(own, bundle);
+                var ratchet  = DoubleRatchet.InitiateAsSender(x3dh.SharedSecret, bundle.SignedPreKey);
+                var payload  = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(ours));
+                var content  = ratchet.Encrypt(payload.KeyAndHmac, x3dh.AssociatedData);
+
+                var exchange = new OmemoKeyExchange(x3dh.UsedPreKeyId ?? 0,
+                                                    bundle.SignedPreKeyId,
+                                                    own.PublicIdentityKey,
+                                                    x3dh.EphemeralKey!,
+                                                    OmemoWireFormat.Encode(content));
+
+                // Their side: a key exchange from a device it is already
+                // talking to.
+                Assert.That(Hand("decrypt", state, own, B64(exchange.Encode()), payload.Ciphertext),
+                            Is.EqualTo(ours),
+                            "The reference refused our key exchange because it already had a session " +
+                            "with us. Then two clients that write at the same moment end up with one " +
+                            "of them talking into a chain the other has dropped.");
+
+                // Our side: theirs, out of the session they opened. Nothing of
+                // ours has been thrown away for it.
+                var theirExchange = OmemoKeyExchange.Decode(
+                                        Convert.FromBase64String(fromThem.GetProperty("key").GetString()!));
+
+                var accepted = X3DH.Accept(own,
+                                           theirExchange.IdentityKey,
+                                           theirExchange.EphemeralKey,
+                                           theirExchange.SignedPreKeyId,
+                                           theirExchange.PreKeyId == 0 ? null : theirExchange.PreKeyId);
+
+                var theirRatchet = DoubleRatchet.InitiateAsReceiver(accepted.SharedSecret, own.SignedPreKey);
+
+                var keyAndHmac = theirRatchet.Decrypt(OmemoWireFormat.Decode(theirExchange.Message),
+                                                      accepted.AssociatedData);
+
+                var plaintext = OmemoPayloadCipher.Decrypt(
+                                    Convert.FromBase64String(fromThem.GetProperty("payload").GetString()!),
+                                    keyAndHmac);
+
+                Assert.That(Encoding.UTF8.GetString(plaintext), Is.EqualTo(theirs),
+                            "We could not read the session they opened while we were opening ours.");
+
+            }
+            finally
+            {
+                try { File.Delete(state); } catch { /* does not matter */ }
+            }
+
+        }
+
+        #endregion
+
+        #region AnEmptyKeyTransportOpensASessionWeCanAnswerIn()
+
+        /// <summary>
+        /// A message with a key exchange and <b>no payload at all</b> - and an
+        /// answer in the session it opened.
+        /// </summary>
+        /// <remarks>
+        /// This is not an edge case, it is how most sessions in a real
+        /// conversation actually begin. A client that has restarted, or has just
+        /// seen a new device, sends a key transport element: everything a
+        /// session needs and nothing to read. XEP-0384 leaves the
+        /// <c>&lt;payload/&gt;</c> away entirely for it, and
+        /// <see cref="OmemoEncryptedElement"/> has said since it was written
+        /// that a message without one is no error.
+        ///
+        /// <b>What is checked is that this holds against a foreign sender.</b>
+        /// Our own tests build the empty case the way we would build it; the
+        /// oracle builds it the way the reference does, with
+        /// <c>encrypt_empty</c>, and the ciphertext it reports is empty rather
+        /// than a zero-length encryption of nothing.
+        ///
+        /// The answer afterwards is the half that makes it worth a test rather
+        /// than a look. A key transport that is accepted and leaves the ratchet
+        /// in the wrong place is worse than one that is refused: the session
+        /// looks established, and the first real sentence in either direction is
+        /// the one that disappears.
+        /// </remarks>
+        [Test]
+        public void AnEmptyKeyTransportOpensASessionWeCanAnswerIn()
+        {
+
+            const String answer = "Answered in the session their empty message opened";
+
+            var state = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+
+            try
+            {
+
+                var own = OmemoIdentity.Create();
+
+                var emptyJob = new Dictionary<String, Object?>(
+                                   (Dictionary<String, Object?>) AsJob(own, TheirViewOfUs)) {
+                                   ["state"] = PathOver(state)
+                               };
+
+                var (_, output, _) = Call("empty", emptyJob);
+                var fromThem       = Reply(output);
+
+                Assert.That(fromThem.GetProperty("empty").GetBoolean(), Is.True,
+                            "The reference does not consider its own key transport element empty, so " +
+                            "what follows would measure something else.");
+
+                Assert.That(fromThem.GetProperty("payload").GetString(), Is.Empty,
+                            "The key transport carries a payload. XEP-0384 leaves the <payload/> away " +
+                            "for these, and an empty encryption of nothing is not the same thing on " +
+                            "the wire.");
+
+                // We accept it: everything a session needs, nothing to read.
+                var theirExchange = OmemoKeyExchange.Decode(
+                                        Convert.FromBase64String(fromThem.GetProperty("key").GetString()!));
+
+                var accepted = X3DH.Accept(own,
+                                           theirExchange.IdentityKey,
+                                           theirExchange.EphemeralKey,
+                                           theirExchange.SignedPreKeyId,
+                                           theirExchange.PreKeyId == 0 ? null : theirExchange.PreKeyId);
+
+                var ratchet = DoubleRatchet.InitiateAsReceiver(accepted.SharedSecret, own.SignedPreKey);
+
+                Assert.That(() => ratchet.Decrypt(OmemoWireFormat.Decode(theirExchange.Message),
+                                                  accepted.AssociatedData),
+                            Throws.Nothing,
+                            "We could not take the key out of a message that carries nothing but the " +
+                            "key - which is the message most sessions actually start with.");
+
+                // And the half that decides whether the session is usable: we
+                // answer in it, and they read the answer.
+                var payload  = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(answer));
+                var content  = ratchet.Encrypt(payload.KeyAndHmac, accepted.AssociatedData);
+
+                Assert.That(Hand("continue", state, own, B64(OmemoWireFormat.Encode(content)), payload.Ciphertext),
+                            Is.EqualTo(answer),
+                            "The key transport was accepted and the session it opened does not carry. " +
+                            "That is the worse of the two failures: nothing looks wrong until the " +
+                            "first real sentence goes missing.");
 
             }
             finally
