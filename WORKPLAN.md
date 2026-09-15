@@ -7466,6 +7466,134 @@ different kind of oracle.
 
 ---
 
+### D113. Working and unannounced ✅ — the library opens for somebody else's protocol
+
+Four changes that do not look related, and one sentence they all turn out to be
+about: **nothing here was broken. Everything worked, and nobody was told.**
+
+| | what worked, and who never heard of it |
+|---|---|
+| XMPPConsole | refused every message from a device whose identity key had changed — correctly — and said nothing. The contact simply stopped arriving |
+| the new IQ handler | answers perfectly without its disco announcement, and no peer ever sends it a request |
+| XMPPWebApp | the fifth submodule since `13bc7e5`, in the solution since `a6f27cd`, and absent from this repository's README for a month |
+
+Three different repositories, three different mechanisms, and in each case a
+green build. That is the shape worth naming, because it is not caught by asking
+*does it work*.
+
+#### The console had taken a trade it was not paying for
+
+Ratatoskr raises `OnOmemoIdentityChanged` when a device that has written before
+reports with a different identity key; its message is refused, and this event is
+the only place that says so. The console did not listen. Its own event
+documentation had the sentence already: *"A user interface that ignores it has
+taken the trade without paying for it."*
+
+That trade is what blind trust is. Trusting a new device without a comparison —
+the default here and the only trust model that gets used — buys the first
+message against one promise: that a change afterwards is noticed. Unkept, a
+contact who reinstalls just goes quiet, which from this end is indistinguishable
+from them having nothing to say.
+
+Fixed in XMPPConsole `12661d1`, with both fingerprints and the one on file
+first, because that is the one somebody may have compared. There is still no way
+to *accept* a new key, and no command for it: a new installation and somebody in
+between look alike from here, so whoever wants the device back deletes the store
+and loses every other comparison with it. That price is the honest one.
+
+#### The library was closed, and now is not
+
+Every IQ ran through a chain of checks, one per implemented XEP, and whatever
+none of them claimed was refused with `<service-unavailable/>` — right by RFC
+6120 §8.4, and final. Sending was closed too: `SendIqAsync` was private, so every
+request belonged to a named XEP. A protocol outside the catalogue — which is
+what the OCA and e-mobility work needs, and the reason the point stood in
+*Optional* at all — had no way in.
+
+```csharp
+client.RegisterIqHandler("urn:example:measurements:1", "measure",
+                         async (request, from, ct) => Answer(request));
+
+var answer = await client.SendIqAsync(peer, "get", payload);
+```
+
+Registered by namespace **and** element, consulted **last** so a registration
+cannot take a XEP over. `null` answers with an empty result; throwing answers
+`<internal-server-error/>`, because §8.2.3 wants an answer to every request and
+the silence costs more than the error — the peer waits into its timeout, and
+against a server that can take the session with it.
+
+**Three mutations, all struck down, one test each:**
+
+| mutation | red |
+|---|---|
+| the namespace is not added to the disco feature list | `TheNamespaceIsAnnouncedAndTakenBackAgain` |
+| the dispatch matches the element and ignores the namespace | `AnUnregisteredNamespaceIsStillRefused` |
+| a handler that throws is left unanswered | `AHandlerThatThrowsStillAnswers` |
+
+**The first one is the entry.** Under it the other four tests stay green: the
+handler is reached, it answers, everything works — and XEP-0030 is how a peer
+learns the request may be asked, so nobody would ever send one. A handler nobody
+is told about is indistinguishable from a handler that works, and the only thing
+that tells them apart is a test that looks at the announcement rather than at
+the answer.
+
+The third took ten seconds to fail rather than one. That is the timeout it
+exists to prevent, measured.
+
+#### What the tests found, and it was not in the new code
+
+The first two tests failed with `<service-unavailable/>` stamped from the
+recipient's own JID — which reads as *the handler was not found*. It was not
+found because the stanza never arrived: `DeliverIqLocallyAsync` delivers only
+when the two sessions share presence, and two freshly created accounts do not.
+The server is right, and the failure is **indistinguishable from the one under
+test**. The fixture now says `MakeContacts` and says why.
+
+And the control test had been passing through that same hole.
+`AnUnregisteredNamespaceIsStillRefused` exists so that a dispatch answering
+everything cannot pass — and it was green because the *server* refused the
+request, not because our side did. It took the two failing tests beside it to
+ask the question. A control that is green for the wrong reason is worse than no
+control, because it is counted.
+
+#### A number measured rather than guessed, and a commit message corrected
+
+`e1cff72` pinned the new library and argued why Ratatoskr's expected counts were
+*not* moving with it. That was half right. They had to follow — D110's rule does
+not care that the thing is a count rather than a pin — but the Windows figure
+was in hand from a local run and the Debian one was not, and "+2 on Debian" is a
+pattern this suite happens to follow, not a measurement. Putting it in would
+have made a number up in the one place whose whole job is to be checkable.
+
+So: CI run `34972234950` at `cff1fdc`, both legs read, **1234 total — 1231
+passed with 3 skipped on Windows, 1233 with 1 on Debian** — written down in
+`54d4718`. One commit later than the change, on purpose and said so.
+
+#### The round
+
+| what | result |
+|---|---|
+| solution, eleven projects, Windows | 0 errors |
+| RatatoskrTests | 1231 passed, 3 skipped (Debian: 1233, 1) |
+| XMPPConsole.Tests | 29 passed, 0 skipped, Debug and Release |
+| conformance suite, Debian 13 | 40 passed, 0 skipped |
+
+Six stale places in this repository's README are corrected in `4951b69`, and the
+documentation of all four repositories now matches what they do — including the
+two things that are honest rather than flattering: an incoming encrypted message
+reaches the console without its device rating, and building this solution needs
+npm since XMPPWebApp joined it.
+
+*Open, and not chased here:*
+`FatalStreamError_IsReportedAndStopsReconnecting` failed once in a full run,
+passed 3 of 3 in isolation and was green in a second full run. It lies in stream
+errors and reconnection, which none of this touches. It is written down rather
+than shrugged off because of what this plan's own history says about flaky
+candidates: of the four in D7 to D9, three were real defects in the code.
+
+---
+
 ## Later
 
 ### Test suite
@@ -7603,7 +7731,7 @@ implementation can be checked.
   | XEP-0363 | **HTTP File Upload** — the way to send anything that is not text |
   | XEP-0461 | **Replies** — a reference to the message being answered |
   | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |
-  | — | **A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it |
+  | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |
 
 ---
 
