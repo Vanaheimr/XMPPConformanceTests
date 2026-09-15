@@ -124,10 +124,21 @@ if [ ! -f ca.crt ] || ! openssl x509 -in ca.crt -noout -checkend 86400 >/dev/nul
         openssl req -newkey rsa:2048 -keyout "$d.key" -out "$d.csr" -nodes \
                 -subj "/CN=$d" 2>/dev/null
 
+        # The room service is a domain of its own - a component lives beside
+        # the host, not inside it - so it needs a name of its own on the
+        # certificate. Without the second SAN our server refuses the TLS
+        # handshake to conference.prosody.test, and the refusal reads like a
+        # broken peer rather than like a missing line here.
+        if [ "$d" = "$PEER_DOMAIN" ]; then
+            SAN="DNS:$d,DNS:conference.$d"
+        else
+            SAN="DNS:$d"
+        fi
+
         # clientAuth has to go in as well: with SASL EXTERNAL the connecting
         # server presents its certificate as a client certificate.
         cat > "$d.ext" <<EXT
-subjectAltName=DNS:$d
+subjectAltName=$SAN
 extendedKeyUsage=serverAuth,clientAuth
 keyUsage=critical,digitalSignature,keyEncipherment
 basicConstraints=CA:FALSE
@@ -250,6 +261,33 @@ data_path    = "$PREFIX/var/lib"
 plugin_paths = { }
 
 VirtualHost "$PEER_DOMAIN"
+    ssl = {
+        certificate = "$PREFIX/certs/$PEER_DOMAIN.crt";
+        key         = "$PREFIX/certs/$PEER_DOMAIN.key";
+        cafile      = "$PREFIX/certs/ca.crt";
+    }
+
+-- XEP-0045. A room service is a component: its own domain beside the host,
+-- reached over its own s2s connection, with its own entry in the peer list on
+-- our side. That is why it needs the certificate of its own above - from the
+-- outside conference.prosody.test is simply another server.
+--
+-- restrict_room_creation = false so that a room comes into being by somebody
+-- entering it. The alternative is to create rooms in the set-up, and then the
+-- test no longer covers the one thing about entering a room that is easy to get
+-- wrong: status 201 for a room that did not exist a moment ago.
+Component "conference.$PEER_DOMAIN" "muc"
+    restrict_room_creation = false
+
+    -- XEP-0359, and it is not optional decoration here. A reply into a room
+    -- may not point at the id of the stanza (XEP-0461, section 4) - everybody
+    -- present sees a different one - so it points at the name the room itself
+    -- gave the message, in a <stanza-id/>. Prosody attaches one only when the
+    -- room archives, so without this module nothing said in a room can be
+    -- answered at all. Measured, not assumed: the first run of these tests
+    -- found no stanza-id anywhere.
+    modules_enabled = { "muc_mam" }
+    muc_log_by_default = true
     ssl = {
         certificate = "$PREFIX/certs/$PEER_DOMAIN.crt";
         key         = "$PREFIX/certs/$PEER_DOMAIN.key";
