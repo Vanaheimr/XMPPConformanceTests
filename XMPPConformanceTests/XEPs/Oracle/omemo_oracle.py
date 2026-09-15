@@ -15,9 +15,11 @@ reference implementation for `urn:xmpp:omemo:2` and exactly that.
 
 Usage
 -----
-    omemo_oracle.py bundle              prints its own bundle
-    omemo_oracle.py encrypt <job.json>  encrypts against our bundle
-    omemo_oracle.py decrypt <job.json>  decrypts what we sent
+    omemo_oracle.py bundle               prints its own bundle
+    omemo_oracle.py encrypt <job.json>   encrypts against our bundle
+    omemo_oracle.py decrypt <job.json>   decrypts the FIRST message of a session
+    omemo_oracle.py continue <job.json>  decrypts a LATER one, in a session
+                                         that already exists
 
 Input and output are JSON on stdout, byte fields base64.
 
@@ -185,7 +187,23 @@ async def mode_encrypt(job: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def mode_decrypt(job: Dict[str, Any]) -> Dict[str, Any]:
-    """Decrypts what we sent against its bundle."""
+    """
+    Decrypts what we sent against its bundle - the FIRST message of a session.
+
+    Two things happen here beyond decrypting, and both are what a real
+    responder owes:
+
+    The session is stored. Without that it is decrypted and forgotten, and
+    `continue` below would have nothing to go on.
+
+    The one-time prekey this session consumed is hidden. A responder that
+    leaves it usable has not consumed it at all: the same message builds a
+    second session just as well, and the forward secrecy X3DH promises for that
+    first message is gone. `hide_pre_key` returns False when the key is already
+    hidden or deleted - which is exactly what a replay looks like from in here,
+    and is reported rather than raised, because whether a replay is refused is
+    the question and not the answer.
+    """
 
     storage = InMemoryStorage(job["state"])
     backend = Twomemo(storage)
@@ -207,6 +225,57 @@ async def mode_decrypt(job: Dict[str, Any]) -> Dict[str, Any]:
         ContentImpl(unb64(job["payload"])), plain
     )
 
+    consumed = await backend.hide_pre_key(session)
+    visible = await backend.get_num_visible_pre_keys()
+
+    await backend.store_session(session)
+
+    return {
+        "plaintext": plaintext.decode("utf-8"),
+        "pre_key_was_consumed": consumed,
+        "visible_pre_keys": visible,
+    }
+
+
+async def mode_continue(job: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Decrypts a message in a session that already exists.
+
+    The difference to `decrypt` is the entire point of this mode. Every check
+    against this oracle until now was the first message of a session, and the
+    first message is the one place where the Double Ratchet has not yet done
+    anything a plain key agreement would not also have done. From the second
+    onwards the chain key has to have stepped on the same way on both sides,
+    and the counters in the header have to say so.
+
+    No key exchange comes in here: what arrives is a bare
+    OMEMOAuthenticatedMessage, which is what a client sends once the session
+    stands.
+    """
+
+    storage = InMemoryStorage(job["state"])
+    backend = Twomemo(storage)
+
+    session = await backend.load_session(job["sender_jid"], job["sender_device_id"])
+
+    if session is None:
+        raise SystemExit(
+            "No session with that device - `decrypt` has to have run against "
+            "this state first."
+        )
+
+    key = EncryptedKeyMaterialImpl.parse(
+        unb64(job["key"]), job["sender_jid"], job["sender_device_id"]
+    )
+
+    plain = await backend.decrypt_key_material(session, key)
+
+    plaintext = await backend.decrypt_plaintext(
+        ContentImpl(unb64(job["payload"])), plain
+    )
+
+    await backend.store_session(session)
+
     return {"plaintext": plaintext.decode("utf-8")}
 
 
@@ -224,6 +293,8 @@ async def main() -> None:
         result = await mode_encrypt(job)
     elif mode == "decrypt":
         result = await mode_decrypt(job)
+    elif mode == "continue":
+        result = await mode_continue(job)
     else:
         raise SystemExit(f"Unknown mode: {mode}")
 

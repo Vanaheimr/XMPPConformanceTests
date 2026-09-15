@@ -471,6 +471,326 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region TheReferenceReadsASecondMessageInTheSameSession()
+
+        /// <summary>
+        /// <b>The first check here in which the ratchet is a ratchet.</b> Two
+        /// messages in a row into one session; the reference has to read both.
+        /// </summary>
+        /// <remarks>
+        /// Everything against this oracle until now was message number one of
+        /// a session, and that is the one place where the Double Ratchet has
+        /// not yet done anything a plain key agreement would not also have
+        /// done: the first message key comes straight out of the chain the
+        /// X3DH secret starts. Agreement there says nothing about whether the
+        /// two sides step the chain on the same way afterwards.
+        ///
+        /// From the second message onwards they have to. The chain key is
+        /// advanced with its own constant, the message key is derived from the
+        /// new one, and the counter in the header says which it is. A client
+        /// that gets any of that wrong sends a first message everybody can
+        /// read and a second nobody can - which is the shape of interop defect
+        /// that is hardest to notice from the inside, because the session
+        /// looks established and the handshake looked fine.
+        ///
+        /// The reverse direction stays out of this on purpose. It would want
+        /// the oracle to encrypt twice against a session it keeps, and that is
+        /// a second mode; this one is the half that decides whether anybody
+        /// can go on reading us.
+        /// </remarks>
+        [Test]
+        public void TheReferenceReadsASecondMessageInTheSameSession()
+        {
+
+            const String first   = "The first message, which builds the session";
+            const String second  = "The second one, which only a stepped chain can read";
+
+            var state = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+
+            try
+            {
+
+                var (own, bundle, x3dh, ratchet) = SessionAgainstTheOracle(state);
+
+                // 1. The first message, with the key exchange in front of it.
+                var payload1  = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(first));
+                var content1  = ratchet.Encrypt(payload1.KeyAndHmac, x3dh.AssociatedData);
+
+                var exchange  = new OmemoKeyExchange(x3dh.UsedPreKeyId ?? 0,
+                                                     bundle.SignedPreKeyId,
+                                                     own.PublicIdentityKey,
+                                                     x3dh.EphemeralKey!,
+                                                     OmemoWireFormat.Encode(content1));
+
+                var (code1, output1, errors1) = Call("decrypt",
+                                                     new Dictionary<String, Object> {
+                                                         ["state"]             = PathOver(state),
+                                                         ["key"]               = B64(exchange.Encode()),
+                                                         ["payload"]           = B64(payload1.Ciphertext),
+                                                         ["sender_jid"]        = TheirViewOfUs,
+                                                         ["sender_device_id"]  = (Int32) own.DeviceId
+                                                     },
+                                                     check: false);
+
+                Assert.That(code1, Is.EqualTo(0),
+                            $"The reference could not read the first message:\n{errors1}");
+
+                Assert.That(Reply(output1).GetProperty("plaintext").GetString(),
+                            Is.EqualTo(first));
+
+                // 2. The second, in the session that now stands - no key
+                //    exchange, only the message. This is the one the chain has
+                //    to have been stepped for.
+                var payload2  = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(second));
+                var content2  = ratchet.Encrypt(payload2.KeyAndHmac, x3dh.AssociatedData);
+
+                var (code2, output2, errors2) = Call("continue",
+                                                     new Dictionary<String, Object> {
+                                                         ["state"]             = PathOver(state),
+                                                         ["key"]               = B64(OmemoWireFormat.Encode(content2)),
+                                                         ["payload"]           = B64(payload2.Ciphertext),
+                                                         ["sender_jid"]        = TheirViewOfUs,
+                                                         ["sender_device_id"]  = (Int32) own.DeviceId
+                                                     },
+                                                     check: false);
+
+                Assert.That(code2, Is.EqualTo(0),
+                            "The reference read our first message and not our second. The session " +
+                            "stands, so what differs is the step: the chain key, the message key " +
+                            "derived from it, or the counter in the header that says which one " +
+                            $"this is.\n{errors2}");
+
+                Assert.That(Reply(output2).GetProperty("plaintext").GetString(),
+                            Is.EqualTo(second),
+                            "The reference decrypted our second message into something else - the " +
+                            "chains have gone apart rather than stopped.");
+
+            }
+            finally
+            {
+                try { File.Delete(state); } catch { /* does not matter */ }
+            }
+
+        }
+
+        #endregion
+
+        #region AUsedPreKeyIsNotHandedOutASecondTime()
+
+        /// <summary>
+        /// The one-time prekeys are used up, and a replay does not use one up
+        /// again.
+        /// </summary>
+        /// <remarks>
+        /// X3DH promises forward secrecy for the very first message through
+        /// exactly one thing: the one-time prekey is used once and then gone.
+        /// A responder that leaves it lying has not consumed it - the same
+        /// intercepted message builds a second session just as well, and that
+        /// promise is worth nothing.
+        ///
+        /// <b>Our own tests cannot get at this and it is worth being precise
+        /// about why.</b> Both halves would be ours: we would choose a prekey,
+        /// we would book it out, and we would agree with ourselves that the
+        /// right one went. What is being checked here is that the id we put on
+        /// the wire finds <i>the same key</i> in a store nobody here wrote -
+        /// and the count is what shows it, because a wrong id would not raise
+        /// an error, it would take a different key and the arithmetic would
+        /// still come out.
+        ///
+        /// Three observations, and the third is the one that carries:
+        ///
+        ///   two sessions on named prekeys   both book out, the visible count
+        ///                                   falls by exactly one between them
+        ///   the same message a second time  refused outright, naming our id
+        ///
+        /// The third was written here as a weaker expectation first - that the
+        /// replay would still decrypt and merely be reported as already
+        /// consumed - because <c>hide_pre_key</c> promises to "keep the pre key
+        /// for cryptographic operations". Measuring it said otherwise, and the
+        /// reason is worth having: <c>build_session_passive</c> resolves the id
+        /// against the <i>visible</i> prekeys, and hiding takes it out of
+        /// exactly that set. So the replay does not get as far as decryption:
+        ///
+        ///     KeyExchangeFailed: No pre key with id 1 known.
+        ///
+        /// Which makes this a chain of three facts rather than one, and none of
+        /// them ours to decide: our id reaches their store and finds a key at
+        /// all; their bookkeeping ties that key to the session it opened, or
+        /// hiding would have missed it; and once hidden, the same id resolves
+        /// to nothing. Send a stale or invented id and the first link fails;
+        /// tie the wrong key to the session and the third does.
+        ///
+        /// Note what the oracle is doing to earn that: it consumes the prekey
+        /// because a correct responder must, and this fixture makes it do so
+        /// rather than assuming it. What is under test is our half - that the
+        /// key exchange we put on the wire takes part in that lifecycle the way
+        /// the far side expects.
+        /// </remarks>
+        [Test]
+        public void AUsedPreKeyIsNotHandedOutASecondTime()
+        {
+
+            var state = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+
+            try
+            {
+
+                var (_, bundle, _, _) = SessionAgainstTheOracle(state, buildSession: false);
+
+                Assert.That(bundle.PreKeys.Count, Is.GreaterThanOrEqualTo(2),
+                            "The oracle handed out fewer than two one-time prekeys, so nothing " +
+                            "about using them up can be measured here.");
+
+                var firstId   = bundle.PreKeys[0].Id;
+                var secondId  = bundle.PreKeys[1].Id;
+
+                var (firstJob,  firstReply)  = SessionOn(bundle, state, firstId,  "One");
+                var (secondJob, secondReply) = SessionOn(bundle, state, secondId, "Two");
+
+                Assert.That(firstReply.GetProperty("pre_key_was_consumed").GetBoolean(), Is.True,
+                            "The reference did not book out the prekey our first session names.");
+
+                Assert.That(secondReply.GetProperty("pre_key_was_consumed").GetBoolean(), Is.True,
+                            "The reference did not book out the prekey our second session names.");
+
+                var afterOne  = firstReply.GetProperty("visible_pre_keys").GetInt32();
+                var afterTwo  = secondReply.GetProperty("visible_pre_keys").GetInt32();
+
+                Assert.That(afterTwo, Is.EqualTo(afterOne - 1),
+                            $"Two sessions on two different prekeys ({firstId} and {secondId}), and " +
+                            $"the number of usable ones fell by {afterOne - afterTwo} rather than by " +
+                            "one. Either both sessions reached the same key over there - then our " +
+                            "prekey id does not mean what we think - or one of them used none at all.");
+
+                // The replay: the first message again, byte for byte.
+                var (replayCode, _, replayErrors) = Call("decrypt", firstJob, check: false);
+
+                Assert.That(replayCode, Is.Not.EqualTo(0),
+                            "The reference built a second session out of the same message. Then the " +
+                            "one-time prekey was not used up by the first, and what X3DH promises " +
+                            "for that message - that intercepting it buys nothing later - does not " +
+                            "hold.");
+
+                Assert.That(replayErrors, Does.Contain($"No pre key with id {firstId}"),
+                            "The replay was refused, but not for the reason this test is about. " +
+                            "Expected the prekey our first session named to be gone; what came back " +
+                            $"instead was:\n{replayErrors}");
+
+            }
+            finally
+            {
+                try { File.Delete(state); } catch { /* does not matter */ }
+            }
+
+        }
+
+        #endregion
+
+        #region (private) Building a session against the oracle
+
+        /// <summary>
+        /// How the oracle sees us. The two stateful tests hand this to it
+        /// twice each, and the second call only finds the first one's session
+        /// if the name matches to the letter.
+        /// </summary>
+        private const String TheirViewOfUs = "us@example.org";
+
+        /// <summary>
+        /// Fetches the oracle's bundle into the given state file and - unless
+        /// asked not to - opens a session against it.
+        /// </summary>
+        private static (OmemoIdentity Own,
+                        OmemoBundle   Bundle,
+                        X3DHResult    X3dh,
+                        DoubleRatchet Ratchet) SessionAgainstTheOracle(String   state,
+                                                                       Boolean  buildSession = true)
+        {
+
+            var (_, bundleOutput, _) = Call("bundle", new Dictionary<String, Object> {
+                                                          ["state"] = PathOver(state)
+                                                      });
+
+            var b = Reply(bundleOutput);
+
+            var bundle = new OmemoBundle(
+                             Convert.FromBase64String(b.GetProperty("identity_key").GetString()!),
+                             b.GetProperty("signed_pre_key_id").GetUInt32(),
+                             Convert.FromBase64String(b.GetProperty("signed_pre_key").GetString()!),
+                             Convert.FromBase64String(b.GetProperty("signed_pre_key_sig").GetString()!),
+                             [.. b.GetProperty("pre_keys").EnumerateArray()
+                                  .Select(p => new OmemoPreKey(
+                                                   p.GetProperty("id").GetUInt32(),
+                                                   Convert.FromBase64String(p.GetProperty("key").GetString()!)))]);
+
+            Assert.That(bundle.SignatureIsValid(), Is.True,
+                        "We consider the signature of the reference implementation invalid - " +
+                        "then we check over something other than what it signs.");
+
+            var own = OmemoIdentity.Create();
+
+            if (!buildSession)
+                return (own, bundle, null!, null!);
+
+            var x3dh     = X3DH.Initiate(own, bundle);
+            var ratchet  = DoubleRatchet.InitiateAsSender(x3dh.SharedSecret, bundle.SignedPreKey);
+
+            return (own, bundle, x3dh, ratchet);
+
+        }
+
+        /// <summary>
+        /// One whole session on a <b>named</b> prekey, and what the oracle
+        /// answered - along with the job, so that the very same message can be
+        /// handed over a second time.
+        /// </summary>
+        /// <remarks>
+        /// Naming the prekey is what makes the count readable.
+        /// <see cref="X3DH.Initiate"/> picks one by itself otherwise, and two
+        /// runs could pick the same - a test that then measured nothing would
+        /// pass just as quietly as one that measured everything.
+        /// </remarks>
+        private static (Dictionary<String, Object> Job, JsonElement Reply) SessionOn(OmemoBundle  bundle,
+                                                                                     String       state,
+                                                                                     UInt32       preKeyId,
+                                                                                     String       text)
+        {
+
+            var own      = OmemoIdentity.Create();
+            var x3dh     = X3DH.Initiate(own, bundle, preKeyId);
+
+            Assert.That(x3dh.UsedPreKeyId, Is.EqualTo(preKeyId),
+                        "We asked for a specific prekey and took a different one, so what follows " +
+                        "would measure the oracle against the wrong expectation.");
+
+            var ratchet  = DoubleRatchet.InitiateAsSender(x3dh.SharedSecret, bundle.SignedPreKey);
+            var payload  = OmemoPayloadCipher.Encrypt(Encoding.UTF8.GetBytes(text));
+            var content  = ratchet.Encrypt(payload.KeyAndHmac, x3dh.AssociatedData);
+
+            var exchange = new OmemoKeyExchange(preKeyId,
+                                                bundle.SignedPreKeyId,
+                                                own.PublicIdentityKey,
+                                                x3dh.EphemeralKey!,
+                                                OmemoWireFormat.Encode(content));
+
+            var job = new Dictionary<String, Object> {
+                          ["state"]             = PathOver(state),
+                          ["key"]               = B64(exchange.Encode()),
+                          ["payload"]           = B64(payload.Ciphertext),
+                          ["sender_jid"]        = TheirViewOfUs,
+                          ["sender_device_id"]  = (Int32) own.DeviceId
+                      };
+
+            var (code, output, errors) = Call("decrypt", job, check: false);
+
+            Assert.That(code, Is.EqualTo(0),
+                        $"The reference could not read a session on prekey {preKeyId}:\n{errors}");
+
+            return (job, Reply(output));
+
+        }
+
+        #endregion
+
     }
 
 }
