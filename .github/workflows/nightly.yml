@@ -150,14 +150,14 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 50 of these 52. The two
+      # the gate's `TestCategory!=WSL` and would run 57 of these 59. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 52 tests, 52 passed, 0 skipped, measured on Debian 13 at 6883eb4
-      # plus the affix check, the five reply checks and the seven room checks,
+      # Expect 59 tests, 59 passed, 0 skipped, measured on Debian 13 at 6883eb4
+      # plus the affix check, the five reply checks and twice seven room checks,
       # with every far side up.
       # The revision is named because a count that says nothing about when it was
       # taken cannot be told apart from one that has gone stale, and this figure
@@ -183,12 +183,17 @@ jobs:
       # anything new installed - which is why this lane's package list has not
       # moved while its count has gone 29, 33, 35, 38.
       #
-      # And 52 with XEP-0045, which is the first lane here whose far side is a
-      # *component*: the rooms live on conference.prosody.test, a domain beside
-      # the host with its own name on the certificate. Its first run found
-      # something, too - Prosody attaches the <stanza-id/> a reply in a room has
-      # to point at only when the room archives, so muc_mam is in the set-up
-      # since, with the reason beside it.
+      # And 59 with XEP-0045, which is the first lane here whose far side is a
+      # *component*: the rooms live on conference.prosody.test and
+      # conference.ejabberd.test, domains beside their hosts, each with its own
+      # name on the certificate. Its first run found something, too - Prosody
+      # attaches the <stanza-id/> a reply in a room has to point at only when the
+      # room archives, so archiving is switched on in both set-ups, with the
+      # reason beside it.
+      #
+      # Seven rounds per service, and the second service is the point: where one
+      # counterpart and this client happen to agree, nothing tells agreement
+      # from correctness.
       #
       # And 45 with XEP-0461, which was the first thing here to bring a second
       # library with it: slixmpp, through the same fetch_oracle.py into the same

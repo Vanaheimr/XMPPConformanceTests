@@ -146,10 +146,20 @@ if [ ! -f ca.crt ] || ! openssl x509 -in ca.crt -noout -checkend 86400 >/dev/nul
         openssl req -newkey rsa:2048 -keyout "$d.key" -out "$d.csr" -nodes \
                 -subj "/CN=$d" 2>/dev/null
 
+        # The room service is a domain beside the host, not a corner of it, so
+        # it gets a name of its own on the certificate. Our client reaches it
+        # through the host and would not notice; ejabberd notices at start-up,
+        # and a warning nobody understands is worth one line here.
+        if [ "$d" = "$PEER_DOMAIN" ]; then
+            SAN="DNS:$d,DNS:conference.$d"
+        else
+            SAN="DNS:$d"
+        fi
+
         # clientAuth has to go in as well: with SASL EXTERNAL the connecting
         # server presents its certificate as a client certificate.
         cat > "$d.ext" <<EXT
-subjectAltName=DNS:$d
+subjectAltName=$SAN
 extendedKeyUsage=serverAuth,clientAuth
 keyUsage=critical,digitalSignature,keyEncipherment
 basicConstraints=CA:FALSE
@@ -252,6 +262,32 @@ modules:
   mod_stream_mgmt:
     resume_timeout: 60
     max_resume_timeout: 300
+
+  ## XEP-0045. The rooms live on a component of their own, which is a domain
+  ## beside the host and not a corner of it.
+  ##
+  ## access_create has to be said: by default ejabberd lets only local users
+  ## create rooms, and "local" is an access rule, not a fact about the account.
+  ## A test that cannot create a room can check nothing about entering one.
+  mod_muc:
+    host: "conference.@HOST@"
+    access_create: all
+    access_persistent: all
+    access_mam: all
+
+    ## XEP-0359, and it is not decoration here. A reply into a room may not
+    ## point at the id of the stanza (XEP-0461, section 4) - everybody present
+    ## sees a different one - so it points at the name the room itself gave the
+    ## message. Prosody attaches one only for a room that archives; whether
+    ## ejabberd does the same is exactly what the room lane is there to find
+    ## out, and it cannot find out anything about a room where archiving was
+    ## never switched on.
+    default_room_options:
+      mam: true
+
+  ## The archive the rooms above write into.
+  mod_mam:
+    default: always
 CFG
 
 # ------------------------------------------------------------------ start ---

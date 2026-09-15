@@ -13,17 +13,17 @@ names this assembly from inside Ratatoskr, so the two repositories can only be
 moved together (D99). **Nightly** is where the conformance verdict lives: it
 installs Prosody 13, ejabberd 24.12, python-omemo and slixmpp into the container and
 runs everything against them — federation, stream management, OMEMO and
-XEP-0454 — **52 of 52, nothing skipped**, and then repeats the lane against
+XEP-0454 — **59 of 59, nothing skipped**, and then repeats the lane against
 Ratatoskr's current master to catch what the pins hide.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
-this suite is green at "2 passed, 50 skipped" on a bare runner and green at "52
+this suite is green at "2 passed, 57 skipped" on a bare runner and green at "59
 passed" in the container — the same colour for the run that measured everything
 and the run that measured nothing. Selected by category, each lane has a number
 it must hit, and any skip at all is a finding (D101).
 
 The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39,
-40, 45, 52 so far, and `nightly.yml` carries the history beside the figure together with
+40, 45, 52, 59 so far, and `nightly.yml` carries the history beside the figure together with
 the revision it was last measured at. The 2 does not, and that is the point of
 the split rather than an accident: everything needing a far side is on the other
 side of the filter, so the gate growing would be news.
@@ -112,7 +112,7 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112) |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
 | XEP-0454 | OMEMO Media Sharing | ⚠️ | The receiving half only: `AesGcmUrl` reads `aesgcm://host/path#[iv][key]`, hands back the `https` address without the fragment — which is the key — and decrypts the payload with the tag checked. Fetching is deliberately not in the library: whether an incoming message may cause a request at all belongs to whoever runs the client, not to whoever sent the message. The upload side is missing entirely. **The IV is 12 bytes and the older 16 byte reading is refused rather than misread** — 16+32 is 96 hex characters where 12+32 is 88, so a reader taking the first 12 bytes would find a well-formed key, fail at the tag, and blame the file. Checked here against pyca `cryptography` rather than against ourselves, because the layout of the fragment is the one thing two implementations can hold differently while each stays consistent — see [WORKPLAN.md](WORKPLAN.md), D107 |
-| XEP-0045 | Multi-User Chat | ⚠️ | The visiting half: entering a room, being in it, following who is in it, leaving — and the one step of the owner protocol without which a room a join created stays locked for everybody else. Checked against Prosody's room service over seven rounds that a single client cannot do at all: a room that did not exist a moment ago, a second person seen from the first, a nickname refused as taken. Configuring, moderating and inviting are **not** here. The first run found that Prosody attaches the `<stanza-id/>` a reply in a room must point at only when the room archives — so a room without an archive is one in which nothing can be answered, which is what `ReplyableId` returning null has meant since D114 |
+| XEP-0045 | Multi-User Chat | ⚠️ | The visiting half: entering a room, being in it, following who is in it, leaving — and the one step of the owner protocol without which a room a join created stays locked for everybody else. Checked against the room services of **both** Prosody and ejabberd, seven rounds each, over what a single client cannot do at all: a room that did not exist a moment ago, a second person seen from the first, a nickname refused as taken. Configuring, moderating and inviting are **not** here. The first run found that Prosody attaches the `<stanza-id/>` a reply in a room must point at only when the room archives — so a room without an archive is one in which nothing can be answered, which is what `ReplyableId` returning null has meant since D114 |
 | XEP-0426 / XEP-0428 / XEP-0461 | Message Replies | ✅ | The reference is two attributes; the part that can be got wrong is the quotation beside it. XEP-0428 points into the body with offsets counted in **Unicode code points** (XEP-0426) and .NET counts in UTF-16 units — the same number for every text a test gets written with, and different at the first emoji. Checked against slixmpp in both directions, which is the only far side able to judge this at all: a reply is client-to-client, so both servers carry it across without looking. With both halves of our counting switched to UTF-16 — internally consistent, and therefore the realistic mistake — Ratatoskr's own 21 reply tests stay green but for one hand-computed constant, and `ReplyOracleTests` goes red in both directions (D114) |
 | XEP-0352 | Client State Indication | ✅ | Both sides. The server announces `<csi/>` after the login (§4.1) and does not answer `<active/>`/`<inactive/>` (§4.2). Held back is only what will still be true later: presence waits and **the last one per full JID replaces the earlier ones** (§3), a message with text, an `iq`, an error and every nonza go out at once, a chat state (XEP-0085) is dropped — it would not be late on being handed in later, it would be wrong. What was held back goes out **before** the stanza that empties the buffer (RFC 6120 §10.1), and at the end of the connection into the buffer of unacknowledged stanzas. Upper bound `MaxHeldWhileInactive` (default 100); on overflow the buffer goes out instead of anything being thrown away. After a resumption "active" holds again (§5.2) — this is why the client declares itself anew after every setup. In the console `/csi active|inactive` (D61) |
 
@@ -375,7 +375,7 @@ The suite is driven in two lanes, and **each owes zero skips**:
 # The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
 
-# The verdict: with Prosody, ejabberd and the oracles up. 52 of 52
+# The verdict: with Prosody, ejabberd and the oracles up. 59 of 59
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 ```
 

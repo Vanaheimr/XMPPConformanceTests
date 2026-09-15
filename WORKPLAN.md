@@ -7953,6 +7953,19 @@ abstract — `AForeignPeerRoomTests` with a second twenty-line derived class —
 what is missing is the YAML and the certificate name, not the tests. Until then
 this lane has one far side where the rest of the suite has two.
 
+> Done straight afterwards, and it cost what the paragraph above said it would:
+> `mod_muc` on a component of its own, `access_create: all` because ejabberd
+> restricts room creation to an access rule rather than to an account, the
+> second name on the certificate, and a twenty-line derived class. Seven of
+> seven, first try.
+>
+> **And the two services agree** — on the lock, and on attaching a
+> `<stanza-id/>` once the room archives. Which is worth more than it looks: with
+> one counterpart, agreement and correctness are indistinguishable. Two that
+> were written by different people and agree is the first evidence that what
+> this client does is the thing the specification asks for, rather than the
+> thing Prosody happens to accept.
+
 ---
 
 ## Later
