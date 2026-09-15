@@ -7371,6 +7371,101 @@ that has gone stale.
 
 ---
 
+### D112. Six more questions, six mutations, and none of them blind ✅
+
+D111 ended with two OMEMO checks past the first message of a session. Four more
+followed, and they finish the list that entry opened.
+
+| test | what it asks |
+|---|---|
+| `TheReferenceReadsMessagesThatArriveOutOfOrder` | three messages handed over as 1, 3, 2 — the key for the one stepped over has to be set aside and still be there |
+| `BothSidesOpeningAtOnceLeavesBothMessagesReadable` | our key exchange arrives at a device already talking to us, and both messages stay readable |
+| `AnEmptyKeyTransportOpensASessionWeCanAnswerIn` | a key exchange carrying nothing at all, and an answer in the session it opened |
+| `OneMessageReachesEveryDeviceAndNamesTheOneItCannot` | one payload, four devices, three entries that are not interchangeable, and the fourth named in `Skipped` |
+| `AForeignMessageNamingAnotherSenderIsRefused` | a message the reference really encrypted, with an envelope naming somebody else — refused |
+
+The fan-out is the first check of `OmemoManager.EncryptAsync` against anything
+foreign at all. Everything before it went through the primitives and built the
+fan-out by hand, one session at a time — which is precisely the part the manager
+does and a hand-built test cannot reach. And `Skipped` had never been looked at
+from outside this house: it is what `ca8bce3` added to
+`SendEncryptedMessageAsync`, and what a sender is told when three of four devices
+cannot read along.
+
+#### The one that runs the other way round
+
+`AForeignMessageNamingAnotherSenderIsRefused` asks *us* to refuse, and the
+oracle's own preface says why it has to: python-omemo *"leaves the SCE envelope
+to the application using it"*. There is nobody over there to reject a forged
+affix, so asking the reference to do it would have measured a check that does
+not exist.
+
+What the far side supplies is the other half. The envelope is written here,
+handed over as plaintext, and comes back inside a real key exchange with a real
+ratchet and a real payload cipher; `DecryptAsync` has to get through all of that
+and still throw it away. **The check is ours either way — the path to it is not.**
+A check that sits in a helper and is skipped in the real decryption, or that
+compares the wrong one of the two senders the envelope carries, passes a test
+handing the checker a hand-built element and fails this one.
+
+#### The mutation series
+
+| mutation | conformance | RatatoskrTests |
+|---|---|---|
+| `SendCount++` removed | second message + out of order | 6 red |
+| `X3DH.Accept` drops the one-time prekey from the fourth DH | we-can-read + collision + empty | 15 red |
+| the DH turn keeps the old ratchet key instead of a fresh one | empty only | 5 red |
+| a device that could not be reached is dropped instead of named | fan-out only | **2 red** |
+| every session is built against device 1 while the entry keeps its own number | fan-out only | 14 red |
+| `TryRead` gets `null` instead of the sender, so the envelope's name is not compared | affix only | **1 red** |
+
+Six mutations, all struck down, and each lands where it should — the third on
+the only test of the ten that answers back, the sixth on the only one that
+refuses.
+
+**And none of them is invisible to the library's own suite.** That is the plain
+difference from D111, where the third mutation was seen by no self-test at all,
+and it is worth stating rather than leaving to be inferred from a table nobody
+re-reads. These five tests did not open a blind spot.
+
+What they did is thinner and still worth the run. Two of the six are caught by
+**one** self-test and by **two** — the affix by `AForwardedMessage_IsRefused`
+alone, the skipped-device list by a pair. For the property XEP-0420 exists to
+provide, one test of 1229 is not a blind spot but it is a single point of
+failure, and until now nothing outside this house had been involved in asking at
+all. The value of this batch is coverage that does not rest on somebody having
+anticipated the right defect: a self-test finds what it was written to look for,
+and a far side finds what it finds.
+
+#### One number that did not move
+
+The suite went 35 → 38 → 39 → 40 across these three commits, and the package
+list underneath it did not move once. All nine tests since D107 came out of new
+modes in an oracle that was already installed — `continue`, then `empty` and a
+state for `encrypt`, then a device id for `bundle`. Recorded in `nightly.yml`
+beside the count, because the obvious question at the next step is what else has
+to be installed for it, and the answer has so far been nothing.
+
+The expected counts moved in the same commit as the tests each time, which is
+D110's rule applied to something that is not a pin.
+
+| what | result |
+|---|---|
+| **conformance suite, Debian 13** | **40 passed, 0 skipped** |
+| conformance suite, Windows | 34 passed, 0 failed, 6 skipped |
+| gate filter, both platforms | 2 passed, 0 skipped |
+| RatatoskrTests | 1226 passed, 3 skipped |
+
+The six skipped under Windows are the inbound tests of D109, unchanged since it
+was written.
+
+*Still open from the list D111 started:* nothing. What is left is the question
+that list did not contain — whether `OmemoManager` behaves under a far side that
+answers slowly or not at all, which is a different kind of test and wants a
+different kind of oracle.
+
+---
+
 ## Later
 
 ### Test suite
