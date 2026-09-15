@@ -7594,6 +7594,145 @@ candidates: of the four in D7 to D9, three were real defects in the code.
 
 ---
 
+### D114. The far side did not have to be a server ✅ — replies, and who counts the characters
+
+XEP-0461 stood in *Optional* with a reason written beside it, and the reason was
+mine: a reply is client-to-client, so Prosody and ejabberd carry the
+`<reply/>` and the `<fallback/>` across without looking at either, and the one
+lane of this suite that finds things could say nothing at all about it.
+
+That was right about the servers and wrong about the conclusion. **The far side
+did not have to be a server.** slixmpp has its own `xep_0461`, and it is a
+better oracle for this than a server could ever be — because what is contested
+here is not the reference. It is the number next to it.
+
+#### The number next to it
+
+XEP-0428 points into the body with offsets counted in **Unicode code points**
+(XEP-0426). `string.Length` in .NET counts UTF-16 units.
+
+| quotation | code points | .NET `Length` |
+|---|---:|---:|
+| `> Yes\n` | 6 | 6 |
+| `> Sea 🌍 end\n` | 12 | 13 |
+| `> 👨‍👩‍👧\n` | 7 | 10 |
+
+For the first row every way of counting agrees, which is precisely why a suite
+made of rows like it proves nothing. An implementation that writes the third
+column cuts one character too many off every quotation containing an emoji —
+and nothing fails, nothing logs, nothing is refused. The answer simply arrives
+with its first letter missing.
+
+Python is the useful opposite: a `str` is code points by nature, so `len()` and
+slicing are the XEP-0426 answer without anybody having to decide to make them
+so. slixmpp is built straight on that — `len(quoted)` into the attribute,
+`body[start:end]` back out — which makes it a second opinion and not a second
+copy of ours.
+
+#### The measurement that justifies the fixture
+
+The realistic mistake is not one half being wrong. It is **both halves wrong the
+same way**, which is internally consistent: everything this house sends, this
+house reads back perfectly.
+
+| suite, under that mutation | result |
+|---|---|
+| Ratatoskr, 21 reply tests | 20 green — the one failure is on a constant computed by hand from the specification |
+| the same, with that one assertion deleted | **all 21 green** |
+| `ReplyOracleTests` | red in both directions, either way |
+
+One hand-written `Is.EqualTo("12")` stood between this project and a green suite
+over a client that mangles every quotation with an emoji in it. An assertion
+like that is easy never to have written — and nothing would have looked wrong.
+That is D62 to D65's finding, reproduced on purpose rather than stumbled into,
+and it is the whole argument for the oracle.
+
+#### What was built
+
+| | |
+|---|---|
+| XEP-0426 | `CharacterCounting` — one screen, converting at the wire and nowhere else |
+| XEP-0428 | `FallbackIndication` — which part of a body is only the duplicate |
+| XEP-0461 | `MessageReply` — which message this one is about; `ReplyToAsync` to answer one that arrived |
+| XEP-0359 | `StableIds`, **read only** — which of a message's names a reply may point at |
+| the console | `/re <text>`, and incoming answers shown with the quotation dimmed above them |
+| the oracle | `reply_oracle.py`, five checks in both directions, slixmpp from the same `fetch_oracle.py` |
+
+XEP-0359 is read and not written on purpose: an `<origin-id/>` of ours would
+repeat the `id` we just wrote, and a second copy of a number is not a second
+piece of knowledge. `urn:xmpp:sid:0` is therefore not announced — section 3 has
+that for entities that assign them. Reading is not optional though: a client
+that sets one expects its own name back.
+
+**Eleven mutations, all struck down**, and the one worth reading twice is the
+announcement: with `urn:xmpp:reply:0` and `urn:xmpp:fallback:0` taken out of the
+disco list, **twenty of the twenty-one tests stay green**. Everything works,
+every answer is correct, and no peer would ever send one — because XEP-0030 is
+how they learn it may be sent. That is D113's finding turning up again in a
+different extension, one entry later.
+
+#### Two holes in the tests, and they were the same hole
+
+Two mutations found nothing in the code and something in the tests. Both times a
+rule had been written out at the call site rather than in one place, so the test
+checked the copy that lived in the test:
+
+- the quotation is only cut where something is actually being answered — the
+  connection decided it, the test helper decided it again, and a mutation in the
+  connection changed neither;
+- the body and the offsets are built together — the sending path composed them,
+  and the oracle test would have composed them itself.
+
+`QuoteRangeIn` and `Compose` exist because of that. The second is public for a
+further reason, and it is the sharper one: **what a foreign implementation has
+to be able to read is what this library really sends** — not something a test
+assembled the same way and called equivalent.
+
+#### Decisions that are not arithmetic
+
+- **What gets quoted is `Text`, not `Body`.** The body of an answer still holds
+  the quotation it arrived with. Quoting that carries the conversation forward
+  one `>` deeper every turn; four exchanges and the message is mostly other
+  people's words.
+- **Line endings are settled before counting.** An XML parser turns every
+  `CR LF` in text content into a single `LF` (XML 1.0 §2.11), so a quotation
+  written on Windows is one character shorter at the far end than it was here —
+  per line. A trap with a bias: only a machine that writes both characters can
+  step into it, and the far side of every check is a Linux one.
+- **In a room the `id` of the stanza is refused** (§4). Everybody present sees a
+  different one, so `ReplyableId` answers null rather than naming a message that
+  is a different message for every reader.
+- **No reply for an encrypted message.** The `<reply/>` would sit outside the
+  encryption and say who answered whom and when — the shape of a conversation,
+  in clear, to anyone watching the connection. It belongs inside the XEP-0420
+  envelope; until it is put there, this side offers a reply only for a message
+  that was not going to be secret anyway.
+
+#### The round
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1255 tests — 1252 passed with 3 skipped on Windows, 1254 with 1 on Debian |
+| XMPPConsole.Tests | 29 passed, 0 skipped |
+| conformance suite | 45 tests; 39 passed and 6 skipped here, and the six are the WSL inbound-federation skips this machine always has |
+| `ReplyOracleTests` | 5 of 5 against slixmpp 1.17.0 |
+
+The Debian figure comes from CI run `34978780444` and not from the "+2 on
+Debian" this suite happens to follow — that is a pattern, not a measurement, and
+D113 is the entry that says so. It was written down in `1f3299f`, one commit
+later than the change and on purpose.
+
+Pins moved with the code and not after it (D110): Ratatoskr `112ce3c`,
+XMPPConsole `ba4710a`, both pushed before the commit that names them.
+
+*Corrected along the way:* a submodule pin typed by hand from a short hash. The
+first seven characters were right and the remaining thirty-three were invented,
+and `git update-index` takes that without a word — it does not check that the
+object exists. It was caught by comparing it against `rev-parse HEAD`, which is
+where it should have come from in the first place.
+
+---
+
 ## Later
 
 ### Test suite
@@ -7729,7 +7868,7 @@ implementation can be checked.
   | XEP-0045 | **MUC** — multi-user chat. Without it there is no group, and with it a second roster model, a second presence model and a second delivery path |
   | XEP-0313 | **MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over |
   | XEP-0363 | **HTTP File Upload** — the way to send anything that is not text |
-  | XEP-0461 | **Replies** — a reference to the message being answered |
+  | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
   | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |
   | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |
 
