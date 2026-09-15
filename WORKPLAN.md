@@ -8080,6 +8080,108 @@ interface.
 
 ---
 
+### D118. A message that is not news ✅ — the archive, and a test that was green for the wrong reason
+
+XEP-0313 was the ripest thing left on *Optional*, and its argument had moved
+twice. It stood there as "the counter-question to XEP-0013" (D37); then D116
+found that a room assigns a `<stanza-id/>` **only when it archives**, so
+archiving went into both set-ups for the sake of replies; and by then the far
+side was already running, unused, in two versions.
+
+#### The shape is the whole difficulty
+
+**The results do not come back in the answer.** They arrive first, as
+ordinary-looking messages carrying a `<result/>`, and the answer to the query
+only says they are all there now.
+
+So every one of them has to reach the archive and go **no further**. A client
+that hands them on replays its own history as new arrivals every time somebody
+opens a conversation — and does it convincingly, because each of them really is
+a message that really was sent.
+
+That is the same trap as the room presences of D116, and it fails more
+plausibly: an occupant that wrongly becomes a contact looks odd; a replayed
+conversation looks like a conversation.
+
+Three more that are decisions rather than parsing:
+
+- **The time comes out of the `<delay/>` and nowhere else.** For anything out of
+  an archive the moment of arrival is now, and now is not when it was said. A
+  result without a stamp is refused rather than filed under today — wrong and
+  looking right is worse than missing.
+- **An empty `<before/>` is the last page**; leaving it out asks for the oldest
+  there are. Both are valid queries and only one of them is what opening a
+  conversation wants.
+- **A refusal is null and an empty archive is an empty page.** One has answered
+  and the other has not, and a caller deciding whether to ask again needs the
+  difference.
+
+#### Two mutations survived, and both were faults in the tests
+
+| survivor | why |
+|---|---|
+| the archive branch removed from the connection | the negative wiring test stayed green — a result carries its message inside a `<forwarded/>`, and the rule that only direct children count (D59) already stops it being read as one. **The replay it was written against could not happen that way.** |
+| the archive's own id not used | the test data had no `id` on the carrying stanza, which a real archive always sets |
+
+The first is the interesting one. What the branch actually buys is not that a
+result fails to become a message — something else already saw to that — but
+that it **reaches the query at all**. Without it every archive answers empty,
+and one that kept a year of conversation looks like one that kept nothing. A
+negative test cannot see that.
+
+#### Where a positive test belongs
+
+The obvious fix was a positive wiring test: put a result in over the wire, see
+it come back from the query. It was written, and taken out again.
+
+A query needs an answer, and **this project's test server keeps no archive** —
+it refuses the query, correctly. That refusal and the result put in by hand are
+then two stanzas racing to the same client. Green in isolation, red in a full
+run, which is the worst of both.
+
+It is not needed. With the branch removed, the room-archive rounds against
+Prosody and ejabberd go red — measured, not assumed. **A positive test belongs
+where the far side can play its part**, and a fixture that has to invent the
+far side can only ask negative questions honestly.
+
+#### And one test that was measuring the wrong thing
+
+`AnArchiveOfOnesOwnKeepsWhatWasSaid` said a message and demanded to find it. It
+failed against both services, for two entirely different reasons: **Prosody
+delivered it and archived nothing; ejabberd never delivered it at all.**
+
+Neither is a fault here. What a server keeps for an account — for whom, for how
+long, whether at all — is its policy, and Prosody's default of keeping only what
+was exchanged with somebody in the roster is the careful one. A test that
+insists on a particular answer there is a test of the configuration somebody
+wrote for it, dressed up as conformance.
+
+So it asks what is ours: that the query is well formed and the answer readable.
+An empty page is an answer. The room-archive rounds say what happens to real
+entries, against an archive that definitely has some.
+
+#### The round
+
+| what | result |
+|---|---|
+| mutations | 8, all struck down — after the two survivors got the tests they needed |
+| RatatoskrTests | 1290 tests — 1287 passed with 3 skipped on Windows, 1289 with 1 on Debian (CI `35021795045`) |
+| conformance suite | 71 tests; 65 passed and 6 skipped here |
+| room and archive lane | 13 rounds × 2 services |
+
+*Also in this entry:* the console caught up with D117 (`/invite`, `/decline`,
+`/kick`, `/ban`, `/voice`), and **an invitation that had been arriving unseen** —
+raised, parsed, and dropped because nothing listened. And XMPPWebApp stopped
+archiving an answer together with the text it answers; its page shows the
+quotation above the line instead, which is not optional, because the body no
+longer carries it.
+
+*Still not here:* archive preferences (which conversations a server should
+keep), and rooms in the web app — the protocol is in Ratatoskr, but its
+conversation list, archive and screen are built for two people talking.
+
+---
+
 ## Later
 
 ### Test suite
@@ -8213,7 +8315,7 @@ implementation can be checked.
   | | What is missing |
   |---|---|
   | XEP-0045 | ~~**MUC** — multi-user chat. Without it there is no group, and with it a second roster model, a second presence model and a second delivery path~~ ✅ done in D116, in the visiting half. The warning was right about the presence model and about the delivery path, and the roster turned out to be the one that mattered: not a second model to build but a first one to keep rooms out of. What stood beside it — "no use case" — was wrong the same way D114's was: Prosody and ejabberd both ship a room service, it was simply never switched on |
-  | XEP-0313 | **MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over |
+  | XEP-0313 | ~~**MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over~~ ✅ done in D118, in the asking half. The argument for it had moved twice by then: D116 found that a room assigns the name a reply points at *only when it archives*, so archiving was already switched on in both set-ups — the far side was running, unused, before the point was taken up |
   | XEP-0363 | **HTTP File Upload** — the way to send anything that is not text |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
   | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |

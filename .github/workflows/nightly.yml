@@ -150,15 +150,15 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 63 of these 65. The two
+      # the gate's `TestCategory!=WSL` and would run 69 of these 71. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 65 tests, 65 passed, 0 skipped, measured on Debian 13 at 6883eb4
-      # plus the affix check, the five reply checks and twice ten room checks,
-      # with every far side up.
+      # Expect 71 tests, 71 passed, 0 skipped, measured on Debian 13 at 6883eb4
+      # plus the affix check, the five reply checks and twice thirteen room and
+      # archive checks, with every far side up.
       # The revision is named because a count that says nothing about when it was
       # taken cannot be told apart from one that has gone stale, and this figure
       # has moved four times in four entries.
@@ -191,7 +191,13 @@ jobs:
       # room archives, so archiving is switched on in both set-ups, with the
       # reason beside it.
       #
-      # Ten rounds per service, and the second service is the point: where one
+      # And 71 with XEP-0313, asked of the archives the room lane had already
+      # switched on: what a room kept before somebody walked in, and what paging
+      # backwards from the end of it gives. Both are questions one client alone
+      # cannot ask - the conversation has to have happened before the asker was
+      # there, and the archive has to belong to somebody else.
+      #
+      # Thirteen rounds per service, and the second service is the point: where one
       # counterpart and this client happen to agree, nothing tells agreement
       # from correctness. It has paid twice - once by agreeing about the lock
       # and the stanza-id, and once by disagreeing: ejabberd names the inviter

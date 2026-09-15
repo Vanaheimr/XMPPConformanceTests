@@ -704,6 +704,181 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 11. What was said in a room is there afterwards
+
+        /// <summary>
+        /// XEP-0313 against a room's archive: the reason a room has one.
+        /// </summary>
+        /// <remarks>
+        /// <b>Somebody who was not there asks what was said.</b> That is the
+        /// whole point of an archive and it cannot be arranged from one side: it
+        /// needs a conversation that happened before the asker existed in the
+        /// room, and an archive belonging to the room rather than to anybody's
+        /// account - our own server never saw a word of it.
+        ///
+        /// It also closes the circle from D116. The room's archive is why a
+        /// message gets a <c>&lt;stanza-id/&gt;</c> at all; without archiving
+        /// there is no name for a reply to point at. Here the archive is asked
+        /// for the thing that name belongs to.
+        /// </remarks>
+        [Test]
+        public async Task WhatWasSaidInARoomIsThereAfterwards()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            await alice.SendRoomMessageAsync(room, "before anybody else arrived");
+
+            // The service has to have written it down before it can be asked
+            // about it, and it says so by handing it back to the sender.
+            var echoed = new ConcurrentQueue<XMPPMessage>();
+            alice.OnMessage += (t, s, m, ct) => { echoed.Enqueue(m); return Task.CompletedTask; };
+
+            await alice.SendRoomMessageAsync(room, "and this too");
+
+            await WaitFor(() => echoed.Any(m => m.Body == "and this too"), "the room's echo");
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            var page = await bob.RoomHistoryAsync(room, 20);
+
+            Assert.That(page, Is.Not.Null,
+                        $"{PeerName} refused the room's archive, or answered nothing at all.");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(page!.Messages.Select(m => m.Message.Body),
+                            Does.Contain("before anybody else arrived"),
+                            "The room kept nothing, so anybody arriving late walks in blind.");
+
+                Assert.That(page.Messages.Select(m => m.Message.Body),
+                            Does.Contain("and this too"));
+
+                Assert.That(page.Messages.All(m => m.ArchiveId.Length > 0), Is.True,
+                            "An entry without a name of its own cannot be paged from.");
+
+                Assert.That(page.Messages.Select(m => m.Timestamp),
+                            Is.Ordered,
+                            "An archive answers oldest first; out of order it is not a conversation.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 12. The last page is the end and not the beginning
+
+        /// <summary>
+        /// XEP-0059 against a real archive: what somebody opening a
+        /// conversation wants to see.
+        /// </summary>
+        /// <remarks>
+        /// An archive counts from the beginning, and the end is what anybody
+        /// actually wants. An empty <c>&lt;before/&gt;</c> is how that is asked
+        /// for - and leaving it out is a perfectly good query for the wrong
+        /// thing, which looks like an old conversation nobody remembers.
+        ///
+        /// Asked against a service because paging is where archives differ most:
+        /// how many they hand over at once, and whether they say the page was
+        /// the last.
+        /// </remarks>
+        [Test]
+        public async Task TheLastPageIsTheEndAndNotTheBeginning()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var echoed = new ConcurrentQueue<XMPPMessage>();
+            alice.OnMessage += (t, s, m, ct) => { echoed.Enqueue(m); return Task.CompletedTask; };
+
+            for (var number = 1; number <= 5; number++)
+                await alice.SendRoomMessageAsync(room, $"line {number}");
+
+            await WaitFor(() => echoed.Count(m => m.Body!.StartsWith("line ",
+                                                                     StringComparison.Ordinal)) == 5,
+                          "all five lines coming back from the room");
+
+            var last = await alice.QueryArchiveAsync(archive: room.Bare, max: 2, before: "");
+
+            Assert.That(last, Is.Not.Null, $"{PeerName} refused the paged query.");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(last!.Messages, Has.Count.EqualTo(2),
+                            "The archive handed over more or fewer than the page that was asked for.");
+
+                Assert.That(last.Messages.Select(m => m.Message.Body),
+                            Is.EqualTo(new[] { "line 4", "line 5" }),
+                            "The first page came back instead of the last, so opening a conversation " +
+                            "shows its oldest corner.");
+
+                Assert.That(last.Complete, Is.False,
+                            "The archive says this page is everything, and three lines before it are " +
+                            "not in it.");
+
+                Assert.That(last.First, Is.Not.Null.And.Not.Empty,
+                            "Without the first id of this page there is no way to ask for the one " +
+                            "before it.");
+
+            });
+
+            // And the page before it, which is what scrolling up asks for.
+            var earlier = await alice.QueryArchiveAsync(archive: room.Bare, max: 2, before: last.First);
+
+            Assert.That(earlier!.Messages.Select(m => m.Message.Body),
+                        Is.EqualTo(new[] { "line 2", "line 3" }),
+                        "Paging backwards from the first id of a page did not give the one before it.");
+
+        }
+
+        #endregion
+
+        #region 13. An archive of one's own answers
+
+        /// <summary>
+        /// The other archive: the one the server keeps for this account.
+        /// </summary>
+        /// <remarks>
+        /// <b>What is asked here is that it answers, not what it kept</b>, and
+        /// the first version of this test got that wrong. It said a message and
+        /// then demanded to find it, which failed against both services and for
+        /// two entirely different reasons: Prosody delivered it and archived
+        /// nothing, ejabberd never delivered it at all.
+        ///
+        /// Neither is a fault in this client. What a server keeps for an account
+        /// - for whom, for how long, whether at all - is its policy, and
+        /// Prosody's default of keeping only what was exchanged with somebody in
+        /// the roster is the careful one. A test that insists on a particular
+        /// answer there is a test of the configuration somebody wrote for it,
+        /// dressed up as conformance.
+        ///
+        /// What <b>is</b> ours is the question and the reading of the answer: a
+        /// query the server refuses as malformed, or an answer that cannot be
+        /// read, is this client's problem. So the assertion is that an answer
+        /// came back at all - and an empty page is one. The two tests above say
+        /// what happens to real entries, against an archive that definitely has
+        /// some.
+        /// </remarks>
+        [Test]
+        public async Task AnArchiveOfOnesOwnAnswers()
+        {
+
+            var alice = await ConnectAsync();
+
+            var page = await alice.LastFromArchiveAsync(JID.Parse($"{User2}@{PeerDomain}"), 10);
+
+            Assert.That(page, Is.Not.Null,
+                        $"{PeerName} refused a query to this account's own archive, or said nothing " +
+                        "at all - and an archive that kept nothing would still have answered.");
+
+        }
+
+        #endregion
+
         #region 7. The subject travels
 
         /// <summary>

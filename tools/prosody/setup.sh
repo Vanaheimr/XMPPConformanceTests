@@ -201,6 +201,16 @@ modules_enabled = {
     -- stream - without mod_websocket there would be no way in for it.
     "smacks"; "websocket";
 
+    -- XEP-0313 for the accounts themselves. The room archive is switched on
+    -- separately, on the component further down - they are two archives and a
+    -- client asks them the same way but at different addresses.
+    --
+    -- archive_policy has to be said: Prosody's default keeps only what was
+    -- exchanged with somebody in the roster, and the two test accounts have
+    -- each other nowhere. The default is the careful one for a real server and
+    -- would make this archive silently empty here.
+    "mam";
+
     -- XEP-0288: allows both directions to be carried over one connection.
     -- Without this module Prosody answers an incoming stanza exclusively over
     -- an *own* outgoing connection to the sending domain - that is how RFC
@@ -259,6 +269,8 @@ log = {
 
 data_path    = "$PREFIX/var/lib"
 plugin_paths = { }
+
+archive_policy = true
 
 VirtualHost "$PEER_DOMAIN"
     ssl = {

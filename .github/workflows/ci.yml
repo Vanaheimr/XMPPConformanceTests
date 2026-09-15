@@ -148,11 +148,11 @@ jobs:
       # OmemoOracleTests) that said which type to leave out and never why.
       #
       # What the split buys is that this lane owes **zero skips**. Unfiltered
-      # this suite reports "2 passed, 63 skipped" here and "65 passed" in the
+      # this suite reports "2 passed, 69 skipped" here and "71 passed" in the
       # nightly container, and both are green — so the one number that says
       # whether anything was measured has to be read by hand every time. With
       # the filter the gate owes 2 passed / 0 skipped and the interop lane owes
-      # 63 passed / 0 skipped, and any skip at all is a finding. This project
+      # 69 passed / 0 skipped, and any skip at all is a finding. This project
       # has twice been caught by a green run that measured nothing (D54, D97).
       #
       # Only the second figure of each pair moves as the suite grows; the 2 is
@@ -172,7 +172,7 @@ jobs:
           --results-directory artifacts
 
       # Which checks ran, which skipped and with what reason is the single most
-      # useful thing this workflow knows, and in a repository where 63 of 65
+      # useful thing this workflow knows, and in a repository where 69 of 71
       # skip it is very nearly the whole content of a run. TRX keeps it per
       # test, including the skip reason; the console log does not survive the
       # run ageing out.
