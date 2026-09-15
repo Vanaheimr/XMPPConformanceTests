@@ -7257,8 +7257,117 @@ package set with `apt-get install --print-uris` against the **local** index, and
 on a WSL whose index is a month old that names `libodbc2_2.3.12-2`, which the
 mirror has since replaced. wget answers 404 and the script stops with exit 8 —
 correctly, but `-q` swallows the one line that says why, so it reads as a run
-that simply ended. Nine of the fifteen skips above are that; `apt-get update`
-needs a root this session does not have.
+that simply ended. Nine of the fifteen skips above are that.
+
+*Resolved in D111, and the reason it stood here at all is worth the line:* this
+paragraph said `apt-get update` needed *"a root this session does not have"*,
+which was false. `sudo` inside the distro wants a password; `wsl -d Debian -u
+root` does not, because the user is chosen at the WSL level and never
+authenticated within it. The obstacle was one command wide and had been checked
+for in the wrong place.
+
+---
+
+### D111. Past the first message ✅ — and a mutation nobody here could see
+
+Every OMEMO check against python-omemo was message number one of a session, and
+the first message is the one place where the Double Ratchet has not yet done
+anything a plain key agreement would not also have done: the first message key
+comes straight out of the chain the X3DH secret starts. Agreement there says
+nothing about whether the two sides step the chain the same way afterwards.
+
+Two tests past that point, and one new oracle mode to make them possible.
+
+| test | what it asks the reference |
+|---|---|
+| `TheReferenceReadsASecondMessageInTheSameSession` | two messages in a row, one session — the chain key has to have stepped the same way on both sides, and the header counter has to say which message this is |
+| `AUsedPreKeyIsNotHandedOutASecondTime` | two sessions on two **named** prekeys, then the first message again byte for byte |
+
+`continue` loads an existing session and decrypts into it, where `decrypt`
+builds one. `decrypt` now also stores the session and books out the one-time
+prekey it consumed — both of which a correct responder owes, and neither of
+which anybody needed while every message was the first.
+
+**One expectation was written before it was measured, and the measurement won.**
+The replay test first said the reference would still decrypt and merely report
+the prekey as already consumed, because `hide_pre_key` promises to *"keep the
+pre key for cryptographic operations"*. It does not work out that way:
+`build_session_passive` resolves the id against the **visible** prekeys, and
+hiding takes it out of exactly that set, so the replay never reaches decryption
+at all —
+
+```
+KeyExchangeFailed: No pre key with id 1 known.
+```
+
+— which is the stronger property, and the assertion now follows the measurement
+rather than the other way round. Worth keeping because the weaker version would
+also have gone green, and would have recorded a promise the library does not
+make.
+
+#### The mutation series, and the third one is the point
+
+| mutation | conformance suite | RatatoskrTests |
+|---|---|---|
+| `SendCount++` removed — the header counter never advances | second-message test only | **6 red** |
+| chain step `0x02` → `0x03` — the next chain key is wrong, consistently on both our sides | second-message test only, message 1 still green | **1 red** |
+| X3DH reports one prekey id and computes the fourth DH with another | prekey test only | **0 red** |
+
+The first two belong here because they say the new coverage overlaps with what
+already existed, and that is worth knowing rather than hiding. The counter is
+caught six times over by the library's own tests. The chain constant is caught
+by `TheChainStep_MatchesTheSpecificationLiterally` — which is this plan's own
+rule *compute against published vectors, not against oneself* working exactly as
+it was meant to: a test written against the specification rather than against
+agreement, and the only one of 1229 that sees it.
+
+**The third is invisible to all 1229.** Id and key disagree, both our own sides
+agree with themselves, the arithmetic comes out, and nothing in this house can
+tell. It is the D62 to D65 class once more, and it needed a store nobody here
+wrote to notice.
+
+It also needed the prekey to be **named**. `X3DH.Initiate` takes one by itself
+otherwise, and what it takes is the first — where id and key happen to match, so
+the defect passes the older tests untouched. A test that had opened its sessions
+the convenient way would have been green under this mutation and would have
+looked like coverage.
+
+#### The far sides, and a root this session did have after all
+
+D110 left ejabberd unusable here: its setup resolves the package set with
+`apt-get install --print-uris` against the local index, a month-old index names
+`libodbc2_2.3.12-2`, the mirror has replaced it, wget answers 404. That entry
+says `apt-get update` *"needs a root this session does not have"*, and that was
+wrong — `sudo` wants a password, but `wsl -d Debian -u root` does not, because
+the user is chosen at the WSL level and never authenticated inside the distro.
+One command, and the whole thing was available the entire time.
+
+With both far sides up, the certificate fix of `e53e534` is confirmed on the
+second setup as well: ejabberd minted a fresh chain too, where `e53e534` could
+only record it for Prosody.
+
+| what | result |
+|---|---|
+| **conformance suite, Debian 13** | **35 passed, 0 skipped** |
+| conformance suite, Windows | 29 passed, 0 failed, 6 skipped |
+| gate filter, both platforms | 2 passed, 0 skipped |
+| RatatoskrTests | 1226 passed, 3 skipped |
+| HermodTests | 2734 passed, 1 skipped |
+| StyxTests | 489 passed, 1 skipped |
+| XMPPWebApp.Tests | 123 passed, 5 skipped (Debian: 128, 0) |
+| XMPPConsole.Tests | 29 passed, 0 skipped |
+
+The six skipped under Windows are the inbound tests of D109, unchanged. 35 of 35
+is against Prosody 13, ejabberd 24.12 and both Python oracles.
+
+**And the count moved three expectations, which went in the same commit rather
+than the next one.** `nightly.yml` said 33 tests in two places and `ci.yml` said
+27 and 29; they now say 35 and 33. That is not a pin, but it is the shape D110
+describes — a figure that holds only until somebody moves the thing it counts —
+and the discipline is the same one. The nightly's figure now names the revision
+it was taken at, as Ratatoskr's gained the same day and for the same reason: a
+count that says nothing about when it was measured cannot be told apart from one
+that has gone stale.
 
 ---
 
