@@ -13,14 +13,20 @@ names this assembly from inside Ratatoskr, so the two repositories can only be
 moved together (D99). **Nightly** is where the conformance verdict lives: it
 installs Prosody 13, ejabberd 24.12 and python-omemo into the container and
 runs everything against them — federation, stream management, OMEMO and
-XEP-0454 — **33 of 33, nothing skipped**, and then repeats the lane against
+XEP-0454 — **40 of 40, nothing skipped**, and then repeats the lane against
 Ratatoskr's current master to catch what the pins hide.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
-this suite is green at "2 passed, 27 skipped" on a bare runner and green at "33
+this suite is green at "2 passed, 38 skipped" on a bare runner and green at "40
 passed" in the container — the same colour for the run that measured everything
 and the run that measured nothing. Selected by category, each lane has a number
 it must hit, and any skip at all is a finding (D101).
+
+The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39, 40
+so far, and `nightly.yml` carries the history beside the figure together with
+the revision it was last measured at. The 2 does not, and that is the point of
+the split rather than an accident: everything needing a far side is on the other
+side of the filter, so the gate growing would be news.
 
 What this repository checks is a claim: that the client and the server of
 **[Ratatoskr](libs/Ratatoskr/README.md)** keep to the RFCs and XEPs they
@@ -103,7 +109,7 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0280 | Message Carbons | ✅ | With spoofing protection |
 | XEP-0308 | Last Message Correction | ✅ | Receiving: `XMPPMessage.ReplacesId` names the message replaced, `IsCorrection` the fact. Sending: `CorrectLastMessageAsync` corrects the last message **to the same recipient** (section 5) and becomes the last one itself, so that a correction can be corrected. In the console `/fix <text>`; announced in disco#info (D60) |
 | XEP-0333 | Chat Markers | ✅ | Sending + receiving, namespace-checked against being confused with XEP-0184 |
-| XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo, in both directions (D69) |
+| XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112) |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
 | XEP-0454 | OMEMO Media Sharing | ⚠️ | The receiving half only: `AesGcmUrl` reads `aesgcm://host/path#[iv][key]`, hands back the `https` address without the fragment — which is the key — and decrypts the payload with the tag checked. Fetching is deliberately not in the library: whether an incoming message may cause a request at all belongs to whoever runs the client, not to whoever sent the message. The upload side is missing entirely. **The IV is 12 bytes and the older 16 byte reading is refused rather than misread** — 16+32 is 96 hex characters where 12+32 is 88, so a reader taking the first 12 bytes would find a well-formed key, fail at the tag, and blame the file. Checked here against pyca `cryptography` rather than against ourselves, because the layout of the fragment is the one thing two implementations can hold differently while each stays consistent — see [WORKPLAN.md](WORKPLAN.md), D107 |
 | XEP-0352 | Client State Indication | ✅ | Both sides. The server announces `<csi/>` after the login (§4.1) and does not answer `<active/>`/`<inactive/>` (§4.2). Held back is only what will still be true later: presence waits and **the last one per full JID replaces the earlier ones** (§3), a message with text, an `iq`, an error and every nonza go out at once, a chat state (XEP-0085) is dropped — it would not be late on being handed in later, it would be wrong. What was held back goes out **before** the stanza that empties the buffer (RFC 6120 §10.1), and at the end of the connection into the buffer of unacknowledged stanzas. Upper bound `MaxHeldWhileInactive` (default 100); on overflow the buffer goes out instead of anything being thrown away. After a resumption "active" holds again (§5.2) — this is why the client declares itself anew after every setup. In the console `/csi active|inactive` (D61) |
@@ -256,10 +262,26 @@ them:
 
 ## Project structure
 
-**Three repositories, and the cut between them is what each one needs to
+**Four repositories, and the cut between them is what each one needs to
 exist.** Ratatoskr needs nothing but a checkout — it tests itself. The console
-needs Ratatoskr. What is here needs Prosody, ejabberd and python-omemo, and
-that is why the setups producing them stand here as well and nowhere else.
+and the web application need Ratatoskr. What is here needs Prosody, ejabberd and
+python-omemo, and that is why the setups producing them stand here as well and
+nowhere else.
+
+The two applications are checked out under `libs/` and built against the
+Ratatoskr pinned *here*, not the one they pin themselves — which is deliberately
+a different revision as often as not, and is what has caught four signature
+changes before the other repository reached them (D99, D110). Both carry their
+own Hermod, Styx and Ratatoskr as submodules so that a plain clone of either
+builds; nothing here may therefore init recursively, or two revisions of the
+library under test would end up in one solution.
+
+**Building this solution needs npm**, which it did not before D112's round:
+XMPPWebApp embeds a webpack frontend and its build runs `npm ci` and
+`npm run build` unless `-p:SkipFrontendBuild=true` is given. Neither workflow is
+affected — `ci.yml` and `nightly.yml` both build
+`XMPPConformanceTests/XMPPConformanceTests.csproj` by name and never the
+solution file.
 
 The namespace is flat throughout: `org.GraphDefined.Vanaheimr.Ratatoskr` (like
 `Hermod.DNS` and `Hermod.HTTP`); the folders only group. One file per type:
@@ -302,6 +324,15 @@ libs/Ratatoskr/Ratatoskr/                the protocol
 libs/Ratatoskr/tools/                    generated tables
 ├── unicode/      bidi classes and the context tables from RFC 5892 appendix A
 └── stringprep/   the StringPrep tables from RFC 3454
+
+libs/XMPPConsole/                        the console that drives the protocol
+└── XMPPConsole/, XMPPConsole.Tests/
+
+libs/XMPPWebApp/                         an HTTP server in front of the client
+└── src/XMPPWebApp/, src/XMPPWebApp.Tests/, src/Frontend/
+                                         the last one is TypeScript and webpack,
+                                         embedded into the assembly as manifest
+                                         resources at build time
 ```
 
 The XEP managers get their sending function injected as a `Func<string, Task>`
@@ -342,7 +373,7 @@ The suite is driven in two lanes, and **each owes zero skips**:
 # The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
 
-# The verdict: with Prosody, ejabberd and both oracles up. 33 of 33
+# The verdict: with Prosody, ejabberd and both oracles up. 40 of 40
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 ```
 
@@ -892,8 +923,12 @@ distribution, session store and the wiring.
 - **A device there is no bundle for is skipped — and named.** Not to send would
   make a human being unreachable through a single broken device; to send
   unencrypted would be the worst answer, because the sender then believes they
-  have encrypted. `SendEncryptedMessageAsync` therefore returns the skipped
-  devices together with the reason, and the console shows them
+  have encrypted. `SendEncryptedMessageAsync` therefore returns an `OmemoSent`
+  — the message id, the skipped devices with their reason, and `Readable`.
+  **The last of those is kept apart from an empty skip list on purpose:** one
+  device of four missing is a message that arrived, none of three is a message
+  that went out and nobody can open, and that is what writing to somebody who
+  does not do OMEMO at all looks like. The console reports the two differently
 - **Without OMEMO switched on it throws**, it does not send unencrypted
 - **Blind trust before verification** as the default (`TrustNewDevicesBlindly`).
   A procedure that demands a fingerprint comparison before the first message is
