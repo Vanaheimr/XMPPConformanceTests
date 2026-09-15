@@ -8043,9 +8043,40 @@ disagreeing is information.
 | conformance suite | 65 tests; 59 passed and 6 skipped here, the six being this machine's usual WSL inbound-federation skips |
 | room lane | 10 rounds × 2 services, all green |
 
-*Still not here:* the configuration form, destroying a room, granting voice by
-name rather than by role, and a password for a protected room. The affiliation
-lists (who is a member, who is banned) are set but never read back.
+#### The console, and the thing that was arriving unseen
+
+The commands followed in XMPPConsole `6bf5155` — `/invite`, `/decline`, `/kick`,
+`/ban`, `/voice` — and one part of that was worse than a missing command.
+**An invitation arrived, was parsed correctly, and vanished.**
+`OnRoomInvitation` was raised and nobody listened.
+
+That is D113's finding turning up in the repository D113 was about, and it costs
+more here than the console's silence about a changed identity key did: an
+invitation is the only thing a room says about a room one is *not* in — the only
+way to hear that a room exists at all.
+
+Two places where the console now says something instead of failing:
+
+- **`/ban` takes a nickname and needs an address.** It looks the nickname up,
+  and when the room never gave a real address it says *that* rather than
+  "refused". A missing name and a missing permission are different problems and
+  only one of them is the user's.
+- **Who invited you** is printed as `alice (in the room)` when the service sent
+  an occupant address, rather than as a room address where a person belongs.
+
+*Still not here:* the configuration form, destroying a room, and a password for
+a protected room — an invitation carrying one says so instead of failing
+silently. The affiliation lists (who is a member, who is banned) are set but
+never read back.
+
+*And named rather than done:* **XMPPWebApp knows nothing of any of this.** It
+archives `XMPPMessage.Body`, so a reply arrives there with its quoted lines
+still in it — the duplicate XEP-0428 exists to let a client hide, which the
+console stopped showing in D114. That one is small. Rooms are not: the web app
+keeps a conversation list, an archive and a front end, and a room touches all
+three with a second kind of conversation, a nickname model and an occupant
+list. It is the same second-presence-model problem one layer up, in a user
+interface.
 
 ---
 
