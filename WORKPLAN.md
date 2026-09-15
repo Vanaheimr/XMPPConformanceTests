@@ -7858,6 +7858,103 @@ measured nothing has to look different from a run that measured everything.
 
 ---
 
+### D116. A room is not a roster ✅ — XEP-0045, and the two things one client cannot see
+
+The largest point on the *Optional* list, and the one every other point there
+was a group chat away from. What it brings is what the entry said it would: a
+second presence model beside the roster, and a delivery path of its own.
+
+#### The branch that matters more than the four files
+
+Everything else in this library reads a presence as news about a contact and
+files it in the roster. **A room sends presences of exactly the same shape that
+mean something else entirely**: somebody is in a room, under a name that is
+theirs only there, usually without their real address being given at all.
+
+One missing branch and a room of fifty people becomes fifty contacts — each a
+stranger, each with an address that exists nowhere outside that room, each
+reported as online until somebody notices. So the question *is the sender's bare
+address a room we entered* is asked before the roster ever sees the stanza — and
+before the error path too, because a room that refuses a join answers with
+`type='error'`, and read as a contact's presence error that is a stanza error
+about a person who does not exist.
+
+#### Five things arrive as one stanza
+
+An `unavailable` presence from a room is somebody **leaving**, being **kicked**
+(307), being **banned** (301), the service **shutting down** (332) or somebody
+**renaming themselves** (303). The status codes of section 15.6 are the only
+thing that tells them apart.
+
+A client that does not read them reports all five as "you have left the room",
+and drops the one thing a person actually needs — whether coming back is worth
+trying. The rename is worse than a wrong label: read as a departure it empties
+the room of everybody who ever changed their name.
+
+**Twelve mutations, all struck down, 17 tests.** Two of them are the wiring and
+needed a fixture of their own, because this project's test server has no room
+service: the room's half of the conversation is put in by hand through the
+server session, the way `ErrorHandlingTests` puts in a stream error. What is
+under test there is not the room but our side of the wire.
+
+#### And then a real room, which found two things
+
+The reason XEP-0045 stood in *Optional* with "no far side" never applied to it —
+Prosody and ejabberd both ship a room service, it simply was not switched on.
+`tools/prosody/setup.sh` now runs a component, `conference.prosody.test`: a
+domain beside the host, with its own name on the certificate, reached over the
+WebSocket endpoint the stream-management lane already uses. No federation is
+involved.
+
+Seven rounds, and what they are worth is in the things **one client cannot
+arrange at all**:
+
+| | found |
+|---|---|
+| a second person in the same room | **a room a join creates is locked** until its owner configures it (section 10.1.2). From the creator's side everything looked right: in the room, owner, able to talk to themselves. The second client simply could not get in. `CreateInstantRoomAsync` is the answer, and it is the whole of the owner protocol this library speaks |
+| the name a room gives a message | **no `<stanza-id/>` anywhere.** Not a fault in the reading — a property of the room: Prosody attaches one only when the room *archives*. So a room without an archive is one in which nothing can be answered, and no error says so anywhere |
+
+The second is worth reading twice, because of what it says about D114. That
+entry built `ReplyableId` to return **null** for a room message with no name of
+the room's on it — reasoned from the specification, with no way to check it. A
+real room service has now produced exactly that case, and the honest null was
+the right answer. `muc_mam` is in the set-up since, with the reason written
+beside it, so the rule itself can be measured against a room that does assign
+the names.
+
+#### What is deliberately not here
+
+The owner's and the moderator's halves: the configuration form, destroying a
+room, kicking, banning, granting voice, the affiliation lists, invitations, and
+a password for a protected room. Received and reported where a room sends them;
+never sent.
+
+And the rooms **do not survive a reconnect**. That is not a gap but the truth of
+it: the server dropped this client's presence, so it is in no room any more.
+Whoever wants to be back in one enters it again.
+
+#### The round
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1274 tests — 1271 passed with 3 skipped on Windows, 1273 with 1 on Debian (CI `34993447106`) |
+| XMPPConsole.Tests | 29 passed, 0 skipped |
+| conformance suite | 52 tests; 46 passed and 6 skipped here, the six being this machine's usual WSL inbound-federation skips |
+| `ProsodyRoomTests` | 7 of 7 against a real room service |
+
+In the console: `/join`, `/part`, `/rooms`, `/nick`, `/topic`, a typed line
+going into the room when the conversation is one, and a refusal translated
+rather than printed — a taken nickname is worth trying again with another, a ban
+is not.
+
+*Open, and named rather than done:* **ejabberd has no room service in its
+set-up yet.** Its MUC is a module like Prosody's and the fixture is already
+abstract — `AForeignPeerRoomTests` with a second twenty-line derived class — so
+what is missing is the YAML and the certificate name, not the tests. Until then
+this lane has one far side where the rest of the suite has two.
+
+---
+
 ## Later
 
 ### Test suite
@@ -7990,7 +8087,7 @@ implementation can be checked.
 
   | | What is missing |
   |---|---|
-  | XEP-0045 | **MUC** — multi-user chat. Without it there is no group, and with it a second roster model, a second presence model and a second delivery path |
+  | XEP-0045 | ~~**MUC** — multi-user chat. Without it there is no group, and with it a second roster model, a second presence model and a second delivery path~~ ✅ done in D116, in the visiting half. The warning was right about the presence model and about the delivery path, and the roster turned out to be the one that mattered: not a second model to build but a first one to keep rooms out of. What stood beside it — "no use case" — was wrong the same way D114's was: Prosody and ejabberd both ship a room service, it was simply never switched on |
   | XEP-0313 | **MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over |
   | XEP-0363 | **HTTP File Upload** — the way to send anything that is not text |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
