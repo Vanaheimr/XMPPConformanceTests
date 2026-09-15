@@ -141,7 +141,14 @@ async def mode_bundle(job: Dict[str, Any]) -> Dict[str, Any]:
     # exactly the path to be checked.
     await backend.generate_pre_keys(10)
 
-    bundle = await backend.get_bundle("oracle@example.org", 1)
+    # The device id comes from the job, because a fan-out test needs the oracle
+    # to be several devices. Each one gets its own "state", which is what
+    # actually makes them distinct - the id is only what the bundle is labelled
+    # with, and two devices sharing a state would share an identity key too.
+    bundle = await backend.get_bundle(
+        job.get("jid", "oracle@example.org"),
+        job.get("device_id", 1),
+    )
 
     return {
         "jid": bundle.bare_jid,

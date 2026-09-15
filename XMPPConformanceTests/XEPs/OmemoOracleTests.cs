@@ -19,6 +19,7 @@
 
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 
 using NUnit.Framework;
 
@@ -238,6 +239,37 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// </remarks>
         private static String PathOver(String path)
             => ForeignSide.PathOver(path);
+
+        /// <summary>
+        /// The oracle's bundle out of its answer - with the signature checked
+        /// before anything is built on it.
+        /// </summary>
+        /// <remarks>
+        /// The check belongs here and not in the tests: recomputing the
+        /// reference's signature is the first thing every one of them depends
+        /// on, and a bundle that fails it would make everything after it a
+        /// measurement of the wrong thing.
+        /// </remarks>
+        private static OmemoBundle BundleFrom(JsonElement b)
+        {
+
+            var bundle = new OmemoBundle(
+                             Convert.FromBase64String(b.GetProperty("identity_key").GetString()!),
+                             b.GetProperty("signed_pre_key_id").GetUInt32(),
+                             Convert.FromBase64String(b.GetProperty("signed_pre_key").GetString()!),
+                             Convert.FromBase64String(b.GetProperty("signed_pre_key_sig").GetString()!),
+                             [.. b.GetProperty("pre_keys").EnumerateArray()
+                                  .Select(p => new OmemoPreKey(
+                                                   p.GetProperty("id").GetUInt32(),
+                                                   Convert.FromBase64String(p.GetProperty("key").GetString()!)))]);
+
+            Assert.That(bundle.SignatureIsValid(), Is.True,
+                        "We consider the signature of the reference implementation invalid - " +
+                        "then we check over something other than what it signs.");
+
+            return bundle;
+
+        }
 
         /// <summary>
         /// Hands one message to the oracle and returns what it read.
@@ -1003,6 +1035,183 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region OneMessageReachesEveryDeviceAndNamesTheOneItCannot()
+
+        /// <summary>
+        /// One message, four devices of the far side: three that can read it,
+        /// each out of its own key entry, and one that is named rather than
+        /// passed over in silence.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the first check of <c>OmemoManager.EncryptAsync</c>
+        /// against anything foreign, and the first of any kind for the list of
+        /// devices it could not reach.</b> Everything before it went through the
+        /// primitives - X3DH, the ratchet, the payload cipher - and built the
+        /// fan-out by hand, one session at a time. What the manager adds is the
+        /// part that has no counterpart in a test written by hand: one payload,
+        /// several key entries, and the bookkeeping of which entry belongs to
+        /// which device.
+        ///
+        /// Three things are asked, and the second is the one only a far side can
+        /// answer:
+        ///
+        /// <b>Every device reads the same text.</b> One `OmemoPayloadCipher`
+        /// payload, encrypted once; the key that opens it goes to each device
+        /// separately through its own session. If that bookkeeping slips, this
+        /// does not fail quietly in a corner - some devices of a contact stop
+        /// receiving while others carry on, which is the shape a user reports as
+        /// "it works on my phone".
+        ///
+        /// <b>The entries are not interchangeable.</b> Device 2 is handed the
+        /// entry meant for device 3, and has to refuse it. Without that check a
+        /// suite that gave every device the same entry would pass all three
+        /// decryptions - in the one case where it happens to be wrong.
+        ///
+        /// <b>The device that could not be reached is named.</b> The fourth
+        /// stands in the list and has no bundle, and `Skipped` has to carry it
+        /// with a reason. The record's own remark says why this is not cosmetic:
+        /// a sender who does not learn that three of four devices cannot read
+        /// along takes the conversation for held and wonders about the answer
+        /// that does not come. Since `ca8bce3` this is what `SendEncryptedMessageAsync`
+        /// returns, and nothing outside this house had ever looked at it.
+        ///
+        /// The plaintext that comes back is the XEP-0420 envelope, not the bare
+        /// sentence - the manager wraps content before encrypting, and the
+        /// reference hands out what it decrypted without opinion. That the
+        /// envelope arrives intact on a foreign side is worth as much as the
+        /// text inside it.
+        /// </remarks>
+        [Test]
+        public async Task OneMessageReachesEveryDeviceAndNamesTheOneItCannot()
+        {
+
+            const String secret       = "One message, three devices, one that cannot";
+            const UInt32 unreachable  = 4;
+
+            var oracleJid  = JID.Parse("oracle@example.org");
+            var ourJid     = JID.Parse(TheirViewOfUs);
+
+            var states     = new Dictionary<UInt32, String>();
+            var bundles    = new Dictionary<UInt32, OmemoBundle>();
+
+            try
+            {
+
+                // Three devices of the far side. Their own state file each is
+                // what makes them different devices rather than one device
+                // wearing three numbers.
+                foreach (var id in new UInt32[] { 1, 2, 3 })
+                {
+
+                    var state = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+                    states[id] = state;
+
+                    var (_, output, _) = Call("bundle", new Dictionary<String, Object> {
+                                                            ["state"]      = PathOver(state),
+                                                            ["jid"]        = oracleJid.ToString(),
+                                                            ["device_id"]  = (Int32) id
+                                                        });
+
+                    bundles[id] = BundleFrom(Reply(output));
+
+                }
+
+                var manager = new OmemoManager(
+                                  new OmemoMemoryStore(),
+                                  ourJid,
+                                  fetchDeviceList: jid => Task.FromResult<OmemoDeviceList?>(
+                                      jid == oracleJid
+                                          ? new OmemoDeviceList([new OmemoDevice(1), new OmemoDevice(2),
+                                                                 new OmemoDevice(3), new OmemoDevice(unreachable)])
+                                          // Our own bare JID is appended by EncryptAsync itself, so that
+                                          // one's own other devices see what one has written. We have none,
+                                          // and an empty list says so without becoming a skip.
+                                          : new OmemoDeviceList([])),
+                                  fetchBundle: (jid, id) => Task.FromResult(
+                                      bundles.TryGetValue(id, out var bundle) ? bundle : null));
+
+                var result = await manager.EncryptAsync([oracleJid],
+                                                        [new XElement("body", secret)]);
+
+                // 1. The one that could not be reached is named, and named with
+                //    its number rather than as a count.
+                Assert.That(result.Skipped.Select(s => s.DeviceId), Is.EquivalentTo(new[] { unreachable }),
+                            "The device without a bundle is either missing from the list of those that " +
+                            "cannot read along, or others have wrongly landed in it. A sender is told " +
+                            "this and nothing else about who did not get the message.");
+
+                Assert.That(result.Skipped[0].Reason, Is.Not.Empty,
+                            "The device is named without a reason, which is a list a sender cannot act on.");
+
+                // 2. Three entries, one payload.
+                var keys = result.Element.Keys[oracleJid];
+
+                Assert.That(keys.Select(k => k.DeviceId), Is.EquivalentTo(new UInt32[] { 1, 2, 3 }));
+                Assert.That(result.Element.Payload, Is.Not.Null,
+                            "A message with content and no payload - then there is nothing for the " +
+                            "keys to open.");
+
+                // 3. Each device out of its own entry, and all of them the same
+                //    text.
+                foreach (var id in new UInt32[] { 1, 2, 3 })
+                {
+
+                    var entry = keys.Single(k => k.DeviceId == id);
+
+                    Assert.That(entry.IsKeyExchange, Is.True,
+                                $"The entry for device {id} is not a key exchange, although no session " +
+                                "with it exists yet.");
+
+                    var read = Hand("decrypt", states[id], manager.Identity,
+                                    B64(entry.Data), result.Element.Payload!);
+
+                    Assert.That(read, Does.Contain(secret),
+                                $"Device {id} did not get the text out of the message, although its own " +
+                                "key entry was handed to it. One payload for all, one key each - and " +
+                                "this is where that comes apart.");
+
+                }
+
+                // 4. And the entries are not interchangeable: device 2 gets the
+                //    one meant for 3.
+                var wrongState  = Path.Combine(Path.GetTempPath(), $"orakel-state-{Guid.NewGuid():N}.json");
+                var (_, o2, _)  = Call("bundle", new Dictionary<String, Object> {
+                                                     ["state"]      = PathOver(wrongState),
+                                                     ["jid"]        = oracleJid.ToString(),
+                                                     ["device_id"]  = 2
+                                                 });
+                states[99]      = wrongState;
+
+                // A device with a fresh state is a fresh device, so what is
+                // checked here is the entry and not a session already standing.
+                _ = BundleFrom(Reply(o2));
+
+                var (code, _, _) = Call("decrypt",
+                                        new Dictionary<String, Object> {
+                                            ["state"]             = PathOver(states[2]),
+                                            ["key"]               = B64(keys.Single(k => k.DeviceId == 3).Data),
+                                            ["payload"]           = B64(result.Element.Payload!),
+                                            ["sender_jid"]        = TheirViewOfUs,
+                                            ["sender_device_id"]  = (Int32) manager.Identity.DeviceId
+                                        },
+                                        check: false);
+
+                Assert.That(code, Is.Not.EqualTo(0),
+                            "Device 2 opened the entry that was meant for device 3. Then the entries " +
+                            "are not bound to the device they name, and the fan-out only appears to " +
+                            "be one - every device would be reading the same key.");
+
+            }
+            finally
+            {
+                foreach (var state in states.Values)
+                    try { File.Delete(state); } catch { /* does not matter */ }
+            }
+
+        }
+
+        #endregion
+
         #region (private) Building a session against the oracle
 
         /// <summary>
@@ -1027,21 +1236,7 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                                                           ["state"] = PathOver(state)
                                                       });
 
-            var b = Reply(bundleOutput);
-
-            var bundle = new OmemoBundle(
-                             Convert.FromBase64String(b.GetProperty("identity_key").GetString()!),
-                             b.GetProperty("signed_pre_key_id").GetUInt32(),
-                             Convert.FromBase64String(b.GetProperty("signed_pre_key").GetString()!),
-                             Convert.FromBase64String(b.GetProperty("signed_pre_key_sig").GetString()!),
-                             [.. b.GetProperty("pre_keys").EnumerateArray()
-                                  .Select(p => new OmemoPreKey(
-                                                   p.GetProperty("id").GetUInt32(),
-                                                   Convert.FromBase64String(p.GetProperty("key").GetString()!)))]);
-
-            Assert.That(bundle.SignatureIsValid(), Is.True,
-                        "We consider the signature of the reference implementation invalid - " +
-                        "then we check over something other than what it signs.");
+            var bundle = BundleFrom(Reply(bundleOutput));
 
             var own = OmemoIdentity.Create();
 
