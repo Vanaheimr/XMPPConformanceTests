@@ -7968,6 +7968,87 @@ this lane has one far side where the rest of the suite has two.
 
 ---
 
+### D117. The codes now come from somewhere ✅ — moderating a room, and being asked into one
+
+D116 built the half of XEP-0045 one can do alone and read the status codes that
+tell a departure from a kick, a ban and a room shutting down. Every one of those
+codes was checked against a stanza this project had written itself, for a plain
+reason: **a client cannot kick itself.**
+
+This entry is what removes that. With a second person in the room and a way to
+throw them out, 307 and 301 arrive from a service instead of from a test fixture.
+
+#### One takes a nickname, the other an address
+
+| | names | because |
+|---|---|---|
+| kick (§9.2) | a **nickname** | a role lasts for the visit, and inside the visit a nickname identifies somebody |
+| ban (§9.1) | a **real address** | an affiliation outlives the visit, and outside it a nickname identifies nobody |
+
+That asymmetry is not syntax. It has a consequence a library cannot paper over:
+a semi-anonymous room gives real addresses to its **moderators only**, so
+`BanAsync` can fail for a reason that has nothing to do with permissions — there
+was nothing to name. `MucOccupant.RealJid` being null is where that shows, and
+the conformance test therefore asks the question one cannot ask from one side:
+does the service give the moderator that address at all. Both do.
+
+#### Moderating is a request, not an announcement
+
+Everything else a client does with a room is a presence or a message, and
+nobody answers those. A kick either happened or was refused, and that difference
+exists only as an IQ result or an IQ error — so the manager got a second
+delegate for asking. **Not being a moderator is the ordinary case**, and a
+client that does not look reports success for something that did not happen: the
+person is still in the room and the interface says otherwise.
+
+#### An invitation is the one thing a room says about a room one is not in
+
+Everything else from a room is recognised by asking whether this client entered
+it. For an invitation the answer is always *no* — so it has to be read **before**
+that question is asked. A client that gets the order wrong can never be invited
+anywhere, and nothing about it looks broken.
+
+#### And the second far side paid for itself again
+
+D116 added ejabberd and got agreement — on the lock, and on the `<stanza-id/>`.
+This time it disagreed:
+
+| | the inviter, in `&lt;invite from=…&gt;` |
+|---|---|
+| ejabberd | `alice@ejabberd.test/home` — the real address, as the example in §7.8.2 prints |
+| Prosody | `room@conference/alice` — the **occupant** address: who asked, without who that is |
+
+For a semi-anonymous room Prosody's is the more careful answer and ejabberd's is
+what the specification shows. **Neither breaks a refusal**, because the room
+routes it either way. What breaks is a client that assumes one of them — it will
+either show a room address where a person belongs, or treat a perfectly good
+invitation as malformed. My test assumed the real address, which is how this was
+found: it passed against ejabberd and failed against Prosody.
+
+So the shape is **reported rather than normalised**:
+`MucInvitation.FromAnOccupantAddress` says which one arrived, and the conformance
+test now asks what actually matters — that the address identifies the inviter and
+is not the bare room, since a refusal addressed there reaches nobody.
+
+**This is the second time in two entries that a lone far side would have been
+enough to be wrong with.** One counterpart agreeing proves nothing; two
+disagreeing is information.
+
+#### The round
+
+| what | result |
+|---|---|
+| mutations | 6, all struck down — 18 for XEP-0045 in all |
+| RatatoskrTests | 1280 tests — 1277 passed with 3 skipped on Windows |
+| conformance suite | 65 tests; 59 passed and 6 skipped here, the six being this machine's usual WSL inbound-federation skips |
+| room lane | 10 rounds × 2 services, all green |
+
+*Still not here:* the configuration form, destroying a room, granting voice by
+name rather than by role, and a password for a protected room. The affiliation
+lists (who is a member, who is banned) are set but never read back.
+
+---
+
 ## Later
 
 ### Test suite

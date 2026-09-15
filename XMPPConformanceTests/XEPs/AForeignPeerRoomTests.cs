@@ -520,6 +520,190 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 8. A kick is seen as a kick
+
+        /// <summary>
+        /// Status 307, produced by a service rather than put in by hand.
+        /// </summary>
+        /// <remarks>
+        /// <b>The reason the moderating half was worth building at all.</b> The
+        /// codes that tell a departure from a kick, a ban and a room shutting
+        /// down have been read since D116 - and every one of them was checked
+        /// against a stanza this project wrote itself. A client cannot kick
+        /// itself, so until there was a second person in the room and a way to
+        /// throw them out, 307 had nowhere to come from.
+        /// </remarks>
+        [Test]
+        public async Task AKickIsSeenAsAKick()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            await WaitFor(() => alice.Room(room)!.Occupants.Count == 2, "the second occupant");
+
+            MucUserInfo? why = null;
+            bob.OnRoomLeft += (t, s, r, info, ct) => { why = info; return Task.CompletedTask; };
+
+            Assert.That(await alice.KickFromRoomAsync(room, User2, "Enough of that."), Is.True,
+                        $"{PeerName} refused the kick, although the one asking created the room.");
+
+            await WaitFor(() => why is not null, "the kick, seen by the one kicked");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(why!.Has(MucStatus.Kicked), Is.True,
+                            "The service reported no 307, or we do not read it - and then being " +
+                            "thrown out is indistinguishable from leaving.");
+
+                Assert.That(why.Reason, Is.EqualTo("Enough of that."),
+                            "The reason did not survive the round trip.");
+
+                Assert.That(bob.Room(room), Is.Null,
+                            "The one kicked is still holding the room.");
+
+            });
+
+            await WaitFor(() => alice.Room(room)!.Occupants.Count == 1,
+                          "the room, seen from the one who stayed");
+
+        }
+
+        #endregion
+
+        #region 9. A ban needs a real address, and keeps somebody out
+
+        /// <summary>
+        /// Status 301, and the asymmetry that comes with it.
+        /// </summary>
+        /// <remarks>
+        /// <b>A ban names a real address and a kick names a nickname</b>, and
+        /// that is not a quirk of the syntax: an affiliation outlives the visit,
+        /// so it has to name somebody who exists outside it. In a
+        /// semi-anonymous room the real address is given to moderators only -
+        /// so this test also asks the question one cannot ask from one side,
+        /// which is whether the service gives it to a moderator at all.
+        /// </remarks>
+        [Test]
+        public async Task ABanNeedsARealAddressAndKeepsSomebodyOut()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            await WaitFor(() => alice.Room(room)!.Occupants.Count == 2, "the second occupant");
+
+            var seen = alice.Room(room)!.Occupants[User2];
+
+            Assert.That(seen.RealJid, Is.Not.Null,
+                        $"{PeerName} does not give the moderator the real address of an occupant, " +
+                        "so nobody in this room can be banned by anybody - a ban has nothing to " +
+                        "name.");
+
+            MucUserInfo? why = null;
+            bob.OnRoomLeft += (t, s, r, info, ct) => { why = info; return Task.CompletedTask; };
+
+            Assert.That(await alice.BanFromRoomAsync(room, seen.RealJid!.Value, "For good."), Is.True,
+                        $"{PeerName} refused the ban.");
+
+            await WaitFor(() => why is not null, "the ban, seen by the one banned");
+
+            Assert.That(why!.Has(MucStatus.Banned), Is.True,
+                        "The service reported no 301 - and then a ban reads like an ordinary " +
+                        "departure, which invites the client to walk straight back in.");
+
+            // And the part a status code alone does not prove.
+            var again = await bob.JoinRoomAsync(room, User2);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(again.Joined, Is.False, "The banned client got back in.");
+
+                Assert.That(again.Refusal!.Condition, Is.EqualTo("forbidden"),
+                            "A ban is refused with 'forbidden' (section 9.1) - the one condition " +
+                            "that says trying another nickname will not help.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 10. An invitation reaches somebody who is not in the room
+
+        /// <summary>
+        /// The one thing a room says about a room the recipient has not
+        /// entered.
+        /// </summary>
+        /// <remarks>
+        /// Everything else from a room is recognised by asking whether this
+        /// client entered it. For an invitation the answer is always no, which
+        /// is why it has to be read before the question is asked - and why a
+        /// client that gets the order wrong can never be invited anywhere.
+        ///
+        /// Mediated, too: the message goes to the room and the room passes it
+        /// on with the inviter's address filled in. Whether a service does that
+        /// is exactly what a test against a real one settles.
+        /// </remarks>
+        [Test]
+        public async Task AnInvitationReachesSomebodyWhoIsNotInTheRoom()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+
+            MucInvitation? invitation = null;
+            bob.OnRoomInvitation += (t, s, i, ct) => { invitation = i; return Task.CompletedTask; };
+
+            Assert.That(await alice.InviteToRoomAsync(room, bob.BareJid, "Come along"), Is.True);
+
+            await WaitFor(() => invitation is not null, "the invitation");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(invitation!.Room, Is.EqualTo(room.Bare));
+
+                // The two services name the inviter differently, and both are
+                // usable: ejabberd sends the real address the specification's
+                // example shows, Prosody the occupant address, which says who
+                // asked without saying who that is. What may NOT come back is
+                // the bare room - a refusal addressed there reaches nobody.
+                Assert.That(invitation.FromAnOccupantAddress
+                                ? invitation.From.Resourcepart
+                                : invitation.From.Bare.ToString(),
+
+                            Is.EqualTo(invitation.FromAnOccupantAddress
+                                           ? User
+                                           : alice.BareJid.ToString()),
+
+                            "The inviter is neither their address in the room nor their real one.");
+
+                Assert.That(invitation.From.Bare == invitation.Room &&
+                            invitation.From.Resourcepart is null, Is.False,
+                            "The inviter came back as the bare address of the room, and a refusal " +
+                            "addressed there reaches nobody.");
+
+                Assert.That(bob.Room(room), Is.Null,
+                            "Being invited is not being in the room.");
+
+            });
+
+            // And it is an invitation to something one can act on.
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True,
+                        "The invitation named a room that could not be entered.");
+
+        }
+
+        #endregion
+
         #region 7. The subject travels
 
         /// <summary>
