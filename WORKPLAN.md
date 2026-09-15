@@ -7592,6 +7592,11 @@ errors and reconnection, which none of this touches. It is written down rather
 than shrugged off because of what this plan's own history says about flaky
 candidates: of the four in D7 to D9, three were real defects in the code.
 
+> Chased in **D115**, and "stream errors and reconnection" was half of it: the
+> reconnect was never the part that failed. The report does not arrive at all.
+> Reproduced 3 of 22 under load, unexplained after some 150 further runs — and
+> two real defects in that same path turned up on the way.
+
 ---
 
 ### D114. The far side did not have to be a server ✅ — replies, and who counts the characters
@@ -7730,6 +7735,126 @@ first seven characters were right and the remaining thirty-three were invented,
 and `git update-index` takes that without a word — it does not check that the
 object exists. It was caught by comparing it against `rev-parse HEAD`, which is
 where it should have come from in the first place.
+
+---
+
+### D115. The flake was chased ✅ — and what it turned up was not itself
+
+D113 wrote down that `FatalStreamError_IsReportedAndStopsReconnecting` had
+failed once in a full run, and wrote it down rather than shrugging it off
+because of what this plan's own history says: of the four flaky candidates in
+D7 to D9, three were real defects.
+
+**It reproduced.** Three times in twenty-two runs of the single test beside a
+second suite — which is a great deal better than "once", and immediately
+narrowed the question. The signature is not what the name of the test puts
+first:
+
+```
+Timeout while waiting for: the reported stream error
+```
+
+**Not the reconnect.** The connection count was never the thing that failed. The
+report does not arrive at all, and the test waits out its ten seconds for
+something that no longer exists.
+
+#### Two hypotheses, measured and dropped
+
+| what it was going to be | the experiment | outcome |
+|---|---|---|
+| `Kill()` closes the socket while data from the client is unread, so the reset discards what was already written | 200 stanzas into the server's receive buffer, then the error | both green — **refuted** |
+| the thread pool is starved | 24 burners on 16 threads, rounds at 8 to 30 seconds instead of 4 | 0 of 16 — **refuted** |
+
+Then roughly **a hundred and fifty further runs** under four kinds of load — one
+concurrent suite, two, four concurrent hunts, the conformance suite with WSL
+awake — without a single failure. So this entry claims no fix, and the sequence
+matters: the first guess was wrong, the second was wrong, and both were cheap to
+settle because they were written as experiments rather than as arguments.
+
+#### What reading found instead, twice, in the same path
+
+**A stream error nobody could read was dropped without a word.**
+
+```csharp
+case "error" when ns == StreamNamespace:
+    if (StreamError.TryParse(stanza, out var e) && e is not null)
+        await ProcessStreamErrorAsync(e, ct);
+    return;                       // and otherwise: nothing at all
+```
+
+`TryParse` searches the raw text and has to guess at what a parser knows. Its
+pattern allows letters, digits, hyphens and underscores in the prefix; an NCName
+may also contain a dot. `<a.b:error>` is perfectly legal XMPP, and this branch
+returned with no report, no error and no line in the log. **Of every stanza
+there is, this is the one that may least disappear in silence** — after a stream
+error the stream is dead, and an application that is not told waits for a
+connection that is gone. Which is exactly the shape of the failure being chased,
+whether or not it is its cause. It is read out of the parsed element now.
+
+**And a surviving mutant beside it.** Drop the namespace check on the condition
+and all nine other tests stay green — every one of them sends an error with
+nothing in it but the condition, so taking the first child at all gives the same
+answer. RFC 6120 §4.9.4 allows an application's own element there, and the
+`<text/>` sits in the streams namespace itself. Read as the condition, either
+gives a name `IsRecoverable` has never heard of, and that list answers `false`
+to everything it does not know — on purpose, because reconnecting into an
+unknown refusal is a loop. So the mistake is not a wrong word in a log: **a
+`system-shutdown` the client should sit out becomes a connection it never comes
+back from.**
+
+| mutation | red |
+|---|---|
+| back to the raw text, dropping what it cannot read | `AStreamErrorWithAnUnusualPrefixIsStillReported` |
+| the `<text/>` may become the condition | `TheConditionIsFoundWhateverElseStandsBesideIt` |
+| any child counts, whatever namespace it is in | `TheConditionIsFoundWhateverElseStandsBesideIt` |
+
+#### The test now says what happened
+
+Three causes fit the bare timeout equally well: the frame never crossed, it
+crossed and was not recognised, or the session it went to was no longer the
+client's. The test records the inbound frames and, when no report comes, prints
+which of the three it was, both JIDs, the state, the connection count and the
+last frames from each end. It costs one subscription on a path that only runs
+when the test fails.
+
+That is **D35's answer to the flake of D34**, and D55 is what that was worth: a
+question two entries could not settle was settled in one attempt, once the run
+said what it had seen.
+
+*A second data point, noted and not chased:*
+`RecoverableStreamError_IsReportedButAllowsReconnect` failed once during a
+mutation run, under a mutation that cannot reach it, and passed 20 of 20 in
+isolation afterwards. Same fixture, same path, same signature — which reads as
+one thing twice rather than two things.
+
+#### Three faults in the measuring, and none of them in the code
+
+Worth recording because all three are the same species as D54 and D97, and
+because they were in the harness rather than in the suite — which is where they
+are hardest to see.
+
+1. A build that failed on a **file lock** counted as successful, because the
+   output was filtered for `error CS` and the copy failure is `MSB3027`.
+   `--no-build` then ran an assembly without the probe in it.
+2. A round in which **no test ran at all** scored green: `dotnet test` reports
+   success for an empty filter. Twenty-four such rounds were recorded as
+   evidence before the timings gave it away — they were faster than a test
+   containing a two-second delay can possibly be.
+3. One mutation was marked as caught, and what had actually happened was that
+   **a different, flaky test failed beside it**. The mutation could not reach
+   that test. It was noticed only because the same mutation survived on the next
+   run.
+
+The first two say the same thing D101 says about the two lanes: a run that
+measured nothing has to look different from a run that measured everything.
+
+#### The round
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1257 tests — 1254 passed with 3 skipped on Windows |
+| the hunt | 3 of 22 red under load; ~150 runs since under four kinds of load, all green |
+| mutations | 3, all struck down, 2 new tests |
 
 ---
 
