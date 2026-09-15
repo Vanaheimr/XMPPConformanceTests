@@ -145,24 +145,29 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 33 of these 35. The two
+      # the gate's `TestCategory!=WSL` and would run 36 of these 38. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 35 tests, 35 passed, 0 skipped, measured on Debian 13 at d7740a2
+      # Expect 38 tests, 38 passed, 0 skipped, measured on Debian 13 at b445703
       # with every far side up. The revision is named because a count that says
       # nothing about when it was taken cannot be told apart from one that has
-      # gone stale, and this figure has moved twice in two entries.
+      # gone stale, and this figure has moved three times in three entries.
       #
       # It was 29 until the XEP-0454 fixture came in: four checks of OMEMO Media
       # Sharing against an encryptor written by pyca rather than by us, which
       # need no new package because the OMEMO oracle already brings
-      # `cryptography` along. And 33 until two checks went past the first
+      # `cryptography` along. Then 33 until two checks went past the first
       # message of an OMEMO session - the second message in one session, and a
-      # one-time prekey that must not serve twice. Both needed a new oracle mode
-      # and neither needs anything new installed.
+      # one-time prekey that must not serve twice. And 35 until three more asked
+      # what happens when messages arrive in the wrong order, when both sides
+      # open a session in the same moment, and when one carries nothing at all.
+      #
+      # All five of those needed a new oracle mode and none of them needs
+      # anything new installed - which is why this lane's package list has not
+      # moved while its count has gone 29, 33, 35, 38.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.
