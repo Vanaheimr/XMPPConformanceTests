@@ -148,12 +148,15 @@ jobs:
       # OmemoOracleTests) that said which type to leave out and never why.
       #
       # What the split buys is that this lane owes **zero skips**. Unfiltered
-      # this suite reports "2 passed, 27 skipped" here and "29 passed" in the
+      # this suite reports "2 passed, 33 skipped" here and "35 passed" in the
       # nightly container, and both are green — so the one number that says
       # whether anything was measured has to be read by hand every time. With
       # the filter the gate owes 2 passed / 0 skipped and the interop lane owes
-      # 27 passed / 0 skipped, and any skip at all is a finding. This project
+      # 33 passed / 0 skipped, and any skip at all is a finding. This project
       # has twice been caught by a green run that measured nothing (D54, D97).
+      #
+      # Only the second figure of each pair moves as the suite grows; the 2 is
+      # the whole point of the split and has not changed since it was drawn.
       #
       # Expect 2 passed, 0 skipped. Both are ThePatienceCoversWhatTheClientMayTake,
       # once per concrete stream-management fixture: it reads two numbers out of
