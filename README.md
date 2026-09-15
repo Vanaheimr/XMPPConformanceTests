@@ -11,19 +11,19 @@ submodules on Windows and Debian 13 and runs the two checks that need no peer:
 real — the `InternalsVisibleTo` that gives these tests the server's internals
 names this assembly from inside Ratatoskr, so the two repositories can only be
 moved together (D99). **Nightly** is where the conformance verdict lives: it
-installs Prosody 13, ejabberd 24.12 and python-omemo into the container and
+installs Prosody 13, ejabberd 24.12, python-omemo and slixmpp into the container and
 runs everything against them — federation, stream management, OMEMO and
-XEP-0454 — **40 of 40, nothing skipped**, and then repeats the lane against
+XEP-0454 — **45 of 45, nothing skipped**, and then repeats the lane against
 Ratatoskr's current master to catch what the pins hide.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
-this suite is green at "2 passed, 38 skipped" on a bare runner and green at "40
+this suite is green at "2 passed, 43 skipped" on a bare runner and green at "45
 passed" in the container — the same colour for the run that measured everything
 and the run that measured nothing. Selected by category, each lane has a number
 it must hit, and any skip at all is a finding (D101).
 
-The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39, 40
-so far, and `nightly.yml` carries the history beside the figure together with
+The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39,
+40, 45 so far, and `nightly.yml` carries the history beside the figure together with
 the revision it was last measured at. The 2 does not, and that is the point of
 the split rather than an accident: everything needing a far side is on the other
 side of the filter, so the gate growing would be news.
@@ -31,7 +31,7 @@ side of the filter, so the gate growing would be news.
 What this repository checks is a claim: that the client and the server of
 **[Ratatoskr](libs/Ratatoskr/README.md)** keep to the RFCs and XEPs they
 name. Measured twice — against the specifications, and against implementations
-nobody here wrote: Prosody 13, ejabberd 24.12, python-omemo, and pyca
+nobody here wrote: Prosody 13, ejabberd 24.12, python-omemo, slixmpp, and pyca
 `cryptography` as the encryptor for XEP-0454. The setups that produce those far
 sides stand under `tools/` and `XMPPConformanceTests/XEPs/Oracle/`, the checks
 in `XMPPConformanceTests/`.
@@ -112,6 +112,7 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112) |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
 | XEP-0454 | OMEMO Media Sharing | ⚠️ | The receiving half only: `AesGcmUrl` reads `aesgcm://host/path#[iv][key]`, hands back the `https` address without the fragment — which is the key — and decrypts the payload with the tag checked. Fetching is deliberately not in the library: whether an incoming message may cause a request at all belongs to whoever runs the client, not to whoever sent the message. The upload side is missing entirely. **The IV is 12 bytes and the older 16 byte reading is refused rather than misread** — 16+32 is 96 hex characters where 12+32 is 88, so a reader taking the first 12 bytes would find a well-formed key, fail at the tag, and blame the file. Checked here against pyca `cryptography` rather than against ourselves, because the layout of the fragment is the one thing two implementations can hold differently while each stays consistent — see [WORKPLAN.md](WORKPLAN.md), D107 |
+| XEP-0426 / XEP-0428 / XEP-0461 | Message Replies | ✅ | The reference is two attributes; the part that can be got wrong is the quotation beside it. XEP-0428 points into the body with offsets counted in **Unicode code points** (XEP-0426) and .NET counts in UTF-16 units — the same number for every text a test gets written with, and different at the first emoji. Checked against slixmpp in both directions, which is the only far side able to judge this at all: a reply is client-to-client, so both servers carry it across without looking. With both halves of our counting switched to UTF-16 — internally consistent, and therefore the realistic mistake — Ratatoskr's own 21 reply tests stay green but for one hand-computed constant, and `ReplyOracleTests` goes red in both directions (D114) |
 | XEP-0352 | Client State Indication | ✅ | Both sides. The server announces `<csi/>` after the login (§4.1) and does not answer `<active/>`/`<inactive/>` (§4.2). Held back is only what will still be true later: presence waits and **the last one per full JID replaces the earlier ones** (§3), a message with text, an `iq`, an error and every nonza go out at once, a chat state (XEP-0085) is dropped — it would not be late on being handed in later, it would be wrong. What was held back goes out **before** the stanza that empties the buffer (RFC 6120 §10.1), and at the end of the connection into the buffer of unacknowledged stanzas. Upper bound `MaxHeldWhileInactive` (default 100); on overflow the buffer goes out instead of anything being thrown away. After a resumption "active" holds again (§5.2) — this is why the client declares itself anew after every setup. In the console `/csi active|inactive` (D61) |
 
 ## RFC conformance
@@ -291,7 +292,7 @@ XMPPConformanceTests/                    the checks against foreign peers
 ├── Federation/                          S2S against Prosody 13, ejabberd 24.12
 ├── StreamManagement/                    XEP-0198 against the same two
 ├── XEPs/                                OMEMO and XEP-0454 against references
-│   └── Oracle/                          python-omemo and a pyca encryptor,
+│   └── Oracle/                          python-omemo, slixmpp and a pyca encryptor,
 │                                        copied next to the assembly at build
 └── Infrastructure/                      TestCategories (which lane a check is
                                          in), TestEnvironment (can the far side
@@ -373,7 +374,7 @@ The suite is driven in two lanes, and **each owes zero skips**:
 # The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
 
-# The verdict: with Prosody, ejabberd and both oracles up. 40 of 40
+# The verdict: with Prosody, ejabberd and the oracles up. 45 of 45
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 ```
 
@@ -405,8 +406,9 @@ XMPPConformanceTests/
 │                       the inbound probe and the one door to the far sides
 ├── Federation/         S2S against Prosody 13 and ejabberd 24.12
 ├── StreamManagement/   XEP-0198 against the same two
-└── XEPs/               OMEMO against python-omemo, XEP-0454 against pyca
-    └── Oracle/         both reference scripts, copied to the output at build
+└── XEPs/               OMEMO against python-omemo, XEP-0454 against pyca,
+    │                    XEP-0461 against slixmpp
+    └── Oracle/         the reference scripts, copied to the output at build
 ```
 
 **Here stands what needs a far side nobody here wrote, and nothing else.**
@@ -414,7 +416,7 @@ Since E19 that is the whole content of this suite; since E20 the console tests
 have followed the console into its own repository. The division is by what a
 run needs: Ratatoskr tests the library against itself and gets by with a
 checkout, so a hosted runner can execute all of it. What is here needs Prosody,
-ejabberd and python-omemo — and therefore lives where the setups that produce
+ejabberd, python-omemo and slixmpp — and therefore lives where the setups that produce
 them live, in `tools/`.
 
 **The number of skipped tests is the health check of the run**, and it is read

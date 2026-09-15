@@ -83,6 +83,19 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// </summary>
         public const String Omemo     = "OMEMO";
 
+        /// <summary>
+        /// Needs slixmpp, whose <c>xep_0461</c> is the far side for message
+        /// replies.
+        /// </summary>
+        /// <remarks>
+        /// The same <c>fetch_oracle.py</c> brings it, into the same directory -
+        /// so in practice this category and <see cref="Omemo"/> are present or
+        /// absent together. They are two names all the same, because they name
+        /// two prerequisites: the day one of the two libraries stops fetching,
+        /// the skip reason has to say which.
+        /// </remarks>
+        public const String Replies   = "Replies";
+
     }
 
 }

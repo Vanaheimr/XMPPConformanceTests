@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fetches the OMEMO reference implementation as wheels and unpacks it into a
+Fetches the reference implementations as wheels and unpacks them into a
 directory - without pip, without a venv, without installing anything.
 
 Wheels are zip files; unpacked into a directory on the PYTHONPATH they are
@@ -30,10 +30,18 @@ def fits(name):
 # cffi belongs in here even though it does not look like it: without it xeddsa
 # does not find its native library and falls back to a variant that expects a
 # browser.
+#
+# slixmpp and the three below it are the XEP-0461 side and have nothing to do
+# with OMEMO. They live in the same directory because there is no reason for a
+# second one: both oracles are read-only libraries on a PYTHONPATH, and one
+# setup command is one thing to forget rather than two. aiodns and pycares are
+# not used by anything here - slixmpp imports them at module level for its own
+# resolver, and a library that will not import is not an oracle.
 PACKAGES = ["typing-extensions", "pycparser", "cffi", "cryptography",
             "annotated-types", "typing-inspection", "pydantic-core", "pydantic",
             "XEdDSA", "DoubleRatchet", "X3DH",
-            "OMEMO", "twomemo", "oldmemo", "protobuf"]
+            "OMEMO", "twomemo", "oldmemo", "protobuf",
+            "slixmpp", "pyasn1", "pyasn1-modules", "pycares", "aiodns"]
 
 
 def pin_of(package, dependency):

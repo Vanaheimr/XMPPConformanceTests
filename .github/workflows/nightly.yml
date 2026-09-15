@@ -116,19 +116,24 @@ jobs:
         run: bash tools/ejabberd/setup.sh
 
       # The third far side, and the one this repository cannot do without on
-      # principle: OMEMO checked against ourselves agrees even where both sides
-      # compute the same wrong thing, which in D62 to D65 was the finding five
-      # times over. python-omemo (Syndace) is the reference implementation for
-      # `urn:xmpp:omemo:2` and the only peer here nobody in this house wrote.
+      # principle: anything checked against ourselves agrees even where both
+      # sides compute the same wrong thing, which in D62 to D65 was the finding
+      # five times over.
+      #
+      # Two libraries, one script, one directory. python-omemo (Syndace) is the
+      # reference implementation for `urn:xmpp:omemo:2`; slixmpp brings its own
+      # `xep_0461`, which is the only way a message reply can be judged at all —
+      # Prosody and ejabberd carry the `<reply/>` across without looking at it,
+      # so the two server lanes above have nothing to say about that one.
       #
       # The script fetches wheels and unpacks them onto a directory — no pip,
       # no venv, nothing installed, nothing left behind — into exactly the path
-      # OmemoOracleTests puts on the PYTHONPATH.
+      # both oracle fixtures put on the PYTHONPATH.
       #
       # No `continue-on-error`, for the same reason the two peer setups check
       # that their peer came up: a fetch that failed has to be a failed step
       # here and not three quietly skipped tests further down.
-      - name: Set up the OMEMO oracle
+      - name: Set up the oracles
         run: python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
 
       # The two variables are what the tests read to find the test CA; without
@@ -145,16 +150,17 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 38 of these 40. The two
+      # the gate's `TestCategory!=WSL` and would run 43 of these 45. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 40 tests, 40 passed, 0 skipped, measured on Debian 13 at 6883eb4
-      # plus the affix check, with every far side up. The revision is named because a count that says
-      # nothing about when it was taken cannot be told apart from one that has
-      # gone stale, and this figure has moved three times in three entries.
+      # Expect 45 tests, 45 passed, 0 skipped, measured on Debian 13 at 6883eb4
+      # plus the affix check and the five reply checks, with every far side up.
+      # The revision is named because a count that says nothing about when it was
+      # taken cannot be told apart from one that has gone stale, and this figure
+      # has moved four times in four entries.
       #
       # It was 29 until the XEP-0454 fixture came in: four checks of OMEMO Media
       # Sharing against an encryptor written by pyca rather than by us, which
@@ -175,6 +181,17 @@ jobs:
       # All five of those needed a new oracle mode and none of them needs
       # anything new installed - which is why this lane's package list has not
       # moved while its count has gone 29, 33, 35, 38.
+      #
+      # And 45 with XEP-0461, which is the first thing here to bring a second
+      # library with it: slixmpp, through the same fetch_oracle.py into the same
+      # directory. It has to, and that is the point of the fixture. A reply is
+      # client-to-client - Prosody and ejabberd carry the <reply/> and the
+      # <fallback/> across without looking at either - so this lane, the one
+      # that finds things, could otherwise say nothing at all about it. What the
+      # five check is the arithmetic beside the reference: the offsets of
+      # XEP-0428 are counted in Unicode code points and .NET counts in UTF-16
+      # units, and an implementation that confuses them is wrong only for text
+      # nobody writes tests with.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.
@@ -294,7 +311,7 @@ jobs:
       # the one this lane is meant to answer. Left out, the three would skip
       # here and pass there, and the referee would be silent about the one
       # thing it is closest to.
-      - name: Set up the OMEMO oracle
+      - name: Set up the oracles
         run: python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib
 
       - name: Test (against Ratatoskr master)

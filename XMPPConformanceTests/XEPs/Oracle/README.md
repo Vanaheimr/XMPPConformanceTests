@@ -1,4 +1,4 @@
-# The oracle — OMEMO against the reference implementation
+# The oracles — against implementations nobody here wrote
 
 This test suite **fundamentally cannot find** one class of fault: when both
 sides are the same code, they agree even when both compute the same wrong
@@ -6,9 +6,15 @@ thing. In stages D62 to D65 that was the finding five times over — an info
 string, an ordering, an embedding. Every time, two clients of this house would
 have understood each other perfectly and not a single foreign one.
 
-The only remedy is a peer that nobody here wrote:
-[python-omemo](https://github.com/Syndace/python-omemo) by Syndace, the
-reference implementation for `urn:xmpp:omemo:2` — the same version we speak.
+The only remedy is a peer that nobody here wrote. There are two of them:
+
+| | |
+|---|---|
+| [python-omemo](https://github.com/Syndace/python-omemo) by Syndace | the reference implementation for `urn:xmpp:omemo:2` — the same version we speak |
+| [slixmpp](https://codeberg.org/poezio/slixmpp) | a client library with its own `xep_0461`, for message replies |
+
+Both come from the same `fetch_oracle.py` into the same directory, and for the
+same reason: one setup command is one thing to forget rather than two.
 
 ## Setting it up
 
@@ -74,8 +80,44 @@ In both directions, and that is the point:
 **Every single one of these points was a surviving mutant or a reading find in
 D62 to D65.** This setup would have caught them all.
 
+## The second one: replies (XEP-0461)
+
+A reply is client-to-client. Prosody and ejabberd carry the `<reply/>` and the
+`<fallback/>` across without looking at either, so the federation lane — the
+part of this suite that finds things — can say **nothing at all** about them.
+That is why XEP-0461 sat in *Optional* for as long as it did, with "the
+machinery cannot judge it" written beside it.
+
+What is contested is not the reference. It is the number next to it. XEP-0428
+points into the body with offsets counted in **Unicode code points**
+(XEP-0426), and .NET counts in UTF-16 units. The two are the same number for
+every text anybody writes a test with, and different the moment somebody quotes
+a message with an emoji in it.
+
+Python is the useful opposite: a `str` is code points by nature, so `len()` and
+slicing give the XEP-0426 answer without anybody having to decide to make them.
+slixmpp's `xep_0461` is built directly on that — `len(quoted)` into the
+attribute, `body[start:end]` back out.
+
+**The measurement that justifies the fixture.** With both halves of our
+counting switched to UTF-16 — writing *and* reading, which is internally
+consistent and therefore the realistic mistake:
+
+| suite | result |
+|---|---|
+| Ratatoskr, 21 reply tests | 20 green, and the one that fails does so on a constant computed by hand from the specification |
+| the same, with that one assertion removed | **all 21 green** |
+| `ReplyOracleTests` | red in both directions, either way |
+
+That is D62 to D65's shape reproduced deliberately: two sides that are the same
+code agree even where both are wrong, and the only thing that notices is
+somebody else's implementation.
+
 ## What is not checked
 
+- **The announcement of the reply namespaces.** Whether `urn:xmpp:reply:0`
+  reaches `disco#info` and the caps hash is a question for a real server, and it
+  is asked in Ratatoskr over a connection — not here.
 - **The SCE envelope (XEP-0420).** python-omemo leaves it to the application
   that uses it — an envelope built inside the oracle here would not be a
   foreign check but the same assumption twice.
