@@ -43,7 +43,9 @@ PEER_S2S_PORT=25269
 INBOUND_PORT=5270
 
 # The WebSocket endpoint for the client run (XEP-0198). 5443 is ejabberd's
-# default; Prosody lies on 5281, so both can stand next to each other.
+# default; Prosody lies on 5281, so both can stand next to each other. The
+# same listener carries the file uploads of XEP-0363 - one more entry under
+# request_handlers, beside /websocket.
 WSS_PORT=5443
 
 # Two accounts: one for the client itself, one as a sender. Without the second
@@ -218,6 +220,11 @@ listen:
     request_handlers:
       /websocket: ejabberd_http_ws
 
+      ## XEP-0363. The upload service is addressed over XMPP and serves its
+      ## files over HTTP, and here both ends meet on one port: the slot is
+      ## asked for through /websocket, the file arrives through /upload.
+      /upload: mod_http_upload
+
 ## "required", not "required_trusted": both demand STARTTLS, but only the
 ## second demands a valid chain on top of it and would thereby rule dialback
 ## out. This way our side decides which method comes into play - if we present
@@ -286,6 +293,28 @@ modules:
       mam: true
 
   ## The archive the rooms above write into.
+  ## XEP-0363. The service lives on a component of its own, upload.@HOST@,
+  ## which ejabberd announces under disco#items - the way a client is meant to
+  ## find it.
+  mod_http_upload:
+
+    ## Both URLs have to be written out. The default is
+    ## "https://@HOST@:5443/upload", and @HOST@ becomes ejabberd.test - a name
+    ## nothing here can resolve, because this setup needs no root and writes
+    ## no /etc/hosts. What the service puts into the slot is what the client
+    ## dials, so it has to say 127.0.0.1.
+    put_url: "https://127.0.0.1:$WSS_PORT/upload"
+    get_url: "https://127.0.0.1:$WSS_PORT/upload"
+
+    docroot: "$PREFIX/upload"
+
+    ## The same small limit as on the Prosody side, and for the same reason:
+    ## a refusal has to be provokable without moving ten megabytes through the
+    ## loopback. That the two services agree on the number is convenient and
+    ## nothing more - each announces its own in the disco form, and the client
+    ## has to read it rather than know it.
+    max_size: 1048576
+
   mod_mam:
     default: always
 CFG

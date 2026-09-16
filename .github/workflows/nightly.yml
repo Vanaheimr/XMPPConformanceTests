@@ -150,15 +150,20 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 69 of these 71. The two
+      # the gate's `TestCategory!=WSL` and would run 87 of these 89. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 71 tests, 71 passed, 0 skipped, measured on Debian 13 at 6883eb4
-      # plus the affix check, the five reply checks and twice thirteen room and
-      # archive checks, with every far side up.
+      # Expect 89 tests, 89 passed, 0 skipped, with every far side up: the
+      # affix check, the five reply checks, twice thirteen room and archive
+      # checks and twice nine upload checks.
+      #
+      # The 71 was measured on Debian 13 at 6883eb4. The eighteen that D119 adds
+      # were measured on Windows against the same two services, so this line is
+      # the first place the Debian figure for them gets checked - and if the two
+      # disagree, that disagreement is the finding rather than a nuisance.
       # The revision is named because a count that says nothing about when it was
       # taken cannot be told apart from one that has gone stale, and this figure
       # has moved four times in four entries.
@@ -216,6 +221,19 @@ jobs:
       # XEP-0428 are counted in Unicode code points and .NET counts in UTF-16
       # units, and an implementation that confuses them is wrong only for text
       # nobody writes tests with.
+      #
+      # And 89 with XEP-0363, the first lane here whose interesting half is not
+      # XMPP at all: the slot is asked for over the stream and the file goes
+      # over HTTPS, so nothing short of a real service can answer it. Both
+      # set-ups switch an upload module on - mod_http_file_share on Prosody,
+      # mod_http_upload on ejabberd - and both serve the files on the port that
+      # already carries the WebSocket.
+      #
+      # Two of the nine rounds go round the client on purpose and send the PUT
+      # by hand, at an address that was never handed out and with a length the
+      # slot was not issued for. They ask what decides whether an upload service
+      # is a service or a drop box for the whole internet, and they are the only
+      # rounds here that check a far side against itself rather than against us.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.

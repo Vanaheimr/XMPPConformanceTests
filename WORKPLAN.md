@@ -8206,6 +8206,104 @@ screen are built for two people talking.
 
 ---
 
+### D119. The half that is not XMPP ✅ — file uploads, and a line ending nobody sees
+
+XEP-0363 was the last thing on *Optional* with a far side already in the
+building. Both services ship an upload module; like MUC before it, it only had
+to be switched on — one component on Prosody, one entry under
+`request_handlers` on ejabberd, and both serve the files on the port that
+already carries the WebSocket.
+
+#### The two halves have opposite rules
+
+**The PUT is authorised and the GET must be anonymous.** Not a compromise: the
+person a file is sent to is usually on another server and has no account here,
+so there is nobody for the download to identify itself as. What keeps the file
+private is that the address cannot be guessed, which is also why it may never
+travel over anything but HTTPS — and why XEP-0454 puts its key in the
+fragment. The URL *is* the secret.
+
+The upload is the other way round, and getting it wrong makes an open drop box
+for the whole internet. So two of the nine rounds **go round our own client on
+purpose** and send the PUT by hand: our code only ever sends to an address it
+was handed, so it cannot ask the question at all.
+
+| asked by hand | Prosody | ejabberd |
+|---|---|---|
+| PUT at an address never handed out | 4xx | 4xx |
+| the same address with a real slot's token | 4xx | 4xx |
+| a thousand times the length the slot was for | 4xx | 4xx |
+
+The second row is the interesting one: it tells a service that checks *whether*
+there is a token from one that checks the token belongs to **this** slot. The
+two implementations are about as far apart as they get here — Prosody signs
+a JWT naming the slot, the size and the uploader; ejabberd keeps the slot and
+the URL is the whole credential — and both answer all three the same way.
+
+#### Ten mutations never ran, and nothing said so
+
+The first mutation round reported six results and ten aborts. **Every new file
+had been written with LF line endings while the whole repository uses CRLF.**
+Nothing notices: the compiler does not care, and `.gitattributes` has a rule for
+`*.sh` and none for `*.cs`. It only surfaced because the mutation harness
+matches source text by hand, and an anchor converted to CRLF found nothing.
+
+Had the harness counted an abort as a pass, this entry would have claimed
+sixteen mutations struck down on the strength of six. That is the same species
+as D54, D97 and D101: **a run that measured nothing must not look like one that
+measured everything.** It printed `ABBRUCH: 0 Treffer statt 1` per mutation
+because a previous round had been caught by exactly this and taught it to say so.
+
+#### Four survivors, and each said something different
+
+| survivor | what it turned out to be |
+|---|---|
+| a refused PUT counted as an upload | **nothing had ever failed.** A well-behaved service grants the slot and then takes the file, so no round had seen the two come apart |
+| a refused download taken for the file | the same shape one step on: an error page is bytes, and bytes are what the caller asked for |
+| `Child` swapped for `Descendants` on the attachment | **masked by a second rule.** The forwarded address disagreed with the outer body, so the agreement check refused it and the direct-child rule was never reached |
+| the size written in the current culture | **there is nothing to catch.** `Int64.ToString(provider)` is `ToString("G", provider)`, and "G" on an integer writes no group separators in any culture: a German one gives 1048576, not "1.048.576" |
+
+The first two needed a far side that misbehaves, and no real one does — so the
+HTTP handler became a constructor parameter and a fixture answers 403 and 404.
+The third needed a case where the two rules disagree: a message that forwards
+somebody else's file message *and writes the same address in its own body*.
+Both rules are worth having; a test that cannot say which one is working is not.
+
+The fourth is the one to keep honest about. It was written as a culture test,
+with a comment about German thousands separators — and the comment was
+simply false. The test set `de-DE` and passed with the mutation in place, which
+is the measurement. The invariant culture stays, because it is right in
+principle and costs nothing; the claim beside it does not. **It is the one
+mutation here that survives, and it survives because it changes nothing.**
+
+#### And one thing the far sides could not have told us
+
+The mutation that removes the walk through `disco#items` goes red against both
+services, because both put the upload service on a component. A client that
+only ever reads its own server's `disco#info` finds neither — and a client
+that guesses at `upload.` plus the domain works against both of these and
+against nothing else. The specification's walk is the only one that is not luck.
+
+#### The round
+
+| what | result |
+|---|---|
+| mutations | 16, **15 struck down**; the survivor is vacuous and named above |
+| RatatoskrTests | 1309 tests — 1306 passed, 3 skipped on Windows |
+| conformance suite | 89 tests; 83 passed and 6 skipped here (the inbound lane needs WSL) |
+| upload lane | 9 rounds × 2 services |
+
+*Also in this entry:* `AForeignPeerRoomTests` gave up its connection scaffolding
+to a new `AForeignPeerTests`. A base class called "room" that a test about file
+uploads inherits from is a name that has stopped being true.
+
+*Still not here:* the **serving** half — handing out slots and taking files is
+a service, not a client, and our own test server has no `disco#items` at all to
+announce one with. And the sending half of XEP-0454: a file can now be put
+somewhere, and `AesGcmUrl` can still only decrypt one somebody else encrypted.
+
+---
+
 ## Later
 
 ### Test suite
@@ -8340,7 +8438,7 @@ implementation can be checked.
   |---|---|
   | XEP-0045 | ~~**MUC** — multi-user chat. Without it there is no group, and with it a second roster model, a second presence model and a second delivery path~~ ✅ done in D116, in the visiting half. The warning was right about the presence model and about the delivery path, and the roster turned out to be the one that mattered: not a second model to build but a first one to keep rooms out of. What stood beside it — "no use case" — was wrong the same way D114's was: Prosody and ejabberd both ship a room service, it was simply never switched on |
   | XEP-0313 | ~~**MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over~~ ✅ done in D118, in the asking half. The argument for it had moved twice by then: D116 found that a room assigns the name a reply points at *only when it archives*, so archiving was already switched on in both set-ups — the far side was running, unused, before the point was taken up |
-  | XEP-0363 | **HTTP File Upload** — the way to send anything that is not text |
+  | XEP-0363 | ~~**HTTP File Upload** — the way to send anything that is not text~~ ✅ done in D119, in the asking half. Same story as XEP-0045 and XEP-0313 before it: both services ship the module and it only had to be switched on. What the lane found is not in the protocol at all — it is that two of its questions can only be asked by *going round* our own client, because a client that is written correctly cannot address a slot nobody issued |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
   | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |
   | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |

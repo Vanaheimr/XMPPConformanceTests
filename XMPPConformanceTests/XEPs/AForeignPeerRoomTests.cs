@@ -57,16 +57,10 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
     /// its rooms live on - the derived classes lay down. A second service costs
     /// twenty lines.
     /// </remarks>
-    public abstract class AForeignPeerRoomTests
+    public abstract class AForeignPeerRoomTests : AForeignPeerTests
     {
 
         #region What makes up the counterpart
-
-        /// <summary>Name of the counterpart - for messages only.</summary>
-        protected abstract String  PeerName      { get; }
-
-        /// <summary>The domain the counterpart serves.</summary>
-        protected abstract String  PeerDomain    { get; }
 
         /// <summary>
         /// The domain its rooms live on.
@@ -78,120 +72,6 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// things and a service may call its own anything it likes.
         /// </remarks>
         protected abstract String  RoomDomain    { get; }
-
-        /// <summary>The WebSocket endpoint (RFC 7395).</summary>
-        protected abstract URL     Endpoint      { get; }
-
-        /// <summary>The port behind it - for the reachability check.</summary>
-        protected abstract Int32   EndpointPort  { get; }
-
-        /// <summary>
-        /// The environment variable pointing at the certificate directory.
-        /// </summary>
-        protected abstract String  CertVariable  { get; }
-
-        #endregion
-
-        #region Data
-
-        protected const String User      = "alice";
-        protected const String User2     = "bob";
-
-        // Stays German on purpose: the password of the real accounts that
-        // tools/prosody/setup.sh and tools/ejabberd/setup.sh create.
-        protected const String Password  = "geheim";
-
-        private readonly List<XMPPClient>  _clients = [];
-        private X509Certificate2           _ca = null!;
-
-        #endregion
-
-        #region Setting up / tearing down
-
-        private String CertDirectory
-            => Environment.GetEnvironmentVariable(CertVariable) ?? "";
-
-        private Boolean PortAnswers()
-        {
-            try
-            {
-                using var probe = new TcpClient();
-                return probe.ConnectAsync("127.0.0.1", EndpointPort).Wait(TimeSpan.FromSeconds(2)) &&
-                       probe.Connected;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private Boolean TrustsTheTestCA(Object?                                          sender,
-                                        System.Security.Cryptography.X509Certificates.X509Certificate?  certificate,
-                                        X509Chain?                                       chain,
-                                        System.Net.Security.SslPolicyErrors              errors)
-        {
-
-            if (certificate is null)
-                return false;
-
-            var policy = new X509Chain();
-            policy.ChainPolicy.TrustMode         = X509ChainTrustMode.CustomRootTrust;
-            policy.ChainPolicy.RevocationMode    = X509RevocationMode.NoCheck;
-            policy.ChainPolicy.CustomTrustStore.Add(_ca);
-
-            return policy.Build(X509CertificateLoader.LoadCertificate(certificate.GetRawCertData()));
-
-        }
-
-        /// <summary>
-        /// Logs a client in, or skips the test.
-        /// </summary>
-        protected async Task<XMPPClient> ConnectAsync(String localPart = User)
-        {
-
-            var directory = CertDirectory;
-
-            if (directory.Length == 0 || !File.Exists(Path.Combine(directory, "ca.crt")))
-                Assert.Ignore($"No {PeerName} setup: {CertVariable} points at no test CA.");
-
-            if (!PortAnswers())
-                Assert.Ignore($"On 127.0.0.1:{EndpointPort} no {PeerName} WebSocket answers.");
-
-            _ca = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(directory, "ca.crt"));
-
-            var connection = new XMPPConnection(
-                                 JID.Parse($"{localPart}@{PeerDomain}"),
-                                 Password,
-                                 Endpoint
-                             ) {
-                                 KeepaliveEnabled            = false,
-                                 MaxReconnectAttempts        = 0,
-                                 StreamManagementEnabled     = true,
-                                 ServerCertificateValidator  = TrustsTheTestCA
-                             };
-
-            var client = new XMPPClient(connection);
-            _clients.Add(client);
-
-            await client.ConnectAsync();
-
-            return client;
-
-        }
-
-        [TearDown]
-        public async Task CleanUp()
-        {
-
-            foreach (var client in _clients)
-            {
-                try { await client.DisposeAsync(); }
-                catch { /* does not matter in the teardown */ }
-            }
-
-            _clients.Clear();
-
-        }
 
         #endregion
 
@@ -216,22 +96,6 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                         "The room stayed locked, so nobody else can enter it.");
 
             return (client, room);
-
-        }
-
-        protected static async Task WaitFor(Func<Boolean> condition, String what)
-        {
-
-            var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-
-            while (DateTime.UtcNow < until)
-            {
-                if (condition())
-                    return;
-                await Task.Delay(50);
-            }
-
-            Assert.Fail($"Timeout while waiting for: {what}");
 
         }
 

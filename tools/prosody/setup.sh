@@ -42,7 +42,8 @@ INBOUND_DOMAIN="localhost"
 PEER_S2S_PORT=15269
 
 # The WebSocket endpoint for the client run (XEP-0198). 5281 is Prosody's
-# default for HTTPS.
+# default for HTTPS - and the same port carries the file uploads of XEP-0363,
+# because mod_http_file_share hangs itself into the same HTTP server.
 HTTPS_PORT=5281
 
 # Two accounts on Prosody: one for the client itself, one as a sender. Without
@@ -306,6 +307,35 @@ Component "conference.$PEER_DOMAIN" "muc"
         cafile      = "$PREFIX/certs/ca.crt";
     }
 
+-- XEP-0363. A second component, and it is the one place in this setup where
+-- the interesting half does not speak XMPP at all: the slot is asked for over
+-- the stream, the file goes over HTTPS, and only the two together make an
+-- upload. mod_http_file_share is core in Prosody 13.
+Component "upload.$PEER_DOMAIN" "http_file_share"
+
+    -- http_host decides two things at once, and they have to agree: the host
+    -- the HTTP routes are registered under, and the host that turns up in the
+    -- URL the slot hands out. Left at its default both would say
+    -- "upload.$PEER_DOMAIN" - a name nothing here can resolve, because this
+    -- setup needs no root and therefore writes no /etc/hosts. The tests dial
+    -- 127.0.0.1, so that is what the service must call itself.
+    --
+    -- Not http_file_share_base_url, which looks like the same thing and is
+    -- the opposite: it means "somebody else serves these files" and makes
+    -- Prosody register no routes at all (mod_http_file_share.lua, line 605).
+    http_host  = "127.0.0.1"
+    http_paths = { file_share = "/upload" }
+
+    -- Who may ask for a slot. Prosody 13 decides this through roles, and a
+    -- component has none for our accounts - without this line every request
+    -- comes back <forbidden/>, which reads exactly like a client fault.
+    http_file_share_access = { "$PEER_DOMAIN" }
+
+    -- Small on purpose. The limit is announced in the disco form, and a test
+    -- that wants to see a refusal has to be able to exceed it without moving
+    -- ten megabytes through the loopback.
+    http_file_share_size_limit = 1048576
+
 CFG
 
 # ------------------------------------------------------------------ start ---
@@ -343,6 +373,14 @@ if grep -q "Certificates loaded" "$PREFIX/prosody.log"; then
     grep -q "Serving 'websocket' at https://127.0.0.1:$HTTPS_PORT" "$PREFIX/prosody.log" \
         && echo "   WebSocket endpoint on $HTTPS_PORT." \
         || echo "   WARNING - no WebSocket endpoint on $HTTPS_PORT; the XEP-0198 run falls away."
+
+    # The same question for the upload service, and asked the same way: what
+    # the log says it serves, not what the config asked for. A component whose
+    # http_host does not take hold comes up silently and hands out URLs
+    # pointing at a name that resolves nowhere.
+    grep -q "Serving 'file_share' at https://127.0.0.1:$HTTPS_PORT/upload" "$PREFIX/prosody.log" \
+        && echo "   Upload endpoint on $HTTPS_PORT/upload." \
+        || echo "   WARNING - no upload endpoint on $HTTPS_PORT/upload; the XEP-0363 run falls away."
 else
     # Both files, and prosody.out first, because the case that actually
     # happened had prosody.log empty: Prosody had refused to start at all and
