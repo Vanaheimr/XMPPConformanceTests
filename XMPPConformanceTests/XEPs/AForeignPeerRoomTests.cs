@@ -1021,10 +1021,11 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// success and the room saw silence - the failure D127 was written to
         /// refuse, one lane over.
         ///
-        /// The invitee is somebody already in the room, and that is not a
-        /// shortcut: the room decides about the <i>inviter</i>, and with two
-        /// accounts the other one is the only invitee whose treatment can be
-        /// watched from here.
+        /// The invitee is the third account (D131) and is a real outsider: not
+        /// in the room, not on anybody's roster, nothing to do with either of
+        /// the other two. Until she existed this round invited somebody who was
+        /// already standing in the room, which measured the same decision and
+        /// read like a mistake.
         /// </remarks>
         [Test]
         public async Task WhetherOneMayAskAnybodyInIsTheRoomsToDecide()
@@ -1035,13 +1036,17 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             var bob = await ConnectAsync(User2);
             Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
 
+            // The outsider. She never enters, and being invited is not entering
+            // (round 10) - she is here to be the person the room decides about.
+            var carol = await ConnectAsync(User3);
+
             MucInvitation?    asked    = null;
             MucInviteRefused? refused  = null;
 
-            alice.OnRoomInvitation    += (t, s, i, ct) => { asked   = i; return Task.CompletedTask; };
+            carol.OnRoomInvitation    += (t, s, i, ct) => { asked   = i; return Task.CompletedTask; };
             bob.  OnInvitationRefused += (t, s, r, ct) => { refused = r; return Task.CompletedTask; };
 
-            Assert.That(await bob.InviteToRoomAsync(room, alice.BareJid, "you too"), Is.True,
+            Assert.That(await bob.InviteToRoomAsync(room, carol.BareJid, "you too"), Is.True,
                         "Bob is in the room, so there was something to send.");
 
             await WaitFor(() => asked is not null || refused is not null,
@@ -1059,15 +1064,22 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                     Assert.That(refused.Room, Is.EqualTo(room.Bare),
                                 "The refusal named a different room.");
 
-                    Assert.That(refused.Who.Bare, Is.EqualTo(alice.BareJid.Bare),
+                    Assert.That(refused.Who.Bare, Is.EqualTo(carol.BareJid.Bare),
                                 "The refusal did not name the person who was never asked, so " +
                                 "nothing can be said to anybody about what failed.");
 
                 }
 
                 else
+                {
+
                     Assert.That(asked!.Room, Is.EqualTo(room.Bare),
                                 "The invitation that arrived was for a different room.");
+
+                    Assert.That(carol.Room(room), Is.Null,
+                                "Being invited is not being in the room.");
+
+                }
 
             });
 
@@ -1357,6 +1369,79 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             Assert.That(after.All(entry => entry.Affiliation == MucAffiliation.Member), Is.True,
                         "The member list carries somebody who is not a member, so the affiliation " +
                         "on an item is not the one that was asked about.");
+
+        }
+
+        #endregion
+
+        #region 19. A member list is not a note, it is the door
+
+        /// <summary>
+        /// XEP-0045, section 9.5 and section 7.2.5: what an affiliation is
+        /// actually for.
+        /// </summary>
+        /// <remarks>
+        /// <b>D130 read the lists back; this asks what being on one does.</b>
+        /// Everything else about affiliations in this suite can be satisfied by
+        /// a service that keeps a tidy list and consults it for nothing - the
+        /// setting answers <c>result</c>, the list comes back with the name on
+        /// it, and a room that let anybody in regardless would pass every round
+        /// of it.
+        ///
+        /// A members-only room is the one place where the list decides
+        /// something, and it decides it by refusing: one person on the list gets
+        /// in and one person not on it does not. Both halves are needed. Only
+        /// the first would pass against a room that had never become
+        /// members-only at all, and only the second against a room nobody can
+        /// enter.
+        ///
+        /// The two are the third account (D131) and the second, and which is
+        /// which is deliberate: Carol is on nobody's roster and has never been
+        /// in this room, so her getting in is the list and nothing else.
+        /// </remarks>
+        [Test]
+        public async Task AMemberListIsNotANoteItIsTheDoor()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var carol = await ConnectAsync(User3);
+            var bob   = await ConnectAsync(User2);
+
+            Assert.That(await alice.SetRoomAffiliationAsync(room, carol.BareJid,
+                                                            MucAffiliation.Member, "asked along"),
+                        Is.True,
+                        $"{PeerName} refused to put anybody on the member list.");
+
+            // After the affiliation and not before: on a room that is already
+            // members-only, adding somebody is an ordinary administrative act,
+            // and doing it the other way round means the room spends a moment
+            // shut to everybody - including, on some services, its own owner.
+            Assert.That(await alice.ConfigureRoomAsync(room, new Dictionary<String, String> {
+                                                                 ["muc#roomconfig_membersonly"] = "1"
+                                                             }), Is.True,
+                        $"{PeerName} would not make the room members-only.");
+
+            var forCarol = await carol.JoinRoomAsync(room, User3);
+
+            Assert.That(forCarol.Joined, Is.True,
+                        "Somebody on the member list was kept out of a members-only room, so " +
+                        $"being on {PeerName}'s list buys nothing: {forCarol.Refusal}");
+
+            var forBob = await bob.JoinRoomAsync(room, User2);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(forBob.Joined, Is.False,
+                            "Somebody who is on no list walked into a members-only room, so the " +
+                            "list is a note the service keeps and does not read.");
+
+                Assert.That(forBob.Refusal, Is.Not.Null,
+                            "The join failed and the room said nothing about why, so nothing can " +
+                            "be shown to the person standing outside it.");
+
+            });
 
         }
 

@@ -46,11 +46,20 @@ PEER_S2S_PORT=15269
 # because mod_http_file_share hangs itself into the same HTTP server.
 HTTPS_PORT=5281
 
-# Two accounts on Prosody: one for the client itself, one as a sender. Without
-# the second there is no checking whether a message handed in during the
-# outage comes after the resumption.
+# Three accounts on Prosody. Two of them because one client needs somebody to
+# talk to: without the second there is no checking whether a message handed in
+# during the outage comes after the resumption.
+#
+# The third is a stranger, and the point is that she stays one. alice and bob
+# subscribe to each other for the avatar lane, and a roster on a real server
+# outlives the test, the suite and the machine - there is no way back from that.
+# So every question about what somebody NOT on the roster may see needs an
+# account nobody has ever asked for anything. carol is that account: nothing
+# subscribes her to anybody, and whatever reaches her, reaches her as a
+# stranger.
 TEST_USER="alice"
 TEST_USER2="bob"
+TEST_USER3="carol"
 TEST_PASSWORD="geheim"
 
 mkdir -p "$PREFIX"/{debs,etc,var/lib,certs,run} "$ROOT"
@@ -369,7 +378,7 @@ sleep 1
 # and fails without a terminal - silently, if its output is thrown away.
 # register takes it as an argument. A second call sets the password anew,
 # which is just right here.
-for u in "$TEST_USER" "$TEST_USER2"; do
+for u in "$TEST_USER" "$TEST_USER2" "$TEST_USER3"; do
     "$ROOT/usr/bin/prosodyctl" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
         | grep -i "User account\|error" || true
 done
@@ -412,7 +421,9 @@ cat <<DONE
 
 Done. Prosody serves $PEER_DOMAIN on 127.0.0.1:$PEER_S2S_PORT (S2S) and
 wss://127.0.0.1:$HTTPS_PORT/xmpp-websocket (client), accounts
-$TEST_USER@$PEER_DOMAIN and $TEST_USER2@$PEER_DOMAIN, password $TEST_PASSWORD.
+$TEST_USER@$PEER_DOMAIN, $TEST_USER2@$PEER_DOMAIN and $TEST_USER3@$PEER_DOMAIN,
+password $TEST_PASSWORD. The third one is a stranger to the other two and is
+meant to stay one - see the note beside the names in this script.
 
 Outgoing run, from Windows:
 

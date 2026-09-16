@@ -48,11 +48,20 @@ INBOUND_PORT=5270
 # request_handlers, beside /websocket.
 WSS_PORT=5443
 
-# Two accounts: one for the client itself, one as a sender. Without the second
-# there is no checking whether a message handed in during the outage comes
-# after the resumption.
+# Three accounts. Two of them because one client needs somebody to talk to:
+# without the second there is no checking whether a message handed in during
+# the outage comes after the resumption.
+#
+# The third is a stranger, and the point is that she stays one. alice and bob
+# subscribe to each other for the avatar lane, and a roster on a real server
+# outlives the test, the suite and the machine - there is no way back from that.
+# So every question about what somebody NOT on the roster may see needs an
+# account nobody has ever asked for anything. carol is that account: nothing
+# subscribes her to anybody, and whatever reaches her, reaches her as a
+# stranger.
 TEST_USER="alice"
 TEST_USER2="bob"
+TEST_USER3="carol"
 TEST_PASSWORD="geheim"
 
 mkdir -p "$PREFIX"/{debs,etc,logs,spool,certs} "$ROOT"
@@ -378,7 +387,7 @@ if [ "$started" = 1 ]; then
     # The accounts only now: ejabberdctl register goes over an RPC call into
     # the running node, unlike Prosody's prosodyctl, which touches the files
     # directly. With the server stopped there would only be a "nodedown" here.
-    for u in "$TEST_USER" "$TEST_USER2"; do
+    for u in "$TEST_USER" "$TEST_USER2" "$TEST_USER3"; do
         "$ROOT/usr/sbin/ejabberdctl" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
             | grep -iv "^$" | head -1 || true
     done
@@ -397,7 +406,9 @@ cat <<DONE
 
 Done. ejabberd serves $PEER_DOMAIN on 127.0.0.1:$PEER_S2S_PORT (S2S) and
 wss://127.0.0.1:$WSS_PORT/websocket (client), accounts
-$TEST_USER@$PEER_DOMAIN and $TEST_USER2@$PEER_DOMAIN, password $TEST_PASSWORD.
+$TEST_USER@$PEER_DOMAIN, $TEST_USER2@$PEER_DOMAIN and $TEST_USER3@$PEER_DOMAIN,
+password $TEST_PASSWORD. The third one is a stranger to the other two and is
+meant to stay one - see the note beside the names in this script.
 
 Outgoing run, from Windows:
 

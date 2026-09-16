@@ -307,6 +307,112 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 4. A stranger is not told, and the same publish tells a contact
+
+        /// <summary>
+        /// XEP-0163: who a PEP node is pushed to, and who it is not.
+        /// </summary>
+        /// <remarks>
+        /// <b>The other half of round 2, and until D131 there was no way to ask
+        /// for it.</b> That round shows that a contact is told without asking.
+        /// This one shows that being told is not the default state of the world
+        /// - which is the half that matters for a picture of somebody's face.
+        ///
+        /// <b>One publish, two watchers, one difference.</b> Carol connects the
+        /// same way Bob does, sends the same presence carrying the same caps,
+        /// and differs from him in exactly one thing: nobody has ever subscribed
+        /// her to Alice. So a silence here cannot be the run being too quick or
+        /// the caps being wrong - the same stanza reached Bob while it was
+        /// being waited for.
+        ///
+        /// That is why the two are watched together and not in two rounds. A
+        /// round that only waited for Carol to hear nothing would pass just as
+        /// happily against a server that had published nothing at all, which is
+        /// the failure D101 named: a run that measured nothing must not look
+        /// like one that measured everything.
+        ///
+        /// And then Carol asks outright, because not being pushed a thing is not
+        /// the same as not being able to fetch it. XEP-0163 section 4.3 has the
+        /// default access model at <c>presence</c>, so somebody with no
+        /// subscription should get nothing - and what a service actually does
+        /// with that request is its own decision about somebody's face.
+        /// </remarks>
+        [Test]
+        public async Task AStrangerIsNotToldAndTheSamePublishTellsAContact()
+        {
+
+            var (alice, bob) = await TwoContactsAsync();
+
+            var carol = await ConnectAsync(User3);
+            await carol.SetPresenceAsync();
+
+            var toldBob    = new ConcurrentQueue<AvatarInfo>();
+            var toldCarol  = new ConcurrentQueue<AvatarInfo>();
+
+            bob.  Connection.OnAvatarChanged += (t, s, jid, infos, ct) =>
+            {
+                if (jid.Bare == alice.BareJid.Bare)
+                    foreach (var info in infos)
+                        toldBob.Enqueue(info);
+                return Task.CompletedTask;
+            };
+
+            carol.Connection.OnAvatarChanged += (t, s, jid, infos, ct) =>
+            {
+                if (jid.Bare == alice.BareJid.Bare)
+                    foreach (var info in infos)
+                        toldCarol.Enqueue(info);
+                return Task.CompletedTask;
+            };
+
+            var picture   = APicture();
+            var published = await alice.PublishAvatarAsync(picture, "image/png");
+
+            Assert.That(published, Is.Not.Null, "Nothing was published.");
+
+            // By id, for the reason round 2 gives: these nodes outlive the test,
+            // and a server hands out the last item on presence.
+            await WaitFor(() => toldBob.Any(info => info.Id == published!.Id),
+                          "the announcement reaching the contact");
+
+            Assert.That(toldCarol.Any(info => info.Id == published!.Id), Is.False,
+                        $"{PeerName} announced the picture to somebody who is not on the " +
+                        "publisher's roster. The same stanza had already arrived at the " +
+                        "contact, so this is the service deciding to tell a stranger and not " +
+                        "the round being too quick.");
+
+            // Asking outright is a different question from being told, and the
+            // answer is not the one the specification leads one to expect.
+            //
+            // XEP-0163 section 5 says a PEP service MUST support the presence
+            // access model and set it as the default, and under that model
+            // (XEP-0060, section 4.5) only somebody with a subscription of
+            // from or both may retrieve items. Carol has neither. Both services
+            // hand her the metadata anyway.
+            //
+            // So it is pinned as what it is: a measured fact about both far
+            // sides and not a rule of ours - and pinned rather than merely
+            // printed, because a finding that only prints is one nobody reads.
+            // Whoever finds this round red has found a service that became
+            // stricter, which is the behaviour the section asks for; the right
+            // answer then is to turn the round round.
+            //
+            // What could not be told apart from here: whether the node was
+            // created with an open model long ago and kept it, or whether the
+            // model is not consulted on retrieval at all. Neither service would
+            // answer a configuration query for its own PEP node.
+            var asked = await carol.FetchAvatarInfoAsync(alice.BareJid);
+
+            Assert.That(asked?.Any(info => info.Id == published!.Id), Is.True,
+                        $"{PeerName} refused a stranger the metadata node. That is what " +
+                        "XEP-0163 section 5 asks for and is not what it did when this round " +
+                        "was written - so check it is a refusal and not a fault here, and " +
+                        "then turn this round round.");
+
+        }
+
+        #endregion
+
     }
 
 }

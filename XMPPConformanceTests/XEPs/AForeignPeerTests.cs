@@ -73,6 +73,23 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         protected const String User      = "alice";
         protected const String User2     = "bob";
 
+        /// <summary>
+        /// The stranger, and the point is that she stays one.
+        /// </summary>
+        /// <remarks>
+        /// <b>Nothing here may ever subscribe her to anybody.</b> The rosters of
+        /// these accounts live on a real server and outlive the test, the suite
+        /// and the machine - which is why the avatar lane makes its two
+        /// contacts idempotently and why undoing that afterwards would be the
+        /// kind of order-dependent cleanup D128 was spent removing.
+        ///
+        /// So every question about what somebody <i>not</i> on the roster may
+        /// see needs a third account that nobody has ever asked for anything,
+        /// and this is it. Added in D131, and the set-up scripts carry the same
+        /// note beside the names.
+        /// </remarks>
+        protected const String User3     = "carol";
+
         // Stays German on purpose: the password of the real accounts that
         // tools/prosody/setup.sh and tools/ejabberd/setup.sh create.
         protected const String Password  = "geheim";

@@ -9259,7 +9259,7 @@ pinned by whichever service is the strict one *there*, and which one that is
 changes from question to question. A suite with one far side would have caught
 one of these two and called the other one green.
 
-#### Still not measured, and why
+#### Still not measured, and why — *closed in D131*
 
 **A stranger's view of an avatar.** `TwoContactsAsync` subscribes the two
 accounts to each other, and their rosters outlive the suite, the machine and the
@@ -9379,6 +9379,81 @@ have done.
 Voice requests (section 8.6), registering a nickname with a room, and entering
 one that wants a password. None of them is load-bearing for anything else in
 this project, which is why they are named rather than done.
+
+---
+
+### D131. A third account ✅ — a stranger, and what one is for
+
+D129's audit ended with one gap it could not close: **a stranger's view of an
+avatar**. Alice and Bob subscribe to each other for the avatar lane, and a roster
+on a real server outlives the test, the suite and the machine - so unsubscribing
+them would have been the order-dependent flake D128 was spent removing. The
+question needed somebody nobody had ever asked for anything.
+
+`carol` is that account. Both `setup.sh` scripts register her, the nightly runs
+both scripts, and the note beside her name in each says the one thing about her
+that matters: **nothing may ever subscribe her to anybody.**
+
+#### What she bought, and the one that found something
+
+| round | what only a third account can ask |
+|---|---|
+| **a stranger is not told** | one publish, watched at the same moment by a contact and by a stranger |
+| **a member invites an outsider** | D129's round invited somebody already in the room, because there was nobody else |
+| **a member list is the door** | one person on the list gets in, one not on it does not |
+
+#### Both services hand somebody's face to a stranger who asks
+
+The push is withheld, correctly, by both. Carol connects the way Bob does, sends
+the same presence carrying the same caps, and differs from him in exactly one
+thing - and the announcement that reaches him does not reach her.
+
+Then she asks outright, and **both services give it to her.**
+
+> XEP-0163 section 5: *a PEP service MUST support the 'presence' access model
+> and set it to the default.* Under that model (XEP-0060, section 4.5) retrieval
+> wants a subscription of `from` or `both`. Carol has neither.
+
+What could **not** be established from here: whether the node was created with an
+open model in D122 and has kept it, or whether the model is never consulted on
+retrieval. Neither service would answer a configuration query for its own PEP
+node, so the two cannot be told apart from this side.
+
+So it is **pinned as the measured fact it is** rather than asserted as a rule.
+Two independent implementations agreeing against one's reading of a
+specification is a reason to write down what they do, not to go red for ever:
+the round asserts the current behaviour, says in its own failure message that a
+red here means a service became stricter, and tells whoever finds it to turn the
+round round. A finding that only prints is one nobody reads.
+
+*The silence is measured and not assumed*, which is the part that makes the
+round worth anything. A round that only waited for Carol to hear nothing would
+pass just as happily against a server that had published nothing at all - the
+D101 failure, a run that measured nothing looking like one that measured
+everything. Here the same stanza reached Bob while Carol's silence was being
+waited for.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **117 of 117** - 111 passed, 6 skipped here |
+| new rounds | 2 × 2 services, and round 14 rewritten to invite a real outsider |
+
+| mutation | result |
+|---|---|
+| the silence is asked of the contact instead of the stranger | **both red** |
+| nobody is put on the member list | **both red** - and the refusal is the room's own words |
+| the room never becomes members-only | **both red** |
+
+#### Still not done with her
+
+Carol is a stranger to the *other two accounts*, not to the services. What she
+could still ask: whether a room's archive is readable by somebody who was never
+in it, and what an upload slot issued to one account is worth to another. Both
+are the same shape as the avatar question - an authorisation that only shows
+itself when the asker has no standing - and neither has been put to a far side
+here.
 
 ## Later
 ### Test suite
