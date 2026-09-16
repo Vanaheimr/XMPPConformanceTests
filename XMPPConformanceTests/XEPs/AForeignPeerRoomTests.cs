@@ -365,7 +365,17 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
             await bob.LeaveRoomAsync(room, "Later");
 
-            await WaitFor(() => gone.Count == 1, "the departure, seen from the other side");
+            // Two waits, because there are two connections and the room service
+            // tells them separately - nothing orders one before the other.
+            //
+            // This round waited for Alice's event and then asserted on Bob's
+            // state, which is a race and behaved like one: it cost one nightly,
+            // in one of the two lanes running the same code. LeaveRoomAsync
+            // returns when the departure has been *sent*; the room is forgotten
+            // when the echo comes back, and that is the right design - dropping
+            // it at once would file the echo in the roster.
+            await WaitFor(() => gone.Count == 1,        "the departure, seen from the other side");
+            await WaitFor(() => bob.Room(room) is null, "the departure, seen by the one who left");
 
             Assert.Multiple(() =>
             {
