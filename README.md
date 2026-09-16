@@ -968,7 +968,13 @@ distribution, session store and the wiring.
   JID*, and a room hands out occupant addresses. So a room can carry it only
   when it is **non-anonymous** (`muc#roomconfig_whois = anyone`), and a
   semi-anonymous room — every service's default — is refused rather than
-  improvised around. One occupant whose real address is unknown stops the whole
+  improvised around. **Refused for a moderator too**, which D127
+  had to correct: a semi-anonymous room names everybody to its moderators, so
+  one of them can encrypt while nobody else in the room can attribute the
+  message, let alone read it — the sender sees a lock and the room sees
+  silence. Found by running it, not by a test: every round configures the room
+  before anybody talks, so none of them stood in the case an ordinary room
+  starts in. One occupant whose real address is unknown stops the whole
   message, which is the opposite of the rule for one unreachable *device*: a
   device is invisible and a person standing in the room is not. **What keeps a
   lying room service out is XEP-0420**, not the addressing: the sender writes

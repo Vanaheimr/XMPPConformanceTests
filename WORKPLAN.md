@@ -9014,6 +9014,84 @@ invariant the file header claims.
 
 ---
 
+### D127. A lock that nobody else could open ✅ — what running it found that no test asked
+
+D126 shipped a room view that had never been opened in a browser, and said so.
+This is what opening it found. Three things were the front end. The fourth was
+the protocol, and it is the reason this entry exists.
+
+#### A moderator could encrypt into a room where nobody could read it
+
+A semi-anonymous room gives real addresses **to its moderators**. So a
+moderator's own recipient list is complete — and that was the whole of what
+`OmemoRooms.WhyNot` asked: *can we name everybody*. It answered null, the lock
+closed, and the encryption worked, in the one direction that does not matter.
+
+Everybody else in that room sees nicknames. When the message arrived they could
+not say who sent it, could not find the session, and read nothing at all.
+
+**Nobody was told.** The sender saw a lock, the room saw silence. That is, word
+for word, the failure the file was written to refuse:
+
+> Silently excluding somebody who is standing in the room is worse than not
+> sending: the room looks whole to everybody in it, and the person who cannot
+> read is not told, and neither is the sender.
+
+It arrived through the one door left open. The question had to be *does this
+room name everybody*, and it is asked now before the recipient list rather than
+after it.
+
+#### Why nothing caught it
+
+Eleven mutations in D125, twelve in D126, two conformance rounds against each
+service, and all of them green — because **every one of them configures the room
+before anybody talks**. Nobody ever stood in the case where one side can see
+what the other cannot, which is the case a real semi-anonymous room is in by
+default and which every ordinary room starts as.
+
+The far-side lane was not enough either, and that is worth naming, because the
+whole suite rests on the argument that a foreign server asks questions we would
+not. It does — but only the questions the round puts to it. Round 9 says "make
+the room non-anonymous, then talk", so it measured the path somebody sets up
+deliberately, and not the one somebody falls into.
+
+What found it was two accounts, a real Prosody and a browser: Alice sent
+`encrypted: true` and Bob's page showed the two older plaintext lines and
+nothing else.
+
+#### The three in the front end
+
+| | |
+|---|---|
+| An element told to hide itself stayed on screen | the browser's `[hidden]` rule is `display: none`, and every rule in the stylesheet that sets a display beats it. The composer was offered where there was nothing to send to. Fixed globally: the next `hidden` would have had the same problem and nothing would have said so |
+| The composer was offered for a room this app is not in | reachable by a bookmark to a room that was left. It asks the room's state now, not whether a JID stands in the URL |
+| The answer to "make this room encryptable" claimed a state it could not know | the service announces the change in a message of its own, which arrives *after* the configuration is acknowledged — so the snapshot said "still semi-anonymous" while the change had taken. The banner comes from the event stream and is the truth; the toast says what was asked for |
+
+#### What was looked at, and what it cost
+
+The web app cannot be told to trust a self-signed certificate, and rightly so
+(D123) — so Prosody's **test** instance got a plaintext WebSocket port for the
+duration, which took two attempts: appended at the end of the config the
+settings parse, load and silently do nothing, because in Prosody's config
+language everything after a `VirtualHost` belongs to that host. The generated
+file warns about exactly that trap in its own comments, about a different
+setting. Put back afterwards; nothing plaintext is left standing.
+
+*Also corrected in passing:* the Enter key in the composer looked broken and was
+not. The browser automation was not delivering the key to the focused element; a
+synthetic `keydown` sent the line. Worth writing down because the first reading
+was "my handler is not attached", and acting on that would have been a change
+to working code.
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1356 tests — 1353 passed, 3 skipped |
+| XMPPWebApp | 166 tests, 38 on the front end |
+| room lanes | 29 of 30; the one red is the ejabberd invitation round, older than all of this |
+| the mutation | deleting the new guard takes three rounds down |
+
+---
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
