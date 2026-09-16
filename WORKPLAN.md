@@ -8921,6 +8921,99 @@ in yet. And the ejabberd invitation round, still flaky, still older than this.
 
 ---
 
+### D126. A room is not a conversation ✅ — the web app gets a view of its own
+
+D125 ended by saying the web app has no rooms, so there is nothing to encrypt
+in there. This is the rooms, in a separate view — which is what was asked for
+and, as it turns out, the only shape that works.
+
+#### Why separate is not a preference
+
+The two look identical: a list on the left, lines in the middle, a box at the
+bottom. Underneath, **four rules differ, and every one of them is the kind that
+produces a plausible screen and a wrong one**:
+
+| | a conversation | a room |
+|---|---|---|
+| who is at the far end | one person, whose presence is a field | a list of people who come and go |
+| what they are called | a contact in the roster | a nickname that stops existing when they leave |
+| a delivery receipt | a tick | twenty stanzas everybody present sees |
+| what decides encryption | whether the far end has a device that can read it | whether the *room* names its occupants (D125) |
+
+Merging them means carrying four sets of rules in one object and a flag saying
+which apply. So: a store of its own, routes of their own under `/rooms`,
+sub-events of their own on the stream, and a page of its own with a third
+column for the occupants — which a conversation has no use for and a room
+cannot do without, because that column is where one sees whether the room will
+say who anybody is.
+
+This is the same split Ratatoskr made in D116 for the same reason, one layer up.
+
+#### The line this replaces
+
+```csharp
+// A room is not a conversation this client knows how to hold.
+if (Message.Type is MessageType.GroupChat) return;
+```
+
+Every room message this app ever received went on that floor.
+
+#### Three decisions worth writing down
+
+**Nothing is archived.** The conversations are written to disk and the rooms are
+not — a room keeps its own history on the server (XEP-0313), which is the one
+place it belongs, because somebody joining later gets it from there too. Leaving
+a room therefore takes its lines with it, and that is not a loss: what was said
+is where it always was.
+
+**The occupant list is replaced, never patched.** Occupant events arrive as
+"joined", "changed", "left" and could be applied one by one; then a missed event
+leaves somebody in the list for ever. In an encrypted room that is not cosmetic
+— the count of who can read this would be wrong. The library holds the list
+correctly anyway, so it is copied whole.
+
+**Our own line goes in on sending, not on the reflection coming back.** A
+service hands every message to everybody including the sender, so waiting for it
+would look tidier. It cannot be done for an encrypted room: an OMEMO element
+carries no key for the device that made it, so our own line comes back as one we
+cannot read. One path for both, and the reflection is recognised by its id and
+dropped — without which every room shows everything twice.
+
+#### The round, and the flake it turned up
+
+Twelve mutations, all caught on the first pass — and then the full suite went
+red once in three on a test that had nothing to do with rooms.
+
+`AFileGoesUpAndTheConversationSaysWhere`, from D123, waits for the connection
+and then sends a file, expecting the plain path. But the rule that lane exists
+for is that **the conversation decides**, and the round never said what the
+conversation was: when OMEMO switched on between the sign-in and the send, the
+file took the encrypted path, which over that plaintext test server is the
+refusal the round below it pins. It has been latent since D123 and showed now
+because this entry added enough fixtures to shift the timing.
+
+It turns encryption off for that conversation now, which is what a round about
+the plain path has to say out loud. Four full runs green afterwards.
+
+| what | result |
+|---|---|
+| XMPPWebApp | 166 tests — 161 passed, 5 skipped (was 150) |
+| frontend | 38 tests (was 30), typecheck clean |
+| mutations | 12 on the server, 3 on the front end, all caught |
+| Ratatoskr, conformance | untouched by this |
+
+*The front end is tested in two ways because only one of them can be imported.*
+The text helpers have no runtime imports, the way `chat/links.ts` has none, so
+node runs them. The markup builders import `html.ts` and cannot be loaded that
+way — and what matters about them is not what they draw but that **everything on
+this page is chosen by somebody else**: a nickname by whoever walked in, a
+subject by whoever set it, a refusal by the service. `html` escapes every
+interpolated value and the only ways past it are `raw()` and `innerHTML`, so
+those two are checked in the source, which needs no DOM and is exactly the
+invariant the file header claims.
+
+---
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
