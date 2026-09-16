@@ -150,15 +150,16 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 91 of these 93. The two
+      # the gate's `TestCategory!=WSL` and would run 97 of these 99. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 93 tests, 93 passed, 0 skipped, with every far side up: the
+      # Expect 99 tests, 99 passed, 0 skipped, with every far side up: the
       # affix check, the five reply checks, twice thirteen room and archive
-      # checks, twice ten upload checks and six against the XEP-0454 oracle.
+      # checks, twice ten upload checks, six against the XEP-0454 oracle and
+      # twice three avatar checks.
       #
       # Measured on Debian 13 at b19331e, in both lanes: pinned submodules and
       # against Ratatoskr's master. The 71 before it was measured at 6883eb4.
@@ -247,6 +248,18 @@ jobs:
       # handed us what pyca wrote and asked whether we read it, which is the
       # easy half - an implementation can read everything the reference writes
       # and still write something the reference cannot read.
+      #
+      # And 99 with XEP-0084 over XEP-0163, which is the first lane here that
+      # needs the two accounts to know each other - rooms, archives and uploads
+      # all work between strangers. What it checks is not ours: that a server
+      # pushes a PEP node to a contact whose caps ask for it, which is the
+      # roster subscription, the caps and the delivery decision, all three the
+      # server's own bookkeeping.
+      #
+      # Its first run found that neither far side had personal eventing switched
+      # on at all - mod_pep on Prosody, mod_pubsub with the pep plugin and
+      # mod_caps on ejabberd. Fourth time in this suite that a module was there
+      # all along and had to be asked for.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.

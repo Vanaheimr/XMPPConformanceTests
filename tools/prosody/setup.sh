@@ -212,6 +212,17 @@ modules_enabled = {
     -- would make this archive silently empty here.
     "mam";
 
+    -- XEP-0163 (and XEP-0084 on top of it). Personal eventing is a module in
+    -- Prosody and is not loaded by default, which the avatar lane found the
+    -- blunt way: every publish came back <service-unavailable/>.
+    --
+    -- Worth naming because the mistake that led there was an assumption, not a
+    -- typo. "Prosody does pubsub, so it does PEP" is the kind of thing that
+    -- sounds like knowledge and is a guess - the same guess this suite has now
+    -- made four times, for MUC, for the archive, for the upload service and
+    -- here.
+    "pep";
+
     -- XEP-0288: allows both directions to be carried over one connection.
     -- Without this module Prosody answers an incoming stanza exclusively over
     -- an *own* outgoing connection to the sending domain - that is how RFC

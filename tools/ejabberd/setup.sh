@@ -315,6 +315,25 @@ modules:
     ## has to read it rather than know it.
     max_size: 1048576
 
+  ## XEP-0163 (and XEP-0084 on top of it). ejabberd carries personal eventing
+  ## inside mod_pubsub rather than as a module of its own, and the "pep" plugin
+  ## has to stand among the plugins for a client to be able to publish into a
+  ## node of its own at all.
+  ##
+  ## "flat" beside it because it is what a plain pubsub service uses, and
+  ## leaving it out would trade one missing thing for another.
+  ## And mod_caps, which mod_pubsub refuses to start without - ejabberd
+  ## says so outright, which is the friendly way to find out. The
+  ## dependency is the mechanism itself: a server decides whom to push a
+  ## PEP node to by reading the caps in their presence, so a pubsub
+  ## service without somewhere to keep caps has nobody to push to.
+  mod_caps: {}
+
+  mod_pubsub:
+    plugins:
+      - flat
+      - pep
+
   mod_mam:
     default: always
 CFG

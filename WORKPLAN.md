@@ -8539,6 +8539,100 @@ as D117 and D118, where the library got a thing and the clients caught up after.
 
 ---
 
+### D122. A face ✅ — XEP-0084 over PEP, and a branch that was not there
+
+The nodes have existed since the OMEMO work and the picture did not. What it
+needed was not much code; what it found was four things, and three of them were
+in the tests rather than in the protocol.
+
+#### Two nodes, and the split is the design
+
+The **metadata** node carries a few bytes saying what the picture is and is what
+every subscriber is pushed; the **data** node carries the picture and is only
+ever fetched, by id, by whoever does not have it. A person with three hundred
+contacts and a new photograph therefore sends three hundred short notices and
+not three hundred photographs.
+
+Three decisions follow from that and none of them is arithmetic:
+
+- **the picture goes up first.** Announce first and every subscriber asks for
+  something that is not there yet; one that caches the miss shows nothing until
+  the next change. And the announcement is not sent at all when the picture did
+  not go.
+- **an empty `<metadata/>` is how a face comes down.** A node left alone goes on
+  announcing the old picture to everybody who subscribes later, so removal has
+  to travel as something rather than as silence.
+- **the bytes are checked against the id they were fetched under.** Not because
+  that makes the picture trustworthy - the publisher controls both nodes and can
+  publish whatever they like, consistently - but because the id is what
+  everything downstream caches by. Bytes filed under an id they do not hash to
+  are shown for every later avatar that really has it, long after the mistake
+  has been fixed everywhere else.
+
+#### Neither far side had personal eventing switched on
+
+The first run of the lane answered `<service-unavailable/>` to every publish.
+Prosody needs `mod_pep`; ejabberd needs `mod_pubsub` with the `pep` plugin **and
+`mod_caps`**, which it refuses to start without.
+
+That last dependency is the mechanism itself, stated by the server: it decides
+whom to push a node to by reading the caps in their presence, so a pubsub service
+with nowhere to keep caps has nobody to push to. Which is also why
+`urn:xmpp:avatar:metadata+notify` had to go into our own feature list - without
+it nothing here would ever learn that somebody changed their picture, and not
+through an error but through silence.
+
+**The fourth time in this suite**, after MUC, the archive and the upload service,
+that a module was there all along and had to be asked for. The comment in
+`ProsodyAvatarTests` originally said the opposite - that Prosody carried PEP as
+part of pubsub and needed no line - which sounded like knowledge and was a guess.
+It is corrected in place rather than quietly fixed.
+
+#### Four mutations survived, and one of them was right to
+
+| survivor | what it turned out to be |
+|---|---|
+| the size limit removed | **the round could not see it.** It announced a huge size for a small picture, so the *length* check refused the bytes either way |
+| the namespace check removed | the same masking: the foreign-namespace element carried the wrong bytes, so the length check caught it first |
+| the publish order reversed | **nothing observable afterwards says which went first** - both succeed. Asked of the test server instead, which wrote both stanzas down as they arrived |
+| the removal branch removed | **there was no branch.** Both sides of it ended at an empty list, so an unreadable announcement already arrived as "this person has no picture" |
+
+The last is the finding. The code said in a comment that it told a removal apart
+from something it could not read, and did not: `IsNoAvatar(x) ? [] : InfosIn(x)`
+gives an empty list either way. **A mutation that removes a distinction which is
+not there cannot fail**, and that is what it looked like from the outside - a
+survivor with no obvious test to write.
+
+Three cases now, not two: a picture, a removal, and an announcement that says
+nothing. The third raises no event, because "I could not read that" and "this
+person has no picture" lead to opposite things on a screen.
+
+#### The round
+
+| what | result |
+|---|---|
+| mutations | 10, **all struck down** after the four above got the tests they needed |
+| RatatoskrTests | 1336 tests — 1333 passed, 3 skipped on Windows |
+| conformance suite | 99 tests; 93 passed and 6 skipped here |
+| avatar lane | 3 rounds × 2 services |
+
+*Also in this entry:* the first lane here that needs the two accounts to know
+each other. Rooms, archives and uploads all work between strangers; a PEP push
+does not, so the rounds establish the subscription for real - and the helper that
+does it has to be idempotent, because these are real accounts whose rosters
+outlive the suite. The first version waited for a request that only ever arrives
+once, so it was green on the first run and hung ever after.
+
+*And a second of the same kind:* a server sends the last item of a PEP node when
+presence is exchanged, so the first announcement to arrive is whatever was
+published in an earlier round. A round that took the first one with anything in
+it reported the previous picture as this one — green, and wrong.
+
+*Still not here:* the two clients. Neither the console nor the web app shows a
+face, and neither can send a file. Three entries running now.
+
+---
+
 ## Later
 
 ### Test suite
@@ -8675,7 +8769,7 @@ implementation can be checked.
   | XEP-0313 | ~~**MAM** — message archive on the server. The counter-question to XEP-0013 from D37: an archive that can be searched instead of a store that is handed over~~ ✅ done in D118, in the asking half. The argument for it had moved twice by then: D116 found that a room assigns the name a reply points at *only when it archives*, so archiving was already switched on in both set-ups — the far side was running, unused, before the point was taken up |
   | XEP-0363 | ~~**HTTP File Upload** — the way to send anything that is not text~~ ✅ done in D119, in the asking half. Same story as XEP-0045 and XEP-0313 before it: both services ship the module and it only had to be switched on. What the lane found is not in the protocol at all — it is that two of its questions can only be asked by *going round* our own client, because a client that is written correctly cannot address a slot nobody issued |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
-  | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |
+  | XEP-0163 | ~~**Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not~~ ✅ done in D122. The nodes were indeed the easy part; what the lane found was that neither far side had personal eventing switched on at all, which is the fourth time in this suite that a module was there all along and had to be asked for |
   | — | **The two clients and files.** Since D119 to D121 the library can send a file, encrypted or not, and neither the console nor the web app can. Both already *recognise* a media link and show it; neither can produce one. The same shape as D117 and D118 |
   | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |
 
