@@ -9278,6 +9278,108 @@ already in the room, and the affiliation-list work.
 | new rounds | 2 × 2 services |
 | new unit rounds | 3, including both directions of "an invitation is not its own refusal" |
 
+---
+
+### D130. The rest of the owner protocol ✅ — taking a room down, and who is on its lists
+
+What XEP-0045 had left here since D117 was the owner's half beyond configuring:
+**section 10.9**, destroying a room, and **section 9.5**, the affiliation lists.
+D125 had already taken the one configuration setting that OMEMO depends on; this
+finishes the rest of it.
+
+#### A destroyed room is not a left room, and it looks exactly like one
+
+This is the whole of it. Section 10.9 gives the destruction **no status code of
+its own**: what arrives is an ordinary unavailable presence for one's own
+nickname, and the only thing that separates it from walking out of the room is a
+`<destroy/>` inside the wrapper. So a client reading the numbers instead of the
+elements tells somebody they have left a room they never left.
+
+And it throws away the one part of a destruction that is of any use to anybody:
+
+| | |
+|---|---|
+| **without an alternative** | everybody is left nowhere |
+| **with one** | the room moved, and where to is in the stanza |
+
+A client that drops the address has silently turned the second into the first.
+It travels through the service and cannot be arranged from this side, which is
+why the conformance round asks for it and the unit round cannot.
+
+The recognition sits **before** the nickname-change branch and before the
+departure branch, and both orderings matter: a destruction has no nickname to
+change to, and the departure branch would otherwise claim it. The unit round
+checks that `OnRoomLeft` does *not* also fire - whoever listens for both would
+be told twice and the second telling is false.
+
+#### The lists, and why a `result` was never enough
+
+Setting an affiliation is an IQ that answers `result`, and **a `result` says the
+service accepted the request, not that anybody is on any list.** Since D117 this
+suite has been reading affiliations back out of the *presence* the room sends,
+which works only while the person is standing in the room - and an affiliation
+outliving the visit is the entire difference between it and a role. That was the
+one part never checked against the thing that keeps it.
+
+Two decisions in the reading:
+
+- **null and empty are different answers.** null is "the room would not say",
+  which it says to anybody not entitled to ask; empty is "nobody". A caller that
+  folds them together reports an empty member list for a room it simply may not
+  administer.
+- **An entry with no real address is dropped.** An item carrying only a nickname
+  names somebody standing in the room at this moment and says nothing about who
+  is on the list. Carried through, it would put a name in front of a caller that
+  cannot be promoted, banned or taken off again.
+
+*And one that is easy to get wrong invisibly:* a destruction goes in the
+**owner** namespace and an affiliation list in the **admin** one. The element
+names are identical in both, so the mistake does not look like one - it just
+gets refused by every service. There is a round for it.
+
+#### And the fix broke something that was working by accident
+
+The web app removes a room’s row when it hears `OnRoomLeft`. Until this entry a
+destruction **was** an `OnRoomLeft`, because the library could not tell the two
+apart - so the row disappeared, correctly, for a reason nobody had chosen. The
+moment the library learned the difference, the web app stopped hearing about it
+at all: a room taken down would have stayed in the list for ever, with somebody
+typing into it and the address everybody was sent to going nowhere.
+
+Caught by looking rather than by a test, which is the point: **a thing that
+works for the wrong reason breaks the moment the reason is corrected, and
+nothing says so.** There is a round for it now, and the mutation - not removing
+the row - takes it down.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **113 of 113** - 107 passed, 6 skipped here |
+| RatatoskrTests | 1363 - 1360 passed, 3 skipped; 1359 before |
+| XMPPWebApp | 167 - 162 passed, 5 skipped; 166 before |
+| new rounds | 3 × 2 services: the destruction seen by somebody else, a room that is not everybody's to take down, and the lists read back |
+| new unit rounds | 4, including both directions of destroy-against-depart, and one in the web app |
+
+| mutation | result |
+|---|---|
+| a destruction is read as a departure | **both services red** |
+| the alternative is dropped on the way in | **both services red** |
+| the list comes back empty | **both services red** |
+| the web app does not remove the destroyed room | **red** |
+
+Unlike D129's pair, these three go red everywhere, and the reason is worth
+naming: nothing here is a service's choice. Both counterparts destroy a room the
+same way and keep the same lists, because section 10.9 and section 9.5 leave
+them nothing to decide. Where the specification is definite, one far side would
+have done.
+
+#### Still not here
+
+Voice requests (section 8.6), registering a nickname with a room, and entering
+one that wants a password. None of them is load-bearing for anything else in
+this project, which is why they are named rather than done.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
@@ -9439,6 +9541,12 @@ What has proved itself in this project and should be kept:
 - **Secure fixes by mutation.** Green alone proves nothing — turn the fix back and
   check that exactly the responsible tests go red. That is how all corrections so far
   are shown.
+- **A thing that works for the wrong reason breaks when the reason is
+  corrected, and nothing says so.** D130 taught the library to tell a destroyed
+  room from a left one. The web app had been removing the row on `OnRoomLeft`,
+  which a destruction used to be - so the correction silently took the row away,
+  with nothing red at any point. Whenever a distinction is introduced, go and
+  look for everybody who was relying on the two being the same.
 - **A round that does not set up the state it means to measure is measuring
   somebody’s default.** Both of the last two findings are this one sentence. D127:
   every room round configured the room before anybody talked, so nothing ever stood

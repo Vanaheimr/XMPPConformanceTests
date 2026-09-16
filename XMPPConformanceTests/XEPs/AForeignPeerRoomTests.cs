@@ -1190,6 +1190,178 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 16. Taking a room down is seen by everybody who was in it
+
+        /// <summary>
+        /// XEP-0045, section 10.9, from the side that did not do it.
+        /// </summary>
+        /// <remarks>
+        /// <b>Not arrangeable from one side at all.</b> A destruction exists
+        /// only as something a service does to everybody present, and the half
+        /// that matters is the half this client did not send: the second person
+        /// is told the room is gone, and told where to go instead.
+        ///
+        /// The alternative is the point of the round. A destruction without one
+        /// leaves everybody nowhere; with one it is a move, and a client that
+        /// drops the address has silently turned the second into the first. It
+        /// travels through the service, so no test can arrange for it to be
+        /// there - which is why it is asked for here and not in the unit rounds.
+        /// </remarks>
+        [Test]
+        public async Task TakingARoomDownIsSeenByEverybodyWhoWasInIt()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            var elsewhere = JID.Parse($"moved{Guid.NewGuid():N}@{RoomDomain}");
+
+            MucRoomDestroyed? gone = null;
+            bob.OnRoomDestroyed += (t, s, d, ct) => { gone = d; return Task.CompletedTask; };
+
+            Assert.That(await alice.DestroyRoomAsync(room, "moving on", elsewhere), Is.True,
+                        $"{PeerName} would not let the room's own owner take it down.");
+
+            await WaitFor(() => gone is not null, "the news that the room is gone");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(gone!.Room, Is.EqualTo(room.Bare),
+                            "Somebody was told a different room had gone.");
+
+                Assert.That(gone.Alternate, Is.EqualTo(elsewhere),
+                            "The address to move to did not survive the trip, so what arrived " +
+                            "says the room vanished when it says the room moved.");
+
+                Assert.That(gone.Reason, Is.EqualTo("moving on"));
+
+                Assert.That(bob.Room(room), Is.Null,
+                            "The room is gone and this client still holds it, so everything " +
+                            "sent to it from now on goes nowhere.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 17. A room is not everybody's to take down
+
+        /// <summary>
+        /// XEP-0045, section 10.9: the owner, and nobody else.
+        /// </summary>
+        /// <remarks>
+        /// The counterpart of round 16 and the reason it is worth having
+        /// separately: a destruction that worked for the owner proves nothing
+        /// about who else it works for, and this is the one place in the owner
+        /// protocol where getting that wrong costs a whole room.
+        ///
+        /// Unlike an invitation this is an IQ, so the refusal is an answer and
+        /// arrives by itself - there is nothing to surface and nothing that can
+        /// be missed, which is exactly what makes D129's finding peculiar to
+        /// invitations.
+        /// </remarks>
+        [Test]
+        public async Task ARoomIsNotEverybodysToTakeDown()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            Assert.That(await bob.DestroyRoomAsync(room, "not mine to take"), Is.False,
+                        $"{PeerName} let somebody who is merely standing in the room destroy it.");
+
+            // And the room is still there, which is the half that a refused IQ
+            // does not prove on its own.
+            Assert.That(alice.Room(room), Is.Not.Null);
+
+            await alice.SendRoomMessageAsync(room, "still here");
+
+            var heard = new ConcurrentQueue<XMPPMessage>();
+            bob.OnMessage += (t, s, m, ct) => { heard.Enqueue(m); return Task.CompletedTask; };
+
+            await alice.SendRoomMessageAsync(room, "and still talking");
+
+            await WaitFor(() => heard.Any(m => m.Body == "and still talking"),
+                          "a message out of the room that was not destroyed");
+
+        }
+
+        #endregion
+
+        #region 18. A room says who is on its lists
+
+        /// <summary>
+        /// XEP-0045, section 9.5: the affiliation list, read back from the
+        /// service that keeps it.
+        /// </summary>
+        /// <remarks>
+        /// <b>The only way to know an affiliation took.</b> Setting one is an IQ
+        /// that answers <c>result</c>, and a <c>result</c> says the service
+        /// accepted the request - not that anybody is on any list. Since D117
+        /// this suite has been setting affiliations and reading them back out of
+        /// the <i>presence</i> the room sends, which works only while the person
+        /// is standing in the room. An affiliation outlives the visit; that is
+        /// the whole of what distinguishes it from a role, and it was the one
+        /// part never checked.
+        ///
+        /// Asked for twice, before and after, because a list that contained the
+        /// answer already would prove nothing about the setting.
+        /// </remarks>
+        [Test]
+        public async Task ARoomSaysWhoIsOnItsLists()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var owners = await alice.RoomAffiliationsAsync(room, MucAffiliation.Owner);
+
+            Assert.That(owners, Is.Not.Null,
+                        $"{PeerName} would not tell the room's own owner who owns it.");
+
+            Assert.That(owners!.Any(entry => entry.Jid.Bare == alice.BareJid.Bare), Is.True,
+                        "The owner of the room is not on its list of owners: " +
+                        String.Join(", ", owners.Select(entry => entry.Jid.ToString())));
+
+            var before = await alice.RoomAffiliationsAsync(room, MucAffiliation.Member);
+
+            Assert.That(before, Is.Not.Null,
+                        $"{PeerName} would not say who its members are.");
+
+            Assert.That(before!.Any(entry => entry.Jid.Bare == JID.Parse($"{User2}@{PeerDomain}").Bare),
+                        Is.False,
+                        "Somebody was on the member list before anybody put them there, so what " +
+                        "the second half measures is not the setting.");
+
+            Assert.That(await alice.SetRoomAffiliationAsync(room,
+                                                            JID.Parse($"{User2}@{PeerDomain}"),
+                                                            MucAffiliation.Member,
+                                                            "asked along"), Is.True,
+                        $"{PeerName} refused to make anybody a member.");
+
+            var after = await alice.RoomAffiliationsAsync(room, MucAffiliation.Member);
+
+            Assert.That(after, Is.Not.Null);
+
+            Assert.That(after!.Any(entry => entry.Jid.Bare == JID.Parse($"{User2}@{PeerDomain}").Bare),
+                        Is.True,
+                        "The service answered result and put nobody on the list - which is why " +
+                        "an affiliation cannot be checked by whether the request was accepted: " +
+                        String.Join(", ", after.Select(entry => $"{entry.Jid} ({entry.Affiliation})")));
+
+            Assert.That(after.All(entry => entry.Affiliation == MucAffiliation.Member), Is.True,
+                        "The member list carries somebody who is not a member, so the affiliation " +
+                        "on an item is not the one that was asked about.");
+
+        }
+
+        #endregion
+
     }
 
 }
