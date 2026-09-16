@@ -20,6 +20,7 @@ joined - and that is where implementations disagree.
 Called like the OMEMO oracle:
 
     PYTHONPATH=/tmp/omemo-oracle/lib python3 aesgcm_oracle.py encrypt job.json
+    PYTHONPATH=/tmp/omemo-oracle/lib python3 aesgcm_oracle.py decrypt job.json
 """
 
 import json
@@ -62,6 +63,37 @@ def mode_encrypt(job):
     }
 
 
+def mode_decrypt(job):
+    """Read a file somebody else encrypted, out of the URL they would have sent.
+
+    The direction that was missing. Every round until now handed *us* material
+    the reference produced and asked whether we read it - which answers half the
+    question. An implementation can read everything the reference writes and
+    still write something the reference cannot read: a tag appended where it
+    does not belong, a fragment in the wrong order, an IV of the wrong length.
+    Nobody notices, because the only reader ever tried is the one that wrote it.
+    """
+
+    url      = job["url"]
+    payload  = bytes.fromhex(job["payload"])
+
+    fragment = url.split("#", 1)[1] if "#" in url else ""
+    material = bytes.fromhex(fragment)
+
+    # The layout under test: IV first, key after. Taken from the URL rather than
+    # handed in beside it, because that is where a real recipient gets it and
+    # the order is exactly the thing that can be wrong.
+    nonce = material[:12]
+    key   = material[12:]
+
+    return {
+        "scheme":     url.split("://", 1)[0],
+        "nonce":      nonce.hex(),
+        "key_bytes":  len(key),
+        "plaintext":  AESGCM(key).decrypt(nonce, payload, None).decode("utf-8"),
+    }
+
+
 def mode_probe(_job):
     """Is the far side there at all? Answered before anything is measured."""
 
@@ -82,6 +114,8 @@ def main():
 
     if mode == "encrypt":
         result = mode_encrypt(job)
+    elif mode == "decrypt":
+        result = mode_decrypt(job)
     elif mode == "probe":
         result = mode_probe(job)
     else:

@@ -8449,6 +8449,96 @@ to explain again.
 
 ---
 
+### D121. The half that had nowhere to go ✅ — XEP-0454 can write now
+
+`AesGcmUrl` could read an encrypted file since D69 and not write one. The reason
+it stayed that way for fifty entries was never the cryptography: **there was
+nowhere to put the ciphertext.** Since D119 and D120 there are three places.
+
+#### Two gaps that turn out to be one
+
+The oracle had an `encrypt` mode and no `decrypt`; we had a `Decrypt` and no
+`Encrypt`. So every round in `AesGcmUrlOracleTests` asked the same question —
+**do we read what pyca wrote** — and the other one could not be asked at all.
+
+That is the easy half, and it is worth being precise about why. An
+implementation can read everything the reference writes and still write
+something the reference cannot read: the tag appended where it does not belong,
+the fragment in the other order, an IV of the wrong length. Nobody notices,
+because the only reader ever tried is the one that wrote it. **That is D62 to
+D65 in one sentence**, and the fixture built to prevent it was itself only
+half-wired.
+
+Both halves were closed in the same round, because they were the same gap.
+
+#### What the storage service is told
+
+The interesting decisions are not in the AES-GCM. They are in what leaks around
+it, and three of them are refusals:
+
+| withheld | why |
+|---|---|
+| the name | a file called `passport.png` says most of what the encryption was for. What goes up is sixteen random bytes |
+| the type | `application/octet-stream`, which is not a polite fiction: what is stored **is** opaque bytes |
+| the extension | kept off for the same reason. The recipient does not need it — the message carries the address and their client reads the file |
+
+What is **not** hidden is the size, near enough. Padding costs something and is
+a decision this library should not take on a caller's behalf unasked; said out
+loud rather than left for somebody to discover.
+
+And one refusal in the other direction: **there is no overload of `Encrypt` that
+takes a nonce.** AES-GCM forgives nothing about a repeated one under the same
+key — two files encrypted with the same pair hand anybody holding both the
+difference of their plaintexts, and, silently, the material to forge a tag the
+receiving side will accept. An overload would be used to encrypt two versions of
+the same picture, which is exactly the case that loses everything. Every file
+gets a new key as well, because the key travels to whoever is sent the file.
+
+#### The round that could not be arranged before
+
+Against Prosody and ejabberd: the ciphertext goes up, and then it is fetched
+back **twice**. Once with the plain address and no key, to show that what the
+service is holding is not the plaintext — and once through the key.
+
+The middle step is the one that would be easy to leave out, and a suite without
+it passes just as happily when nothing was encrypted at all: the bytes go up,
+the bytes come back, and only the step nobody checked was missing.
+
+It is also the only lane in this repository where a file passes through a
+foreign server that cannot read it. Everything else here the far side can see:
+a message, a room, an archive entry.
+
+#### And the limit, said plainly
+
+**The encryption is against the storage, not against the conversation.** The key
+travels in the URL fragment to whoever is being sent the file, so anybody who
+can read the message can read the file — and if that message went in the
+clear, so did the key. `aesgcm://` in a body looks like more than it is. What it
+buys is that the host holding the bytes is not among the readers: no more, and
+not nothing.
+
+#### The round
+
+| what | result |
+|---|---|
+| mutations | 10, **all struck down** — no survivors |
+| RatatoskrTests | 1325 tests — 1322 passed, 3 skipped on Windows |
+| conformance suite | 93 tests; 87 passed and 6 skipped here |
+| new rounds | 3 unit, 2 against the oracle, 1 × 2 services, 2 against our own server |
+
+*Correction to D120:* the note there calls the local ejabberd's
+`AnInvitationReachesSomebodyWhoIsNotInTheRoom` a failure of this machine's
+spool. The first half stands — it fails with every change stashed, and the
+container answers 93 of 93 — but "deterministic" was wrong: it has since
+passed a full local run. It is flaky here and green there, which is a weaker
+claim than the one that was written down.
+
+*Still not here:* the two clients. The console and the web app can recognise a
+media link and neither can send one, encrypted or otherwise — the same shape
+as D117 and D118, where the library got a thing and the clients caught up after.
+
+---
+
 ## Later
 
 ### Test suite
@@ -8586,6 +8676,7 @@ implementation can be checked.
   | XEP-0363 | ~~**HTTP File Upload** — the way to send anything that is not text~~ ✅ done in D119, in the asking half. Same story as XEP-0045 and XEP-0313 before it: both services ship the module and it only had to be switched on. What the lane found is not in the protocol at all — it is that two of its questions can only be asked by *going round* our own client, because a client that is written correctly cannot address a slot nobody issued |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
   | XEP-0163 | **Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not |
+  | — | **The two clients and files.** Since D119 to D121 the library can send a file, encrypted or not, and neither the console nor the web app can. Both already *recognise* a media link and show it; neither can produce one. The same shape as D117 and D118 |
   | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |
 
 ---

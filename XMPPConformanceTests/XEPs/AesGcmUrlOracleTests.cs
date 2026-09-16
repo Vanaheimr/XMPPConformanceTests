@@ -345,6 +345,112 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 5. The other direction
+
+        /// <summary>
+        /// What we wrote, a foreign implementation reads back.
+        /// </summary>
+        /// <remarks>
+        /// <b>The question this fixture could not ask until now.</b> Every round
+        /// above hands us material the reference produced and asks whether we
+        /// read it - which is half the question, and the easy half. An
+        /// implementation can read everything the reference writes and still
+        /// write something the reference cannot read: the tag appended where it
+        /// does not belong, the fragment in the other order, an IV of the wrong
+        /// length. Nobody notices, because the only reader ever tried is the one
+        /// that wrote it. That is D62 to D65 exactly.
+        ///
+        /// It could not be asked because there was nothing to encrypt with:
+        /// <see cref="AesGcmUrl"/> could decrypt and not encrypt until D121, and
+        /// the oracle had an <c>encrypt</c> mode and no <c>decrypt</c>. Both
+        /// halves of that gap were the same gap.
+        ///
+        /// The fragment is handed over <b>inside the URL</b> and not beside it,
+        /// on purpose: the order of IV and key is the contested thing, and a
+        /// test that passed them separately would agree with itself about the
+        /// one point at issue.
+        /// </remarks>
+        [Test]
+        public void TheReferenceReadsWhatWeWrote()
+        {
+
+            var written    = "Alles was zählt: äöüß, 🎺, and a NUL-free body.";
+
+            var encrypted  = AesGcmUrl.Encrypt(Encoding.UTF8.GetBytes(written));
+
+            var url        = AesGcmUrl.ToAesGcm(
+                                 new Uri("https://files.example.org/upload/e2ee.bin"),
+                                 encrypted.Key,
+                                 encrypted.Nonce
+                             );
+
+            var (_, output, _) = Call("decrypt", new Dictionary<String, Object> {
+                                                     { "url",     url.AbsoluteUri                     },
+                                                     { "payload", Convert.ToHexString(encrypted.Payload) }
+                                                 });
+
+            var reply = JsonDocument.Parse(output.Trim()).RootElement;
+
+            Assert.Multiple(() => {
+
+                Assert.That(reply.GetProperty("plaintext").GetString(), Is.EqualTo(written),
+                            "A foreign implementation could not read the file we encrypted.");
+
+                Assert.That(Hex(reply, "nonce"), Is.EqualTo(encrypted.Nonce),
+                            "The reference took a different nonce out of our fragment than we put in - " +
+                            "which is what writing key-then-IV looks like from the other side.");
+
+                Assert.That(reply.GetProperty("key_bytes").GetInt32(), Is.EqualTo(32));
+
+                Assert.That(reply.GetProperty("scheme").GetString(), Is.EqualTo("aesgcm"));
+
+            });
+
+        }
+
+        /// <summary>
+        /// And a new key and a new IV for every file.
+        /// </summary>
+        /// <remarks>
+        /// <b>AES-GCM forgives nothing about a repeated nonce under one key.</b>
+        /// Two files encrypted with the same pair hand anybody holding both the
+        /// difference of their plaintexts - and, silently, the material to forge
+        /// a tag the receiving side will accept. So there is no overload taking
+        /// a nonce, and this checks that the drawing really happens rather than
+        /// that it is written down somewhere.
+        ///
+        /// The same plaintext twice, because that is the case where a reused
+        /// nonce is visible at all: identical input, identical output.
+        /// </remarks>
+        [Test]
+        public void EveryFileGetsItsOwnKeyAndIv()
+        {
+
+            var same   = Encoding.UTF8.GetBytes("the same picture, sent twice");
+
+            var first  = AesGcmUrl.Encrypt(same);
+            var second = AesGcmUrl.Encrypt(same);
+
+            Assert.Multiple(() => {
+
+                Assert.That(second.Nonce,   Is.Not.EqualTo(first.Nonce),
+                            "The same IV twice under a fresh key is survivable; under the same key it " +
+                            "is the end of the matter.");
+
+                Assert.That(second.Key,     Is.Not.EqualTo(first.Key),
+                            "A key shared between files is a second file handed to whoever was sent " +
+                            "the first.");
+
+                Assert.That(second.Payload, Is.Not.EqualTo(first.Payload),
+                            "The same plaintext encrypted twice produced the same bytes, so something " +
+                            "is being reused that must not be.");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

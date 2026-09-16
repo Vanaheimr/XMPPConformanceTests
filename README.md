@@ -13,17 +13,17 @@ names this assembly from inside Ratatoskr, so the two repositories can only be
 moved together (D99). **Nightly** is where the conformance verdict lives: it
 installs Prosody 13, ejabberd 24.12, python-omemo and slixmpp into the container and
 runs everything against them — federation, stream management, OMEMO and
-XEP-0454 — **89 of 89, nothing skipped**, and then repeats the lane against
+XEP-0454 — **93 of 93, nothing skipped**, and then repeats the lane against
 Ratatoskr's current master to catch what the pins hide.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
-this suite is green at "2 passed, 87 skipped" on a bare runner and green at "89
+this suite is green at "2 passed, 91 skipped" on a bare runner and green at "93
 passed" in the container — the same colour for the run that measured everything
 and the run that measured nothing. Selected by category, each lane has a number
 it must hit, and any skip at all is a finding (D101).
 
 The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39,
-40, 45, 52, 59, 65, 71, 89 so far, and `nightly.yml` carries the history beside the figure together with
+40, 45, 52, 59, 65, 71, 89, 93 so far, and `nightly.yml` carries the history beside the figure together with
 the revision it was last measured at. The 2 does not, and that is the point of
 the split rather than an accident: everything needing a far side is on the other
 side of the filter, so the gate growing would be news.
@@ -111,7 +111,7 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0333 | Chat Markers | ✅ | Sending + receiving, namespace-checked against being confused with XEP-0184 |
 | XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112) |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
-| XEP-0454 | OMEMO Media Sharing | ⚠️ | The receiving half only: `AesGcmUrl` reads `aesgcm://host/path#[iv][key]`, hands back the `https` address without the fragment — which is the key — and decrypts the payload with the tag checked. Fetching is deliberately not in the library: whether an incoming message may cause a request at all belongs to whoever runs the client, not to whoever sent the message. The upload side is missing entirely. **The IV is 12 bytes and the older 16 byte reading is refused rather than misread** — 16+32 is 96 hex characters where 12+32 is 88, so a reader taking the first 12 bytes would find a well-formed key, fail at the tag, and blame the file. Checked here against pyca `cryptography` rather than against ourselves, because the layout of the fragment is the one thing two implementations can hold differently while each stays consistent — see [WORKPLAN.md](WORKPLAN.md), D107 |
+| XEP-0454 | OMEMO Media Sharing | ✅ | **Both halves since D121**, and the lane behind it is the only one here where a file passes through a foreign server that cannot read it. The ciphertext goes to Prosody's and ejabberd's upload services under a random name and `application/octet-stream`; the round fetches it back *without* the key as well, because a round trip on its own passes just as happily when nothing was encrypted at all. And the oracle now answers in the other direction: until D121 every round handed us what pyca wrote and asked whether we read it — which is the easy half, because an implementation can read everything the reference writes and still write something the reference cannot read |
 | XEP-0045 | Multi-User Chat | ⚠️ | The visiting half: entering a room, being in it, following who is in it, leaving — and the one step of the owner protocol without which a room a join created stays locked for everybody else. Checked against the room services of **both** Prosody and ejabberd, thirteen rounds each, over what a single client cannot do at all: a room that did not exist a moment ago, a second person seen from the first, a nickname refused as taken. Configuring, moderating and inviting are **not** here. The first run found that Prosody attaches the `<stanza-id/>` a reply in a room must point at only when the room archives — so a room without an archive is one in which nothing can be answered, which is what `ReplyableId` returning null has meant since D114 |
 | XEP-0426 / XEP-0428 / XEP-0461 | Message Replies | ✅ | The reference is two attributes; the part that can be got wrong is the quotation beside it. XEP-0428 points into the body with offsets counted in **Unicode code points** (XEP-0426) and .NET counts in UTF-16 units — the same number for every text a test gets written with, and different at the first emoji. Checked against slixmpp in both directions, which is the only far side able to judge this at all: a reply is client-to-client, so both servers carry it across without looking. With both halves of our counting switched to UTF-16 — internally consistent, and therefore the realistic mistake — Ratatoskr's own 21 reply tests stay green but for one hand-computed constant, and `ReplyOracleTests` goes red in both directions (D114) |
 | XEP-0363 / XEP-0066 | HTTP File Upload | ⚠️ | **Both halves since D120, and the only lane here whose interesting part is not XMPP.** The slot is asked for over the stream, the bytes go over HTTPS to an address the service invented, and a second client then fetches them with nothing to identify itself as — none of which one client can arrange with itself. Nine rounds against each service, and **two of them go round our own client on purpose**: a PUT at an address that was never handed out (with and without a borrowed token) and a PUT of a thousand times the length the slot was issued for. Both services answer both with a 4xx. That pair is what decides whether an upload service is a service or a drop box for the whole internet — the download has to be anonymous, because the person a file is sent to is usually on another server and has no account to show; the upload must not be. **And the test server answers the same four questions since D120**, at `/upload` on the same listener its XMPP WebSocket uses: that is what the transport moved onto Hermod's HTTP server for, and the move found three faults in Hermod that nothing had ever provoked |
@@ -376,7 +376,7 @@ The suite is driven in two lanes, and **each owes zero skips**:
 # The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
 
-# The verdict: with Prosody, ejabberd and the oracles up. 89 of 89
+# The verdict: with Prosody, ejabberd and the oracles up. 93 of 93
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 ```
 

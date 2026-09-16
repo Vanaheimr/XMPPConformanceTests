@@ -150,15 +150,15 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 87 of these 89. The two
+      # the gate's `TestCategory!=WSL` and would run 91 of these 93. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 89 tests, 89 passed, 0 skipped, with every far side up: the
+      # Expect 93 tests, 93 passed, 0 skipped, with every far side up: the
       # affix check, the five reply checks, twice thirteen room and archive
-      # checks and twice nine upload checks.
+      # checks, twice ten upload checks and six against the XEP-0454 oracle.
       #
       # Measured on Debian 13 at b19331e, in both lanes: pinned submodules and
       # against Ratatoskr's master. The 71 before it was measured at 6883eb4.
@@ -237,6 +237,16 @@ jobs:
       # slot was not issued for. They ask what decides whether an upload service
       # is a service or a drop box for the whole internet, and they are the only
       # rounds here that check a far side against itself rather than against us.
+      #
+      # And 93 with the sending half of XEP-0454, which is the only lane here
+      # where a file passes through a foreign server that cannot read it. Two
+      # of the four are the round against Prosody and ejabberd - the ciphertext
+      # goes up under a random name, comes back without the key to show it is
+      # not the plaintext, and comes back again with it. The other two are the
+      # direction the oracle could not be asked before: until now every round
+      # handed us what pyca wrote and asked whether we read it, which is the
+      # easy half - an implementation can read everything the reference writes
+      # and still write something the reference cannot read.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.

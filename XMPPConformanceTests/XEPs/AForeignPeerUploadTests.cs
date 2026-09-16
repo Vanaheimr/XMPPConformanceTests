@@ -597,6 +597,84 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 10. A file the service cannot read
+
+        /// <summary>
+        /// XEP-0454 over XEP-0363, against a service that really stores it.
+        /// </summary>
+        /// <remarks>
+        /// <b>The one round in this repository where a file passes through a
+        /// foreign server that cannot read it.</b> Everything else here the far
+        /// side can see: a message, a room, an archive entry. The ciphertext it
+        /// takes here it holds and hands back, and never learns what it was.
+        ///
+        /// The middle assertion is the whole point and would be easy to leave
+        /// out: fetching the raw bytes with the <em>plain</em> address and
+        /// showing they are not the plaintext. A round trip on its own passes
+        /// just as well when nothing was encrypted at all - the bytes go up, the
+        /// bytes come back, and only the step nobody checked was missing.
+        ///
+        /// And what the service is told is checked too. It gets a random name
+        /// and <c>application/octet-stream</c>; a file called
+        /// <c>passport.png</c> would say most of what the encryption was for.
+        /// </remarks>
+        [Test]
+        public async Task AFileTheServiceCannotRead()
+        {
+
+            var (alice, service) = await FindTheServiceAsync();
+
+            var secret = Encoding.UTF8.GetBytes("Nicht für den Server: äöüß 🎺");
+
+            using var stream = new MemoryStream(secret);
+
+            var encrypted = await alice.Connection.Upload!.UploadEncryptedAsync(
+                                stream, "passport.png", service.Address);
+
+            Assert.That(encrypted.Uploaded, Is.True,
+                        $"{PeerName} did not take the ciphertext: {encrypted.Upload.Refusal}, " +
+                        $"HTTP {encrypted.Upload.HttpStatus}");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(AesGcmUrl.IsAesGcmUrl(encrypted.Url!), Is.True,
+                            "What comes back has to be an aesgcm:// address, or nothing downstream " +
+                            "knows there is a key on the end of it.");
+
+                Assert.That(encrypted.Url!.AbsoluteUri,
+                            Does.Not.Contain("passport"),
+                            "The file name went to the service, and a name is often the whole secret.");
+
+            });
+
+            // What the service is actually holding, fetched without the key.
+            var stored = await alice.DownloadFileAsync(AesGcmUrl.ToHttps(encrypted.Url!));
+
+            Assert.That(stored, Is.Not.Null,
+                        "The ciphertext cannot be fetched back at all.");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(stored!, Is.Not.EqualTo(secret),
+                            "The service is holding the plaintext, so nothing was encrypted.");
+
+                Assert.That(stored!.Length, Is.EqualTo(secret.Length + 16),
+                            "The stored file is not the ciphertext plus a 16 byte tag, which is the " +
+                            "layout XEP-0454 prescribes.");
+
+            });
+
+            var read = await alice.DownloadEncryptedFileAsync(encrypted.Url!);
+
+            Assert.That(read, Is.EqualTo(secret),
+                        "What came back through the key is not what went in.");
+
+        }
+
+        #endregion
+
     }
 
 }
