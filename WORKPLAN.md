@@ -8276,6 +8276,37 @@ is the measurement. The invariant culture stays, because it is right in
 principle and costs nothing; the claim beside it does not. **It is the one
 mutation here that survives, and it survives because it changes nothing.**
 
+#### And a slash that means two things
+
+CI found one the mutations could not, and it was not a test that was wrong.
+`ASlotWithoutBothAddressesIsNotUsable` checked that a relative address is
+refused, passed on Windows, and went red on Debian:
+
+```
+Expected: null
+But was:  <UploadSlot { PutUrl = file:///p, GetUrl = file:///g }>
+```
+
+`Uri.TryCreate("/p", UriKind.Absolute, ...)` **fails on Windows and succeeds on
+Linux**, where a leading slash is an absolute path and the result is
+`file:///p`. The check asked whether the address was absolute, and on one of the
+two platforms it was.
+
+What it would have cost is not a confusing error. The GET reads and the PUT
+writes: a service handing out a `file://` slot could have had the client read a
+file off its own disk and pass the bytes to whoever asked for the upload, or
+write one onto it. So the reading now takes `http` and `https` and nothing else
+— an allow-list, because the list of URI schemes grows and the list of ones that
+belong in a slot does not.
+
+That it ought to be `https` in particular is asked of the real services in round
+three rather than enforced here, where it would rule out a deployment nobody
+here has seen.
+
+**The second platform is the whole reason this was found**, and it is the same
+argument as the second server: where one of them and this code happen to agree,
+nothing tells agreement from correctness.
+
 #### And one thing the far sides could not have told us
 
 The mutation that removes the walk through `disco#items` goes red against both
@@ -8289,7 +8320,7 @@ against nothing else. The specification's walk is the only one that is not luck.
 | what | result |
 |---|---|
 | mutations | 16, **15 struck down**; the survivor is vacuous and named above |
-| RatatoskrTests | 1309 tests — 1306 passed, 3 skipped on Windows |
+| RatatoskrTests | 1310 tests — 1307 passed, 3 skipped on Windows |
 | conformance suite | 89 tests; 83 passed and 6 skipped here (the inbound lane needs WSL) |
 | upload lane | 9 rounds × 2 services |
 
