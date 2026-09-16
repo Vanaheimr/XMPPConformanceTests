@@ -1,4 +1,4 @@
-﻿# Work plan
+# Work plan
 
 What is open on the client and the server, in what order that makes sense and
 why. The detailed description of the individual gaps stands in
@@ -8716,8 +8716,111 @@ the conversation list rather than another command.
 
 ---
 
-## Later
+### D124. A face in the page ✅ — the fourth quadrant, and the one client that has to fetch
 
+D123 ended by naming what it had not done: avatars in the web app, "needs
+somewhere to keep a picture and a change to the conversation list rather than
+another command". This is that, and both halves of that sentence turned out to
+be the easy part.
+
+#### The rule this client breaks on purpose
+
+The console shows a note when a contact changes their picture and **fetches
+nothing**, and D123 gave the reason: fetching unasked would let every contact
+who changes their avatar decide that this machine downloads something.
+
+This one fetches. Not because the reasoning changed but because the conclusion
+does not follow for a page: a terminal cannot draw a face, so there the fetch
+buys nothing at all and is pure cost, while a list of conversations without
+faces is the feature not being there.
+
+So what a contact gets for announcing is worth writing down exactly, because
+that is the thing being traded:
+
+- **one IQ round trip** to their own node, through our own server — not an
+  address they chose. That is the whole difference from `MediaStore`, which has
+  a page of rules about private addresses and redirects because there the URL
+  comes out of a message;
+- **only if they are in the roster.** Checked before the round trip, and again
+  in `ChatStore.SetAvatar` before anything is shown;
+- **only what will be shown.** The size, the type and "offered over HTTP
+  instead" are read out of the announcement *first*, so a picture this will not
+  serve costs nothing at all;
+- **only if it is not already here.** The id is the SHA-1 of the bytes, so the
+  common case — somebody comes online and announces the picture we have had for
+  a month — is a dictionary lookup and a return.
+
+#### One rule, three places, and why that is not duplication
+
+The id is the hash of the content. Everything else follows from it:
+
+| where | what it does with the id |
+|---|---|
+| the store | files by it, and refuses bytes that do not hash to it |
+| the route | is keyed by it, and answers `immutable` for a year |
+| the fetch | does not happen at all when it is already on the disk |
+
+The library checks the hash too, in `FetchAvatarAsync`. It is checked again in
+the store because that is the layer whose entire contract is *filed by the hash
+of its content* — a store that trusts its caller's idea of the hash does not
+have that contract. And the consequence of getting it wrong is not a missing
+picture: bytes filed under an id they do not hash to are shown for **every later
+avatar that really has that id**, by that browser, for a year, because the route
+told it the address can never change.
+
+#### The check `MediaStore` has no equivalent for
+
+The type of an avatar is a string somebody in the roster typed into a stanza.
+`MediaStore` gets its type from an HTTP server; this gets it from a contact. And
+what lies at the other end of it is this program's own origin, where a stored
+file a browser treats as a document is script running with this session.
+
+`nosniff` is what actually stops that, and on any browser of the last decade it
+is enough. The store checks the first bytes against the claimed type anyway:
+four bytes of work, and a file that is not what it says it is has no business
+being kept at all. `image/svg+xml` is not on the list — an SVG *is* a document
+with scripts in it.
+
+**Not decoding, though.** Nothing in this process parses these images. They are
+stored as they arrived and handed to the browser, which is the one program in
+this picture whose image decoders are sandboxed and updated weekly.
+
+#### The round, and the two tests that were measuring nothing
+
+Eleven mutations. The first pass caught nine.
+
+**`any id is an id` survived.** The traversal round asked for
+`../../../../windows/win.ini` and was satisfied by the refusal — but the refusal
+would have come with the check deleted too, because there is no `win.ini.png`
+anywhere. It was testing that a file does not exist. It now puts a real picture
+where the traversal lands, one directory above the store, so the only thing
+between the request and that file is the check.
+
+**`no roster check` survived, and this one is the D122 species again:** the
+test's own remark claimed it was measuring our side, and it was measuring the far
+side's. A stranger's announcement never left the server, because who is pushed a
+PEP event is decided by the *publisher's* roster — so nothing arrived, nothing
+was fetched, and deleting our check could not change that. The stranger now has
+a roster with us in it while ours has none of them, which is what a far server
+keeping a one-sided subscription looks like from here. That the event now
+arrives is not shown by the assertions, which assert that nothing happened: it
+is shown by the mutation being caught.
+
+| what | result |
+|---|---|
+| XMPPWebApp | 150 tests — 145 passed, 5 skipped (was 131) |
+| mutations | 11, all caught |
+| conformance suite | 99, unchanged by this |
+
+*And the plumbing that was written and then deleted:* an `account` sub-event on
+the stream, so that a second settings page open somewhere else would learn of a
+new picture. Nothing listened to it — the account page does not use the store,
+and the case is one reload away from fixing itself. A stream event with no
+listener is not a feature, it is a thing to maintain.
+
+---
+
+## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
   marked "only inside WSL" ask `OperatingSystem.IsLinux()`, which is a stand-in
@@ -8853,7 +8956,7 @@ implementation can be checked.
   | XEP-0363 | ~~**HTTP File Upload** — the way to send anything that is not text~~ ✅ done in D119, in the asking half. Same story as XEP-0045 and XEP-0313 before it: both services ship the module and it only had to be switched on. What the lane found is not in the protocol at all — it is that two of its questions can only be asked by *going round* our own client, because a client that is written correctly cannot address a slot nobody issued |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
   | XEP-0163 | ~~**Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not~~ ✅ done in D122. The nodes were indeed the easy part; what the lane found was that neither far side had personal eventing switched on at all, which is the fourth time in this suite that a module was there all along and had to be asked for |
-  | — | ~~**The two clients and files.** Since D119 to D121 the library can send a file, encrypted or not, and neither the console nor the web app can~~ ✅ done in D123, together with avatars in the console. What is left is avatars in the **web app**, which needs somewhere to keep a picture and a change to the conversation list rather than another command |
+  | — | ~~**The two clients and files.** Since D119 to D121 the library can send a file, encrypted or not, and neither the console nor the web app can~~ ✅ done in D123, and the avatars that were still missing from the web app in D124. Both clients now do everything D119 to D122 gave the library |
   | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |
 
 ---
