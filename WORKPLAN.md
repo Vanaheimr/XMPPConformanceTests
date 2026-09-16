@@ -9446,7 +9446,7 @@ waited for.
 | nobody is put on the member list | **both red** - and the refusal is the room's own words |
 | the room never becomes members-only | **both red** |
 
-#### Still not done with her
+#### Still not done with her — *both done in D132*
 
 Carol is a stranger to the *other two accounts*, not to the services. What she
 could still ask: whether a room's archive is readable by somebody who was never
@@ -9454,6 +9454,87 @@ in it, and what an upload slot issued to one account is worth to another. Both
 are the same shape as the avatar question - an authorisation that only shows
 itself when the asker has no standing - and neither has been put to a far side
 here.
+
+---
+
+### D132. Two authorisations that only show themselves to somebody with no standing ✅
+
+The two questions D131 left open, and they turned out to be different in kind:
+one is a rule both services keep and nobody had checked, the other is a rule
+that says the opposite of what one expects.
+
+#### The archive: the test is the right to enter, not the memory of having been
+
+The expected finding was a leak. It is not one. XEP-0313's business rules:
+
+> A MUC archive MUST check that the user requesting the archive has the right to
+> **enter** it at the time of the query and only allow access if so.
+
+and for the open case, spelt out: an open room's archive *can generally be
+accessed by any users (including those who have never entered the room) who do
+not have an affiliation of 'outcast'*.
+
+So a stranger reading a public room's log is the specification, and both
+services are right to hand it over. **Worth measuring before writing down**,
+because the opposite is what one assumes - and the round would have been written
+backwards, which is exactly what happened to round 8 in D127.
+
+What makes it a round rather than an observation is the second half. *At the
+time of the query* is a requirement no single query can test: a service that
+decided once, when the room was made, answers the first question
+indistinguishably. So the round asks twice - same archive, same asker, same
+query - with one thing changed in between: **she may no longer enter.**
+
+Both services shut it. The mutation, leaving the ban out, takes both down.
+
+#### The upload: the address is the whole of the protection, and that is the design
+
+The lane has been putting files up and fetching them back since D119 and had
+never once asked who is allowed to. The answer is nobody in particular:
+
+> Anyone who knows the URL SHOULD be able to access it.
+
+A file is guarded by its address and by nothing else, and that address travels
+in a message through servers this project does not own. **That is the entire
+argument for XEP-0454**, implemented in D69 and completed in D121, and it had
+been living in remarks rather than in a round. It has one now: a client with no
+stream, no account and no standing of any kind fetches the bytes and gets them.
+
+Not the third account, which would be too much standing - carol has accounts on
+these servers. A passer-by with a URL has nothing.
+
+*And beside it, pinned rather than required:* **neither service lets a slot be
+filled twice** - ejabberd answers 403, Prosody 409. XEP-0363 is silent on the
+point, so this is what they do and not what they must, and it is worth having
+written down because the alternative is grim: a PUT URL and a GET URL that
+differ only in the verb would let anybody who was sent a file quietly put
+something else in its place, under the address the recipient already trusts.
+
+The round checks the bytes afterwards as well, which a status code does not
+prove: a refusal that had already written the file would look identical from
+outside.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **121 of 121** - 115 passed, 6 skipped here |
+| new rounds | 2 × 2 services |
+
+| mutation | result |
+|---|---|
+| the ban is left out | **both red** - the archive goes on answering |
+| nothing is uploaded before the second PUT | **both red**, at the fetch: 404 on ejabberd, 410 on Prosody |
+| the second PUT goes to a *fresh* slot | **both red** - 201, which is what isolates "already filled" from "refuses hand-made PUTs" |
+
+#### What the two have in common
+
+Both are authorisations that are invisible from inside. Alice cannot discover
+either of them: she may read the archive because she is in the room, and she can
+fetch her own upload because she has the address. Neither says anything about
+what is being checked. It took an account with no standing to find out that in
+one case the answer is checked continuously, and in the other there is no answer
+because there is no question.
 
 ## Later
 ### Test suite

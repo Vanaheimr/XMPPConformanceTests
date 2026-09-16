@@ -1447,6 +1447,87 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 20. A room's archive is open to whoever may enter, and shuts when they may not
+
+        /// <summary>
+        /// XEP-0313, business rules: who may read what was said in a room.
+        /// </summary>
+        /// <remarks>
+        /// <b>The rule is not "were you there".</b> It is:
+        ///
+        /// <blockquote>A MUC archive MUST check that the user requesting the
+        /// archive has the right to <i>enter</i> it at the time of the query and
+        /// only allow access if so.</blockquote>
+        ///
+        /// with the open case spelt out: an open room's archive <i>can generally
+        /// be accessed by any users (including those who have never entered the
+        /// room) who do not have an affiliation of 'outcast'</i>.
+        ///
+        /// So a stranger reading a public room's log is not a leak, it is the
+        /// specification - and it was worth measuring before writing that down,
+        /// because the opposite is the thing one expects. Both services allow
+        /// it, which is right.
+        ///
+        /// <b>What makes this a round rather than an observation is the second
+        /// half.</b> The same archive, the same asker, the same query, and one
+        /// thing changed: she may no longer enter. If the answer does not change
+        /// with it, the service is not checking at the time of the query - it
+        /// decided once, when the room was made, and a ban is a note in a file.
+        /// That is the failure the MUST is there to prevent, and it is invisible
+        /// from any single query.
+        ///
+        /// The asker is the third account (D131): never in this room, on
+        /// nobody's roster, with nothing to lose by being thrown out of a
+        /// conversation she was never part of.
+        /// </remarks>
+        [Test]
+        public async Task ARoomsArchiveIsOpenToWhoeverMayEnter()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            await alice.SendRoomMessageAsync(room, "said in front of nobody in particular");
+
+            // The service has to have written it down before it can be asked
+            // about it, and it says so by handing it back to the sender.
+            var echoed = new ConcurrentQueue<XMPPMessage>();
+            alice.OnMessage += (t, s, m, ct) => { echoed.Enqueue(m); return Task.CompletedTask; };
+
+            await alice.SendRoomMessageAsync(room, "and this too");
+
+            await WaitFor(() => echoed.Any(m => m.Body == "and this too"), "the room's echo");
+
+            var carol = await ConnectAsync(User3);
+
+            var open = await carol.RoomHistoryAsync(room, 20);
+
+            Assert.That(open, Is.Not.Null,
+                        $"{PeerName} refused the archive of an open room to somebody who may " +
+                        "walk into it. XEP-0313 puts the test at the right to enter, and she has " +
+                        "it - nothing here has made this room anything but open.");
+
+            Assert.That(open!.Messages.Any(m => m.Message.Body == "said in front of nobody in particular"),
+                        Is.True,
+                        "The archive answered without what was said in it, so the second half " +
+                        "below would be measuring an empty answer against another empty answer.");
+
+            // And now she may not enter.
+            Assert.That(await alice.SetRoomAffiliationAsync(room, carol.BareJid,
+                                                            MucAffiliation.Outcast, "not you"),
+                        Is.True,
+                        $"{PeerName} would not ban anybody, so the half that matters cannot be asked.");
+
+            var shut = await carol.RoomHistoryAsync(room, 20);
+
+            Assert.That(shut, Is.Null,
+                        "The same archive answered the same person after she was banned from the " +
+                        "room. So the right to enter is not being checked at the time of the " +
+                        "query, and whoever is thrown out of a room keeps reading it.");
+
+        }
+
+        #endregion
+
     }
 
 }

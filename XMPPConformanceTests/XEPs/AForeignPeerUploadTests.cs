@@ -675,6 +675,132 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 11. A slot is an address, and the address is the whole of the protection
+
+        /// <summary>
+        /// XEP-0363, security considerations: what holding the URL is worth.
+        /// </summary>
+        /// <remarks>
+        /// <b>Both halves of this are the point of XEP-0454.</b> The lane has
+        /// been putting files up and fetching them back since D119 and has never
+        /// once asked who is allowed to - because the answer is nobody in
+        /// particular, and that is the design:
+        ///
+        /// <blockquote>Anyone who knows the URL SHOULD be able to access
+        /// it.</blockquote>
+        ///
+        /// So the file is guarded by the address and by nothing else, and the
+        /// address travels in a message through servers this project does not
+        /// own. That is the whole argument for encrypting before uploading
+        /// (D69, D121), and it deserved one round that says it out loud instead
+        /// of being folded into a remark.
+        ///
+        /// It is asked with a client that has no stream, no account and no
+        /// standing of any kind - not the third account, which would be too
+        /// much standing. The third account is on these servers; a passer-by
+        /// with a URL is not.
+        ///
+        /// <b>The second half is pinned, not required.</b> XEP-0363 says nothing
+        /// at all about using a slot twice. Both services refuse - ejabberd with
+        /// 403, Prosody with 409 - and that is worth having written down,
+        /// because the alternative is grim: a PUT URL and a GET URL that differ
+        /// only in the verb mean anybody who was sent a file could quietly put
+        /// something else in its place, under the address the recipient already
+        /// trusts. A red here is a service that started allowing it.
+        /// </remarks>
+        [Test]
+        public async Task ASlotIsAnAddressAndTheAddressIsTheWholeProtection()
+        {
+
+            var (client, service) = await FindTheServiceAsync();
+
+            var content  = SomeBytes(2048);
+            var outcome  = await client.Connection.Upload!.RequestSlotAsync(
+                               service.Address, "round11.bin", content.Length, "application/octet-stream");
+
+            Assert.That(outcome.Granted, Is.True, $"No slot to work from: {outcome.Refusal}");
+
+            var slot = outcome.Slot!;
+            var http = NewHttpClient();
+
+            // By hand rather than through UploadAsync, because the same address
+            // has to be used a second time afterwards.
+            using (var put = new HttpRequestMessage(HttpMethod.Put, slot.PutUrl) {
+                                 Content = new ByteArrayContent(content)
+                             })
+            {
+
+                foreach (var header in slot.Headers)
+                    if (!put.Headers.TryAddWithoutValidation(header.Name, header.Value))
+                        put.Content!.Headers.TryAddWithoutValidation(header.Name, header.Value);
+
+                using var answer = await http.SendAsync(put);
+
+                Assert.That((Int32) answer.StatusCode, Is.InRange(200, 299),
+                            $"{PeerName} would not take the file at the address it issued: " +
+                            $"{(Int32) answer.StatusCode}");
+
+            }
+
+            // A passer-by: no stream, no account, nothing but the address.
+            var passerBy = NewHttpClient();
+
+            using (var get = new HttpRequestMessage(HttpMethod.Get, slot.GetUrl))
+            {
+
+                using var answer = await passerBy.SendAsync(get);
+
+                Assert.That((Int32) answer.StatusCode, Is.InRange(200, 299),
+                            $"{PeerName} answered {(Int32) answer.StatusCode} to somebody holding " +
+                            "the address it handed out. A file nobody but the uploader can fetch " +
+                            "is one that cannot be sent to anybody.");
+
+                Assert.That(await answer.Content.ReadAsByteArrayAsync(), Is.EqualTo(content),
+                            "What came back to the passer-by is not what went up.");
+
+            }
+
+            // And the same address a second time, with different bytes.
+            var replacement = SomeBytes(2048);
+
+            using (var again = new HttpRequestMessage(HttpMethod.Put, slot.PutUrl) {
+                                   Content = new ByteArrayContent(replacement)
+                               })
+            {
+
+                foreach (var header in slot.Headers)
+                    if (!again.Headers.TryAddWithoutValidation(header.Name, header.Value))
+                        again.Content!.Headers.TryAddWithoutValidation(header.Name, header.Value);
+
+                using var answer = await http.SendAsync(again);
+
+                Assert.That((Int32) answer.StatusCode, Is.InRange(400, 499),
+                            $"{PeerName} answered {(Int32) answer.StatusCode} to a second PUT at a " +
+                            "slot that had already been filled. XEP-0363 does not forbid it, so " +
+                            "this is what both services did when the round was written and not a " +
+                            "rule - but a service that starts allowing it lets anybody who was " +
+                            "sent a file replace it under the address the recipient already trusts.");
+
+            }
+
+            // The bytes are still the first ones, which is the half a status
+            // code does not prove: a refusal that had already written the file
+            // would look exactly the same from here.
+            using (var get = new HttpRequestMessage(HttpMethod.Get, slot.GetUrl))
+            {
+
+                using var answer = await passerBy.SendAsync(get);
+
+                Assert.That(await answer.Content.ReadAsByteArrayAsync(), Is.EqualTo(content),
+                            "The second PUT was refused and the file changed anyway, so the " +
+                            "refusal is about the answer and not about the store.");
+
+            }
+
+        }
+
+        #endregion
+
     }
 
 }
