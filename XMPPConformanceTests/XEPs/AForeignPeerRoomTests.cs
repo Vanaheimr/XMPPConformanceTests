@@ -1000,6 +1000,196 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 14. Whether one may ask anybody in is the room's to decide
+
+        /// <summary>
+        /// XEP-0045, section 7.8.1, from the side that is not the owner.
+        /// </summary>
+        /// <remarks>
+        /// <b>Round 10 has the owner do the inviting</b>, which is the one
+        /// person for whom it can never fail. What a room does to everybody else
+        /// is a different question, and the two services answer it differently:
+        /// ejabberd's default room carries <c>muc#roomconfig_allowinvites</c> at
+        /// 0 and refuses, Prosody's lets anybody who is in the room ask. Both
+        /// are within section 7.8.1, which leaves it to the room.
+        ///
+        /// So what is asserted is not which of the two happens - it is that
+        /// <b>one of them happens visibly</b>. Before D129 ejabberd produced
+        /// neither: the invitation came back as an ordinary message error,
+        /// nothing could tell it apart from any other refused message, and
+        /// <c>InviteToRoomAsync</c> had already answered true. The sender saw
+        /// success and the room saw silence - the failure D127 was written to
+        /// refuse, one lane over.
+        ///
+        /// The invitee is somebody already in the room, and that is not a
+        /// shortcut: the room decides about the <i>inviter</i>, and with two
+        /// accounts the other one is the only invitee whose treatment can be
+        /// watched from here.
+        /// </remarks>
+        [Test]
+        public async Task WhetherOneMayAskAnybodyInIsTheRoomsToDecide()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            MucInvitation?    asked    = null;
+            MucInviteRefused? refused  = null;
+
+            alice.OnRoomInvitation    += (t, s, i, ct) => { asked   = i; return Task.CompletedTask; };
+            bob.  OnInvitationRefused += (t, s, r, ct) => { refused = r; return Task.CompletedTask; };
+
+            Assert.That(await bob.InviteToRoomAsync(room, alice.BareJid, "you too"), Is.True,
+                        "Bob is in the room, so there was something to send.");
+
+            await WaitFor(() => asked is not null || refused is not null,
+                          $"{PeerName} either passing the invitation on or saying that it will not");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(asked is not null && refused is not null, Is.False,
+                            "The room passed the invitation on and refused it at the same time.");
+
+                if (refused is not null)
+                {
+
+                    Assert.That(refused.Room, Is.EqualTo(room.Bare),
+                                "The refusal named a different room.");
+
+                    Assert.That(refused.Who.Bare, Is.EqualTo(alice.BareJid.Bare),
+                                "The refusal did not name the person who was never asked, so " +
+                                "nothing can be said to anybody about what failed.");
+
+                }
+
+                else
+                    Assert.That(asked!.Room, Is.EqualTo(room.Bare),
+                                "The invitation that arrived was for a different room.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 15. A room that does not archive is one in which nothing can be answered
+
+        /// <summary>
+        /// XEP-0461, section 4 against a room with no archive - the case D116
+        /// found by accident and nobody ever asked for.
+        /// </summary>
+        /// <remarks>
+        /// <b>Every other round in this lane runs in a room that archives</b>,
+        /// because both set-ups switch archiving on for every room they make.
+        /// That was done in D116 for a reason - without it round 4 has nothing
+        /// to measure - and the side effect is that the state a room is in when
+        /// nobody has arranged anything was never entered here.
+        ///
+        /// What stands in the README about it ("a room without an archive is one
+        /// in which nothing can be answered") comes from one observation of
+        /// Prosody's behaviour, made while chasing something else. ejabberd was
+        /// never asked at all.
+        ///
+        /// <b>The field has two names.</b> Prosody calls it
+        /// <c>muc#roomconfig_enablearchiving</c>, ejabberd plain <c>mam</c>,
+        /// with no <c>muc#roomconfig_</c> in front of it - so a client that
+        /// wants to ask has to know both, and one that knows one of them will
+        /// quietly configure nothing on the other service.
+        ///
+        /// What is asserted is the client's rule and not the service's choice.
+        /// Whether a service names a message it does not archive is its own
+        /// business; that a reply points at the room's name or at nothing, and
+        /// never at the sender's own id, is XEP-0461 and ours.
+        /// </remarks>
+        [Test]
+        public async Task ARoomWithoutAnArchiveCannotBeAnsweredIn()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var form = await alice.FetchRoomConfigAsync(room);
+
+            Assert.That(form, Is.Not.Null,
+                        $"{PeerName} would not say how the room is configured, so nothing here " +
+                        "can be turned off.");
+
+            var offered = DataForm.Fields(form!).
+                                   Select(field => field.Attribute("var")?.Value).
+                                   Where (name  => name is not null).
+                                   ToHashSet()!;
+
+            var archiving = new[] { "muc#roomconfig_enablearchiving", "mam" }.
+                                FirstOrDefault(offered.Contains);
+
+            Assert.That(archiving, Is.Not.Null,
+                        $"{PeerName} offers neither muc#roomconfig_enablearchiving nor mam, so " +
+                        "there is no way from here to stand in a room without an archive.");
+
+            Assert.That(await alice.ConfigureRoomAsync(room, new Dictionary<String, String> {
+                                                                 [archiving!] = "0"
+                                                             }), Is.True,
+                        $"{PeerName} would not switch the room's archive off through {archiving}.");
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            var heard = new ConcurrentQueue<XMPPMessage>();
+            bob.OnMessage += (t, s, m, ct) => { heard.Enqueue(m); return Task.CompletedTask; };
+
+            var sentId = await alice.SendRoomMessageAsync(room, "Nothing to point at?");
+
+            await WaitFor(() => heard.Any(m => m.Body == "Nothing to point at?"),
+                          "the message from the unarchived room");
+
+            var message = heard.First(m => m.Body == "Nothing to point at?");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(message.ReplyableId, Is.EqualTo(message.StanzaId),
+                            "The reference for a reply in a room is the room's name for the " +
+                            "message, and nothing else is.");
+
+                Assert.That(message.ReplyableId, Is.Not.EqualTo(sentId),
+                            "The id of the stanza was used after all. Everybody present sees a " +
+                            "different one.");
+
+            });
+
+            // The two halves are both real, and which one a service lands in is
+            // reported rather than assumed - a run that measured the refusal
+            // must not look like one that measured the answer.
+            if (message.StanzaId is null)
+            {
+
+                TestContext.Out.WriteLine(
+                    $"{PeerName} gives an unarchived room's messages no name of their own.");
+
+                Assert.That(await bob.ReplyToAsync(message, "Then this cannot be sent"), Is.Null,
+                            "The room named the message nothing and the client answered anyway - " +
+                            "so the reference points at whatever the sender happened to call it, " +
+                            "which is a different message for every reader.");
+
+            }
+
+            else
+            {
+
+                TestContext.Out.WriteLine(
+                    $"{PeerName} names a message even in a room that does not archive.");
+
+                Assert.That(await bob.ReplyToAsync(message, "Then this can be sent"), Is.Not.Null,
+                            "The room named the message and the client would not answer it.");
+
+            }
+
+        }
+
+        #endregion
+
     }
 
 }

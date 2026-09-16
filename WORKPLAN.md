@@ -9167,6 +9167,117 @@ for six entries, and the explaining cost more than the finding.
 the only counterpart here that refuses to soften a race, which makes it the only
 one that can find the next one.
 
+---
+
+### D129. What every round quietly arranged ✅ — the D127 shape, looked for on purpose
+
+D127 and D128 are the same sentence twice: *a round that does not set up the
+state it means to measure is measuring somebody's default.* Twice is a habit,
+so this entry went looking for it rather than waiting to be bitten by it a third
+time. One question per lane: **what does every round here arrange that a real
+deployment does not have?**
+
+#### The audit
+
+| lane | what every round arranges | in the default state? |
+|---|---|---|
+| **rooms** | the room is ours, unlocked, non-anonymous where it matters, and **archiving is on for every room both set-ups make** | **no — two gaps, both real** |
+| **avatars** | a mutual subscription and presence on both sides | **no —** a stranger's view is never taken |
+| upload | nothing beyond discovery | yes |
+| stream management | that the stream is managed | yes - that *is* the subject |
+| federation | that the two hosts talk s2s | yes - that *is* the subject |
+| availability, everywhere | that the far side has noticed a client | no, until D128 |
+
+The three clean lanes are clean for one reason and it is worth writing down:
+**the shape bites where the arrangement is a precondition, not where it is the
+subject.** Negotiating stream management in the stream-management lane hides
+nothing. Switching a room's archive on so that round 4 has something to measure
+hides the room that has none.
+
+#### Finding one: every round had the owner do the inviting
+
+`AnInvitationReachesSomebodyWhoIsNotInTheRoom` and its nine neighbours invite as
+the room's **owner** - the one person for whom it can never fail. Asked as an
+ordinary occupant, the two services part company, and both are within section
+7.8.1, which leaves it to the room:
+
+| | a member asks somebody in |
+|---|---|
+| **ejabberd** | refused. The default room carries `muc#roomconfig_allowinvites` at **0** |
+| **Prosody** | passed on |
+
+**And the refusal reached nobody.** It came back as an ordinary message error,
+`OnStanzaError` reported it as "a stanza to `room@service` was refused", nothing
+could tell it from a refused message, `XMPPConsole` did not listen for those at
+all - and `InviteToRoomAsync` had already answered **true**. *The sender saw
+success and the room saw silence*, which is D127's sentence word for word, one
+lane over.
+
+Fixed where the name of the person still exists: the error carries the stanza
+that provoked it, so `MultiUserChat.RefusedInvitation` reads the `<invite to=/>`
+out of it and `OnInvitationRefused` says who was never asked. Beside the general
+event rather than instead of it - whoever listens for refused stanzas keeps
+hearing about this one. The console prints a warning now. And
+`InviteToRoomAsync` says in its own documentation what `true` means, because
+that is where the next caller will look.
+
+#### Finding two: a room without an archive, and the README was half right
+
+Both set-ups switch archiving on for **every** room they create - done in D116
+for a good reason, since without it round 4 has nothing to measure - so the
+state a room is in when nobody has arranged anything had never been entered
+here. What the README said about it came from one observation of Prosody made
+while chasing something else, and **ejabberd had never been asked**:
+
+| | a message in a room that does not archive |
+|---|---|
+| **Prosody** | no name of its own. Nothing in that room can be answered |
+| **ejabberd** | named anyway. Replies work there |
+
+So "a room without an archive is one in which nothing can be answered" is
+Prosody's behaviour and not a rule, and the README says so now. What the round
+checks is therefore **ours** and not theirs: that a reply points at the room's
+name or at nothing, and never at the sender's own id - which is XEP-0461
+section 4 and holds either way.
+
+*Also learned on the way, and a client needs it:* **the field has two names.**
+Prosody calls it `muc#roomconfig_enablearchiving`, ejabberd plain `mam`, with no
+`muc#roomconfig_` in front. One that knows a single name configures nothing at
+all on the other service, and is told so only because `ConfigWith` reports what
+a form does not have (D125) instead of inventing it.
+
+#### What the mutations say, and what is peculiar about them
+
+| mutation | result |
+|---|---|
+| the refusal is no longer recognised | **ejabberd red, Prosody green** |
+| `ReplyToAsync` answers a message the room never named (the D114 defect back) | **Prosody red, ejabberd green** |
+
+Mirror images, and that is the argument for two counterparts stated more
+sharply than before: **neither round is load-bearing against both.** Each is
+pinned by whichever service is the strict one *there*, and which one that is
+changes from question to question. A suite with one far side would have caught
+one of these two and called the other one green.
+
+#### Still not measured, and why
+
+**A stranger's view of an avatar.** `TwoContactsAsync` subscribes the two
+accounts to each other, and their rosters outlive the suite, the machine and the
+test order - so a round that unsubscribed them would be the flake D128 just
+finished removing. It needs a **third account that nobody ever subscribes to**,
+which is a change to both set-up scripts and the container. The same account
+would carry the member-invite round to a real third party instead of to somebody
+already in the room, and the affiliation-list work.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **107 of 107** - 101 passed, 6 skipped here, nothing red |
+| RatatoskrTests | 1359 - 1356 passed, 3 skipped; 1356 before |
+| new rounds | 2 × 2 services |
+| new unit rounds | 3, including both directions of "an invitation is not its own refusal" |
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
