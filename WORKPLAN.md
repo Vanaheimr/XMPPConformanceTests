@@ -9092,6 +9092,81 @@ to working code.
 
 ---
 
+---
+
+### D128. Connected is not visible ✅ — the flake that had been named six times
+
+`AnInvitationReachesSomebodyWhoIsNotInTheRoom` has been written down as *not
+from this change* in D120, D121, D123, D125, D126 and D127. D120 blamed this
+machine's ejabberd spool; D121 corrected the word "deterministic" and left the
+cause standing. It was neither. It is a race the round has always had, and two
+of the three far sides are forgiving enough to hide it.
+
+#### What the round actually did
+
+```
+27.182150  bob   -> <a h='2'/>                     bob's connect is finishing
+27.183557  alice -> <message><invite to='bob'...   1.4 ms later
+27.185620  ejabberd: bounce_offline_message        bob is not available - gone
+27.223312  bob   -> <presence/>                    40 ms too late
+```
+
+`ConnectAsync` returns when the initial presence has been **written**. Traced on
+the client side, bob's presence leaves at 318.80 ms, `ConnectAsync` returns at
+318.81, and alice's invitation goes out at 318.87 - **70 microseconds later, on
+a different TCP connection**. Which of the two reaches the server first is not
+anybody's to decide. On this machine bob's presence loses by about 40 ms often
+enough to be called flaky, and the number is the same both times it was
+measured, which is what a delayed acknowledgement over the Windows-to-WSL
+loopback looks like.
+
+#### Why only one service ever said so
+
+A message addressed to a bare JID with no available resource is a case the
+specification leaves to the service, and the two answer differently. Put to them
+deliberately, with the invitee not connected at all:
+
+| | a message for somebody not yet available |
+|---|---|
+| **ejabberd** | `ejabberd_sm:bounce_offline_message/1` - **gone.** There is no `mod_offline` in this configuration |
+| **Prosody** | kept and handed over when the account turns up |
+| **our own server** | kept - `StoreOfflineMessages` defaults to `true` |
+
+Both are allowed. That is the whole point: **two of the three far sides are
+forgiving, so the round was green wherever it was forgiven** - locally against
+Prosody, and in the nightly, where the timing on a Linux loopback rarely lets
+the presence lose. The one strict counterpart was answering the question
+honestly all along and was told it had a broken spool.
+
+#### The fix, and where it lives
+
+In `AForeignPeerTests.ConnectAsync`, which is the one door every far-side round
+goes through - not in the invitation round, because the invitation round is not
+special. A round trip after the connect settles it: RFC 6120, section 10.1 has a
+server handle one stream's stanzas in order, so an answer to something sent
+after the presence is proof that the presence is done with.
+
+It is **asserted**, not awaited and forgotten. A service that does not answer
+leaves the race standing, and a round standing in a race shall say so where the
+race is rather than fail somewhere else every third run.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| the round, before, alone | **8 of 8 red** - it was never flaky by itself, only inside a full run |
+| the round, after | **10 of 10 green** |
+| the mutation | the eight red runs *are* the mutation: same machine, same server, same binary, one line apart |
+| conformance suite | **103 of 103** - 97 passed, 6 skipped, and for the first time nothing red |
+
+*Correcting D120 and D121:* the spool was never involved. D120's own remark -
+"a red test nobody explains is one the next person has to explain again" - held
+for six entries, and the explaining cost more than the finding.
+
+*Not changed on purpose:* ejabberd keeps running without `mod_offline`. It is
+the only counterpart here that refuses to soften a race, which makes it the only
+one that can find the next one.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
@@ -9253,6 +9328,15 @@ What has proved itself in this project and should be kept:
 - **Secure fixes by mutation.** Green alone proves nothing — turn the fix back and
   check that exactly the responsible tests go red. That is how all corrections so far
   are shown.
+- **A round that does not set up the state it means to measure is measuring
+  somebody’s default.** Both of the last two findings are this one sentence. D127:
+  every room round configured the room before anybody talked, so nothing ever stood
+  in the case an ordinary room starts in. D128: no round waited for the far side to
+  take notice of a second client, so what it stood in was whichever service was
+  forgiving enough not to mind. A **forgiving far side hides a race and a strict one
+  shows it** — a message for a bare JID with no available resource is dropped by
+  ejabberd and kept by Prosody, and both are allowed. Where two of three counterparts
+  are forgiving, the third gets blamed.
 - **Compute against published vectors, not against oneself.** SCRAM and the caps hash
   are checked against RFC 5802/7677 and XEP-0115; two defects came to light through
   that in the first place.

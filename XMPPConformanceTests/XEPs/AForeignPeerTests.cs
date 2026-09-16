@@ -130,8 +130,27 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         }
 
         /// <summary>
-        /// Logs a client in, or skips the test.
+        /// Logs a client in and waits until the far side has taken notice of
+        /// them, or skips the test.
         /// </summary>
+        /// <remarks>
+        /// <b>Being connected is not being visible</b>, and the difference cost
+        /// six entries of "not from this change" (D128).
+        /// <see cref="XMPPClient.ConnectAsync"/> returns once the initial
+        /// presence has been <i>written</i>; whether the server has <i>handled</i>
+        /// it is a later moment, and a stanza that arrives at this account in
+        /// between is at the mercy of the service. Prosody keeps it and hands it
+        /// over afterwards; ejabberd, configured here without
+        /// <c>mod_offline</c>, bounces it and it is gone.
+        ///
+        /// Both are allowed, which is the point: a round that does not wait is
+        /// not measuring the question it asks, it is measuring whose default
+        /// happens to be forgiving.
+        ///
+        /// A round trip settles it. RFC 6120, section 10.1 has a server handle
+        /// one stream’s stanzas in order, so an answer to something sent after
+        /// the presence is proof that the presence is done with.
+        /// </remarks>
         protected async Task<XMPPClient> ConnectAsync(String localPart = User)
         {
 
@@ -160,6 +179,14 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             _clients.Add(client);
 
             await client.ConnectAsync();
+
+            // The round trip of the remark above. Asserted rather than awaited
+            // and forgotten: a service that does not answer leaves the race in
+            // place, and a round standing in a race shall say so loudly instead
+            // of failing somewhere else every third run.
+            Assert.That(await client.PingAsync(), Is.Not.Null,
+                        $"{PeerName} did not answer a ping, so there is no knowing whether it " +
+                        $"has taken notice of {localPart} yet.");
 
             return client;
 
