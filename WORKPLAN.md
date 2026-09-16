@@ -8176,9 +8176,33 @@ archiving an answer together with the text it answers; its page shows the
 quotation above the line instead, which is not optional, because the body no
 longer carries it.
 
+#### And then I did it again
+
+The archive went into the library and **neither client asked it anything** —
+the third time in this stretch that something worked and nobody was told, two
+entries after naming the pattern.
+
+- **The console** (`345d82f`): `/history`, and the last ten lines of a room
+  shown while entering it, because walking into a room and seeing nothing is
+  walking in blind. A room that keeps no archive now says so *and says what
+  follows*: without an archive there is no name for a reply to point at, so
+  `/re` cannot work there either. D116 found that the hard way; the console
+  passes it on.
+- **The web app** (`962f25f`): the server's archive is read once a connection
+  comes up and filled in behind what is on disk. Until now a conversation held
+  only what happened while the process was running — anything said on another
+  device was simply not there.
+
+And **the trap reappeared one layer up.** `AddIncoming` counts every message
+unread, so fifty lines somebody read last year on another device would have
+arrived as fifty new ones with a badge on the conversation. That is letting an
+archive travel as news again, this time in front of a person rather than in the
+stanza path. The store takes an `Archived` flag now.
+
 *Still not here:* archive preferences (which conversations a server should
-keep), and rooms in the web app — the protocol is in Ratatoskr, but its
-conversation list, archive and screen are built for two people talking.
+keep), asking the web app's archive for older pages on demand, and rooms in the
+web app — the protocol is in Ratatoskr, but its conversation list, archive and
+screen are built for two people talking.
 
 ---
 
