@@ -8335,6 +8335,120 @@ somewhere, and `AesGcmUrl` can still only decrypt one somebody else encrypted.
 
 ---
 
+### D120. One listener, two paths ✅ — the WebSocket moves onto the HTTP server
+
+D119 ended with a recommendation: the port is worth doing, **but not in that
+move** — it is the one transport everything here rides on, and a red test
+afterwards could not be told apart from a fault in XEP-0363. This is that move,
+on its own, and the recommendation turned out to be the right one for a reason
+nobody had guessed: it went red three times, and every time in Hermod.
+
+#### The hook was already there
+
+Not a rewrite. Three facts, measured before anything was touched:
+
+- `HTTPServer` already hands the raw stream to the handler
+  (`Request.NetworkStream = Stream`), which is exactly what an upgrade needs.
+- `AHTTPServer` and `AWebSocketServer` both descend from `ATCPServer`.
+- `WebSocketFrame` is already free of the server — `TryParse` plus static
+  builders — so the framing did not have to move at all.
+
+And there was already a pattern for handing a connection away: the SSE worker,
+which writes a response, keeps the stream open and lets somebody else speak.
+`HTTPResponse.UpgradeWorker` is the same shape with one difference — it runs
+**instead of** sending the response, because the answer to an upgrade carries
+the `Sec-WebSocket-Accept` and the negotiated extensions, and the HTTP layer
+knows neither.
+
+#### The handshake is not duplicated, and that decided the design
+
+The first sketch was to validate the upgrade in the HTTP handler and tell the
+WebSocket loop it was already past the handshake. That means a second
+implementation of RFC 6455 section 4.2.1 in a codebase that already has one —
+and it is the part that refuses connections for a living.
+
+So instead the request goes back in as bytes and the existing loop parses it,
+validates it, negotiates and writes the 101 itself. One path, once.
+
+The first attempt at that handed the bytes to the loop as a starting buffer, and
+it did not work: the loop rebuilds its buffer from what it has just read, so the
+seed is gone at the first iteration — and seeding what is *left over* does not
+help either, because nothing is processed until a read returns and a client
+waiting for a 101 sends nothing. `PrefixedStream` puts the request in front of
+the stream instead, which leaves the loop byte for byte as it was. That matters:
+it is the only version the 61 existing WebSocket tests have ever exercised.
+
+#### Three faults, and none of them was visible before
+
+| what | how it showed |
+|---|---|
+| a closed connection left its pending read in place | **ten seconds** between `Kill()` and the server noticing — the next ping interval. A server that had just thrown somebody off still believed they were connected |
+| `TcpClient.GetStream()` does not own the socket | closing the stream left the connection standing. After an upgrade the far side noticed **nothing at all** |
+| the same, for every `Connection: close` | a second request on the same client hung until its hundred-second timeout |
+
+The second and third are one fault seen twice, and the second time is the
+instructive one: it had been there all along, under every `Connection: close`
+this server has ever sent, and nothing noticed because **the far side usually
+closes too**. It took a case where somebody was left waiting — a client that had
+just been told why it was being thrown off and never saw the line go.
+
+All three were found by tests that have nothing to do with either change: two
+about stream resumption and authentication throttling, one about a slot that had
+been used twice.
+
+#### And one that is not caught where it belongs
+
+**The socket close is Hermod's behaviour and no Hermod test catches it.**
+Measured, not assumed: with the close mutated away, all six of the new rounds
+stay green — including one written specifically for it, which closes from
+inside its own message handler exactly as XMPP does. What goes red is
+Ratatoskr's suite.
+
+It is written down here rather than left to be found because a library whose
+behaviour is only held by a consumer drifts, and the day somebody tidies that
+close away, the failure will appear in a different repository.
+
+#### And then the other half of D119
+
+With one listener there was somewhere to put `/upload`, so the **serving** half
+of XEP-0363 exists now: `upload.<domain>`, a component, announced through
+`disco#items` — which this server had none of at all, although its `disco#info`
+announced the feature. That is the one combination there must not be, and it
+went unnoticed because nothing here had ever needed listing.
+
+A slot is treated as the capability it is: thirty-two bytes from the
+cryptographic generator, good once, for the announced size, for five minutes.
+The four refusals are the same four that D119 asks of Prosody and ejabberd,
+turned around — there whether a foreign service refuses what it should, here
+whether ours does. And what comes back out is served with `nosniff`, a content
+policy and a download disposition for anything but pictures, sound, film and
+plain text: an upload service hands out strangers' files under its own name,
+which makes an uploaded page a script on its own origin.
+
+Switched off by default. A server that takes files keeps them, and that is not
+something to start doing because somebody built a test server.
+
+#### The round
+
+| what | result |
+|---|---|
+| HermodTests | 2741 tests, 2737 passed, 1 skipped — the 3 failures are the chain-selector ones, red before this change and measured so by stashing it |
+| RatatoskrTests | 1320 tests — 1317 passed, 3 skipped. **Every one of the 1310 that existed before passes on the moved transport** |
+| conformance suite | 89 tests, unchanged by this |
+| new rounds | 6 for the arrangement, 10 for the upload service |
+
+*Also in this entry:* `/ws/` became `/xmpp`. RFC 7395 lays down no path at all;
+naming the transport was the wrong half on a server that now serves two things.
+
+*Not from this change:* `AnInvitationReachesSomebodyWhoIsNotInTheRoom` fails
+against the local ejabberd and passes against Prosody. It fails with the whole
+change stashed as well, and the nightly on a fresh container answers 89 of 89 —
+so it is this machine's ejabberd spool and not the code. Worth naming rather
+than leaving in the log: a red test nobody explains is one the next person has
+to explain again.
+
+---
+
 ## Later
 
 ### Test suite
