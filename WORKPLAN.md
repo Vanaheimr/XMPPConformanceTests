@@ -8820,6 +8820,107 @@ listener is not a feature, it is a thing to maintain.
 
 ---
 
+### D125. One cannot encrypt to a nickname ✅ — OMEMO in a room, and the setting it needs first
+
+Three stale lines in the README, then the thing they were about. The lines
+first, because they were the kind of sentence D122 and D119 both got caught by:
+one said moderating and inviting were not here (D117), one said the serving half
+of XEP-0363 was not here (D120), and one gave "no MUC" as the reason there is no
+group encryption — a reason that stopped being true in D116.
+
+#### The sentence the whole entry follows from
+
+**OMEMO encrypts to the devices of a bare address, and a room hands out
+nicknames.** Everything below is a consequence.
+
+**A room may be made to tell.** A service is semi-anonymous unless told
+otherwise and gives real addresses to its moderators only, so a participant in
+an ordinary room cannot encrypt to anybody at all. `muc#roomconfig_whois =
+anyone` changes that — which meant implementing the part of the owner protocol
+this library had skipped since D116, where the whole of it was a single empty
+submit.
+
+And the form is fetched, changed and sent back whole. **A configuration form is
+a state and not a patch**, and the short way is wrong in a way nothing reports:
+a submit carrying only `muc#roomconfig_whois` tells the service every other
+field is now unset. The service answers `result`, because nothing about the
+request was malformed, and the room quietly loses its password, its member list
+and whether it persists.
+
+**Half a room is not a room.** If one occupant's real address is unknown there
+is a person present who cannot read what is written — so the message is refused
+and the refusal names them. That is the opposite of the answer for a missing
+*device*, where the send goes ahead and the device is reported, and the
+difference is the whole reason it is worth writing down: a device is invisible
+and a person standing in the room is not. Skipping a contact's fourth device
+makes them unreachable on one machine; skipping an occupant makes a conversation
+that visibly includes them exclude them, and tells neither side.
+
+**The service says who is behind a nickname, and the envelope checks it.** This
+is where encrypting in a room differs from encrypting to a person, and it is the
+part worth being exact about. The mapping from `room@service/alice` to
+`alice@example.org` comes from the room service and from nowhere else — so a
+service that wanted to read along could put its own account behind a nickname.
+
+What stops that is XEP-0420, which has been in this library since D62 and has
+never had to carry anything: the sender writes their own real address *inside*
+the encryption, and it is compared with the sender the stanza claims. A room
+that lies produces a message that does not decrypt, rather than one that
+decrypts as the wrong person. There is a round for exactly that, with the room
+played by the test so it can be made to lie.
+
+What it does **not** stop is a service adding an occupant nobody notices. In a
+room the service decides who is in the conversation; encryption keeps the server
+from reading along, it does not keep the room from inviting. Written down rather
+than left implied.
+
+#### What the far side corrected
+
+Round 8 was written expecting that configuring a room mid-visit makes the
+addresses appear. Prosody accepts the configuration, announces it with status
+172 — and **does not send the occupants again**. Nothing in section 10.2.1 says
+it must.
+
+Two things came out of that. The first is ours: **the client did not read 172 at
+all.** It arrives as a message carrying nothing but status codes, so a client
+watching presences for what a room is never hears it, and ours went on believing
+every configured room was still anonymous. The second is the far side's, and it
+is not a fault to work around: whoever is already in the room stays nameless
+until they send a presence of their own. Re-joining to force it would throw
+everybody's view of the room away to fetch something the specification never
+promised. The addresses arrive for whoever comes in **after** the configuration,
+which is the order anybody setting up an encrypted room would use anyway — and
+is now what the round checks.
+
+*Also found, and left alone:* against a server that remembers, a client keeping
+its OMEMO material in memory publishes a new device id every run, and the device
+list in PEP is the account's. After a handful of runs it names devices whose
+bundles nobody will ever publish again, and every one is reported skipped for
+ever. The library is right to send anyway; the round was wrong to demand an
+empty list, and now asks the narrower question — whether the device on the other
+end of *this* conversation was left out.
+
+#### The round
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1355 tests — 1352 passed, 3 skipped (was 1337) |
+| mutations | 11, all caught on the first pass |
+| conformance suite | 103 tests, 4 new — two rounds against each service |
+| Prosody room lane | 15 of 15 |
+| ejabberd room lane | 14 of 15; the one red is the invitation round, which is red on an untouched tree too |
+| XMPPConsole | 29 tests |
+
+The console can write encrypted in a room: `/roomencrypt` for the setting, and a
+line then says which of the two it was — a lock, or the reason it went in the
+clear. It asks before configuring, because that changes the room for everybody
+in it.
+
+*Not here:* the web app, which has no rooms at all — there is nothing to encrypt
+in yet. And the ejabberd invitation round, still flaky, still older than this.
+
+---
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones

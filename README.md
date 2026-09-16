@@ -13,17 +13,17 @@ names this assembly from inside Ratatoskr, so the two repositories can only be
 moved together (D99). **Nightly** is where the conformance verdict lives: it
 installs Prosody 13, ejabberd 24.12, python-omemo and slixmpp into the container and
 runs everything against them — federation, stream management, OMEMO and
-XEP-0454 — **99 of 99, nothing skipped**, and then repeats the lane against
+XEP-0454 — **103 of 103, nothing skipped**, and then repeats the lane against
 Ratatoskr's current master to catch what the pins hide.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
-this suite is green at "2 passed, 97 skipped" on a bare runner and green at "99
+this suite is green at "2 passed, 101 skipped" on a bare runner and green at "103
 passed" in the container — the same colour for the run that measured everything
 and the run that measured nothing. Selected by category, each lane has a number
 it must hit, and any skip at all is a finding (D101).
 
 The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39,
-40, 45, 52, 59, 65, 71, 89, 93, 99 so far, and `nightly.yml` carries the history beside the figure together with
+40, 45, 52, 59, 65, 71, 89, 93, 99, 103 so far, and `nightly.yml` carries the history beside the figure together with
 the revision it was last measured at. The 2 does not, and that is the point of
 the split rather than an accident: everything needing a far side is on the other
 side of the filter, so the gate growing would be news.
@@ -109,11 +109,11 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0280 | Message Carbons | ✅ | With spoofing protection |
 | XEP-0308 | Last Message Correction | ✅ | Receiving: `XMPPMessage.ReplacesId` names the message replaced, `IsCorrection` the fact. Sending: `CorrectLastMessageAsync` corrects the last message **to the same recipient** (section 5) and becomes the last one itself, so that a correction can be corrected. In the console `/fix <text>`; announced in disco#info (D60) |
 | XEP-0333 | Chat Markers | ✅ | Sending + receiving, namespace-checked against being confused with XEP-0184 |
-| XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112) |
+| XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112). **And in a room since D125**, which is where that envelope stops being a formality: the mapping from a nickname to a real address comes from the room service and from nowhere else, so the envelope is the only thing standing between a service and putting words in somebody's mouth |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
 | XEP-0454 | OMEMO Media Sharing | ✅ | **Both halves since D121**, and the lane behind it is the only one here where a file passes through a foreign server that cannot read it. The ciphertext goes to Prosody's and ejabberd's upload services under a random name and `application/octet-stream`; the round fetches it back *without* the key as well, because a round trip on its own passes just as happily when nothing was encrypted at all. And the oracle now answers in the other direction: until D121 every round handed us what pyca wrote and asked whether we read it — which is the easy half, because an implementation can read everything the reference writes and still write something the reference cannot read |
 | XEP-0084 / XEP-0163 | User Avatar over PEP | ✅ | Three rounds against each service, and what they check is **not ours**: that the server pushes a node to a contact whose caps ask for it. Nothing in the test asks for the change — Alice publishes and Bob is told, and the roster subscription, the caps and the decision to deliver are all the server's bookkeeping. It is also the first lane here that needs the two accounts to know each other; rooms, archives and uploads all work between strangers. Its first run found that **neither far side had personal eventing switched on** — `mod_pep` on Prosody, `mod_pubsub` with the `pep` plugin and `mod_caps` on ejabberd — which is the fourth time in this suite that a module was there all along and had to be asked for |
-| XEP-0045 | Multi-User Chat | ⚠️ | The visiting half: entering a room, being in it, following who is in it, leaving — and the one step of the owner protocol without which a room a join created stays locked for everybody else. Checked against the room services of **both** Prosody and ejabberd, thirteen rounds each, over what a single client cannot do at all: a room that did not exist a moment ago, a second person seen from the first, a nickname refused as taken. Configuring, moderating and inviting are **not** here. The first run found that Prosody attaches the `<stanza-id/>` a reply in a room must point at only when the room archives — so a room without an archive is one in which nothing can be answered, which is what `ReplyableId` returning null has meant since D114 |
+| XEP-0045 | Multi-User Chat | ⚠️ | The visiting half: entering a room, being in it, following who is in it, leaving — and the one step of the owner protocol without which a room a join created stays locked for everybody else. Checked against the room services of **both** Prosody and ejabberd, thirteen rounds each, over what a single client cannot do at all: a room that did not exist a moment ago, a second person seen from the first, a nickname refused as taken. **Moderating and inviting came in D117**, ten further rounds against each service: a kick names a nickname and a ban a real address — a role lasts for the visit, an affiliation outlives it — and the status codes that tell a departure from a kick now arrive from a service instead of from a fixture this project wrote itself. **D125 added the one piece of the owner protocol that decides whether a room can be encrypted in** (`muc#roomconfig_whois`, section 10.2.1), and the whole form is fetched and sent back rather than patched — a submit carrying only the changed field tells a service every other setting is now unset, and it answers `result` while quietly resetting the password and the member list. Destroying a room and the affiliation lists are still not here. The first run found that Prosody attaches the `<stanza-id/>` a reply in a room must point at only when the room archives — so a room without an archive is one in which nothing can be answered, which is what `ReplyableId` returning null has meant since D114 |
 | XEP-0426 / XEP-0428 / XEP-0461 | Message Replies | ✅ | The reference is two attributes; the part that can be got wrong is the quotation beside it. XEP-0428 points into the body with offsets counted in **Unicode code points** (XEP-0426) and .NET counts in UTF-16 units — the same number for every text a test gets written with, and different at the first emoji. Checked against slixmpp in both directions, which is the only far side able to judge this at all: a reply is client-to-client, so both servers carry it across without looking. With both halves of our counting switched to UTF-16 — internally consistent, and therefore the realistic mistake — Ratatoskr's own 21 reply tests stay green but for one hand-computed constant, and `ReplyOracleTests` goes red in both directions (D114) |
 | XEP-0363 / XEP-0066 | HTTP File Upload | ⚠️ | **Both halves since D120, and the only lane here whose interesting part is not XMPP.** The slot is asked for over the stream, the bytes go over HTTPS to an address the service invented, and a second client then fetches them with nothing to identify itself as — none of which one client can arrange with itself. Nine rounds against each service, and **two of them go round our own client on purpose**: a PUT at an address that was never handed out (with and without a borrowed token) and a PUT of a thousand times the length the slot was issued for. Both services answer both with a 4xx. That pair is what decides whether an upload service is a service or a drop box for the whole internet — the download has to be anonymous, because the person a file is sent to is usually on another server and has no account to show; the upload must not be. **And the test server answers the same four questions since D120**, at `/upload` on the same listener its XMPP WebSocket uses: that is what the transport moved onto Hermod's HTTP server for, and the move found three faults in Hermod that nothing had ever provoked |
 | XEP-0352 | Client State Indication | ✅ | Both sides. The server announces `<csi/>` after the login (§4.1) and does not answer `<active/>`/`<inactive/>` (§4.2). Held back is only what will still be true later: presence waits and **the last one per full JID replaces the earlier ones** (§3), a message with text, an `iq`, an error and every nonza go out at once, a chat state (XEP-0085) is dropped — it would not be late on being handed in later, it would be wrong. What was held back goes out **before** the stanza that empties the buffer (RFC 6120 §10.1), and at the end of the connection into the buffer of unacknowledged stanzas. Upper bound `MaxHeldWhileInactive` (default 100); on overflow the buffer goes out instead of anything being thrown away. After a resumption "active" holds again (§5.2) — this is why the client declares itself anew after every setup. In the console `/csi active|inactive` (D61) |
@@ -377,7 +377,7 @@ The suite is driven in two lanes, and **each owes zero skips**:
 # The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
 
-# The verdict: with Prosody, ejabberd and the oracles up. 99 of 99
+# The verdict: with Prosody, ejabberd and the oracles up. 103 of 103
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 ```
 
@@ -963,7 +963,19 @@ distribution, session store and the wiring.
 - **The point arithmetic for XEdDSA is not hardened against timing.** For a
   client on the device of its user that is the right order of worries; for a
   server it would be the wrong one
-- **No MUC** (XEP-0045) and thereby no group encryption
+- ~~No group encryption~~ **Since D125**, and the addressing problem it used to
+  stand on is worth keeping in view: OMEMO encrypts to the devices of a *bare
+  JID*, and a room hands out occupant addresses. So a room can carry it only
+  when it is **non-anonymous** (`muc#roomconfig_whois = anyone`), and a
+  semi-anonymous room — every service's default — is refused rather than
+  improvised around. One occupant whose real address is unknown stops the whole
+  message, which is the opposite of the rule for one unreachable *device*: a
+  device is invisible and a person standing in the room is not. **What keeps a
+  lying room service out is XEP-0420**, not the addressing: the sender writes
+  their own address inside the encryption, so a service that puts its own
+  account behind a nickname produces a message that does not decrypt rather than
+  one that decrypts as the wrong person. What it does not stop is the service
+  adding an occupant — in a room, the service decides who is in the conversation
 - The Signed PreKey is not rotated on its own — `RotateSignedPreKey` exists, a
   schedule for it does not
 
@@ -975,9 +987,10 @@ distribution, session store and the wiring.
   of its own further below. And there is no foreign OMEMO client here to check
   that against — what is checked is the agreement with the text, not with
   reality
-- ~~No HTTP File Upload (XEP-0363)~~ The asking half since D119. The serving
-  half is not here and is a different thing entirely: handing out slots and
-  taking files is a service, not a client
+- ~~No HTTP File Upload (XEP-0363)~~ The asking half since D119 and the serving
+  half since D120 — the latter in the **test server**, where it belongs: handing
+  out slots and taking files is a service, not a client. The client does not
+  serve and is not meant to
 - ~~No Client State Indication (XEP-0352)~~ Implemented in D61, on both
   sides — see the table above
 - No Flexible Offline Message Retrieval (XEP-0013) — the store comes out in

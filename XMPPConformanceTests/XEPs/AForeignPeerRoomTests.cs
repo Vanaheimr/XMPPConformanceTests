@@ -786,6 +786,220 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 8. A room hands out real addresses only when it is told to
+
+        /// <summary>
+        /// XEP-0045, section 10.2.1: <c>muc#roomconfig_whois</c>, and what
+        /// changes for a <b>participant</b> when it does.
+        /// </summary>
+        /// <remarks>
+        /// <b>The question that decides whether a room can be encrypted in at
+        /// all</b>, and it is entirely the service's bookkeeping: who is told
+        /// the real address behind a nickname. A moderator is told either way -
+        /// round 9 depends on that - so the interesting side is Bob's, who is
+        /// nobody in particular.
+        ///
+        /// Three things are asked, and the first is what makes the others mean
+        /// anything: a default room must give Bob <b>nothing</b>. Without that,
+        /// a service that hands real addresses to everybody always would pass
+        /// the rest while the configuration did nothing at all.
+        ///
+        /// <b>The second was written the wrong way round first, and the far side
+        /// corrected it.</b> The round expected that configuring a room mid-visit
+        /// would make the addresses appear. Prosody accepts the configuration,
+        /// announces it with status 172 - and does not send the occupants again.
+        /// Nothing in section 10.2.1 says it must. So whoever was already in the
+        /// room stays nameless, and what the client learns from the 172 is only
+        /// that the <i>room</i> changed.
+        ///
+        /// That is not a fault to work around by re-joining: throwing away
+        /// everybody's view of a room to fetch something the specification never
+        /// promised is worse than saying what is true. The addresses arrive for
+        /// whoever joins <b>after</b> the configuration - which is the order
+        /// anybody setting up an encrypted room would use anyway, and is what
+        /// the third part checks.
+        /// </remarks>
+        [Test]
+        public async Task ARoomTellsWhoSomebodyIsOnlyWhenConfiguredTo()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            await WaitFor(() => bob.Room(room)!.Occupants.Count == 2, "the other occupant, seen by Bob");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(bob.Room(room)!.Occupants[User].RealJid, Is.Null,
+                            $"{PeerName} tells an ordinary participant who everybody really is, in a " +
+                            "room nobody configured. Then round 9 below proves nothing: it would " +
+                            "pass whether the configuration worked or not.");
+
+                Assert.That(bob.CannotEncryptInRoom(room), Does.Contain("semi-anonymous"),
+                            "A default room was taken for one that can be encrypted in.");
+
+            });
+
+            // And now the owner changes what the room is.
+            Assert.That(await alice.MakeRoomNonAnonymousAsync(room), Is.True,
+                        $"{PeerName} would not set muc#roomconfig_whois - either it does not offer " +
+                        "the field, or it refused the submit. Then no room on this service can " +
+                        "carry an encrypted conversation.");
+
+            // Status 172, as a message carrying nothing but status codes. A
+            // client watching presences for what a room is never hears it.
+            await WaitFor(() => bob.Room(room)!.IsNonAnonymous,
+                          "status 172, saying the room is no longer anonymous");
+
+            Assert.That(bob.Room(room)!.Occupants[User].RealJid, Is.Null,
+                        $"{PeerName} sent the occupants again after the configuration. That is more " +
+                        "than section 10.2.1 asks for - and if it holds, the note in OmemoRooms " +
+                        "about people already present staying nameless is wrong for this service.");
+
+            // Whoever comes in afterwards is named, and that is the order this
+            // is meant to be used in.
+            //
+            // A second connection rather than Bob leaving and walking back in:
+            // the two would race, because the unavailable presence of the
+            // leaving arrives after the joining has already put the room back,
+            // and takes it away again. Two resources of one account under
+            // different nicknames is something a service allows and something
+            // people do.
+            var again = await ConnectAsync(User2);
+
+            Assert.That((await again.JoinRoomAsync(room, "late")).Joined, Is.True);
+
+            await WaitFor(() => again.Room(room) is not null &&
+                                again.Room(room)!.Occupants.ContainsKey(User) &&
+                                again.Room(room)!.Occupants[User].RealJid is not null,
+                          "the real address of the other occupant, joining after the configuration");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(again.Room(room)!.Occupants[User].RealJid!.Value.Bare,
+                            Is.EqualTo(JID.Parse($"{User}@{PeerDomain}")),
+                            "The address the service handed out is not the one behind that nickname.");
+
+                Assert.That(again.CannotEncryptInRoom(room), Is.Null,
+                            "The room is non-anonymous and this client still will not encrypt in it.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 9. What is said encrypted in a room stays in the room
+
+        /// <summary>
+        /// XEP-0384 through a room service nobody here wrote.
+        /// </summary>
+        /// <remarks>
+        /// The round that needs everything before it: the room made
+        /// non-anonymous (round 8), the service writing the real addresses in,
+        /// PEP carrying the bundles - which is the same personal eventing the
+        /// avatar lane had to switch on in D122 - and the room reflecting a
+        /// stanza it cannot read.
+        ///
+        /// <b>What makes it worth running against a foreign service</b> is the
+        /// last part. A room service handles a <c>groupchat</c> message with no
+        /// <c>&lt;body/&gt;</c>, and there is nothing obliging it to pass one
+        /// on: a service that decides an empty message is nothing to deliver
+        /// would break every encrypted room without a single error anywhere.
+        /// Our own tests cannot ask that question - there the room is played by
+        /// the test, and it passes on whatever it is given.
+        ///
+        /// <b>What is deliberately not asserted is an empty Skipped list</b>,
+        /// and the reason is a property of running against a server that
+        /// remembers. These clients keep their OMEMO material in memory, so
+        /// every run announces a new device id - and the device list in PEP is
+        /// the account's, which outlives the run. After a handful of runs it
+        /// names devices whose bundles nobody will ever publish again, and every
+        /// one of them is reported skipped, for ever.
+        ///
+        /// That is the library behaving correctly: one unreachable device must
+        /// not make a person unreachable. So what is asked here is the narrower
+        /// and actually interesting question - whether <i>the device on the other
+        /// end of this conversation</i> was left out.
+        ///
+        /// The plaintext check at the end is what stops this from passing for a
+        /// client that gave up and sent in the clear.
+        /// </remarks>
+        [Test]
+        public async Task WhatIsSaidEncryptedInARoomStaysInTheRoom()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            Assert.That(await alice.MakeRoomNonAnonymousAsync(room), Is.True,
+                        $"{PeerName} would not make the room non-anonymous.");
+
+            var bob = await ConnectAsync(User2);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(alice.EnableOmemoAsync().GetAwaiter().GetResult(), Is.True,
+                            $"Alice could not switch OMEMO on against {PeerName} - the bundles go " +
+                            "over PEP, so this is the same personal eventing the avatars needed.");
+                Assert.That(bob.EnableOmemoAsync().GetAwaiter().GetResult(), Is.True,
+                            $"Bob could not switch OMEMO on against {PeerName}.");
+            });
+
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            await WaitFor(() => alice.Room(room)!.Occupants.Count == 2 &&
+                                alice.Room(room)!.Occupants[User2].RealJid is not null,
+                          "both occupants, with their real addresses");
+
+            var heard = new ConcurrentQueue<String>();
+
+            bob.OnEncryptedMessage += (t, s, message, omemo, ct) =>
+            {
+                // Only what really came out of the envelope, and attributed to
+                // the person the envelope names - not to the nickname the room
+                // wrote on the outside.
+                if (omemo.EnvelopeFrom?.Bare == JID.Parse($"{User}@{PeerDomain}"))
+                    heard.Enqueue(message.Body);
+
+                return Task.CompletedTask;
+
+            };
+
+            const String secret = "The room is not the server's to read.";
+
+            var sent = await alice.SendEncryptedRoomMessageAsync(room, secret);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(sent.Refusal, Is.Null, $"Nothing was sent: {sent.Refusal}");
+
+                Assert.That(sent.Recipients, Does.Contain(JID.Parse($"{User2}@{PeerDomain}")),
+                            "Bob was not among the people this was encrypted to.");
+
+                Assert.That(sent.Skipped.Any(s => s.Jid.Bare == JID.Parse($"{User2}@{PeerDomain}") &&
+                                                  s.DeviceId == bob.Omemo!.Identity.DeviceId),
+                            Is.False,
+                            "The device actually on the other end of this conversation was left " +
+                            "out: " +
+                            String.Join(", ", sent.Skipped.Select(s => $"{s.Jid}/{s.DeviceId}: {s.Reason}")));
+
+            });
+
+            await WaitFor(() => heard.Contains(secret),
+                          $"the encrypted line, through {PeerName}'s room service");
+
+            Assert.That(heard, Does.Contain(secret));
+
+        }
+
+        #endregion
+
     }
 
 }

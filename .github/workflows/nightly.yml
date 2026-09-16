@@ -150,14 +150,14 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 97 of these 99. The two
+      # the gate's `TestCategory!=WSL` and would run 101 of these 103. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 99 tests, 99 passed, 0 skipped, with every far side up: the
-      # affix check, the five reply checks, twice thirteen room and archive
+      # Expect 103 tests, 103 passed, 0 skipped, with every far side up: the
+      # affix check, the five reply checks, twice fifteen room and archive
       # checks, twice ten upload checks, six against the XEP-0454 oracle and
       # twice three avatar checks.
       #
@@ -260,6 +260,15 @@ jobs:
       # on at all - mod_pep on Prosody, mod_pubsub with the pep plugin and
       # mod_caps on ejabberd. Fourth time in this suite that a module was there
       # all along and had to be asked for.
+      #
+      # And 103 with OMEMO in a room (D125), which is two questions in one:
+      # whether a service writes the real addresses into the occupant presences
+      # when muc#roomconfig_whois says to - without which nothing in a room can
+      # be encrypted at all - and whether it passes on a groupchat message that
+      # has no <body/>. Nothing obliges it to: a service deciding an empty
+      # message is nothing to deliver would break every encrypted room without
+      # an error anywhere. Our own tests cannot ask that, because there the room
+      # is played by the test and passes on whatever it is given.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.
