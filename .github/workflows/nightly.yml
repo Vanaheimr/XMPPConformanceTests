@@ -160,10 +160,13 @@ jobs:
       # affix check, the five reply checks, twice thirteen room and archive
       # checks and twice nine upload checks.
       #
-      # The 71 was measured on Debian 13 at 6883eb4. The eighteen that D119 adds
-      # were measured on Windows against the same two services, so this line is
-      # the first place the Debian figure for them gets checked - and if the two
-      # disagree, that disagreement is the finding rather than a nuisance.
+      # Measured on Debian 13 at b19331e, in both lanes: pinned submodules and
+      # against Ratatoskr's master. The 71 before it was measured at 6883eb4.
+      #
+      # The eighteen D119 adds were written and measured on Windows first, and
+      # the platforms did disagree once on the way - Uri.TryCreate("/p",
+      # UriKind.Absolute) fails on Windows and succeeds on Linux, where it means
+      # file:///p. That went red here and was a fault in the code, not the test.
       # The revision is named because a count that says nothing about when it was
       # taken cannot be told apart from one that has gone stale, and this figure
       # has moved four times in four entries.
