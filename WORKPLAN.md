@@ -8633,6 +8633,89 @@ face, and neither can send a file. Three entries running now.
 
 ---
 
+### D123. The clients catch up ✅ — files in both, a face in one, and an address that carried a key in the clear
+
+Three entries running ended with the same sentence: the library can send a file
+and carry a picture, and neither client could do either. This is that sentence
+being deleted.
+
+#### The console
+
+`/send <path>`, and `/send -e <path>` for a file the storage host cannot read.
+The announced limit is asked for **before the file is read from disk**, because
+a refusal that arrives after a hundred megabytes have been read is a worse way
+to learn it.
+
+`/avatar` publishes a picture, `/avatar off` takes it down, `/avatar <jid>`
+fetches somebody else's and says where it went. A terminal cannot show a face;
+what it can do is say there is one and put it where something else can open it.
+
+**A change announced by a contact is a note and not a fetch.** What arrives is a
+few bytes saying what the picture is; fetching it unasked would let every contact
+who changes their avatar decide that this machine downloads something.
+
+And an incoming file message is shown as a file rather than as the address it
+is. The body of such a message *is* the URL — which is right, and is what a
+client that never heard of XEP-0066 needs — but this one has heard of it. The
+aesgcm key stays off the screen: a terminal is copied, pasted into a bug report,
+sent on.
+
+*Also corrected:* a comment in `MediaLinks` saying Ratatoskr does not read the
+OOB element. It has since D119. Where the element speaks it is believed over the
+heuristic; the heuristic stays for the messages that carry none, which is most
+of what is in the wild.
+
+#### The web app, and the one rule worth writing down
+
+A paperclip beside the composer, and behind it a rule that is one line long and
+easy to get backwards: **the conversation's encryption decides the file's.**
+
+Not "encrypt whenever OMEMO is available" — that encrypts files in a chat
+somebody deliberately left in the clear. Not "never" — that puts a photograph on
+a server in a conversation somebody deliberately encrypted. Somebody who turned
+encryption on and then sent a photograph in the clear would be right to be
+surprised, and nothing about a working upload would have told them.
+
+Both directions are checked by looking at what is **on the server**, because an
+assertion on the address alone passes for a client that wrote the scheme and
+forgot the encryption.
+
+#### And the third test found something
+
+The web app's end-to-end fixture runs a server speaking `ws://` and `http://` —
+`AccountSettings` offers no way to trust a self-signed certificate, and rightly
+so, because a web app that could would be one that can be talked into it.
+
+Over that server an encrypted send produced an `aesgcm://` address and then
+**spent thirty seconds failing a TLS handshake against a server that speaks
+none.**
+
+`aesgcm://` is defined as an https address with the scheme swapped. One built
+over plain http therefore names somewhere that does not answer — and, worse,
+carries the key on a transport that shows it. `ToAesGcm` refuses a non-https
+address now, and `UploadEncryptedAsync` reports that rather than throwing: the
+caller asked to send a file, and "it could not be done" is an answer. The file
+is up by then and nobody will be told where, which is the better of the two
+outcomes.
+
+**Found by a test and not by reading.** The specification says https and it was
+read; what was not thought through is what happens when the address is not one.
+
+#### The round
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1337 tests — 1334 passed, 3 skipped |
+| XMPPConsole | 29 tests |
+| XMPPWebApp | 131 tests — 126 passed, 5 skipped |
+| conformance suite | 99, unchanged by this |
+
+*Still not here:* avatars in the web app. The console shows what it can of one
+and the page shows none at all, which needs a place to keep them and a change to
+the conversation list rather than another command.
+
+---
+
 ## Later
 
 ### Test suite
@@ -8770,7 +8853,7 @@ implementation can be checked.
   | XEP-0363 | ~~**HTTP File Upload** — the way to send anything that is not text~~ ✅ done in D119, in the asking half. Same story as XEP-0045 and XEP-0313 before it: both services ship the module and it only had to be switched on. What the lane found is not in the protocol at all — it is that two of its questions can only be asked by *going round* our own client, because a client that is written correctly cannot address a slot nobody issued |
   | XEP-0461 | ~~**Replies** — a reference to the message being answered~~ ✅ done in D114. The reason it stood here — "client-to-client, so the servers cannot judge it" — was right about the servers and wrong about the conclusion: the far side did not have to be a server. slixmpp has its own `xep_0461`, and for the part that can actually be got wrong it is a better oracle than a server would be |
   | XEP-0163 | ~~**Avatar over PEP** — the nodes exist since the OMEMO work, the picture does not~~ ✅ done in D122. The nodes were indeed the easy part; what the lane found was that neither far side had personal eventing switched on at all, which is the fourth time in this suite that a module was there all along and had to be asked for |
-  | — | **The two clients and files.** Since D119 to D121 the library can send a file, encrypted or not, and neither the console nor the web app can. Both already *recognise* a media link and show it; neither can produce one. The same shape as D117 and D118 |
+  | — | ~~**The two clients and files.** Since D119 to D121 the library can send a file, encrypted or not, and neither the console nor the web app can~~ ✅ done in D123, together with avatars in the console. What is left is avatars in the **web app**, which needs somewhere to keep a picture and a change to the conversation list rather than another command |
   | — | ~~**A handler for IQs of our own**, for protocol extensions outside the XEP catalogue. Relevant for OCA and e-mobility, and that is the use case that would check it~~ ✅ done in D113. The use case did not arrive first after all — the point was taken up because it was the only one of this list the existing machinery can actually judge: a registered namespace has to reach `disco#info` and the caps hash, and that is behaviour a real server answers about. XEP-0461 beside it stays here for the opposite reason, and the reason is worth keeping: it is client-to-client, so Prosody and ejabberd pass it through without looking, and "we wrote what the specification says" is the kind of check D62 to D65 says is not enough |
 
 ---
