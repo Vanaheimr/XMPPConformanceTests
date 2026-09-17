@@ -9629,6 +9629,115 @@ and the first is the more interesting of the two: it is a `chat` addressed to an
 occupant, so what it costs is not the sending but deciding what conversation it
 belongs to on arrival.
 
+---
+
+### D134. A word to one occupant ✅ — and the table that had been right by accident
+
+XEP-0045 section 7.5, the last of the leftovers worth doing. The far side got it
+right on both counts. What it found was here.
+
+#### Why it needed the third account
+
+Privacy is a statement about **who did not get something**, and with two
+accounts there is nobody left over to be that person. Every other round in this
+lane works with two: somebody sends, somebody receives. This one cannot, which
+is why it could not have been written before D131.
+
+So the round is three people in one room, and it is about the third.
+
+*And the silence is measured, not assumed.* Alice says something to the room
+first and waits for it to reach Carol; only then does the private word go to
+Bob. A round in which Carol simply hears nothing would pass just as happily
+against a room that delivers nothing to her - the D101 failure, twice avoided
+now.
+
+#### Asked twice, because delivery is not the only way out
+
+The second round is the one that would be easy to leave out. A service can route
+correctly and still write the line into the room's archive - it is a different
+module that does the writing - and D132 established that **a room's archive is
+open to anybody who may enter**. A private message in it is a private message
+handed to every stranger who asks, a week later, with nobody present to notice.
+
+Neither service does either wrong.
+
+#### What it found here: a key that had been right for eighteen entries
+
+A private message is addressed to `room@service/nick`. The last-sent table,
+which XEP-0308 corrections are looked up in, was keyed by **bare** address - and
+the bare address of an occupant is the room.
+
+> So every occupant of one room shared one entry, and the correction that
+> followed two private messages carried the id of the one sent to somebody else.
+
+Section 5 of XEP-0308 has a correction replace a message from the same sender to
+the same recipient. That one is for neither: the person receiving it has never
+seen what it claims to replace, and what it does replace for them is whatever
+else they were last sent.
+
+The table was not wrong before. Bare-keying is *right* for an ordinary
+conversation - somebody answering from their telephone is the same person - and
+nothing had ever been addressed to an occupant, so the case did not exist. **It
+had been correct for a reason that stopped holding the moment this entry added
+the first caller that breaks it**, which is the D130 lesson turned around: there,
+a correction broke something that worked by accident; here, a new feature did.
+
+#### What arrives, and why the marker is not read
+
+Section 7.5 asks a sender to add an empty `<x/>` in the `muc#user` namespace and
+then says, in the same breath:
+
+> because this requirement was only added in revision 1.28 of this XEP,
+> receiving entities MUST NOT rely on the existence of the `<x/>` element on
+> private messages for proper processing.
+
+So it is **sent and never trusted**. The reading is done from the room table,
+which is the only thing that can tell `room@service/nick` from a contact's full
+address by looking at it - which is to say, it cannot be told by looking at it.
+
+#### And the web app was relying on the two being the same
+
+D130’s rule, applied on purpose this time: **whenever a distinction is
+introduced, go and look for everybody who was relying on the two being the
+same.** The web app filed an arriving private word as a chat, which opened a
+conversation keyed by the room - and the conversation key is the address an
+answer is sent to.
+
+*The first fix was a no-op and the round caught it.* Filing it under the
+occupant address changes nothing, because `ChatStore.AddIncoming` bares every
+key it is given - correctly, since a contact is one conversation whatever device
+they answer from. The round went red against the fix, which is what a round is
+for.
+
+It belongs to the **room**, because that is where it was said. It is a line in
+the room now, and **marked** - which is not decoration: the composer under that
+conversation answers the room. This app can read a private word and cannot yet
+send one, and an unmarked line would be a trap of exactly the D127 kind.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **131 of 131** - 125 passed, 6 skipped here |
+| RatatoskrTests | 1369 - 1366 passed, 3 skipped; 1367 before |
+| XMPPWebApp | 168 - 163 passed, 5 skipped; 167 before |
+| new rounds | 2 × 2 services, three occupants each |
+| new wiring rounds | 2, and one in the web app |
+
+| mutation | result |
+|---|---|
+| the recognition is switched off | **both red** - it arrives looking like a chat with a contact |
+| the private word goes to the room's bare address | **both red**, by timing out: on both services a `chat` addressed there reaches *nobody at all* |
+| the correction key goes back to the bare address | **red**, and the failure prints the correction with Bob's message id in it, addressed to Alice |
+| the private word goes back into the chat list | **red** - it never reaches the room |
+
+#### Still not here
+
+Asking the service to invent a room name (section 10.1.4). It is the last of
+XEP-0045 that is not here, and it buys nothing this project needs: the suite
+makes room names out of GUIDs, which is the same unguessability by a shorter
+route.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones

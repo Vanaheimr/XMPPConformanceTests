@@ -1749,6 +1749,162 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 24. A word to one occupant is heard by one occupant
+
+        /// <summary>
+        /// XEP-0045, section 7.5: a private message in a room.
+        /// </summary>
+        /// <remarks>
+        /// <b>Three people in one room, and the round is about the third.</b>
+        /// Everything else in this lane can be checked with two: somebody sends,
+        /// somebody receives. Privacy cannot - it is a statement about who did
+        /// <i>not</i> get something, and with two accounts there is nobody left
+        /// over to be that person. That is what the third account (D131) buys
+        /// here, and the reason this round could not have been written before
+        /// it.
+        ///
+        /// <b>What arrives has to be distinguishable, and from the room table
+        /// alone.</b> A private message is an ordinary <c>chat</c> from
+        /// <c>room@service/nick</c>, which cannot be told from a contact's full
+        /// address by looking at it. Section 7.5 does ask a sender to add an
+        /// empty <c>&lt;x/&gt;</c> and then says outright that a receiver must
+        /// not depend on it, because the requirement only arrived in revision
+        /// 1.28. So the mark is sent and the reading is done from what this
+        /// client knows.
+        ///
+        /// Getting that wrong is not a display fault. A client that files by the
+        /// bare address puts the line in the room's own conversation, where it
+        /// was never said - and then answers it to the bare address, which says
+        /// out loud what was told to it in confidence.
+        /// </remarks>
+        [Test]
+        public async Task AWordToOneOccupantIsHeardByOneOccupant()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            var carol = await ConnectAsync(User3);
+            Assert.That((await carol.JoinRoomAsync(room, User3)).Joined, Is.True);
+
+            var heardByBob    = new ConcurrentQueue<XMPPMessage>();
+            var heardByCarol  = new ConcurrentQueue<XMPPMessage>();
+
+            bob.  OnMessage += (t, s, m, ct) => { heardByBob.  Enqueue(m); return Task.CompletedTask; };
+            carol.OnMessage += (t, s, m, ct) => { heardByCarol.Enqueue(m); return Task.CompletedTask; };
+
+            // Said to the room first, so that the silence below is measured
+            // against a line that did arrive. A round in which Carol hears
+            // nothing at all would pass just as happily against a room that
+            // delivers nothing to her - the D101 failure.
+            await alice.SendRoomMessageAsync(room, "to everybody");
+
+            await WaitFor(() => heardByCarol.Any(m => m.Body == "to everybody"),
+                          "the room's own message reaching the third occupant");
+
+            const String quietly = "for you alone";
+
+            Assert.That(await alice.SendRoomPrivateMessageAsync(room, User2, quietly), Is.Not.Null,
+                        "Nothing was sent, so nothing below is being measured.");
+
+            await WaitFor(() => heardByBob.Any(m => m.Body == quietly),
+                          $"the private word through {PeerName}'s room service");
+
+            var privately = heardByBob.First(m => m.Body == quietly);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(privately.IsRoomPrivate, Is.True,
+                            "It arrived looking like a chat with a contact. Answered that way it " +
+                            "goes to the room, and filed that way it stands in the room's " +
+                            "conversation where it was never said.");
+
+                Assert.That(privately.Type, Is.Not.EqualTo(MessageType.GroupChat),
+                            "The service passed it on as groupchat, which is the one thing " +
+                            "section 7.5 forbids outright.");
+
+                Assert.That(privately.From.Bare,        Is.EqualTo(room.Bare));
+                Assert.That(privately.From.Resourcepart, Is.EqualTo(User),
+                            "The sender is named by their address in the room, and this one is " +
+                            "somebody else - or nobody.");
+
+                Assert.That(heardByCarol.Any(m => m.Body == quietly), Is.False,
+                            $"{PeerName} handed a private message to an occupant it was not " +
+                            "addressed to. The room's own line had already reached her, so this " +
+                            "is the service passing it on and not the round being too quick.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 25. What was said to one occupant is not in the room's archive
+
+        /// <summary>
+        /// XEP-0045, section 7.5 against XEP-0313: the second place a private
+        /// word could escape.
+        /// </summary>
+        /// <remarks>
+        /// <b>Delivery is not the only way out.</b> Round 24 shows that the
+        /// service does not hand the line to the wrong occupant now; this asks
+        /// whether it wrote it down where anybody may read it later. A room's
+        /// archive is open to whoever may enter (D132) - so a private message in
+        /// it is a private message given to every stranger who asks, a week
+        /// afterwards, with nobody present to notice.
+        ///
+        /// The two questions are genuinely separate, and an implementation can
+        /// get the first right and the second wrong: the archive is written by
+        /// a different module from the one that routes.
+        /// </remarks>
+        [Test]
+        public async Task WhatWasSaidToOneOccupantIsNotInTheRoomsArchive()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            const String quietly = "not for the record";
+
+            Assert.That(await alice.SendRoomPrivateMessageAsync(room, User2, quietly), Is.Not.Null);
+
+            // The archive is asked about something the room did say, so that a
+            // page with nothing in it cannot pass for a page without the secret.
+            var echoed = new ConcurrentQueue<XMPPMessage>();
+            alice.OnMessage += (t, s, m, ct) => { echoed.Enqueue(m); return Task.CompletedTask; };
+
+            await alice.SendRoomMessageAsync(room, "for the record");
+
+            await WaitFor(() => echoed.Any(m => m.Body == "for the record"), "the room's echo");
+
+            var page = await alice.RoomHistoryAsync(room, 50);
+
+            Assert.That(page, Is.Not.Null,
+                        $"{PeerName} would not answer its own room's archive.");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(page!.Messages.Any(m => m.Message.Body == "for the record"), Is.True,
+                            "The archive came back without the line that was said to the room, " +
+                            "so its not holding the other one says nothing.");
+
+                Assert.That(page.Messages.Any(m => m.Message.Body == quietly), Is.False,
+                            "What was said to one occupant stands in the room's archive, which " +
+                            "D132 showed is open to anybody who may enter - so it is now a " +
+                            "private message handed to every stranger who asks for it later.");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

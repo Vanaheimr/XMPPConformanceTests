@@ -150,20 +150,20 @@ jobs:
       # keeping the reference implementation out of CI.
       #
       # Unfiltered rather than `TestCategory=WSL`, which is the counterpart of
-      # the gate's `TestCategory!=WSL` and would run 125 of these 127. The two
+      # the gate's `TestCategory!=WSL` and would run 129 of these 131. The two
       # left over are ThePatienceCoversWhatTheClientMayTake, which needs no far
       # side and costs nothing to run again here — and running the whole suite
       # in one step keeps the expected numbers below a single pair rather than
       # two that have to be added up.
       #
-      # Expect 127 tests, 127 passed, 0 skipped, with every far side up: the
-      # affix check, the five reply checks, twice twenty-five room and archive
+      # Expect 131 tests, 131 passed, 0 skipped, with every far side up: the
+      # affix check, the five reply checks, twice twenty-seven room and archive
       # checks, twice eleven upload checks, six against the XEP-0454 oracle and
       # twice four avatar checks.
       #
       # The 103 was measured on Debian 13 at b19331e, in both lanes: pinned
       # submodules and against Ratatoskr's master. The 71 before it was
-      # measured at 6883eb4. The 127 was measured on Windows against the same
+      # measured at 6883eb4. The 131 was measured on Windows against the same
       # two services and is named here before the container has confirmed it,
       # which is the one thing about this figure that is not yet evidence.
       #
@@ -322,6 +322,14 @@ jobs:
       # Prosody does not, and ejabberd's default room makes a joiner a
       # participant where Prosody's makes them a visitor - so the voice round
       # sets the role by hand rather than measure somebody's default.
+      #
+      # And 131 with the private message in a room (D134), which needs three
+      # occupants and could not have been written before there was a third
+      # account: privacy is a statement about who did NOT get something, and
+      # with two accounts there is nobody left over to be that person. Asked
+      # twice, because delivery is not the only way out - the second round asks
+      # whether the service wrote it into the room's archive, which D132 showed
+      # is open to anybody who may enter.
       #
       # A skip here is a finding: it means a peer did not come up or an oracle
       # did not import, and the reason will be in the TRX.
