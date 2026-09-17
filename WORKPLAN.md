@@ -9374,7 +9374,7 @@ same way and keep the same lists, because section 10.9 and section 9.5 leave
 them nothing to decide. Where the specification is definite, one far side would
 have done.
 
-#### Still not here
+#### Still not here — *all three done in D133*
 
 Voice requests (section 8.6), registering a nickname with a room, and entering
 one that wants a password. None of them is load-bearing for anything else in
@@ -9535,6 +9535,99 @@ fetch her own upload because she has the address. Neither says anything about
 what is being checked. It took an account with no standing to find out that in
 one case the answer is checked continuously, and in the other there is no answer
 because there is no question.
+
+---
+
+### D133. What XEP-0045 had left ✅ — a password, a voice, and a name held
+
+The three D130 named and left: entering a room that wants a password, asking to
+be allowed to speak, and holding a nickname. They turned out to be three
+different kinds of unfinished.
+
+#### The password: built, never met
+
+The client half has existed since **D116**. The `<password/>` goes into the join
+presence, `JoinRoomAsync` has taken one all along, and no round had ever stood in
+front of a room that wanted one. So what was missing was not code - it was the
+only thing that makes the code mean anything: a service reading it, and refusing
+without it.
+
+Both halves are asked together, because either alone passes for the wrong
+reason. A room that let everybody in passes the second; a room nobody can enter
+passes the first.
+
+*And the field has two names again.* Prosody's configuration form offers
+`muc#roomconfig_roomsecret` and nothing else; ejabberd offers a
+`muc#roomconfig_passwordprotectedroom` switch beside it. **Third time in five
+entries** that a setting is named differently by the two services - after the
+archiving field (D129) and the invite permission (D129). A client that knows one
+name configures nothing at all on the other.
+
+#### The voice request: nothing marks it
+
+This is the one worth the entry. A voice request (section 8.6) arrives as an
+**ordinary message with no body and no status code** - only a data form inside
+it. So:
+
+> a client reading bodies shows nothing, a client reading status codes sees
+> nothing, and the person standing in the room goes on waiting to be let speak
+> while every moderator is told and none of them knows it.
+
+That is, exactly, the shape of the configuration notice D125 found, and it had
+been missed for the same reason. The console prints it now, with the real
+address beside the nickname where the room gave one - in a semi-anonymous room
+that is the whole of what a moderator has to decide on.
+
+The answer goes back as the **whole form**, the D125 rule again. Here nothing is
+stored, so an incomplete answer resets nothing; what it does instead is name
+nobody, and a room matches an answer to a request by what is in it.
+
+And the round asserts not that the answer was *sent* but that it **did
+something**: a service that took it politely and left the role alone would pass
+everything up to that point. The mutation - answering `false` - takes it down on
+both.
+
+#### The nickname: it was under somebody else's name
+
+Nothing in this library looked like section 7.10 because it is **XEP-0077
+pointed at a room**: `jabber:iq:register`, not any namespace of XEP-0045's own.
+It had been searched for under the wrong name.
+
+A reservation is not an affiliation, and the difference is worth keeping
+straight: being on the member list says one may enter, holding a nickname says
+nobody else may enter under that name. Different protocols, different places,
+and D130 did the first without touching the second.
+
+**The two services answer the read-back differently.** Both say the reservation
+exists; ejabberd names it, Prosody does not. Neither is wrong - the section has
+the service return the registration form and does not oblige it to fill anything
+in - so `MucNicknameRegistration` keeps *is there one* and *what is it* apart. A
+client that read only the name would report no reservation against Prosody where
+there is one. That is the same D130 lesson about null and empty, one protocol
+over.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **127 of 127** - 121 passed, 6 skipped here |
+| RatatoskrTests | 1367 - 1364 passed, 3 skipped; 1363 before |
+| new rounds | 3 × 2 services |
+| new unit rounds | 4, including both directions of request-against-answer |
+
+| mutation | result |
+|---|---|
+| no password is set on the room | **both red** |
+| the moderator answers no | **both red** - the role never changes |
+| the reservation is never sent | **both red** - and the message is D130's, about a `result` proving nothing |
+
+#### Still not here
+
+A private message to one occupant (section 7.5) and asking the service to invent
+a room name (section 10.1.4). Neither is load-bearing for anything else here,
+and the first is the more interesting of the two: it is a `chat` addressed to an
+occupant, so what it costs is not the sending but deciding what conversation it
+belongs to on arrival.
 
 ## Later
 ### Test suite

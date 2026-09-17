@@ -1528,6 +1528,227 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 21. A password-protected room, from both sides of the door
+
+        /// <summary>
+        /// XEP-0045, section 7.2.6: the one refusal that names what is missing.
+        /// </summary>
+        /// <remarks>
+        /// <b>The client half has existed since D116 and had never met a room
+        /// that wanted a password.</b> The <c>&lt;password/&gt;</c> goes into
+        /// the join presence, <c>JoinRoomAsync</c> has taken one all along, and
+        /// nothing ever checked that a service reads it - or that it refuses
+        /// without it, which is the half that makes the other half mean
+        /// anything.
+        ///
+        /// Both directions are asked here because either alone passes for the
+        /// wrong reason: a room that let everybody in would pass the second, and
+        /// a room nobody can enter would pass the first.
+        ///
+        /// <b>The field is not the same on both services.</b> Prosody's
+        /// configuration form offers <c>muc#roomconfig_roomsecret</c> and
+        /// nothing else; ejabberd offers a
+        /// <c>muc#roomconfig_passwordprotectedroom</c> switch beside it. Setting
+        /// the secret is what both understand, so the switch is set only where
+        /// it exists - the same shape as the archiving field in round 15, and
+        /// the second time in three entries that a client knowing one name for a
+        /// setting would configure nothing at all on the other service.
+        /// </remarks>
+        [Test]
+        public async Task APasswordProtectedRoomFromBothSidesOfTheDoor()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            const String secret = "sesam-oeffne-dich";
+
+            var form = await alice.FetchRoomConfigAsync(room);
+
+            Assert.That(form, Is.Not.Null,
+                        $"{PeerName} would not say how the room is configured.");
+
+            var offered = DataForm.Fields(form!).
+                                   Select(field => field.Attribute("var")?.Value).
+                                   ToHashSet();
+
+            var wanted = new Dictionary<String, String> {
+                             ["muc#roomconfig_roomsecret"] = secret
+                         };
+
+            if (offered.Contains("muc#roomconfig_passwordprotectedroom"))
+                wanted["muc#roomconfig_passwordprotectedroom"] = "1";
+
+            Assert.That(await alice.ConfigureRoomAsync(room, wanted), Is.True,
+                        $"{PeerName} would not put a password on the room, so neither half " +
+                        "below is being asked of a protected room.");
+
+            var bob = await ConnectAsync(User2);
+
+            var without = await bob.JoinRoomAsync(room, User2);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(without.Joined, Is.False,
+                            "Somebody walked into a password-protected room without the password.");
+
+                Assert.That(without.Refusal?.Condition, Is.EqualTo("not-authorized"),
+                            "The room refused with something other than not-authorized, so a " +
+                            "client cannot tell 'you need the password' from 'you are banned' " +
+                            $"and has nothing useful to show: {without.Refusal}");
+
+            });
+
+            var with = await bob.JoinRoomAsync(room, User2, password: secret);
+
+            Assert.That(with.Joined, Is.True,
+                        "The password the room was given does not open it, so what the first " +
+                        $"half measured is a room nobody can enter: {with.Refusal}");
+
+        }
+
+        #endregion
+
+        #region 22. Asking to be allowed to speak, and being allowed
+
+        /// <summary>
+        /// XEP-0045, section 8.6: the voice request, both ends of it.
+        /// </summary>
+        /// <remarks>
+        /// <b>It arrives as an ordinary message and nothing marks it.</b> No
+        /// body, no status code - only a data form inside. So a client reading
+        /// bodies shows nothing, a client reading status codes sees nothing, and
+        /// the person standing in the room goes on waiting to be let speak while
+        /// every moderator is told and none of them knows it. That is the same
+        /// shape as the configuration notice D125 found, and it had been missed
+        /// for the same reason.
+        ///
+        /// <b>The role is set by hand rather than left to the room</b>, because
+        /// the two services disagree about what a joiner becomes: ejabberd's
+        /// default room carries <c>members_by_default</c>, so somebody walking
+        /// into a moderated room is a participant with voice already, while
+        /// Prosody's makes them a visitor. A round that relied on either would
+        /// measure the default and not the request.
+        ///
+        /// What is asserted at the end is not that the answer was sent - it is
+        /// that it <b>did something</b>. A service that took the answer politely
+        /// and left the role alone would pass everything up to that point.
+        /// </remarks>
+        [Test]
+        public async Task AskingToBeAllowedToSpeakAndBeingAllowed()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            Assert.That(await alice.ConfigureRoomAsync(room, new Dictionary<String, String> {
+                                                                 ["muc#roomconfig_moderatedroom"] = "1"
+                                                             }), Is.True,
+                        $"{PeerName} would not make the room moderated, and in an unmoderated one " +
+                        "everybody may speak and there is nothing to ask for.");
+
+            var carol = await ConnectAsync(User3);
+            Assert.That((await carol.JoinRoomAsync(room, User3)).Joined, Is.True);
+
+            Assert.That(await alice.SetRoomRoleAsync(room, User3, MucRole.Visitor), Is.True,
+                        $"{PeerName} would not take somebody's voice away.");
+
+            await WaitFor(() => alice.Room(room)?.Get(User3)?.Role == MucRole.Visitor,
+                          "the visitor losing their voice");
+
+            MucVoiceRequest? heard = null;
+            alice.OnVoiceRequested += (t, s, r, ct) => { heard = r; return Task.CompletedTask; };
+
+            Assert.That(await carol.RequestVoiceAsync(room), Is.True,
+                        "Carol is in the room, so there was something to send.");
+
+            await WaitFor(() => heard is not null,
+                          $"the request reaching a moderator through {PeerName}");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(heard!.Room, Is.EqualTo(room.Bare));
+
+                Assert.That(heard.Nick, Is.EqualTo(User3),
+                            "The request named nobody, so a moderator is asked to decide about " +
+                            "an anonymous somebody.");
+
+            });
+
+            Assert.That(await alice.AnswerVoiceRequestAsync(heard!, allow: true), Is.True);
+
+            await WaitFor(() => alice.Room(room)?.Get(User3)?.Role == MucRole.Participant,
+                          "the voice the moderator granted");
+
+        }
+
+        #endregion
+
+        #region 23. A nickname held in a room is held against everybody
+
+        /// <summary>
+        /// XEP-0045, section 7.10: reserving a nickname, and reading it back.
+        /// </summary>
+        /// <remarks>
+        /// <b>In-band registration pointed at a room</b> (XEP-0077), which is
+        /// why nothing in this library looked like it until D133: it was being
+        /// searched for under XEP-0045's own namespaces and lives under somebody
+        /// else's.
+        ///
+        /// <b>A reservation is not an affiliation.</b> Being on the member list
+        /// says one may enter; holding a nickname says nobody else may enter
+        /// under that name. The two are set by different protocols, kept in
+        /// different places, and D130 did the first without touching the second.
+        ///
+        /// <b>And the two services answer the read-back differently.</b> Both
+        /// say the reservation exists; ejabberd names it and Prosody does not.
+        /// Neither is wrong - section 7.10 has the service return the
+        /// registration form and does not oblige it to fill the field in - which
+        /// is why <c>MucNicknameRegistration</c> keeps "is there one" and "what
+        /// is it" apart instead of folding the second into the first. A client
+        /// that read only the name would report no reservation against Prosody
+        /// where there is one.
+        /// </remarks>
+        [Test]
+        public async Task ANicknameHeldInARoomIsHeldAgainstEverybody()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var before = await alice.RoomNicknameAsync(room);
+
+            Assert.That(before, Is.Not.Null,
+                        $"{PeerName} would not say whether a nickname is held in this room, so " +
+                        "nothing here can be asked of it.");
+
+            Assert.That(before!.Registered, Is.False,
+                        "Something was already held in a room that came into being a moment ago, " +
+                        "so the second half measures nothing.");
+
+            const String held = "the-owner";
+
+            Assert.That(await alice.ReserveRoomNicknameAsync(room, held), Is.True,
+                        $"{PeerName} refused to hold a nickname.");
+
+            var after = await alice.RoomNicknameAsync(room);
+
+            Assert.That(after, Is.Not.Null);
+
+            Assert.That(after!.Registered, Is.True,
+                        "The room took the reservation and does not know about it, so a " +
+                        "'result' on the setting says nothing - the same lesson as the " +
+                        "affiliation lists in D130.");
+
+            // Named or not is the service's to decide, and both answers are
+            // section 7.10. What may not happen is a name that is not the one
+            // that was asked for.
+            Assert.That(after.Nick, Is.EqualTo(held).Or.Null,
+                        $"{PeerName} holds a different nickname from the one that was reserved.");
+
+        }
+
+        #endregion
+
     }
 
 }
