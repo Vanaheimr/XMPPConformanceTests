@@ -40,6 +40,13 @@ nobody here wrote: Prosody 13, ejabberd 24.12, python-omemo, slixmpp, and pyca
 sides stand under `tools/` and `XMPPConformanceTests/XEPs/Oracle/`, the checks
 in `XMPPConformanceTests/`.
 
+**All five are pinned, and each setup says which one it set up before anything
+is measured against it** (D138). The two servers come from Debian 13; the three
+Python packages and their dependencies from a version table rather than from
+whatever PyPI had that minute, because an oracle that changes overnight turns a
+red morning into a question about whose change it was. What the newest of each
+would do is a question the third nightly lane asks on purpose.
+
 > **Maturity:** experimental — of the thing under test, not of the checks.
 > Client and server connect, authenticate and chat against Prosody 13 over
 > `wss://`; shown, not claimed, and that distinction is the point of this
