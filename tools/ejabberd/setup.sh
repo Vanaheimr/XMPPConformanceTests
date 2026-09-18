@@ -67,58 +67,126 @@ TEST_PASSWORD="geheim"
 mkdir -p "$PREFIX"/{debs,etc,logs,spool,certs} "$ROOT"
 
 # --------------------------------------------------------------- packages ---
-
 echo "== Fetching and unpacking the packages"
 cd "$PREFIX/debs"
 
-# ejabberd drags in half the Erlang runtime - forty-one packages. Instead of
-# listing them and maintaining that list at every change of Debian, the set
-# can be worked out by apt itself: --print-uris resolves without installing.
-apt-get install --print-uris -y --no-install-recommends ejabberd 2>/dev/null \
-    | grep "^'http" | cut -d"'" -f2 > uris.txt
+# JABBER_EJABBERD_UPSTREAM (D138) takes ejabberd from ProcessOne instead of
+# from Debian. That is what the informational "upstream" lane of nightly.yml
+# uses to ask whether a newer ejabberd still behaves the way the measurements
+# recorded here say it does - Debian 13 ships 24.12, upstream is more than a
+# year past it, and a divergence written down against one says nothing about
+# the other.
+#
+# This is not the one-package swap the Prosody setup gets away with. The two
+# builds have nothing in common below the name: Debian spreads ejabberd over
+# forty-one packages and the system Erlang, ProcessOne ships one self-contained
+# 23 MB bundle under /opt with its own runtime. So the fetching and the path
+# surgery fork here - and then join again, because the launcher of the bundle
+# honours CONFIG_DIR, LOGS_DIR and SPOOL_DIR exactly as the Debian one does.
+if [ -n "${JABBER_EJABBERD_UPSTREAM:-}" ]; then
 
-echo "   $(wc -l < uris.txt) packages"
-wget -q -N -i uris.txt
+    # Asked rather than written down: a lane whose question is "does a newer
+    # one still fit" has to follow upstream, and a version named in this file
+    # would stop following it the day it was typed.
+    TAG="$(curl -fsSL https://api.github.com/repos/processone/ejabberd/releases/latest \
+           | awk -F'"' '/"tag_name"/{print $4; exit}')"
 
-for f in ./*.deb; do dpkg-deb -x "$f" "$ROOT"; done
+    if [ -z "$TAG" ]; then
+        echo "   ProcessOne named no release - this lane would measure nothing."
+        exit 1
+    fi
 
-# Debian wires ROOTDIR into the Erlang start scripts - and in all three
-# branches of the case distinction, including the one that according to the
-# source is meant to heed ERL_ROOTDIR. Setting that variable therefore looks
-# as if it ought to be enough, and does nothing.
-ERTS_DIR="$(basename "$(ls -d "$ROOT"/usr/lib/erlang/erts-* | head -1)")"
+    echo "   1 package (the bundle), ejabberd $TAG"
+    wget -q -O "ejabberd-upstream.deb" \
+        "https://github.com/processone/ejabberd/releases/download/$TAG/ejabberd_${TAG}-1_amd64.deb"
+    dpkg-deb -x "ejabberd-upstream.deb" "$ROOT"
 
-for f in erl erlc escript dialyzer typer start_erl; do
-    [ -f "$ROOT/usr/lib/erlang/bin/$f" ] || continue
-    sed -i "s|ROOTDIR=/usr/lib/erlang|ROOTDIR=$ROOT/usr/lib/erlang|g" \
-        "$ROOT/usr/lib/erlang/bin/$f"
-done
+    # No ROOTDIR surgery: this launcher works out where it lies (SCRIPT_DIR)
+    # and reaches its own erts from there, so unpacking it under a prefix is
+    # all the relocation it needs.
+    EJABBERD_CTL="$(ls -d "$ROOT"/opt/ejabberd-*/bin | head -1)/ejabberdctl"
 
-# ejabberdctl is the Debian launcher and carries three paths and a user name
-# built in. The user name is the most important intervention: the script
-# breaks off with "can only be run by root or the user ejabberd" before it
-# does anything at all.
-sed -i \
-    -e "s|^ERL=\"/usr/bin/erl\"|ERL=\"$ROOT/usr/lib/erlang/bin/erl\"|" \
-    -e "s|^EPMD=\"/usr/bin/epmd\"|EPMD=\"$ROOT/usr/lib/erlang/$ERTS_DIR/bin/epmd\"|" \
-    -e "s|^INSTALLUSER=ejabberd|INSTALLUSER=|" \
-    -e "s|^ERL_LIBS='/usr/lib/$ARCH_DIR'|ERL_LIBS='$ROOT/usr/lib/$ARCH_DIR'|" \
-    "$ROOT/usr/sbin/ejabberdctl"
-chmod +x "$ROOT/usr/sbin/ejabberdctl"
+    # The same obstacle as Debian's, quoted differently: without this the
+    # launcher breaks off with "can only be run by root or the user ejabberd"
+    # before it does anything at all.
+    sed -i 's|^INSTALLUSER="ejabberd"|INSTALLUSER=""|' "$EJABBERD_CTL"
+    chmod +x "$EJABBERD_CTL"
+
+    # /usr/sbin/ejabberdctl is a two-line shim with /opt written into it, so it
+    # is emphatically not the one to put on the PATH.
+    EJABBERD_BIN="$(dirname "$EJABBERD_CTL")"
+    EJABBERD_LIBS=""
+    INETRC_SRC="$ROOT/opt/ejabberd/conf/inetrc"
+    EJABBERD_VERSION="$TAG (ProcessOne)"
+
+else
+
+    # ejabberd drags in half the Erlang runtime - forty-one packages. Instead of
+    # listing them and maintaining that list at every change of Debian, the set
+    # can be worked out by apt itself: --print-uris resolves without installing.
+    apt-get install --print-uris -y --no-install-recommends ejabberd 2>/dev/null \
+        | grep "^'http" | cut -d"'" -f2 > uris.txt
+
+    echo "   $(wc -l < uris.txt) packages"
+    wget -q -N -i uris.txt
+
+    for f in ./*.deb; do dpkg-deb -x "$f" "$ROOT"; done
+
+    # Debian wires ROOTDIR into the Erlang start scripts - and in all three
+    # branches of the case distinction, including the one that according to the
+    # source is meant to heed ERL_ROOTDIR. Setting that variable therefore looks
+    # as if it ought to be enough, and does nothing.
+    ERTS_DIR="$(basename "$(ls -d "$ROOT"/usr/lib/erlang/erts-* | head -1)")"
+
+    for f in erl erlc escript dialyzer typer start_erl; do
+        [ -f "$ROOT/usr/lib/erlang/bin/$f" ] || continue
+        sed -i "s|ROOTDIR=/usr/lib/erlang|ROOTDIR=$ROOT/usr/lib/erlang|g" \
+            "$ROOT/usr/lib/erlang/bin/$f"
+    done
+
+    # ejabberdctl is the Debian launcher and carries three paths and a user name
+    # built in. The user name is the most important intervention: the script
+    # breaks off with "can only be run by root or the user ejabberd" before it
+    # does anything at all.
+    sed -i \
+        -e "s|^ERL=\"/usr/bin/erl\"|ERL=\"$ROOT/usr/lib/erlang/bin/erl\"|" \
+        -e "s|^EPMD=\"/usr/bin/epmd\"|EPMD=\"$ROOT/usr/lib/erlang/$ERTS_DIR/bin/epmd\"|" \
+        -e "s|^INSTALLUSER=ejabberd|INSTALLUSER=|" \
+        -e "s|^ERL_LIBS='/usr/lib/$ARCH_DIR'|ERL_LIBS='$ROOT/usr/lib/$ARCH_DIR'|" \
+        "$ROOT/usr/sbin/ejabberdctl"
+    chmod +x "$ROOT/usr/sbin/ejabberdctl"
+
+    EJABBERD_CTL="$ROOT/usr/sbin/ejabberdctl"
+    EJABBERD_BIN="$ROOT/usr/sbin:$ROOT/usr/lib/erlang/bin"
+    EJABBERD_LIBS="$ROOT/usr/lib/$ARCH_DIR"
+    INETRC_SRC="$ROOT/etc/ejabberd/inetrc"
+    EJABBERD_VERSION="$(dpkg-deb -f "$(ls ejabberd_*.deb | head -1)" Version) (Debian)"
+
+fi
+
+# Which ejabberd this actually is, said out loud and into the log. A measured
+# divergence is worth exactly as much as the note of which peer it was measured
+# against, and that note has to be taken here, where the answer is still known
+# (D138).
+# Read out of the package and not out of the launcher: ejabberdctl resolves its
+# configuration before it will say anything at all, and at this point in the
+# script env.sh does not exist yet, so asking it would only produce three lines
+# of sed complaining about /opt.
+echo "   ejabberd $EJABBERD_VERSION"
 
 # The remaining paths ejabberdctl takes from the environment: it sets its
-# defaults with ": ${VAR:=...}", which leaves values already set standing.
+# defaults with ": ${VAR:=...}", which leaves values already set standing. Both
+# launchers do, which is why only the two paths above had to fork.
 cat > "$PREFIX/env.sh" <<ENV
-export LD_LIBRARY_PATH="$ROOT/usr/lib/$ARCH_DIR:\${LD_LIBRARY_PATH:-}"
-export PATH="$ROOT/usr/sbin:$ROOT/usr/lib/erlang/bin:\${PATH:-}"
+export LD_LIBRARY_PATH="${EJABBERD_LIBS:+$EJABBERD_LIBS:}\${LD_LIBRARY_PATH:-}"
+export PATH="$EJABBERD_BIN:\${PATH:-}"
 export CONFIG_DIR="$PREFIX/etc"
 export LOGS_DIR="$PREFIX/logs"
 export SPOOL_DIR="$PREFIX/spool"
 export ERL_EPMD_ADDRESS="127.0.0.1"
 ENV
 
-cp "$ROOT/etc/ejabberd/inetrc" "$PREFIX/etc/inetrc"
-
+cp "$INETRC_SRC" "$PREFIX/etc/inetrc"
 # ----------------------------------------------------------- certificates ---
 
 echo "== Test CA and certificates"

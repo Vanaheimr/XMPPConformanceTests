@@ -14,7 +14,11 @@ moved together (D99). **Nightly** is where the conformance verdict lives: it
 installs Prosody 13, ejabberd 24.12, python-omemo and slixmpp into the container and
 runs everything against them — federation, stream management, OMEMO and
 XEP-0454 — **137 of 137, nothing skipped**, and then repeats the lane against
-Ratatoskr's current master to catch what the pins hide.
+Ratatoskr's current master to catch what the pins hide. A third lane, added in
+D138 and **informational**, repeats it once more against what Prosody and
+ProcessOne publish rather than what Debian ships: everything recorded here about
+how the two peers differ is a statement about 13.0.1 and 24.12, and without that
+lane nothing would ever go red when a peer changed its mind.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
 this suite is green at "2 passed, 135 skipped" on a bare runner and green at "137

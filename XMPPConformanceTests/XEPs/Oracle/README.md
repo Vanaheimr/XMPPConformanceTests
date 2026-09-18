@@ -36,6 +36,34 @@ nothing changed on the system**. Wheels are zip files; unpacked onto the
 `PYTHONPATH` they are importable. For a test setup that is even better than an
 installation: reproducible, and nothing is left behind.
 
+## The versions are pinned
+
+**An oracle has to be the same oracle from one run to the next.** Until D138
+this took the newest of every package on every run, which made "reproducible"
+above a statement about unpacking and not about what was unpacked: a release
+somebody else made overnight could turn the nightly red, and the first question
+of the morning would be whose change it was. That question should never have to
+be asked.
+
+`PINS` in `fetch_oracle.py` names all twenty, read out of the nightly run that
+measured 137 of 137 rather than out of anybody's memory. Raising one is a
+change like any other:
+
+```bash
+python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib --latest
+```
+
+That ignores the pins, says so loudly, and is how the next upgrade gets found -
+deliberately, by somebody watching. What moves is then written into `PINS` in
+the same commit as whatever had to move with it. The `upstream` lane of
+`nightly.yml` runs exactly this, informationally, so the answer arrives before
+the upgrade does.
+
+A pin with no matching wheel **stops the script** rather than printing a line
+and carrying on. A half-fetched oracle imports and then fails somewhere far
+away, in a way that reads as a fault in the thing being measured rather than in
+the measuring - which is the one confusion an oracle exists to prevent.
+
 Where the tests then start the oracle follows from where they themselves run:
 on Windows through `wsl -d Debian`, because python-omemo is not a Windows
 library, and on Linux as `python3` directly. Only the detour is

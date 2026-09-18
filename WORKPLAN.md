@@ -10050,6 +10050,105 @@ Nothing was measured by running anything, and that is the part worth keeping:
 **no test goes red when a README stops being true.** Every claim was checked by
 hand against the code, one at a time, because that is the only check there is.
 
+---
+
+### D138. Are the far sides current ✅ — two answers, and neither was the one expected
+
+A question, not a plan, and it came apart into three different answers.
+
+| far side | tested against | upstream | |
+|---|---|---|---|
+| Prosody | 13.0.1 (Debian 13) | 13.0.6, May 2026 | five patch releases |
+| ejabberd | 24.12-3+deb13u2 | 26.07, 30 July 2026 | more than a year, five releases |
+| the oracle (python-omemo, slixmpp, cryptography, …) | whatever PyPI had that minute | — | none, and that is the problem |
+
+Security first, because that is what the question sounds like and is not what it
+turned out to be: the container pulls from `trixie-security` - checked in the
+log, not assumed - and Debian's tracker shows no open CVE for either package in
+trixie. Prosody's CVE-2026-43504 to 43507 are fixed there. Nothing to do.
+
+#### What the distance actually costs
+
+Not safety. **Validity.**
+
+This repository records a good deal of measured behaviour: that ejabberd drops a
+retracted line from a room's archive and Prosody keeps it (D136); that
+ejabberd's default room refuses an invitation from anybody but the owner while
+Prosody's allows it (D129); that ejabberd names a held nickname where Prosody
+answers `<registered/>` without one (D133). Every one of those is a statement
+about a version - and **nothing here could ever go red when a peer changed its
+mind**, because nothing ever asked a newer one.
+
+Worse, the habit of saying which version had lapsed. "Prosody 13, ejabberd
+24.12" stands twenty times across README and this file, and then stops: from
+D128 onwards, not once. Every divergence this session wrote down was written
+without the one fact that makes a divergence mean anything.
+
+For the record, since it is still knowable: **everything from D128 to D137 was
+measured against Prosody 13.0.1 and ejabberd 24.12**, on the developer's WSL
+Debian and in the container, which install the same two.
+
+#### The oracle was current by accident, which is not the same as by design
+
+It took the newest of every package on every run. That makes "reproducible" in
+the oracle's own README a statement about unpacking and not about what was
+unpacked - and it means a release somebody else makes overnight can turn the
+nightly red, leaving the first question of the morning to be *whose change was
+that*. That question should never have to be asked.
+
+All twenty are pinned now, read out of the nightly that measured 137 of 137
+rather than out of anybody's memory, with `--latest` to ignore them
+deliberately. And a pin with no matching wheel now **stops the script** instead
+of printing a line and carrying on: a half-fetched oracle imports and then fails
+far from here, in a way that reads as a fault in the thing being measured rather
+than in the measuring, which is the one confusion an oracle exists to prevent.
+
+#### The third lane
+
+`interop (far sides at upstream)`, informational, `continue-on-error`. It is the
+counterpart of XMPPWebApp's `submodule-tips` and carries the same warning: a red
+there means one of three things - a peer changed a behaviour written down here,
+a peer changed something that is genuinely our bug, or ProcessOne moved a URL -
+and only the middle one is work on this side.
+
+The two setup scripts fork, and by very different amounts:
+
+- **Prosody**: one package. The upstream build is made for Debian, unpacks into
+  the same paths and wants the same dependencies, so `JABBER_PROSODY_UPSTREAM`
+  swaps where `prosody` comes from and every line below it stands. The version
+  is read out of the repository rather than written into the script - a lane
+  that asks "does a newer one still fit" has to follow upstream, and a number
+  typed here would stop following it the same day.
+- **ejabberd**: a different animal. Debian spreads it over forty-one packages
+  and the system Erlang; ProcessOne ships one self-contained 23 MB bundle under
+  `/opt` with its own runtime. That looked like the expensive half and turned
+  out cheaper: the bundle's launcher works out where it lies (`SCRIPT_DIR`) and
+  reaches its own `erts` from there, so unpacking it under a prefix is the whole
+  of the relocation. One `sed` remains, and it is the same one Debian needs -
+  `INSTALLUSER`, without which the launcher refuses to run as anybody but root.
+
+They join again immediately, because both launchers resolve `CONFIG_DIR`,
+`LOGS_DIR` and `SPOOL_DIR` with `: ${VAR:=...}` and leave a set value standing.
+
+And both scripts now **print which peer they set up**, into the log, before
+anything is measured against it. That is the cheap half of the finding above:
+the note has to be taken where the answer is still known.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| oracle pinned | 20 packages, all resolving, imports clean - run in WSL, not reasoned about |
+| Prosody upstream | 13.0.6-1~trixie1 unpacks into the four paths the script patches |
+| ejabberd upstream | the relocated bundle answers `pong` from its own bundled Erlang |
+| the new lane | parses, `continue-on-error: true`, both env variables where they belong |
+
+*Not measured:* the lane has never run end to end. It cannot be tried here - a
+second Prosody and a second ejabberd would want the ports the first two are
+sitting on - so what is proven is every mechanical piece and not the whole. It
+is informational and cannot redden the nightly, which is the reason that was an
+acceptable trade rather than a corner cut.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
@@ -10233,6 +10332,16 @@ What has proved itself in this project and should be kept:
   so that the error travelled. Nothing goes red for this. When a feature lands, go
   and find the sentence that said it was missing - the feature list gets updated by
   whoever is pleased with the feature, and the list of absences by nobody (D137).
+- **A measured fact about somebody else's software is worth what the version
+  note beside it is worth.** This project writes down how Prosody and ejabberd
+  differ, and those notes named the versions twenty times and then stopped
+  doing it at D128 - so a session's worth of divergences got recorded against
+  "Prosody" and "ejabberd" with no way to tell, later, which ones. Nothing goes
+  red for this either: a peer that changes its mind changes it silently, and a
+  suite that only ever asks one version will agree with a note that has been
+  wrong for a year. Take the version where it is still known - the setup
+  scripts print it now - and keep one lane pointed at something newer, so the
+  question at least gets asked (D138).
 - **Compute against published vectors, not against oneself.** SCRAM and the caps hash
   are checked against RFC 5802/7677 and XEP-0115; two defects came to light through
   that in the first place.

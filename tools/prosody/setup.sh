@@ -71,9 +71,52 @@ cd "$PREFIX/debs"
 
 # libicu76 does not stand among the dependencies of prosody, but is needed by
 # util.encodings.so - without it the start breaks at the first require.
-apt-get download \
-    prosody lua5.4 lua-bitop lua-expat lua-filesystem lua-sec lua-socket \
-    ssl-cert libicu76 >/dev/null
+#
+# JABBER_PROSODY_UPSTREAM (D138) takes prosody itself out of Prosody's own
+# Debian repository instead of out of Debian's. That is what the informational
+# "upstream" lane of nightly.yml uses to ask whether a newer Prosody still
+# behaves the way the measurements recorded here say it does - Debian 13 ships
+# 13.0.1, upstream is some way past it, and a divergence written down against
+# one version says nothing about the other.
+#
+# Exactly one package changes. The upstream build is made for Debian, unpacks
+# into the same paths and wants the same dependencies, so everything below this
+# block stays as it is.
+if [ -n "${JABBER_PROSODY_UPSTREAM:-}" ]; then
+
+    apt-get download \
+        lua5.4 lua-bitop lua-expat lua-filesystem lua-sec lua-socket \
+        ssl-cert libicu76 >/dev/null
+
+    # Read out of the repository rather than written down here: a lane whose
+    # question is "does a newer one still fit" has to follow upstream, and a
+    # version named in this file would stop following it the day it was typed.
+    REPO="https://packages.prosody.im/debian"
+    FILE="$(curl -fsSL "$REPO/dists/trixie/main/binary-amd64/Packages" \
+            | awk '/^Package: prosody$/,/^$/' \
+            | awk '/^Filename: /{print $2; exit}')"
+
+    if [ -z "$FILE" ]; then
+        echo "   No prosody in $REPO - this lane would measure nothing."
+        exit 1
+    fi
+
+    wget -q -O "prosody-upstream.deb" "$REPO/$FILE"
+
+else
+
+    apt-get download \
+        prosody lua5.4 lua-bitop lua-expat lua-filesystem lua-sec lua-socket \
+        ssl-cert libicu76 >/dev/null
+
+fi
+
+# Which Prosody this actually is, said out loud and into the log. A measured
+# divergence is worth exactly as much as the note of which peer it was measured
+# against, and that note has to be taken here, where the answer is still known
+# (D138).
+PROSODY_DEB="$(ls prosody-upstream.deb prosody_*.deb 2>/dev/null | head -1)"
+echo "   Prosody $(dpkg-deb -f "$PROSODY_DEB" Version)"
 
 for f in *.deb; do dpkg-deb -x "$f" "$ROOT"; done
 

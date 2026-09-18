@@ -488,3 +488,102 @@ jobs:
         with:
           name: test-results-interop-master
           path: artifacts/*.trx
+  upstream-far-sides:
+    # The two jobs above both ask about *our* code: one against the pins, one
+    # against Ratatoskr's master. Neither can ask the other question, because
+    # both hold the far sides still - Prosody 13.0.1 and ejabberd 24.12, the
+    # versions Debian 13 ships. That is deliberate and stays: the developer's
+    # WSL installs the same two, so those lanes and that machine judge
+    # Ratatoskr by the same peers.
+    #
+    # It does mean the suite cannot see a peer change. Upstream is well past
+    # Debian - 13.0.6 and 26.07 at the time of writing, which for ejabberd is
+    # more than a year and five releases - and this repository records a good
+    # deal of *measured* behaviour: that ejabberd drops a retracted line from a
+    # room's archive and Prosody keeps it (D136), that ejabberd's default room
+    # refuses an invitation from anybody but the owner and Prosody's does not
+    # (D129), that ejabberd names a held nickname where Prosody answers
+    # `<registered/>` without one (D133). Every one of those is a statement
+    # about a version, and none of them can go stale loudly: nothing turns red
+    # when a peer changes its mind, because nothing here ever asks a newer one.
+    #
+    # This job asks. It is **informational** — `continue-on-error`, like the
+    # tips lane in XMPPWebApp's nightly — and the distinction matters as much
+    # as it does there: a red here does not mean Ratatoskr broke. It means one
+    # of three things, and reading the log is the only way to tell them apart:
+    # a peer changed a behaviour this repository has written down, a peer
+    # changed something that is genuinely our bug to fix, or ProcessOne moved
+    # a download URL. Only the second is work on this side, and it must not be
+    # able to redden a nightly that is otherwise telling the truth.
+    #
+    # The oracle comes with `--latest` here for the same reason the peers do:
+    # its pins (D138) keep the two jobs above reproducible, and this is the
+    # lane whose whole job is to find out what moving them would cost.
+    name: interop (far sides at upstream)
+    runs-on: ubuntu-latest
+    container: debian:13
+    continue-on-error: true
+    steps:
+      - name: Install git and the .NET prerequisites
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata
+
+      - name: Install what the far sides need
+        run: apt-get install -y --no-install-recommends openssl procps python3 wget
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release
+
+      # One variable each, and the scripts do the rest. Prosody's upstream
+      # build is made for Debian and unpacks into the same paths, so only the
+      # one package changes; ejabberd's is a self-contained bundle under /opt
+      # with its own Erlang, so that setup forks further - see the scripts.
+      - name: Set up Prosody (upstream)
+        env:
+          JABBER_PROSODY_UPSTREAM: "1"
+        run: bash tools/prosody/setup.sh
+
+      - name: Set up ejabberd (upstream)
+        env:
+          JABBER_EJABBERD_UPSTREAM: "1"
+        run: bash tools/ejabberd/setup.sh
+
+      - name: Set up the oracles (newest, not pinned)
+        run: python3 XMPPConformanceTests/XEPs/Oracle/fetch_oracle.py /tmp/omemo-oracle/lib --latest
+
+      - name: Test (against the newest far sides)
+        timeout-minutes: 45
+        run: |
+          export JABBER_PROSODY_CERTS="$HOME/prosody-test/certs"
+          export JABBER_EJABBERD_CERTS="$HOME/ejabberd-test/certs"
+          dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --configuration Release --no-build \
+            --logger "console;verbosity=normal" \
+            --logger "trx;LogFilePrefix=interop-upstream" \
+            --results-directory artifacts
+
+      # The peer logs matter more here than anywhere else: when this lane goes
+      # red the question is always "which of the three was it", and the answer
+      # is usually in what the peer said rather than in what the test said.
+      - name: Collect the peer logs
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p artifacts/peer-logs
+          cp "$HOME/prosody-test/prosody.log"   artifacts/peer-logs/ 2>/dev/null || true
+          cp "$HOME/prosody-test/prosody.out"   artifacts/peer-logs/ 2>/dev/null || true
+          cp "$HOME/ejabberd-test/logs/"*.log   artifacts/peer-logs/ 2>/dev/null || true
+
+      - name: Upload test results and peer logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-interop-upstream
+          path: |
+            artifacts/*.trx
+            artifacts/peer-logs/**
