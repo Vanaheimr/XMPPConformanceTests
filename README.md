@@ -63,10 +63,11 @@ decisions behind all of it stand in the [work plan](WORKPLAN.md).
 
 | Method | Status |
 |---------|--------|
-| SCRAM-SHA-256 | ✅ Preferred |
+| SCRAM-SHA-256-PLUS | ✅ Preferred, and bound to the TLS channel |
+| SCRAM-SHA-1-PLUS | ✅ Above unbound SCRAM-SHA-256, deliberately — the binding matters more than the hash |
+| SCRAM-SHA-256 | ✅ Where the far side offers no binding |
 | SCRAM-SHA-1 | ✅ Fallback |
 | SASL PLAIN | ⚠️ Last fallback |
-| SCRAM-*-PLUS (channel binding) | ❌ Not implemented |
 
 What is chosen is the strongest mechanism on offer — by the ranking, not by
 the order of the announcement. Against the downgrade stand two lower bounds,
@@ -532,8 +533,9 @@ and talk to each other:
   nodes, anybody can fetch them, and contacts with `from` or `both` are
   notified. **The server answers for the account and not the client** —
   otherwise an OMEMO bundle would be fetchable only while its owner is online.
-  What is missing: node configuration, access models, filtered notifications
-  over XEP-0115
+  What is missing: filtered notifications over XEP-0115. Node configuration
+  and access models have been here since D97 — a node set to `authorize`
+  leaves a subscription pending rather than granting it
 - XEP-0060 §6.1/§6.2 subscriptions to PEP nodes: `<subscribe/>` and
   `<unsubscribe/>` with a `subid`, together with the refusals of the XEP —
   `<item-not-found/>`, `<invalid-jid/>`, `<not-subscribed/>`,

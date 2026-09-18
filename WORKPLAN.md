@@ -9948,6 +9948,108 @@ after rebuilding only the app project gives a **false red** - the test project's
 output holds its own copy of the app assembly. One minute spent on a failure that
 was not there.
 
+---
+
+### D137. Four READMEs that had stopped describing their programs ✅ — and a list that rots in silence
+
+The suite's own documentation looked current: `README.md` and this file both
+moved with D136. That judgement covered the D136 additions and the counts, and
+it did not survive the rest of this entry. The three libraries beside it had not
+moved at all - Ratatoskr's README last before D128, the console's at D125, the
+web app's at D126, which is nine, seven and six commits earlier.
+
+Missing documentation is the ordinary half of that. The other half is worse.
+
+#### A "not implemented" list is the part of a README that rots silently
+
+Nothing ever fails when one goes stale. The feature list above it keeps growing,
+the list below keeps naming the same absences, and the two drift apart inside a
+single file until they contradict each other outright:
+
+| said to be missing | where the same file says otherwise |
+|---|---|
+| MUC group chat | `/join`, `/rooms`, `/nick` - four rows above |
+| MAM history | `/history` - three rows above |
+| HTTP file upload | `/send` - in the command list |
+| avatars | `/avatar` - in the command list |
+
+That is the console. The web app carried **the same list, copied**, where it
+contradicted four bullets of its own feature list. Every entry of both was
+checked against the code before either was rewritten, and what came out is
+shorter and true: MIX, Jingle, blocking, registering an account - and, for the
+web app, sending a private word inside a room.
+
+XEP-0077 was the interesting one. Named as missing, and it *is* here - but
+pointed at a room, which is what `/holdnick` is (section 7.10), and not at an
+account. One word standing for both says something wrong whichever way it is
+read.
+
+#### The one that misleads rather than omits
+
+Ratatoskr's XEP-0045 row named four things as **not here**: the configuration
+form, moderating, invitations, the affiliation lists. All four have been here
+since D124 to D130. Each was looked up in the code before the row was rewritten,
+and the one claim that still holds was kept - the rooms do not survive a
+reconnect, deliberately, and `XMPPConnection` says why.
+
+**A note saying "not here" about something that is here is worse than no note.**
+It is not read as out of date. It is read as a gap, and a gap gets built a
+second time.
+
+The console had a smaller version of the same: *"Not here: configuring a room,
+destroying one, and a password for a protected room."* Destroying one arrived in
+D130. The other two stand, and the console says the second itself, in as many
+words, when a join is refused.
+
+#### What the programs already said correctly
+
+The console's built-in `/help` documented all eight of the missing commands. The
+program described itself and only the file beside it did not - so the README took
+that wording rather than a second one invented for it. Two descriptions of one
+thing drift apart; that is the whole lesson of the section above.
+
+Likewise the web app's mark on a private word, whose reason was already written
+where it belongs, in the type the frontend reads: **the composer answers the
+room**, so an unmarked private line is a trap - an answer meant for one person
+going to everybody present.
+
+#### And then the same shape in the file that had just been called current
+
+The three libraries were the assignment. Looking for the shape in the fourth
+file was an afterthought, and it was there twice.
+
+`README.md` said **SCRAM-*-PLUS (channel binding): not implemented**, and
+`XMPPConnection` picks it first - `PerformScramAsync(..., bind: true)`, with
+`TlsServerEndPoint` computing `tls-exporter`, `tls-unique` and
+`tls-server-end-point`. The ranking deliberately puts a bound mechanism above a
+stronger hash that is not bound, which is the one point in it worth arguing
+about, and the table said the whole thing was absent. **Of all the directions to
+be wrong about a downgrade defence, that is the worst one**: a reader concludes
+the client cannot bind, and goes looking for the gap somewhere else.
+
+And the test server's PubSub was said to be missing node configuration and
+access models. Both have been there since D97, the commit that moved the
+protocol into Ratatoskr in the first place. Only the third of the three named -
+filtered notifications over XEP-0115 - is genuinely absent.
+
+So it is four files and not three, which is why the rule below is written for
+all of them rather than for the libraries.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| Ratatoskr README | XEP-0045 rewritten, XEP-0308 brought up to D135, XEP-0424 added, XEP-0313 given the fault D136 found behind it |
+| XMPPConsole README | 8 commands, 3 table rows, 2 false claims |
+| XMPPWebApp README | 2 bullets, 1 false claim |
+| README.md (suite) | 2 false claims, one of them about a downgrade defence |
+| commands documented | **55 of 55**, counted against the switch in `Program.cs` |
+| XEPs in Ratatoskr's table | every implemented one but XEP-0004, which is a building block and has no row by design |
+
+Nothing was measured by running anything, and that is the part worth keeping:
+**no test goes red when a README stops being true.** Every claim was checked by
+hand against the code, one at a time, because that is the only check there is.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
@@ -10124,6 +10226,13 @@ What has proved itself in this project and should be kept:
   shows it** — a message for a bare JID with no available resource is dropped by
   ejabberd and kept by Prosody, and both are allowed. Where two of three counterparts
   are forgiving, the third gets blamed.
+- **A sentence saying something is missing is part of the change that adds it.**
+  Three READMEs drifted for six to nine commits, and what mattered was never the
+  paragraph nobody wrote: it was four "not implemented" lists still naming things
+  the same file described as working, one of them copied from another repository
+  so that the error travelled. Nothing goes red for this. When a feature lands, go
+  and find the sentence that said it was missing - the feature list gets updated by
+  whoever is pleased with the feature, and the list of absences by nobody (D137).
 - **Compute against published vectors, not against oneself.** SCRAM and the caps hash
   are checked against RFC 5802/7677 and XEP-0115; two defects came to light through
   that in the first place.
