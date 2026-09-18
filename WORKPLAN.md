@@ -9738,6 +9738,102 @@ XEP-0045 that is not here, and it buys nothing this project needs: the suite
 makes room names out of GUIDs, which is the same unguessability by a shorter
 route.
 
+---
+
+### D135. XEP-0308 where it was half done ✅ — in a room, and in the web app
+
+The question was what became of Last Message Correction, "especially in the two
+clients". The survey was worse than expected: the library could correct a
+one-to-one message and nothing else, the web app could read a correction and not
+send one, and in a room nobody could do either.
+
+#### In a room it had never been possible
+
+Two things stood in the way and each was enough on its own:
+
+- `SendRoomMessageAsync` went straight to the connection, so **the table a
+  correction is looked up in never heard of what was said in a room**;
+- `CorrectLastMessageAsync` sent a `chat` — and a `chat` to a room's bare
+  address reaches **nobody at all** on either service, measured twice now (D134,
+  and again here as a mutation).
+
+So the one case where a correction matters most - the wrong word standing in
+front of forty people until it is replaced - was the one case that could not be
+made. The fix is the D134 key again: a room's own line keys under the bare room,
+a private word under the occupant, and the two cannot reach into each other.
+
+#### The round is asked from the other occupant, and it had to be
+
+**XEP-0308 does not say which id a correction in a room points at.** There are
+two candidates and they behave differently: the sender's own, and the one the
+room assigns (XEP-0359). The sender's own works *if* the service reflects it
+unchanged to everybody - and that is invisible from the sending side, where the
+id is whatever this client chose.
+
+So the round watches Bob: the id he saw on the first line is the id the
+correction names. Both services reflect it unchanged, which is what makes
+corrections in their rooms work at all. Had one rewritten it, every correction
+in its rooms would point at something nobody else can find.
+
+*Three extensions, three answers to one problem:* XEP-0461 may **not** use the
+stanza's id in a room (D114), XEP-0424 **must** use the room's, and XEP-0308
+says nothing and is answered by measurement.
+
+#### The web app could read a correction and not send one
+
+Half an extension, and the half the person using it needs. It now corrects in
+both views, by **up-arrow in an empty composer** - the line comes back to be said
+properly, and sending it replaces rather than repeats.
+
+**Refused where the conversation is encrypted**, and that is not timidity: a
+correction carries the corrected text and this app can only send one in the
+clear. Sending it would put on the wire, in plain, the very words that were
+encrypted a moment ago - and it would look to whoever reads the result like a
+successful correction of an encrypted line.
+
+#### And the receiving rule, where it actually bites
+
+> A correction MUST only be allowed when both the original message and
+> correction originate from the same sender ... in MUCs and MUC-PMs the
+> correction's full-JID must match the original full-JID.
+
+In a one-to-one conversation the web app satisfied this by construction - the
+conversation *is* the sender - which is why it had never needed saying. **In a
+room it is not satisfied by anything**, and the room view had no correction
+handling at all to get it wrong with. Adding the handling meant adding the rule
+in the same breath: a correction may only replace a line from the same
+occupant. Without it anybody standing in the room can rewrite anybody else's
+words by naming their id, and the line keeps the name of the person who never
+wrote it - worse than a forged message, because it is signed by somebody who is
+there to be asked about it.
+
+*Named rather than guessed at:* the nickname cannot catch somebody leaving and
+another taking the name. Section 5 says a correction across a rejoin SHOULD be
+refused, and in a semi-anonymous room there is nothing to tell the two apart
+with.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **133 of 133** - 127 passed, 6 skipped here |
+| RatatoskrTests | 1369, unchanged - what the library gained is measured against a real room service, not against itself |
+| XMPPWebApp | 172 - 167 passed, 5 skipped; 168 before |
+
+| mutation | result |
+|---|---|
+| a room message is not written down as correctable | **both red** - there is nothing to correct |
+| the correction goes out as `chat` | **both red**, by timing out - it reaches nobody |
+| the sender rule is dropped in the room store | **red** - Bob rewrites Alice's line and it keeps her name |
+
+#### Still open
+
+**XEP-0424 Message Retraction**, which is next and which this leaves in a good
+position: the same id-keeping, the same same-sender rule, and one question more
+that only a real service can answer - *the archiving service MUST store the
+retraction message*, and what each of them does with the message it retracts is
+theirs to decide.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones

@@ -1905,6 +1905,96 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 26. A correction in a room names a line everybody saw
+
+        /// <summary>
+        /// XEP-0308 in a room, which is where one wants it most and where it had
+        /// never been possible.
+        /// </summary>
+        /// <remarks>
+        /// <b>Nothing said in a room was ever written down as correctable</b>
+        /// until D135: <c>SendRoomMessageAsync</c> went straight to the
+        /// connection, so the table a correction is looked up in never heard of
+        /// it, and <c>CorrectLastMessageAsync</c> would have sent a
+        /// <c>chat</c> anyway - to the room, where that is a private word to
+        /// nobody. Mistyping in front of forty people is the case where a
+        /// correction matters most, and it was the one case that could not be
+        /// made.
+        ///
+        /// <b>What only a real room can answer.</b> XEP-0308 does not say which
+        /// id a correction in a room points at, and there are two candidates
+        /// that behave differently: the sender's own, and the one the room
+        /// assigns (XEP-0359). The sender's own works <i>if</i> the service
+        /// reflects it unchanged to everybody - and whether it does is the
+        /// service's business, invisible from the sending side, where the id is
+        /// whatever this client chose.
+        ///
+        /// So the round is asked from the <b>other</b> occupant: the id Bob saw
+        /// on the first line is the id the correction names. If a service
+        /// rewrote it, corrections in its rooms point at something nobody else
+        /// can find, and this round is where that shows.
+        ///
+        /// It is also the reason XEP-0461 may not use the stanza's id (D114) and
+        /// XEP-0424 must use the room's (D136): the three extensions make three
+        /// different choices about the same problem, and only one of them is
+        /// spelt out in its own specification.
+        /// </remarks>
+        [Test]
+        public async Task ACorrectionInARoomNamesALineEverybodySaw()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            var heard = new ConcurrentQueue<XMPPMessage>();
+            bob.OnMessage += (t, s, m, ct) => { heard.Enqueue(m); return Task.CompletedTask; };
+
+            await alice.SendRoomMessageAsync(room, "the wrogn word");
+
+            await WaitFor(() => heard.Any(m => m.Body == "the wrogn word"),
+                          "the mistyped line reaching the other occupant");
+
+            var first = heard.First(m => m.Body == "the wrogn word");
+
+            Assert.That(await alice.CorrectLastMessageAsync("the right word", room), Is.Not.Null,
+                        "There was nothing to correct, so a room message is still not written " +
+                        "down as correctable.");
+
+            await WaitFor(() => heard.Any(m => m.Body == "the right word"),
+                          "the correction reaching the other occupant");
+
+            var fixed_ = heard.First(m => m.Body == "the right word");
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(fixed_.Type, Is.EqualTo(MessageType.GroupChat),
+                            "The correction arrived as something other than groupchat, so it was " +
+                            "said to one person about a line everybody can see.");
+
+                Assert.That(fixed_.IsCorrection, Is.True,
+                            "It arrived as a second line rather than as a correction, so the " +
+                            "mistyped one stands above it for ever.");
+
+                Assert.That(fixed_.ReplacesId, Is.EqualTo(first.MessageId),
+                            $"{PeerName} does not reflect the sender's id unchanged, so the " +
+                            "correction names a line nobody else can find. Everybody present " +
+                            $"sees the wrong word still: it points at {fixed_.ReplacesId} and " +
+                            $"the line they have is {first.MessageId}.");
+
+                Assert.That(fixed_.From.Resourcepart, Is.EqualTo(User),
+                            "The correction is not from the occupant who wrote the line, which " +
+                            "is the one thing XEP-0308 forbids outright: a correction MUST come " +
+                            "from the same sender, and in a room that is the full address.");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }
