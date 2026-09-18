@@ -6,15 +6,25 @@ thing. In stages D62 to D65 that was the finding five times over — an info
 string, an ordering, an embedding. Every time, two clients of this house would
 have understood each other perfectly and not a single foreign one.
 
-The only remedy is a peer that nobody here wrote. There are two of them:
+The only remedy is a peer that nobody here wrote. There are three of them:
 
 | | |
 |---|---|
 | [python-omemo](https://github.com/Syndace/python-omemo) by Syndace | the reference implementation for `urn:xmpp:omemo:2` — the same version we speak |
 | [slixmpp](https://codeberg.org/poezio/slixmpp) | a client library with its own `xep_0461`, for message replies |
+| [cryptography](https://github.com/pyca/cryptography) by pyca | an OMEMO Media Sharing (XEP-0454) encryptor, for the one thing that specification leaves contested: how long the IV in the fragment is |
 
-Both come from the same `fetch_oracle.py` into the same directory, and for the
-same reason: one setup command is one thing to forget rather than two.
+All three come from the same `fetch_oracle.py` into the same directory, and for
+the same reason: one setup command is one thing to forget rather than two. The
+third costs nothing extra — `cryptography` is among the packages already,
+because xeddsa needs it.
+
+So there are three scripts here, one per question: `omemo_oracle.py`,
+`reply_oracle.py` and `aesgcm_oracle.py`. Each says in its own head what it is
+for, and `aesgcm_oracle.py` is the one worth reading first, because it is
+explicit about what it is **not**: not a second opinion on AES-GCM, since both
+sides reach OpenSSL sooner or later, but on the *layout* — which bytes go into
+the fragment, in what order — and that is where implementations disagree.
 
 ## Setting it up
 
