@@ -163,9 +163,11 @@ jobs:
       #
       # The 103 was measured on Debian 13 at b19331e, in both lanes: pinned
       # submodules and against Ratatoskr's master. The 71 before it was
-      # measured at 6883eb4. The 137 was measured on Windows against the same
-      # two services and is named here before the container has confirmed it,
-      # which is the one thing about this figure that is not yet evidence.
+      # measured at 6883eb4. The 137 was measured on Windows first and then
+      # confirmed here at 23564c7, in both lanes: 137 of 137, nothing skipped.
+      # The confirmation was started by hand rather than waited for, because a
+      # figure that is named before it is evidence should stay that way for
+      # hours and not for a day.
       #
       # The eighteen D119 adds were written and measured on Windows first, and
       # the platforms did disagree once on the way - Uri.TryCreate("/p",
