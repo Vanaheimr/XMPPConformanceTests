@@ -10318,11 +10318,34 @@ neither its age nor its list: **it was linked from nowhere.** Not from a README,
 not from here. A security review lying unreferenced in a docs folder reads as
 something left behind, whatever is in it.
 
-So it has a status section at the top now - what is closed, what is deliberately
-not, and the one thing still unanswered - and the console's README points at it
-from its Security notes, where the trade-offs it explains are listed one line
-each. Findability was the actual complaint; the file was only the thing it
-landed on.
+So it has a status section at the top now - what is closed and what is
+deliberately not - and the console's README points at it from its Security
+notes, where the trade-offs it explains are listed one line each. Findability
+was the actual complaint; the file was only the thing it landed on.
+
+#### The last unanswered one, answered
+
+The password kept as a `string` for the life of the process was the one item in
+the document with neither a fix nor a reason. It is a named trade-off now rather
+than a fix, and the reason it is one is worth having written down: **SCRAM needs
+the password at every authentication and not only the first.** `_saltedPassword`
+caches the PBKDF2 result, and reuses it only while password, salt and iteration
+count all still agree - and the server decides the last two. Dropping the field
+therefore means asking the caller again whenever a server changes them, which is
+a callback in the API rather than a change to a field, and an API that can wake
+up demanding a password is a hazard of its own. `SecureString` is not the
+answer; Microsoft advises against it on .NET Core.
+
+And the cost is stated rather than implied, because it is smaller than it looks
+and not zero: whoever can read this process already has the session, the
+SaltedKey and the OMEMO identity - everything for **this** account. What the
+plaintext password adds is worth something **elsewhere**, wherever it was
+reused. That, and not this session, is what is traded away.
+
+**Nothing in the document is unanswered now** - which is deliberately the weaker
+claim than "everything is fixed". Six things are left standing on purpose, and
+the point of writing the reasons is that somebody can disagree with them later
+without first having to rediscover what they were.
 
 ---
 
