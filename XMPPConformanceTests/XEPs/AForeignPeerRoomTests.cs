@@ -1995,6 +1995,171 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
 
         #endregion
 
+        #region 27. Taking something back reaches everybody who saw it
+
+        /// <summary>
+        /// XEP-0424 in a room: the retraction, and the name it has to use.
+        /// </summary>
+        /// <remarks>
+        /// <b>Not a correction with an empty text.</b> XEP-0308 says "what I
+        /// wrote was this instead"; this says "forget that I wrote it". A
+        /// corrected line is still a line somebody said; a retracted one is a
+        /// claim that it should never have been there, and clients and archives
+        /// are allowed to treat the two differently.
+        ///
+        /// <b>The name is the room's, and this is the one extension that says so
+        /// outright:</b> <i>in group chats, the ID assigned to the stanza by the
+        /// group chat itself must be used</i>. Which is what XEP-0461 arrives at
+        /// from the other direction (D114) and what XEP-0308 leaves open (D135) -
+        /// three extensions, one question, and only this one answers it in its
+        /// own text.
+        ///
+        /// So Alice has to retract by a name she does not choose. She learns it
+        /// the way any client does: from the room handing her own line back to
+        /// her with the room's <c>&lt;stanza-id/&gt;</c> on it. A client that
+        /// retracted by the id it made up would name, for every other reader, a
+        /// line that is not the one it meant - or no line at all.
+        /// </remarks>
+        [Test]
+        public async Task TakingSomethingBackReachesEverybodyWhoSawIt()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var bob = await ConnectAsync(User2);
+            Assert.That((await bob.JoinRoomAsync(room, User2)).Joined, Is.True);
+
+            var byAlice  = new ConcurrentQueue<XMPPMessage>();
+            var byBob    = new ConcurrentQueue<XMPPMessage>();
+
+            alice.OnMessage += (t, s, m, ct) => { byAlice.Enqueue(m); return Task.CompletedTask; };
+            bob.  OnMessage += (t, s, m, ct) => { byBob.  Enqueue(m); return Task.CompletedTask; };
+
+            const String said = "something better left unsaid";
+
+            await alice.SendRoomMessageAsync(room, said);
+
+            await WaitFor(() => byAlice.Any(m => m.Body == said) &&
+                                byBob.  Any(m => m.Body == said),
+                          "the line reaching both of them");
+
+            // Her own line, as the room handed it back - which is where the name
+            // she has to use comes from.
+            var mine  = byAlice.First(m => m.Body == said);
+            var seen  = byBob.  First(m => m.Body == said);
+
+            Assert.That(mine.RetractableId, Is.Not.Null,
+                        $"{PeerName} gave the line no name of its own, so nothing said in this " +
+                        "room can be taken back - which is the honest answer and not an error, " +
+                        "but it means the rest of this round measures nothing.");
+
+            Assert.That(await alice.RetractAsync(mine), Is.Not.Null,
+                        "Nothing was sent.");
+
+            await WaitFor(() => byBob.Any(m => m.IsRetraction),
+                          $"the retraction through {PeerName}'s room service");
+
+            var taken = byBob.First(m => m.IsRetraction);
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(taken.Type, Is.EqualTo(MessageType.GroupChat),
+                            "The retraction arrived as something other than groupchat, so it was " +
+                            "said to one person about a line everybody saw.");
+
+                Assert.That(taken.RetractsId, Is.EqualTo(seen.StanzaId),
+                            "The retraction names a line the other occupant does not have. In a " +
+                            "room the name must be the one the room gave (XEP-0424), and what " +
+                            $"arrived points at {taken.RetractsId} where the line Bob has is " +
+                            $"called {seen.StanzaId}.");
+
+                Assert.That(taken.From.Resourcepart, Is.EqualTo(User),
+                            "The retraction is not from the occupant who wrote the line. XEP-0424 " +
+                            "has it processed only when both come from the same address, and in " +
+                            "a room that is the full one.");
+
+                Assert.That(taken.Body, Is.Not.Empty,
+                            "It arrived with no body at all, so a client that has never heard of " +
+                            "retraction shows nothing - which is a message that silently did not " +
+                            "arrive.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region 28. What was taken back is still in the archive as a taking-back
+
+        /// <summary>
+        /// XEP-0424 against XEP-0313: what a service is obliged to keep.
+        /// </summary>
+        /// <remarks>
+        /// <blockquote>The archiving service therefore MUST store the retraction
+        /// message, regardless of whether the original message is deleted or
+        /// replaced with a tombstone.</blockquote>
+        ///
+        /// <b>And that is the whole of what is required.</b> What becomes of the
+        /// retracted message is the service's own decision - deleted, tombstoned
+        /// or left standing, all three are within the specification - so this
+        /// round asserts the obligation and <b>reports</b> the choice.
+        ///
+        /// It matters because of D132: a room's archive is open to anybody who
+        /// may enter. Somebody joining tomorrow reads the archive, not the
+        /// conversation - so a service that delivers the retraction faithfully
+        /// and then hands the retracted line to every later reader has undone
+        /// the retraction for everybody who was not there.
+        ///
+        /// The two questions are genuinely separate, and round 27 answers
+        /// neither of them: delivery is not storage.
+        /// </remarks>
+        [Test]
+        public async Task WhatWasTakenBackIsStillInTheArchiveAsATakingBack()
+        {
+
+            var (alice, room) = await OpenARoomAsync();
+
+            var mine = new ConcurrentQueue<XMPPMessage>();
+            alice.OnMessage += (t, s, m, ct) => { mine.Enqueue(m); return Task.CompletedTask; };
+
+            const String said = "for the archive to think about";
+
+            await alice.SendRoomMessageAsync(room, said);
+
+            await WaitFor(() => mine.Any(m => m.Body == said), "the room's echo");
+
+            var line = mine.First(m => m.Body == said);
+
+            Assert.That(await alice.RetractAsync(line), Is.Not.Null);
+
+            // The service has to have written the retraction down before it can
+            // be asked about it, and it says so by handing it back.
+            await WaitFor(() => mine.Any(m => m.IsRetraction), "the retraction coming back");
+
+            var page = await alice.RoomHistoryAsync(room, 50);
+
+            Assert.That(page, Is.Not.Null,
+                        $"{PeerName} would not answer its own room's archive.");
+
+            Assert.That(page!.Messages.Any(m => m.Message.IsRetraction &&
+                                                m.Message.RetractsId == line.StanzaId),
+                        Is.True,
+                        "The archive does not hold the retraction. XEP-0424 requires it to, " +
+                        "whatever it does with the message retracted - and without it somebody " +
+                        "reading the archive later sees the line with nothing saying it was " +
+                        "taken back.");
+
+            // And what became of the line itself is the service's to decide.
+            var still = page.Messages.Any(m => m.Message.Body == said);
+
+            TestContext.Out.WriteLine(
+                $"{PeerName} keeps the retracted line in the room's archive: {still}");
+
+        }
+
+        #endregion
+
     }
 
 }

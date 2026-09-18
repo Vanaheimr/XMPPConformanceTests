@@ -9834,6 +9834,120 @@ that only a real service can answer - *the archiving service MUST store the
 retraction message*, and what each of them does with the message it retracts is
 theirs to decide.
 
+---
+
+### D136. Taking something back ✅ — XEP-0424, and a parser that measured itself
+
+**Not a correction with an empty text.** XEP-0308 says *what I wrote was this
+instead*; this says *forget that I wrote it*. The difference matters to whoever
+is reading: a corrected line is still a line somebody said, a retracted one is a
+claim that it should never have been there, and clients and archives are allowed
+to treat them differently.
+
+It no longer hangs on XEP-0422 - the dependency was dropped in version 0.4.0 -
+so what goes on the wire is a plain `<retract/>` with two companions, one for
+each kind of reader it has:
+
+| element | for |
+|---|---|
+| `<retract/>` | a client that understands the extension |
+| `<fallback/>` (XEP-0428) | one that does not, so it hides the sentence instead of showing it as something somebody typed |
+| `<store/>` (XEP-0334) | the archive, because a message whose point is that there is nothing to read is exactly the kind a server drops |
+
+#### One question, three extensions, and only this one answers it
+
+> in group chats, the ID assigned to the stanza by the group chat itself must be
+> used
+
+XEP-0461 forbids the stanza's own id in a room and arrives at the same place
+from the other direction (D114). XEP-0308 says nothing and was answered by
+measuring two services (D135). **This one says it outright** - so
+`RetractableId` is the same expression as `ReplyableId`, deliberately: they are
+one question, and two expressions would answer it differently one day.
+
+#### Asked twice, because delivery is not storage
+
+Round 27 shows the retraction reaching the other occupant under the room's name.
+Round 28 asks the thing no delivery can show:
+
+> The archiving service therefore MUST store the retraction message, regardless
+> of whether the original message is deleted or replaced with a tombstone.
+
+That is the whole obligation, so the round asserts it and **reports** the rest.
+And the two services differ:
+
+| | keeps the retracted line in the room's archive |
+|---|---|
+| **ejabberd** | no |
+| **Prosody** | **yes** |
+
+Both are within the XEP. But with D132 in mind - a room's archive is open to
+anybody who may enter - the second means a retracted line is still handed to
+every reader who comes later, with the retraction beside it. The specification
+allows it; a person taking something back would not expect it.
+
+#### The round that measured this project and thought it was measuring a service
+
+Round 28 was **red on both** on its first run, and the cause was mine.
+
+`MessageArchive.Read` builds its own `XMPPMessage`, and that construction had
+never been told about the two fields added to the record since it was written:
+`InARoom` (D134) and `RetractsId` (this entry). So a retraction read out of an
+archive came back looking like an ordinary message - and my assertion, with a
+message about a MUST being violated, was measuring my own parser.
+
+**Suspecting oneself first is the whole of what saved it.** Two independent
+implementations agreeing against one's reading is a reason to look at the
+reading; here the reading was a construction site nobody had updated.
+
+The second half is worse than the first and would not have shown at all: without
+`InARoom`, **a private message out of a personal archive reads as an ordinary
+chat**, which is precisely the thing D134 was written to prevent. The live
+branch had been taught and this one had not. It takes a predicate now, wired
+from the room table.
+
+*Third time for this shape:* D130 (the web app relying on two things being one),
+D134 (the correction key right for a reason that stopped holding), and now a
+record gaining a field and one of two constructors learning about it.
+
+#### In the two clients
+
+The console has `/unsay`, and it keeps what it needs to: **in a room the name to
+retract under arrives only when the room hands our own line back**, so the entry
+for a room is written by the reflection and not by the send. An arriving
+retraction is written out as what it is, rather than as the fallback sentence it
+carries - showing that would be this console pretending not to understand its
+own extension.
+
+The web app takes back from both views, by a **button** and not a keystroke -
+explicit, because it cannot be undone. The line keeps its place and loses its
+words: removing it outright would reshuffle a conversation under somebody who is
+reading it and leave answers pointing at nothing, and keeping the words would
+defeat the request.
+
+And the same-sender rule again, where it bites: in a room a retraction may only
+empty a line from the same occupant. Without it anybody standing there can take
+anybody else's words away, and the line keeps the name of the person who did not
+do it.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| conformance suite | **137 of 137** - 131 passed, 6 skipped here |
+| RatatoskrTests | 1372 - 1369 passed, 3 skipped; 1369 before |
+| XMPPWebApp | 174 - 169 passed, 5 skipped; 172 before |
+| new rounds | 2 × 2 services, 3 unit, 2 in the web app |
+
+| mutation | result |
+|---|---|
+| the retraction sender rule is dropped | **red** - Bob empties Alice's line and it keeps her name |
+
+*Also learned, and cheap to repeat:* `dotnet test --no-build` on the test project
+after rebuilding only the app project gives a **false red** - the test project's
+output holds its own copy of the app assembly. One minute spent on a failure that
+was not there.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones

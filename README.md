@@ -13,17 +13,17 @@ names this assembly from inside Ratatoskr, so the two repositories can only be
 moved together (D99). **Nightly** is where the conformance verdict lives: it
 installs Prosody 13, ejabberd 24.12, python-omemo and slixmpp into the container and
 runs everything against them — federation, stream management, OMEMO and
-XEP-0454 — **133 of 133, nothing skipped**, and then repeats the lane against
+XEP-0454 — **137 of 137, nothing skipped**, and then repeats the lane against
 Ratatoskr's current master to catch what the pins hide.
 
 **Both lanes owe zero skips, and that is the point of the split.** Unfiltered
-this suite is green at "2 passed, 131 skipped" on a bare runner and green at "133
+this suite is green at "2 passed, 135 skipped" on a bare runner and green at "137
 passed" in the container — the same colour for the run that measured everything
 and the run that measured nothing. Selected by category, each lane has a number
 it must hit, and any skip at all is a finding (D101).
 
 The larger of the two numbers moves as the suite grows — 29, 33, 35, 38, 39,
-40, 45, 52, 59, 65, 71, 89, 93, 99, 103, 107, 113, 117, 121, 127, 131, 133 so far, and `nightly.yml` carries the history beside the figure together with
+40, 45, 52, 59, 65, 71, 89, 93, 99, 103, 107, 113, 117, 121, 127, 131, 133, 137 so far, and `nightly.yml` carries the history beside the figure together with
 the revision it was last measured at. The 2 does not, and that is the point of
 the split rather than an accident: everything needing a far side is on the other
 side of the filter, so the gate growing would be news.
@@ -108,6 +108,7 @@ Legend: ✅ working · ⚠️ implemented with known gaps · 🚧 present, but o
 | XEP-0199 | XMPP Ping | ✅ | Sending, answering, RTT measurement |
 | XEP-0280 | Message Carbons | ✅ | With spoofing protection |
 | XEP-0308 | Last Message Correction | ✅ | Receiving: `XMPPMessage.ReplacesId` names the message replaced, `IsCorrection` the fact. Sending: `CorrectLastMessageAsync` corrects the last message **to the same recipient** (section 5) and becomes the last one itself, so that a correction can be corrected. In the console `/fix <text>`; announced in disco#info (D60). **D135 finished it where it was half done.** In a room it had never been possible at all — a room message was never written down as correctable and the correction would have gone out as a `chat`, which reaches nobody — and that is the case where it matters most, because the wrong word stands in front of everybody until it is replaced. The specification does not say which id a correction in a room names, so the round asks the *other* occupant whether the id they saw is the id it points at; both services reflect the sender’s unchanged. **The web app could read a correction and not send one**, and its room view showed both versions as separate lines with nothing saying which held. It can now do both, by up-arrow in an empty composer — and it refuses where the conversation is encrypted, because a correction can only go out in the clear and carries the very text that was encrypted. The receiving rule of section 5 is enforced where it bites: in a room a correction may only replace a line from the **same occupant**, or anybody present could rewrite anybody else’s words under their name |
+| XEP-0424 | Message Retraction | ✅ | **New in D136.** Taking something back, which is not a correction with an empty text: XEP-0308 says *what I wrote was this instead*, this says *forget that I wrote it*, and clients and archives are allowed to treat the two differently. The namespace is `urn:xmpp:message-retract:1` — since version 0.4.0 it no longer hangs on XEP-0422, so what goes on the wire is a plain `<retract/>` beside a XEP-0428 fallback and a XEP-0334 `<store/>` hint, one element for each of the three kinds of reader it has. **In a room the name is the room’s**, which is the one thing this XEP says outright where XEP-0461 arrives at it from the other side and XEP-0308 says nothing — so `RetractableId` is the same expression as `ReplyableId`, one question with one answer. Asked twice against each service, because delivery is not storage: the archive **MUST** keep the retraction, and what becomes of the line it retracts is the service’s choice — **ejabberd drops it from the room archive and Prosody keeps it**, both within the XEP, and with a room archive open to anybody who may enter (D132) the second means a retracted line is still handed to every later reader. In the console `/unsay`; in the web app a *take back* button beside the composer, and the line keeps its place and loses its words. Nothing here pretends it is a deletion |
 | XEP-0333 | Chat Markers | ✅ | Sending + receiving, namespace-checked against being confused with XEP-0184 |
 | XEP-0384 | OMEMO Encryption | ✅ | Complete, `urn:xmpp:omemo:2` — see the section "End-to-end encryption" further below. Checked against the reference implementation python-omemo in **ten** ways, which is more than "it works in both directions": the bundle and the first message each way (D69), then everything past that first message — the second one in a session, a one-time prekey that must not serve twice (D111), messages arriving out of order, both sides opening a session in the same moment, a key transport carrying nothing at all, one message fanned out over four devices with the unreachable one named, and an envelope naming another sender, which our side has to refuse because python-omemo leaves XEP-0420 to the application (D112). **And in a room since D125**, which is where that envelope stops being a formality: the mapping from a nickname to a real address comes from the room service and from nowhere else, so the envelope is the only thing standing between a service and putting words in somebody's mouth |
 | XEP-0420 | Stanza Content Encryption | ✅ | The envelope OMEMO encrypts: `<content/>` with the sender inside it and a padding of random length |
@@ -377,7 +378,7 @@ The suite is driven in two lanes, and **each owes zero skips**:
 # The gate: everything that needs no far side. 2 of 2, on Windows and on Linux
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj --filter "TestCategory!=WSL"
 
-# The verdict: with Prosody, ejabberd and the oracles up. 133 of 133
+# The verdict: with Prosody, ejabberd and the oracles up. 137 of 137
 dotnet test XMPPConformanceTests/XMPPConformanceTests.csproj
 ```
 
