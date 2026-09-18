@@ -10212,6 +10212,144 @@ sitting on - so what is proven is every mechanical piece and not the whole. It
 is informational and cannot redden the nightly, which is the reason that was an
 acceptable trade rather than a corner cut.
 
+---
+
+### D139. Can the security review go ✅ — two halves of one finding, and neither held
+
+The question was whether `docs/grok-review.md` could be deleted: a code review
+dated 2026-08-14, marked up afterwards with ✅ for what had been closed, and by
+now a year of commits old.
+
+It could not. Finding 2 carried no mark, and it is the review's own top
+category.
+
+#### The first half: real attack, wrong platform
+
+> `AltConnectionsResolver` checks only the **initial** URL for `https://`. The
+> shared `HttpClient` follows redirects by default, including to `http://`.
+
+The first sentence is true of the code. The second is not true of .NET.
+`RedirectHandler.GetUriForRedirect` carries this:
+
+```csharp
+// Disallow automatic redirection from secure to non-secure schemes
+if (HttpUtilities.IsSupportedSecureScheme(requestUri.Scheme) &&
+    !HttpUtilities.IsSupportedSecureScheme(location.Scheme))
+    return null;
+```
+
+The 302 is never followed, the answer is the redirect itself,
+`IsSuccessStatusCode` is false, the fetch gives back nothing. **The chain breaks
+at its first link.**
+
+Worth recording how close this came to being believed: the finding was reported
+here as open, in both halves, on the strength of reading the code — which is
+exactly the move D136 was written about, and the platform was checked only
+afterwards. *The report reads the code and the code is not the whole machine.*
+
+#### What was left behind, and is the actual change
+
+The defence was **inherited, unstated and untested**. `_httpClient = new()`
+takes a default; nothing in the file says the default is load-bearing; no test
+holds it. Whoever put a handler of their own in that field would have removed
+the only thing standing between a redirected discovery and a stranger choosing
+where the password goes, and nothing would have gone red.
+
+So the handler is written out, redirects stay allowed - https→https is ordinary
+and stays inside the XEP - and `MayBeRead` asks the scheme of the address the
+answer **came from** rather than the one that was asked for: the MUST of the XEP
+at the end of the chain and not only at its start.
+
+#### The second half must not be done as asked
+
+> Bind the `wss://` host to the JID domain, or to an explicit allow-list.
+
+That would break what XEP-0156 is for. A domain putting its XMPP service
+somewhere else is the case the specification exists to serve - the XRD example
+in the XEP does it, and so does the fixture in this repository's own tests,
+where `example.test` answers with `web.example.com`. The XEP's rule is about the
+certificate and not about the name:
+
+> send SNI matching the host of the URL from the connection URL and validate
+> that the certificate is valid for that host **or** the XMPP domain
+
+which happens where the socket is opened, not in the resolver. A second test
+pins the omission so that it stays a decision rather than becoming a gap
+somebody closes on a quiet afternoon.
+
+#### And finding 8 had been overtaken
+
+> No `SCRAM-SHA-256-PLUS` / `tls-exporter` (RFC 9266).
+
+Untrue since some time before D138, which is where it surfaced: the ranking puts
+a bound mechanism above every unbound one, `PerformScramAsync(..., bind: true)`
+is called for them, `TlsServerEndPoint` computes all three binding types. **That
+sentence had been copied into the suite's README**, where it said the whole
+mechanism was absent - so the review is the source of the one false claim in
+D138 that was about a downgrade defence. Struck in the heading, answered in the
+bullet.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| RatatoskrTests | **1374** - 1371 passed, 3 skipped; 1372 before |
+| new tests | 2: the final address must be https, and a foreign host must not be refused |
+
+| mutation | result |
+|---|---|
+| M24: `MayBeRead` always true | **red** - an answer that came over http is read |
+
+*The review stays.* Ten findings, seven closed outright, and the three that are
+not each carry their reason. Deleting it would take the reasons with it - and
+this entry is the argument: two of its sentences were wrong, and finding that
+out took reading the XEP and the runtime, which is work nobody repeats from a
+deleted file.
+
+---
+
+### D140. PDFs in the archive ✅ — kept without being shown
+
+```
+The file …yurdakul_eichen,-forschen,-fuehren-(online).pdf shared in
+zeropage@jabber.ccc.de was not stored: application/pdf is not a kind of file
+this archive keeps
+```
+
+`MediaStore` kept pictures, video and audio and nothing else, and the reason is
+in the class remarks rather than in the list:
+
+> a stored file that the browser treats as a document is script running as this
+> page
+
+A PDF is precisely that. It is also, obviously, a thing people share.
+
+**The answer was already in the serving path.** `ContentTypeForName` looks a name
+up in a *second* list, and what is not in it comes back as
+`application/octet-stream` with `Content-Disposition: attachment` - "a type this
+program does not vouch for is not opened in a tab". So the two lists are not two
+spellings of one idea: one says what may be **kept**, the other what may be
+**opened**.
+
+`application/pdf` goes in the first and stays out of the second. It is stored,
+it is served as a download, and it is never a document in this program's origin.
+The rule the class states is not weakened at all - what changed is that a file
+can now be kept without being shown, which the design allowed for and nothing
+had used.
+
+*The danger is that this looks like an oversight.* Somebody tidying up will see
+one list with `.pdf` and one without and make them agree - which would undo the
+safety without touching the entry that granted it. Hence a test whose failure
+message says so, and a note in both lists pointing at the other.
+
+| what | result |
+|---|---|
+| XMPPWebApp | **175** - 170 passed, 5 skipped; 174 before |
+
+| mutation | result |
+|---|---|
+| M25: `.pdf` added to the served-inline list | **red** - a stored PDF opens in a tab |
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
