@@ -10134,6 +10134,42 @@ And both scripts now **print which peer they set up**, into the log, before
 anything is measured against it. That is the cheap half of the finding above:
 the note has to be taken where the answer is still known.
 
+#### And it went red in all three lanes at once
+
+The first run of it did, and the cause was one line of mine:
+
+```sh
+PROSODY_DEB="$(ls prosody-upstream.deb prosody_*.deb 2>/dev/null | head -1)"
+```
+
+`ls a b` exits **2** when one of the two operands does not exist, whether or not
+the other one did. `2>/dev/null` hides the message and not the status, and under
+`set -euo pipefail` that ends the script - in the Debian branch, where
+`prosody-upstream.deb` is never written.
+
+**The interesting part is which lanes it took down.** All three, including the
+two that had nothing to do with this work. The version line is the one piece of
+D138 that runs in the *old* branch as well, and that is exactly the piece that
+had not been tried: the upstream branch was probed in WSL and found good, and
+what the change shared with the branch it did not touch was reasoned about
+instead of run.
+
+*Fourth time for this shape,* after D130, D134 and D136: something gains a
+distinction, and the side that was relying on the old arrangement finds out by
+breaking. Here the two branches were written at once and only one was run.
+
+The names are set in their own branches now, where each is known, and both
+scripts were then run for real - the text of the actual file, truncated after
+the version line so it stops before it wants a port:
+
+| | Debian branch | upstream branch |
+|---|---|---|
+| Prosody | `13.0.1-1+deb131u` | `13.0.6-1~trixie1` |
+| ejabberd | `24.12-3+deb13u2`, 39 packages | `26.07`, one bundle |
+
+The version line is the last line of the truncated script, so its appearing is
+the proof that nothing above it fell over.
+
 #### What it measured
 
 | what | result |

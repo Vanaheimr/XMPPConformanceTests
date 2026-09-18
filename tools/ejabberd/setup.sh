@@ -160,7 +160,7 @@ else
     EJABBERD_BIN="$ROOT/usr/sbin:$ROOT/usr/lib/erlang/bin"
     EJABBERD_LIBS="$ROOT/usr/lib/$ARCH_DIR"
     INETRC_SRC="$ROOT/etc/ejabberd/inetrc"
-    EJABBERD_VERSION="$(dpkg-deb -f "$(ls ejabberd_*.deb | head -1)" Version) (Debian)"
+    EJABBERD_VERSION="$(dpkg-deb -f "$(printf '%s\n' ejabberd_*.deb | head -1)" Version) (Debian)"
 
 fi
 

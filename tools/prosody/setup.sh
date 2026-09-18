@@ -102,12 +102,14 @@ if [ -n "${JABBER_PROSODY_UPSTREAM:-}" ]; then
     fi
 
     wget -q -O "prosody-upstream.deb" "$REPO/$FILE"
+    PROSODY_DEB="prosody-upstream.deb"
 
 else
 
     apt-get download \
         prosody lua5.4 lua-bitop lua-expat lua-filesystem lua-sec lua-socket \
         ssl-cert libicu76 >/dev/null
+    PROSODY_DEB="$(printf '%s\n' prosody_*.deb | head -1)"
 
 fi
 
@@ -115,7 +117,12 @@ fi
 # divergence is worth exactly as much as the note of which peer it was measured
 # against, and that note has to be taken here, where the answer is still known
 # (D138).
-PROSODY_DEB="$(ls prosody-upstream.deb prosody_*.deb 2>/dev/null | head -1)"
+# Named in each branch above and not looked for here: `ls a b` exits 2 when one
+# of the two operands does not exist, 2>/dev/null hides the message and not the
+# status, and under `set -euo pipefail` that ends the script. It did, in all
+# three lanes at once, and only because the version line is the one piece of
+# D138 that runs in the old branch too - the new one had been tried and the
+# path it shares with the old one had not.
 echo "   Prosody $(dpkg-deb -f "$PROSODY_DEB" Version)"
 
 for f in *.deb; do dpkg-deb -x "$f" "$ROOT"; done
