@@ -421,19 +421,19 @@ echo "== Start"
 # shellcheck disable=SC1091
 . "$PREFIX/env.sh"
 
-"$ROOT/usr/sbin/ejabberdctl" stop >/dev/null 2>&1 || true
+"$EJABBERD_CTL" stop >/dev/null 2>&1 || true
 
 # Wait until the node is really gone: "stop" returns at once, the shutdown is
 # still running. A "start" that comes too early then fails with "node is
 # already running" - and with "set -e" that ends this script.
 for _ in $(seq 20); do
-    "$ROOT/usr/sbin/ejabberdctl" status >/dev/null 2>&1 || break
+    "$EJABBERD_CTL" status >/dev/null 2>&1 || break
     sleep 1
 done
 
 rm -f "$PREFIX/logs/ejabberd.log"
 
-"$ROOT/usr/sbin/ejabberdctl" start
+"$EJABBERD_CTL" start
 
 # Not "ejabberdctl started": that waiting runs over a second Erlang node,
 # which on the first attempt finds no name in the epmd yet and then does not
@@ -441,7 +441,7 @@ rm -f "$PREFIX/logs/ejabberd.log"
 # the outside gets by without that second node.
 started=0
 for _ in $(seq 30); do
-    if "$ROOT/usr/sbin/ejabberdctl" status 2>/dev/null | grep -q "is running"; then
+    if "$EJABBERD_CTL" status 2>/dev/null | grep -q "is running"; then
         started=1
         break
     fi
@@ -456,7 +456,7 @@ if [ "$started" = 1 ]; then
     # the running node, unlike Prosody's prosodyctl, which touches the files
     # directly. With the server stopped there would only be a "nodedown" here.
     for u in "$TEST_USER" "$TEST_USER2" "$TEST_USER3"; do
-        "$ROOT/usr/sbin/ejabberdctl" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
+        "$EJABBERD_CTL" register "$u" "$PEER_DOMAIN" "$TEST_PASSWORD" 2>&1 \
             | grep -iv "^$" | head -1 || true
     done
 
@@ -494,5 +494,5 @@ Windows host. Inside WSL everything is loopback:
 
 Log:   $PREFIX/logs/ejabberd.log
 Stop:  CONFIG_DIR=$PREFIX/etc LOGS_DIR=$PREFIX/logs SPOOL_DIR=$PREFIX/spool \\
-       $ROOT/usr/sbin/ejabberdctl stop
+       $EJABBERD_CTL stop
 DONE

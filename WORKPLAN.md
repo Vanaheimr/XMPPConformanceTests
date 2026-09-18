@@ -10170,6 +10170,33 @@ the version line so it stops before it wants a port:
 The version line is the last line of the truncated script, so its appearing is
 the proof that nothing above it fell over.
 
+#### And then the upstream lane went red on its own account
+
+Which is what it is for, and the first thing it caught was mine again. The two
+established lanes came back green, so the fix above held; the new one got all
+the way through fetching, certificates and configuration, and fell over at
+**Start**:
+
+```
+/github/home/ejabberd-test/root/usr/sbin/ejabberdctl: 2: exec: /opt/ejabberd-26.07/... not found
+```
+
+That is the two-line shim - the one this file's own comment calls "emphatically
+not the one to put on the PATH". It was kept off the PATH, and then called by
+its absolute path six times in the start section, which had been written long
+before there was any branch to choose between.
+
+**A comment is not a mechanism.** `EJABBERD_CTL` was set in both branches and
+then used in neither, and nothing says so: a variable that nobody reads is as
+quiet as a constant that nobody reads (D137, one file over).
+
+The six calls take `$EJABBERD_CTL` now, and this time the whole script was run,
+not the part that changed: the upstream setup was taken end to end in WSL - the
+developer's ejabberd stopped first so the ports were free - and it reached its
+closing summary, which it only does after the node answers "is running" and the
+three accounts are registered. Then the Debian setup was run again to put the
+developer's peer back, and it came up as 24.12-3+deb13u2.
+
 #### What it measured
 
 | what | result |
