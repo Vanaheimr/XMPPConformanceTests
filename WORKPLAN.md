@@ -10306,6 +10306,24 @@ this entry is the argument: two of its sentences were wrong, and finding that
 out took reading the XEP and the runtime, which is work nobody repeats from a
 deleted file.
 
+#### And the reason it looked like clutter
+
+Asked a second time whether it could go, the honest answer had changed shape.
+With finding 2 closed, only one item in the whole document is left with neither
+a fix nor a reason - the password kept as a `string` for the life of the process
+- and that is not enough to keep a file for on its own.
+
+What kept it is the annotations, and the thing that made it *look* deletable was
+neither its age nor its list: **it was linked from nowhere.** Not from a README,
+not from here. A security review lying unreferenced in a docs folder reads as
+something left behind, whatever is in it.
+
+So it has a status section at the top now - what is closed, what is deliberately
+not, and the one thing still unanswered - and the console's README points at it
+from its Security notes, where the trade-offs it explains are listed one line
+each. Findability was the actual complaint; the file was only the thing it
+landed on.
+
 ---
 
 ### D140. PDFs in the archive ✅ — kept without being shown
