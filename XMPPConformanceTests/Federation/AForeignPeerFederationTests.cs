@@ -100,8 +100,28 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         protected const String InboundDomain  = "localhost";
 
         private   XMPPClient?       _client;
+
+        // NUnit1032 wants both of these disposed in the teardown, and 703b730
+        // did that. The four inbound federation rounds - the only ones in this
+        // file that run anywhere but a container - went red together:
+        // "The SSL connection could not be established", "Received an
+        // unexpected EOF or 0 bytes from the transport", in under 30 ms. The
+        // socket is accepted and then goes away, which is what a certificate
+        // pulled out from under a TLS listener looks like.
+        //
+        // _ourCert is handed to XMPPServer as its certificate and closed over
+        // by AliceAsync to check the server's thumbprint from the client side,
+        // so this fixture is not the owner that may dispose it. The handle goes
+        // with the process instead, which is one test run - the cheaper of the
+        // two mistakes.
+        //
+        // Under test rather than settled: this is D141's hypothesis, and the
+        // nightly is the only place that can judge it, because these rounds
+        // probe whether the far side can dial in and skip when it cannot (D105).
+#pragma warning disable NUnit1032 // handed on, not owned here - see above
         private   X509Certificate2  _ca       = null!;
         private   X509Certificate2  _ourCert  = null!;
+#pragma warning restore NUnit1032
 
         /// <summary>
         /// Our server in the running test.
