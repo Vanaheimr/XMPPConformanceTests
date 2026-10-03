@@ -220,10 +220,19 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 Server = null;
             }
 
-            // After the server, which was handed _ourCert and does not own it.
-            _ca?.Dispose();
-            _ourCert?.Dispose();
-
+            // NOT disposed here, and that is the finding of D141 rather than an
+            // oversight. 703b730 added `_ca?.Dispose(); _ourCert?.Dispose();`
+            // to satisfy NUnit1032, and the four inbound federation rounds -
+            // the only ones in this file that run anywhere but a container -
+            // went red together: our own client could not open a wss://
+            // connection to our own server, "unexpected EOF", in under 30 ms.
+            //
+            // _ourCert is not this fixture's to dispose while anything still
+            // holds it. It goes to XMPPServer as its certificate and, by way of
+            // AliceAsync, into the closure that checks the server's thumbprint
+            // on the client side. Dropped on the floor on purpose: the handle
+            // goes with the process, which is a test run, and a leaked handle
+            // for the length of one run is the cheaper of the two mistakes.
             _ca       = null!;
             _ourCert  = null!;
 
