@@ -10391,6 +10391,132 @@ message says so, and a note in both lists pointing at the other.
 |---|---|
 | M25: `.pdf` added to the served-inline list | **red** - a stored PDF opens in a tab |
 
+---
+
+### D141. The pins catch up with NUnit 5 ✅ — and a correction to a commit message that cannot be edited
+
+"Update the .NET dependencies" turned out to be mostly a pin problem. The one
+csproj that belongs to this repository was already on NUnit 5.0.0,
+NUnit.Analyzers 4.15.0 and Microsoft.NET.Test.Sdk 18.10.1 (`703b730`). The five
+submodules carried the same work in their own repositories, and this repository
+pointed behind **all five** - Hermod by 304 commits, Styx by 14, the other three
+by the one commit each that did their NUnit 5 pass.
+
+| | before | after |
+|---|---|---|
+| NUnit | 4.6.1 in five projects, 5.0.0 in one | 5.0.0 everywhere |
+| NUnit.Analyzers | only this repository | all six test projects |
+| Microsoft.NET.Test.Sdk | 18.9.0 to 18.10.1 | 18.10.1 everywhere |
+
+Against NuGet nothing was left once the pins moved: `--outdated` reports no
+updates for the suite, for XMPPConsole or for XMPPWebApp. On the frontend two of
+three were inside the ranges `package.json` already allows and moved.
+
+#### The third one, and what the outdated column does not show
+
+typescript was left at 5.9.3 because the column offered 7.0.2, and that is the
+rewritten compiler rather than a patch. The reasoning was sound and the premise
+was wrong: **6.0.3 exists.** It is not the `latest` dist-tag, which is where
+`npm outdated` looks, so a stable release sat between what was installed and
+what was offered and never appeared in the column at all. Asked directly, the
+stable 6.x line is 6.0.2 and 6.0.3.
+
+6.0.3 is the last of the JS-based line, so it takes the language and compiler
+changes without taking the port. `tsc --noEmit` clean, webpack 5.111.1 builds,
+38 of 38 node tests. 7.0.2 still stays, now for a smaller reason: one major
+version rather than two.
+
+The install then surfaced something no version column shows. `npm audit` named
+**fast-uri 3.0.0-3.1.7**, a moderate advisory about inconsistent host case
+normalisation via percent-encoded octets, reached transitively through
+webpack's schema validation. `npm audit fix` took it to 3.1.8 and touched
+nothing else; the typecheck, the bundle and the tests were run again afterwards,
+because a lockfile change nobody re-measured is a lockfile change nobody has
+tested.
+
+**A sweep that reads only the outdated column misses both** - one because the
+newest stable is not always tagged latest, the other because a vulnerability is
+not a version number.
+
+#### The hazard NUnit 5 brings, looked for rather than assumed
+
+`Assert.ThrowsAsync` and `CatchAsync` return a `Task` now. **One that is not
+awaited is an assertion that never runs** - the test goes green whatever the
+code does, which is the worst failure a test can have, because it is
+indistinguishable from success.
+
+NUnit2059 catches it, and every test project has the analyzer now. The check was
+still made directly, across all six:
+
+| what | result |
+|---|---|
+| every `Assert.ThrowsAsync` / `CatchAsync` / `MultipleAsync` awaited | yes, without exception |
+| `async void` tests | none - every occurrence of the phrase is a comment warning about it |
+| NUnit analyzer warnings | **0** in all four buildable test projects |
+
+#### A commit message that is wrong, and cannot be put right
+
+Another session reported two errors in Ratatoskr's `ab947db`. **One is real and
+one is not**, and the difference matters, because acting on the report as given
+would have written a new error into the history.
+
+**Real.** The message says *"Three of the four sites read a property off the
+result and stopped compiling; the other two ... compiled"*. Three plus two is
+five. Counted at the diff:
+
+| file | the call | what happened |
+|---|---|---|
+| `DowngradeProtectionExchangeTests` | `var thrown = …`, reads `.Message`, `.Cause`, `.IsAnswerableByConfiguration` | did not compile |
+| `NegotiationTimeoutTests` | `var error = …`, reads `.Message` | did not compile |
+| `ChannelBindingExchangeTests` | result discarded | compiled, never ran |
+| `MessageReplyTests` | result discarded | compiled, never ran |
+
+Two and two. "Three" should read "Two".
+
+**Not real.** The report also said the message's *"this project's own 7 -> 4"*
+should be 7 -> 3. It should not. A `--no-incremental` Release build of
+RatatoskrTests gives **four** warnings of its own: CS8604 in
+`CarbonSpoofingTests`, CS8602 in `OmemoWireFormatTests`, and CA1416 in
+`ServerHardeningTests` and `SignedPreKeyRotationTests`. The seven before were
+those same four plus the **three** CS8602 in `OwnIqHandlerTests` that NUnit 5's
+nullability annotations removed - which the message names itself. 7 − 3 = 4, and
+the message is right.
+
+*The before figure could not be built to confirm it:* a detached worktree of
+Ratatoskr has no Hermod and no Styx beside it and fails with 101 errors. What
+corroborates the seven is this project's own record - the September build output
+in D136's working notes lists exactly those seven lines.
+
+#### Why the message stays as it is
+
+Correcting it means amending the tip of a published branch and force-pushing.
+`ab947db` has been built by CI and is pinned by this commit, and a rewrite on
+the strength of a report that was half wrong is how a correction becomes a
+second error.
+
+So it is answered here instead, which is what this repository already does with
+`grok-review.md`: *the text is the document as it arrived, and disagreements are
+answered in the working notes rather than silently edited in.* A commit message
+is a stronger case for that rule than a review is - it is the one piece of
+writing in a project that is **meant** to be immutable.
+
+**The rule worth keeping:** a report about a mistake is a claim like any other.
+Both halves of this one were checked before either was acted on, and only one
+survived - which took a build and a diff, and would have taken a force-push to
+undo.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1374 - 1371 passed, 3 skipped |
+| XMPPWebApp.Tests | 175 - 170 passed, 5 skipped |
+| XMPPConsole.Tests | 29 - all passed |
+| conformance gate | 2 of 2 |
+| frontend | 38 node tests, typecheck clean, webpack 5.111.1 builds |
+
+All of it after the pins moved, and none of it before.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
