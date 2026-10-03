@@ -10541,6 +10541,24 @@ tell, and nothing turns on the answer.
 grepping for a warning, and a build that was not forced to recompile has not
 seen the change. Both halves of that sentence cost a nightly run each.
 
+#### Why a pragma and not an .editorconfig
+
+Hermod answers NUnit1034 with a scoped `.editorconfig` entry, and that is the
+house style for a suppression. This one is a `#pragma` at the two fields
+instead, decided on purpose: an `.editorconfig` line switches the rule off for
+a whole directory, and with it for every field added later that genuinely
+*should* be disposed in a teardown. The pragma reaches two declarations in one
+file and nothing else.
+
+Written down because the two now look inconsistent, and the next person to
+tidy up will want to make them agree - which is the D140 shape exactly: one
+list with `.pdf` and one without invites somebody to harmonise away the thing
+that made it safe.
+
+*What the XMPP projects do not need:* Hermod's NUnit1034 suppression. All six
+`AForeignPeer*` base fixtures are `abstract`, checked rather than assumed, so
+the rule cannot fire here and copying the line would be ballast.
+
 #### What it measured
 
 | lane | Prosody | ejabberd | result |
