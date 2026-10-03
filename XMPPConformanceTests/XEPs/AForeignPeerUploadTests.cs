@@ -231,11 +231,11 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 Assert.That(slot.GetUrl.Scheme, Is.EqualTo("https"));
 
                 Assert.That(slot.Headers.Select(h => h.Name),
-                            Is.All.Matches<String>(HttpFileUpload.AllowedHeaders.Contains),
+                            Is.All.Matches<String>(n => n is not null && HttpFileUpload.AllowedHeaders.Contains(n)),
                             "A header outside the three of section 5 came through the reading.");
 
                 Assert.That(slot.Headers.Select(h => h.Value),
-                            Is.All.Matches<String>(v => !v.Contains('\r') && !v.Contains('\n')),
+                            Is.All.Matches<String>(v => v is not null && !v.Contains('\r') && !v.Contains('\n')),
                             "A header value with a line break in it is a second header of somebody else's choosing.");
 
             });

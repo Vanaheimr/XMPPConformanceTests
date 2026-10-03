@@ -179,7 +179,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             if (!PortAnswers())
                 Assert.Ignore($"On 127.0.0.1:{EndpointPort} no {PeerName} WebSocket answers.");
 
-            _ca = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(directory, "ca.crt"));
+            // Once per test: a test may connect several clients, and each
+            // load is a certificate of its own that the teardown disposes.
+            _ca ??= X509CertificateLoader.LoadCertificateFromFile(Path.Combine(directory, "ca.crt"));
 
             var connection = new XMPPConnection(
                                  JID.Parse($"{localPart}@{PeerDomain}"),
@@ -259,6 +261,9 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 http.Dispose();
 
             _https.Clear();
+
+            _ca?.Dispose();
+            _ca = null!;
 
         }
 

@@ -220,6 +220,13 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 Server = null;
             }
 
+            // After the server, which was handed _ourCert and does not own it.
+            _ca?.Dispose();
+            _ourCert?.Dispose();
+
+            _ca       = null!;
+            _ourCert  = null!;
+
             _guard.AssertClean();
 
         }
