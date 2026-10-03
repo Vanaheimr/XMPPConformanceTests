@@ -10454,6 +10454,104 @@ still made directly, across all six:
 | `async void` tests | none - every occurrence of the phrase is a comment warning about it |
 | NUnit analyzer warnings | **0** in all four buildable test projects |
 
+#### And then the nightly went red, four times out of 137
+
+The pin move broke the suite, and the lane that found it is the one that exists
+for exactly this. **133 of 137 in all three lanes, the same four everywhere** -
+`EjabberdDialsUsAndTheAnswerArrives`, `ProsodyDialsUsAndTheAnswerArrives` and
+`ThePeerTakesTheReturnPathWeOffered` twice. The same count against Debian's
+peers as against upstream's, which settles in one line that it is not a peer.
+
+All four fail identically, and not in the federation: our own client cannot
+open a `wss://` connection to our own server.
+
+```
+The SSL connection could not be established
+Received an unexpected EOF or 0 bytes from the transport
+```
+
+Ten to thirty milliseconds. The socket is accepted and then goes away.
+
+**It cannot be reproduced on this machine, and that is not a Windows quirk.**
+The four rounds probe whether the far side can dial *in* and skip when it
+cannot (D105) - so they skip on Windows *and in WSL*, and run only in the
+container where the peers are native on the same loopback. A local 1374 / 175 /
+29 / 2 / 38 says nothing whatever about them. Four nightly runs were the
+measuring instrument, at about three minutes each.
+
+#### Two wrong answers before the right one
+
+**Hermod, by timeline.** The last green nightly ran at 09:24 UTC, so its
+submodules-at-master lane had seen Hermod at `22768a4a` (2 Oct, 16:26 CEST).
+The pin moved it to `416fcd06` - 33 commits later, all from that afternoon, 28
+of them in the library. The reasoning was good and the answer was wrong: rolled
+back, the nightly came out 133 of 137 again. Hermod is cleared by trying it, and
+the pin went straight back forward rather than sitting behind on a dead
+hypothesis.
+
+*Styx was cleared more cheaply:* its three afternoon commits touch `StyxTests`
+and nothing else.
+
+**Then the certificate, and a measurement that measured nothing.** What was
+left was this repository's own `703b730`, which had added, for NUnit1032:
+
+```csharp
+_ca?.Dispose();
+_ourCert?.Dispose();
+```
+
+in the teardown of the file the four failures live in - and it had never been
+exercised, because it was written at 15:58 UTC and the only nightly before mine
+ran at 09:24.
+
+Taking the two calls out, I reported that no NUnit1032 came back. **It did.**
+The rule is an `error`, not a warning; I grepped for `warning NUnit1032`, found
+none, and called it clear - then never looked at the error count again. And the
+build I did look at was **incremental**, so it had not recompiled the file at
+all and said `0 Fehler`. With `--no-incremental` it says 2.
+
+So all three jobs failed at Build and reached no test. The hypothesis was not
+rejected - **it was never put**, and the run that looked like a rejection
+reported no numbers at all, which was the clue.
+
+*That is D136's trap from the other side:* there a `--no-build` run gave a false
+red, here an incremental one gave a false green. **A measurement that did not
+recompile measured the state before the change.**
+
+#### The answer
+
+With NUnit1032 suppressed where the two fields are declared, and the reason
+beside it, the nightly comes out **137 of 137 in all three lanes**. So the
+disposal was the cause, and it is a measurement now rather than the last name
+left standing.
+
+`_ourCert` is not this fixture's to dispose. It goes to `XMPPServer` as its
+certificate and into the closure `AliceAsync` uses to check the server's
+thumbprint from the client side. Disposing it is pulling a certificate out from
+under a live TLS listener, which is precisely what the error text describes. The
+handle now goes with the process instead - one test run, and the cheaper of the
+two mistakes.
+
+*Not separated:* both fields were suppressed together, so which of the two did
+the damage is unmeasured. `_ourCert` is the one the reasoning names; `_ca` is
+captured by `TrustsTheTestCA` and may be just as unsafe. One more nightly would
+tell, and nothing turns on the answer.
+
+**The rule worth keeping:** an analyzer rule that is an error is not found by
+grepping for a warning, and a build that was not forced to recompile has not
+seen the change. Both halves of that sentence cost a nightly run each.
+
+#### What it measured
+
+| lane | Prosody | ejabberd | result |
+|---|---|---|---|
+| pinned submodules | 13.0.1-1+deb131u | 24.12-3+deb13u2 | **137 of 137** |
+| submodules at master | 13.0.1-1+deb131u | 24.12-3+deb13u2 | **137 of 137** |
+| far sides at upstream | 13.0.7-1~trixie2 | 26.09 (ProcessOne) | **137 of 137** |
+
+Hermod stands forward at `416fcd06` after all, and the dependency update is
+whole.
+
 #### A commit message that is wrong, and cannot be put right
 
 Another session reported two errors in Ratatoskr's `ab947db`. **One is real and
