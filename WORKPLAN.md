@@ -10633,6 +10633,123 @@ undo.
 
 All of it after the pins moved, and none of it before.
 
+### D142. The pins at master again ✅ — an API that moved, a checkout that was not what it said, and an hour the calendar took
+
+"Update all submodules", twelve days after D141 closed. Fetched, three of the five
+had nothing new: Ratatoskr, XMPPConsole and XMPPWebApp stood at their master.
+Styx was 19 commits behind, Hermod 172.
+
+#### The lane that had already said it
+
+The nightly of 14 October was red, and only in one lane: **submodules at
+master**, at Build, before any test. The pinned lane and the upstream-peers
+lane were green on the same commit, which says in one line that nothing here
+had changed - the far side of a pin had.
+
+```
+WebSocketServerLinks.cs(822,40): error CS0115: 'S2SWebSocketListener.ProcessTextMessage(…, AWebSocketServer, …)': no suitable method found to override
+XMPPServer.cs(1277,34):          error CS0115: 'XMPPWebSocketServer.ProcessTextMessage(…, AWebSocketServer, …)': no suitable method found to override
+```
+
+Hermod `ae786551` split the WebSocket protocol out of the TCP server:
+`AWebSocketEndpoint` speaks it without a listener, and `AWebSocketServer` is now
+an endpoint that owns one. Every override and every event delegate takes the
+endpoint since. Ratatoskr had not followed, so **a plain move of the Hermod pin
+would have broken this repository's build** - the lane exists to see that a
+day before anyone pins it, and it did.
+
+The first answer was to stop Hermod one short, at `ae786551`'s parent
+`7267e5af`, the last revision before the change. The better one was to follow the API: Ratatoskr `b8b4177` changes five parameter
+types and nothing else - the two `ProcessTextMessage` overrides and the three
+connection handlers. Both listeners stay `AWebSocketServer`, because they still
+own their listener, and `XMPPSession` keeps the server it is handed, which is
+one.
+
+#### A checkout that was not the one .gitmodules describes
+
+The first full build of the solution failed twice over, on `Styx.dll` being
+used by another process, and the cause was not in any of the five changes.
+**`libs/XMPPConsole/libs/` and `libs/XMPPWebApp/libs/` were checked out** -
+both applications' own Hermod, Styx and Ratatoskr, six submodules that
+`.gitmodules` says nothing in this repository may init.
+
+What that does is exactly what it warns of, and more quietly than expected:
+
+| | nested libs/ present | nested libs/ empty |
+|---|---|---|
+| XMPPConsole, XMPPWebApp build against | their own Ratatoskr `f8fce75`, Hermod `3bc56fdb` | `libs/Ratatoskr`, `libs/Hermod` - the pins |
+| Styx, Hermod, Ratatoskr built | twice, into the same `build/windows` | once |
+| warnings | 873 | 5 |
+| result | `MSB3030` / `CS2012` on `Styx.dll` | 0 errors |
+
+The collision was the lucky half. Without it the build would have gone green
+while **two of the applications in the solution never saw the pins being
+tested** - the same shape as D141's incremental build, a measurement of
+something other than the change. All six were clean and deinitialised; `git
+submodule update --init` in either application brings them back.
+
+#### An hour the calendar took
+
+One test failed in 4597, in Hermod:
+
+```
+Validity_IsTheTotalLifetime_StartingOneDayInThePast
+  Expected: 13.00:00:00 +/- 00:00:02
+  But was:  12.23:00:00
+```
+
+`X509Certificate2.NotBefore` and `NotAfter` are local times, and the difference
+of two local times is short by an hour when a clock change lies between them.
+Thirteen days from 14 October end after the 25th. The certificate was right;
+the subtraction was not. **The test existed under the old pin as well** - it
+fails in the thirteen days before every change to or from daylight saving time,
+and only then, so on the day of an update it looks like the update. Hermod `b4c713b6` measures in UTC.
+
+#### And the README contradicted itself about channel binding
+
+Issue #1 asked about the three channel-binding types. The authentication table
+had the `-PLUS` mechanisms preferred and bound; the limits further down still
+said they were missing, and the SCRAM table knew only the one type that does
+not work. Now there is a section of its own with all three, by RFC and TLS
+version, and what they mean against Prosody and ejabberd (D108): **over TLS 1.3
+this client has no binding either far side accepts.**
+
+Where the platform stands was looked up rather than remembered, since the
+expectation was that .NET 11 would bring an exporter. It does not.
+`SslStream.ExportKeyingMaterial` passed API review on 29 Sep 2026
+(dotnet/runtime#112529), milestone *Future*; on 15 Oct it is in neither
+`release/11.0` (RC2) nor `main`, which is already 12.0. What .NET 11 brings is
+`TlsContext`/`TlsSession`, without an exporter. Answered on the issue in those
+terms, together with why BouncyCastle - which has one - is not a reason to
+change TLS stacks for a single binding type.
+
+*Also stale, and found on the way:* `.gitmodules` still explained why
+XMPPWebApp is **not** in the solution. It has been since `a6f27cd`.
+
+#### Still open
+
+XMPPConsole and XMPPWebApp pin their own Hermod `3bc56fdb` and Ratatoskr
+`f8fce75`. Nothing here notices, since both build against `libs/` in this tree -
+but a plain clone of either builds against those, and whoever moves their
+Hermod past `ae786551` needs Ratatoskr `b8b4177` with it, or meets the same
+CS0115. That belongs in the two repositories, from clones of their own; it
+cannot be done here without checking out what this repository forbids.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| solution build, Release | 0 errors, 5 warnings |
+| HermodTests | 4597 - 4596 passed, 1 skipped, after `b4c713b6` |
+| RatatoskrTests | 1374 - 1371 passed, 3 skipped |
+| StyxTests | 634 - 633 passed, 1 skipped |
+| XMPPWebApp.Tests | 175 - 170 passed, 5 skipped |
+| XMPPConsole.Tests | 29 - all passed |
+| conformance, locally | 137 - 18 passed, 119 skipped (D105) |
+| nightly on `980dd2b`, all three lanes | **137 of 137** |
+
+Pins: Hermod `b4c713b6`, Ratatoskr `e0e2aca`, Styx `80074364`.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
