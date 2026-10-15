@@ -74,7 +74,7 @@ decisions behind all of it stand in the [work plan](WORKPLAN.md).
 
 | Method | Status |
 |---------|--------|
-| SCRAM-SHA-256-PLUS | ✅ Preferred, and bound to the TLS channel |
+| SCRAM-SHA-256-PLUS | ✅ Preferred, bound with `tls-server-end-point` — where the far side announces that type (XEP-0440) |
 | SCRAM-SHA-1-PLUS | ✅ Above unbound SCRAM-SHA-256, deliberately — the binding matters more than the hash |
 | SCRAM-SHA-256 | ✅ Where the far side offers no binding |
 | SCRAM-SHA-1 | ✅ Fallback |
@@ -194,7 +194,36 @@ delivers no `host-meta`. Whoever does not want it gives the URL, e.g. Prosody:
 | Nonce check against MITM | ✅ |
 | Server signature verification (constant running time) | ✅ Mandatory — a `<success/>` without a server-final-message breaks the setup off |
 | SASLprep (RFC 4013) | ✅ Complete: mapping, NFKC, prohibition tables, unassigned code points and the bidi rules; checked against the example table from §3 |
-| Channel binding (RFC 9266 `tls-exporter`) | ❌ |
+| Channel binding (`-PLUS`) | ⚠️ One of three types — see below |
+
+### RFC 5929 / RFC 9266 — TLS channel binding
+
+Which of the three binding types SCRAM-…-PLUS can use depends on the TLS
+version, and only one of them is reachable from .NET:
+
+| Type | RFC | TLS versions | Status |
+|------|-----|--------------|--------|
+| `tls-unique` | RFC 5929 §3 | 1.2 and below — undefined under 1.3 | ❌ Not offered |
+| `tls-server-end-point` | RFC 5929 §4 | 1.2 and 1.3 — a hash of the server certificate | ✅ Both sides, announced per XEP-0440. Binds the certificate, not the session |
+| `tls-exporter` | RFC 9266 | 1.3 | ❌ Blocked on the platform: `SslStream` exposes no TLS exporter |
+
+What that means in practice: Prosody and ejabberd offer `tls-exporter` and take
+`tls-server-end-point` from neither side, so against both the client logs in
+with unbound SCRAM. Over TLS 1.3 there is no binding this client can perform that either far
+side accepts (D108 in the [work plan](WORKPLAN.md)).
+
+Where `tls-exporter` stands in .NET, as of 15 Oct 2026: the API —
+`SslStream.ExportKeyingMaterial(label, [context,] destination)`, RFC 5705 /
+RFC 8446 §7.5 — passed API review on 29 Sep 2026
+([dotnet/runtime#112529](https://github.com/dotnet/runtime/issues/112529),
+`api-approved`; the RFC 9266 request itself is
+[dotnet/runtime#73118](https://github.com/dotnet/runtime/issues/73118)). Both
+carry the milestone *Future*, and **it is not in .NET 11**: neither
+`release/11.0` (RC2, GA on 10 Nov 2026) nor `main`, which is already 12.0,
+has it in the reference assembly. What .NET 11 does bring is the low-level
+`TlsContext`/`TlsSession`, without an exporter; whether the exporter lands on
+`SslStream` as approved or on `TlsSession` is still being discussed in the
+issue. So .NET 12 at the earliest, and only once an implementation is merged.
 
 ### RFC 7622 — JID handling
 
@@ -740,8 +769,15 @@ server implementation:
   missing: STARTTLS (§5.4), a way to deposit a certificate of one's own, and
   the possibility of forbidding `ws://` — `new XMPPServer(useTLS: false)` still
   delivers plaintext.
-- **SCRAM without channel binding.** Offered are SCRAM-SHA-256, SCRAM-SHA-1 and
-  PLAIN; the `-PLUS` variants are missing. ~~An unknown account is refused
+- **SCRAM with channel binding, over one binding type.** Offered are
+  SCRAM-SHA-256, SCRAM-SHA-1 and PLAIN, and over TLS the `-PLUS` variants of
+  the two SCRAMs, bound with `tls-server-end-point`. `tls-exporter` (RFC 9266),
+  the binding TLS 1.3 is meant to use and the one Prosody and ejabberd offer, is
+  out of reach because .NET exposes no TLS exporter; `tls-unique` does not exist
+  under TLS 1.3. Against those two far sides the client therefore logs in with
+  unbound SCRAM — it binds only where the server names `tls-server-end-point`
+  in its XEP-0440 announcement (D108 in the [work plan](WORKPLAN.md)).
+  ~~An unknown account is refused
   before the exchange begins.~~ Fixed: the exchange runs to the end for an
   unknown name as well and fails at the proof (RFC 6120 §13.11, see D50). The
   server key the made-up salts come from, however, lives in the process —

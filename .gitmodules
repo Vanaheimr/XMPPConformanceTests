@@ -71,32 +71,25 @@
 #
 # Like XMPPConsole it carries its own Hermod, Styx and Ratatoskr under libs/, so
 # that a plain clone of it builds - and for the same reason nothing here may
-# init submodules recursively. What is different is what happens then, and it is
-# why this one is NOT in XMPPConformanceTests.slnx:
+# init submodules recursively.
 #
-#   XMPPConsole.csproj  asks Exists('..\libs\Ratatoskr\...') and takes
-#                       ..\..\Ratatoskr when its own libs/ is empty - which
-#                       inside this libs/ is the pin above.
+# It is in XMPPConformanceTests.slnx (a6f27cd), on the same footing as the
+# console: since XMPPWebApp 23b2564, XMPPWebApp.csproj carries the conditional
+# pair XMPPConsole has had since D97, one directory deeper because its project
+# sits at src/XMPPWebApp -
 #
-#   XMPPWebApp.csproj   names ..\..\libs\Ratatoskr\... and ..\..\libs\Hermod\...
-#                       unconditionally. With libs/ empty, MSBuild SKIPS both
-#                       references - "wird uebersprungen, da es nicht gefunden
-#                       wurde", a message and not an error - and the build then
-#                       fails 452 times over missing Newtonsoft and Hermod
-#                       types. The one line that names the cause passes by; the
-#                       452 that do not are what gets reported.
+#     ..\..\libs\Ratatoskr\Ratatoskr\Ratatoskr.csproj   when its own libs/ is there
+#     ..\..\..\Ratatoskr\Ratatoskr\Ratatoskr.csproj     when it is not
 #
-# So it is checked out here and built from its own solution, not from this one.
-# What it would take to join: the same conditional pair XMPPConsole carries,
-# one directory deeper, because its project sits at src/XMPPWebApp rather than
-# at the repository root -
+# and the same for Hermod. The second line, from libs/XMPPWebApp/src/XMPPWebApp/,
+# resolves to libs/Ratatoskr, the pin above. Before that change both references
+# were unconditional, and with libs/ empty MSBuild SKIPPED them - "wird
+# uebersprungen, da es nicht gefunden wurde", a message and not an error - and
+# then failed 452 times over missing Newtonsoft and Hermod types.
 #
-#     ..\..\..\Ratatoskr\Ratatoskr\Ratatoskr.csproj
-#
-# from libs/XMPPWebApp/src/XMPPWebApp/ resolves to libs/Ratatoskr, which is the
-# pin above. Its frontend is no obstacle to that: npm ci and npm run build run
-# as part of the build and did so here, and -p:SkipFrontendBuild=true exists for
-# a backend-only pass.
+# Its frontend is built as part of the build (npm ci, npm run build);
+# -p:SkipFrontendBuild=true skips that, but the embedding step still wants a
+# src/Frontend/dist that exists - see the note in the .slnx.
 [submodule "libs/XMPPWebApp"]
 	path = libs/XMPPWebApp
 	url = https://github.com/Vanaheimr/XMPPWebApp.git
