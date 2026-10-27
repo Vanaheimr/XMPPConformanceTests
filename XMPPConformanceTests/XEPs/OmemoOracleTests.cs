@@ -1119,29 +1119,55 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
                 var manager = new OmemoManager(
                                   new OmemoMemoryStore(),
                                   ourJid,
-                                  fetchDeviceList: jid => Task.FromResult<OmemoDeviceList?>(
+                                  fetchDeviceList: jid => Task.FromResult<(OmemoDeviceList? List, PepLookup Lookup)>(
                                       jid == oracleJid
-                                          ? new OmemoDeviceList([new OmemoDevice(1), new OmemoDevice(2),
-                                                                 new OmemoDevice(3), new OmemoDevice(unreachable)])
+                                          ? (new OmemoDeviceList([new OmemoDevice(1), new OmemoDevice(2),
+                                                                  new OmemoDevice(3), new OmemoDevice(unreachable)]),
+                                             PepLookup.Published)
                                           // Our own bare JID is appended by EncryptAsync itself, so that
                                           // one's own other devices see what one has written. We have none,
-                                          // and an empty list says so without becoming a skip.
-                                          : new OmemoDeviceList([])),
-                                  fetchBundle: (jid, id) => Task.FromResult(
-                                      bundles.TryGetValue(id, out var bundle) ? bundle : null));
+                                          // and an empty list says so without becoming a skip - the server
+                                          // answered, and what it answered is empty.
+                                          : (new OmemoDeviceList([]), PepLookup.Published)),
+                                  fetchBundle: (jid, id) => Task.FromResult<(OmemoBundle? Bundle, PepLookup Lookup)>(
+                                      bundles.TryGetValue(id, out var bundle)
+                                          ? (bundle, PepLookup.Published)
+                                          // Nothing came back for this one, and that is not the server
+                                          // saying there is no bundle: Unknown, the kind of nothing a
+                                          // sender may draw no conclusion from.
+                                          : (null, PepLookup.Unknown)));
 
                 var result = await manager.EncryptAsync([oracleJid],
                                                         [new XElement("body", secret)]);
 
                 // 1. The one that could not be reached is named, and named with
-                //    its number rather than as a count.
-                Assert.That(result.Skipped.Select(s => s.DeviceId), Is.EquivalentTo(new[] { unreachable }),
+                //    its number rather than as a count. Our own account is a
+                //    second entry and not a third device: EncryptAsync appends
+                //    the own bare JID, which here publishes no device at all,
+                //    and the manager names that rather than passing over it.
+                //    So the oracle's own skips are what this asserts.
+                Assert.That(result.Skipped.Where(s => s.Jid == oracleJid).Select(s => s.DeviceId),
+                            Is.EquivalentTo(new[] { unreachable }),
                             "The device without a bundle is either missing from the list of those that " +
                             "cannot read along, or others have wrongly landed in it. A sender is told " +
                             "this and nothing else about who did not get the message.");
 
                 Assert.That(result.Skipped[0].Reason, Is.Not.Empty,
                             "The device is named without a reason, which is a list a sender cannot act on.");
+
+                // And the two skips are not the same kind of skip. Nobody
+                // answered for device 4's key material, which says nothing
+                // about whether that account does OMEMO; our own account did
+                // answer, with no device in it, and that is a statement a
+                // sender may act on. The PepLookup split is what keeps the
+                // two apart, and NoOmemoThere is where the difference shows.
+                Assert.That(result.Skipped[0].NoOmemoThere, Is.False,
+                            "A device nobody answered for is marked as an account without OMEMO - " +
+                            "which is the conclusion from silence that the lookup split exists to stop.");
+
+                Assert.That(result.Skipped.Single(s => s.Jid == ourJid.Bare).NoOmemoThere, Is.True,
+                            "Our own account answered that it has no device, and that answer is not " +
+                            "carried through to the caller.");
 
                 // 2. Three entries, one payload.
                 var keys = result.Element.Keys[oracleJid];
@@ -1300,8 +1326,10 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
             var manager = new OmemoManager(
                               new OmemoMemoryStore(),
                               ourJid,
-                              fetchDeviceList: _ => Task.FromResult<OmemoDeviceList?>(new OmemoDeviceList([])),
-                              fetchBundle:     (_, _) => Task.FromResult<OmemoBundle?>(null));
+                              fetchDeviceList: _ => Task.FromResult<(OmemoDeviceList? List, PepLookup Lookup)>(
+                                                      (new OmemoDeviceList([]), PepLookup.Published)),
+                              fetchBundle:     (_, _) => Task.FromResult<(OmemoBundle? Bundle, PepLookup Lookup)>(
+                                                      (null, PepLookup.Unknown)));
 
             var envelope = new SceEnvelope([new XElement("body", text)],
                                            From: envelopeFrom.ToString(),
