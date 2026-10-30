@@ -23,6 +23,7 @@ using System.Security.Cryptography.X509Certificates;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Ratatoskr;
 using org.GraphDefined.Vanaheimr.Ratatoskr.Server;
 
@@ -311,12 +312,33 @@ namespace org.GraphDefined.Vanaheimr.Ratatoskr.Tests
         /// <summary>
         /// Connects a real client to our test server.
         /// </summary>
+        /// <remarks>
+        /// The client names the server's domain and dials the loopback, as a
+        /// client does after a DNS answer (D143). It used to dial Server.Uri,
+        /// which always says localhost - and in every round but one that was
+        /// right only by coincidence: with <c>reachable</c> the domain *is*
+        /// localhost, and so is the certificate.
+        ///
+        /// APingOverABidirectionalStream is the one round that is not reachable.
+        /// There the server is jabber.test with a certificate for jabber.test,
+        /// and a client asking for localhost asks for an origin that certificate
+        /// does not cover. RFC 9110, Section 7.4: such a request "MUST be
+        /// rejected". Hermod rejects it since 6c94974d, with 421, and the round
+        /// went red in the submodules-at-master lane on the first night after -
+        /// against Prosody and ejabberd alike, which said at once it was ours.
+        ///
+        /// The fingerprint check is unchanged; it never looked at the name.
+        /// </remarks>
         protected async Task<XMPPClient> AliceAsync()
         {
 
-            var connection                                   = new XMPPConnection(JID.Parse($"alice@{Server!.Domain}"), "pw", Server.Uri) {
+            // The port and the path are the server's; only the name changes.
+            var endpoint                                     = new UriBuilder(Server!.Uri.ToString()) { Host = Server.Domain };
+
+            var connection                                   = new XMPPConnection(JID.Parse($"alice@{Server.Domain}"), "pw", URL.Parse(endpoint.Uri.ToString())) {
                                  KeepaliveEnabled            = false,
                                  MaxReconnectAttempts        = 0,
+                                 DialAddress                 = System.Net.IPAddress.Loopback,
                                  ServerCertificateValidator  = (_, c, _, _) =>
                                      c is not null &&
                                      c.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256)

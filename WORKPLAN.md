@@ -10750,6 +10750,126 @@ cannot be done here without checking out what this repository forbids.
 
 Pins: Hermod `b4c713b6`, Ratatoskr `e0e2aca`, Styx `80074364`.
 
+---
+
+### D143. A server asked for the wrong name ✅ — and Hermod was right to refuse
+
+The Actions page showed three red nights in a week, and they looked like one
+flaky suite: the same commit green, red, green. They were three different
+things, and **all three in one lane** - `interop (submodules at master)`, which
+moves the submodules to their master tips at run time. The suite's own commit
+did not change between the nights; Ratatoskr's, Hermod's and Styx's masters
+did. The pinned and upstream lanes were green on every one of those days.
+
+| night | what | since |
+|---|---|---|
+| 24 Oct | `APicturePublishedCanBeFetchedBySomebodyElse`, a 10 s timeout, beside a failed NuGet download | green again the next night with nothing changed: a transient |
+| 27 Oct | build: Ratatoskr made an OMEMO API async, `OmemoOracleTests` still called it synchronously | followed on the 28th in `52f4559` |
+| 30 Oct | `APingOverABidirectionalStream`, against Prosody **and** ejabberd | this entry |
+
+#### 421, from our own server, to our own client
+
+```
+The server returned status code '421' when status code '101' was expected.
+```
+
+421 is Misdirected Request. Hermod gained it on 29 October in `6c94974d`,
+*"HTTP/1.1 refuses a request for an origin its certificate does not cover"* -
+RFC 9110, Section 7.4: a request for an https resource "MUST be rejected unless
+it has been received over a connection that has been secured via a certificate
+valid for that target URI's origin". The first nightly after was the 30th.
+
+**Hermod is right, and the round was relying on the check being absent.**
+`APingOverABidirectionalStream` builds up with `BuildUp(bidi: true)` - not
+`reachable` - so the server is `jabber.test` with a certificate for
+`jabber.test`. `AliceAsync` connected to `Server.Uri`, which is always
+`wss://localhost:<port>`. The client pins the certificate by its fingerprint,
+so TLS never noticed the names disagreeing; the HTTP layer now does.
+
+*Why only that round:* it is the only caller of `AliceAsync` that is not
+`reachable`. Every other one uses `reachable: true`, where the domain is
+`localhost` and so is the certificate - so name and certificate agreed, by
+coincidence of the set-up rather than by anybody's intention. The D130 shape
+once more: **a thing that works for the wrong reason breaks when the reason is
+corrected.**
+
+*Why it mattered more than a tips-lane curiosity:* the pinned lane was green
+only because the Hermod pin predates `6c94974d`. The next Hermod pin move would
+have turned the pinned lane and the gate red with it.
+
+*On the number:* this entry is D143, and the Ratatoskr commit that carries its
+code, `23e9e86`, says D142 in its subject. D142 was already taken, on 15
+October by `48a4c96` - the number here was worked out from where this session
+had last stopped, D141, instead of being looked up. The comments and the README
+row were corrected in a follow-up; the published subject is left as it is, for
+the same reason D141 left `ab947db` alone.
+
+#### The fix: the client names the origin and dials the address
+
+`XMPPConnection.DialAddress` in Ratatoskr (`23e9e86`): the address the TCP
+connection goes to, given by hand instead of asking DNS. The endpoint keeps
+naming the origin, so SNI and the Host field say `jabber.test`; only the port
+of the endpoint is used. It is what any client does after a DNS answer, with
+the answer supplied. `AliceAsync` now names `Server.Domain` and dials the
+loopback - for the reachable rounds that changes nothing, since there the
+domain already is `localhost`.
+
+The other direction was on offer and was not taken: Hermod's
+`IsAuthorityServed` predicate, passed through Ratatoskr's server, would have
+let the test say "serve localhost too". It is Hermod's documented way out of
+the default - and it would have put a switch into a public API that turns an
+RFC MUST off, so that a test could keep asking for the wrong name. Asking for
+the right one was the smaller change in the end.
+
+#### Measured here, this time, before the nightly
+
+D141 sent a hypothesis to the nightly four times. This one was reproduced
+locally first, because `APingOverABidirectionalStream` is not `reachable` and
+needs no inbound path - it runs in WSL against WSL's own peers.
+
+The first attempt measured nothing, and said so. WSL's git sees the Windows
+working tree's CRLF as changes and refused to check Hermod out (*"Please commit
+your changes or stash them"*), so both runs went against the old Hermod. The
+script printed *"contains 6c94974d: NO"* in its first line, which is the only
+reason two green "2 of 2" did not read as success. Checking Hermod out from the
+Windows side and running the tests in WSL:
+
+| Hermod | `AliceAsync` | result |
+|---|---|---|
+| `4f116936` (has `6c94974d`) | old, dials `localhost` | **2 of 2 red**, 421 - word for word the nightly's error |
+| `4f116936` | new, names `Server.Domain` | **2 of 2 green** |
+| `4f116936` | new - all federation rounds | **10 of 10**, none skipped |
+| `a75cc0d2` (the pin) | new - all federation rounds | **10 of 10**, none skipped |
+
+*None skipped* is new: a month ago the four inbound rounds skipped in WSL. With
+the peers freshly set up inside WSL, everything there is loopback and they can
+dial in - which makes WSL a place where the whole federation set can be run,
+and not only the container.
+
+*The peers needed setting up first:* both were down and both test CAs had
+expired, the certificates being minted for 30 days. The setup scripts renew
+exactly that case.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| RatatoskrTests | 1436 - 1433 passed, 3 skipped, built `--no-incremental` |
+| new tests | `TheOriginIsNamedAndTheAddressIsDialled`, `AStreamThroughADialAddressCompletes` |
+| conformance gate | 2 of 2 |
+
+| mutation | result |
+|---|---|
+| M26: the dial address is ignored | **red** in both - the name never resolves |
+| M27: the handler path loses the certificate check | **red** in both - the platform refuses the self-signed certificate |
+
+*Noticed on the way, and left:* Ratatoskr's own TLS tests give their
+certificates `localhost` as a second name. That is why they pass a check of
+this kind already, and it is the same coincidence as the reachable rounds -
+harmless, but it means they do not test what a server keeping to Section 7.4
+would do with a wrong name. The new tests use a certificate for one name only,
+on purpose.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
