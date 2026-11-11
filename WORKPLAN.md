@@ -10870,6 +10870,97 @@ harmless, but it means they do not test what a server keeping to Section 7.4
 would do with a wrong name. The new tests use a certificate for one name only,
 on purpose.
 
+### D144. .NET 11 ✅ — four sessions, one order that was not a choice
+
+On Achim's word, on 11 November 2026, everything moves to .NET 11. Four
+Claude sessions ended up working on it at the same time, and the split was
+settled between them before the second commit, not after it:
+
+| repository | moved by | commit |
+|---|---|---|
+| Hermod, Styx | the session that moved the OCPP/WWCP libraries, the night before | Hermod `0280a251` (merge of `62704cc1`), Styx `2874a327` + `836bc075` |
+| Ratatoskr | the XMPPWebApp session | `8ed05eb`, and a README row from here: `afe28ec` |
+| XMPPWebApp | the XMPPWebApp session | `02fcb7d` |
+| XMPPConsole | an XMPPConsole session of its own | `8953b6f` |
+| this suite | this session | this commit |
+
+*The order was not a choice.* An SDK 10 cannot even read a project that says
+`net11.0` (NETSDK1045), and a `net10.0` project cannot reference a `net11.0`
+one (NU1201). So Hermod and Styx first, then Ratatoskr, then everything that
+references Ratatoskr - and the pins move in the same commit as the target
+framework, because neither half builds without the other.
+
+*Ratatoskr's nightly on 11 November was red, and should have been.* It builds
+against Hermod master and Styx master as sibling checkouts, so at 09:51 it
+fetched two projects that already said `net11.0` and built them with
+`setup-dotnet 10.0.x`: NETSDK1045 on `Hermod.csproj` and `Styx.csproj`, before
+any of Ratatoskr's own code was looked at. `8ed05eb` puts its workflows on
+11.0.x. The same applies here regardless of what the suite itself targets: the
+lane `against-ratatoskr-master` moves the submodules at run time, and would
+have read net11 projects with a .NET 10 SDK the same way.
+
+#### What changed here
+
+- `XMPPConformanceTests.csproj`: `net11.0`.
+- `ci.yml` and the three jobs of `nightly.yml`: `setup-dotnet` with `11.0.x`.
+  The ci.yml comment that cites "Debian 13, .NET 10.0.302, 0 errors" now says
+  that this was a measurement on .NET 10, and that the leg speaks for itself
+  from here on.
+- Pins: Hermod `a75cc0d2 -> 0280a251`, Styx `1262aa28 -> 836bc075`, Ratatoskr
+  `91a2b6c -> afe28ec`, XMPPConsole `be4816e -> 8953b6f`, XMPPWebApp
+  `94f37df -> 02fcb7d`.
+
+The Hermod step is the one D143 prepared for: it is past `6c94974d`, the 421
+check, and `AliceAsync` already names the origin and dials the address.
+
+*Not changed:* the suite's own packages. It references no
+`Microsoft.Extensions.*` directly; NUnit, its analyzers and the test SDK are
+not tied to the runtime version.
+
+#### Checked against the platform rather than carried over
+
+Two statements in Ratatoskr were about .NET 10 and were measured again on the
+reference pack 11.0.0:
+
+| claim | .NET 10 | .NET 11 |
+|---|---|---|
+| `SslStream` has no TLS exporter (so no `tls-exporter` channel binding, RFC 9266) | true (10.0.11) | **still true** - no name containing *Export* or *Keying* in `System.Net.Security.dll` |
+| the BCL has no X25519 (so OMEMO needs BouncyCastle) | true | **no longer true** - `X25519DiffieHellman` is new; there is still no Ed25519 |
+
+The first is `afe28ec`, the README row now naming the assembly, the version
+and the date. The second is the XMPPWebApp session's, in `8ed05eb`'s comment on
+the BouncyCastle reference: BouncyCastle stays, because XEP-0384 needs both
+curves and .NET 11 has one.
+
+Styx found the one behavioural change of .NET 11 that has bitten so far
+(`836bc075`): a cast of a `double` to a `decimal` is exact now, 11.9 becomes
+11.900000000000000355271367880. Searched for here: neither Ratatoskr, nor
+XMPPConsole, nor this suite converts a `double` to a `decimal` anywhere.
+
+#### What it measured
+
+| what | result |
+|---|---|
+| this suite, Windows, `--no-incremental` | built, 0 errors; 137 - 23 passed, 114 skipped (no far sides on Windows), 0 failed |
+| RatatoskrTests on `8ed05eb` (XMPPWebApp session) | 1446 passed, 3 skipped, 0 failed |
+| RatatoskrTests here, net11.0, independently | 1446 passed, 3 skipped, 0 failed, 9 m 11 s - on this session's own net11 change of `1eaadf8`, which was then dropped for `8ed05eb`; the two differ only in `Microsoft.Extensions.Logging` 10.0.14 vs 11.0.0 and comments |
+| XMPPWebApp tests on `02fcb7d` (XMPPWebApp session) | 248 passed, 5 skipped |
+| XMPPConsole tests on `8953b6f`, built here in the suite tree against Ratatoskr `afe28ec` | 29 of 29 |
+| the far sides | not run locally: WSL has SDK 10.0.401 only, and installing a second SDK there was not part of the task. The gate and the nightly run them with 11.0.x |
+
+#### The mirrors had fallen behind, and nobody had noticed
+
+`git1` and `git2` of this repository were still at `703b730`, 3 October - 17
+commits behind GitHub. Every push since then had gone to `origin` alone. They
+were a fast-forward away and have been pushed along with this commit. *For
+the way of working:* in a repository with three remotes, a push goes to all
+three, every time; the XMPPWebApp session pointed it out for Ratatoskr, where
+the clone under `libs/` had no `git1` configured at all.
+
+*Not this repository's to fix:* janus3 has no .NET 11 SDK, so its
+`updateAndBuild.sh` stops as soon as it fetches `net11.0`. The XMPPWebApp
+session told Achim.
+
 ## Later
 ### Test suite
 - ~~**The far-side tests decide by platform, not by reachability.**~~ The ones
