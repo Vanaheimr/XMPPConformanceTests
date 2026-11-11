@@ -10946,7 +10946,9 @@ XMPPConsole, nor this suite converts a `double` to a `decimal` anywhere.
 | RatatoskrTests here, net11.0, independently | 1446 passed, 3 skipped, 0 failed, 9 m 11 s - on this session's own net11 change of `1eaadf8`, which was then dropped for `8ed05eb`; the two differ only in `Microsoft.Extensions.Logging` 10.0.14 vs 11.0.0 and comments |
 | XMPPWebApp tests on `02fcb7d` (XMPPWebApp session) | 248 passed, 5 skipped |
 | XMPPConsole tests on `8953b6f`, built here in the suite tree against Ratatoskr `afe28ec` | 29 of 29 |
-| the far sides | not run locally: WSL has SDK 10.0.401 only, and installing a second SDK there was not part of the task. The gate and the nightly run them with 11.0.x |
+| the far sides, WSL, SDK 11.0.100, Release `--no-incremental` | **137 of 137, none skipped** - Prosody and ejabberd set up anew, the OMEMO oracles fetched at their pins, 50 s. Run after `ab25416`, once Achim had put the 11.0.100 SDK into WSL; until then WSL had 10.0.401 only |
+
+*Noticed in that run, and left:* on Linux, and only there, `dotnet test` now ends with *"VSTEST_ARTIFACTS_DIRECTORY environment variable was not found ... most likely caused by an outdated Microsoft.NET.Test.Sdk package reference"*. The reference is not outdated in any sense that helps: 18.11.0 here, and 18.11.1 - the newest on NuGet on 11 November - was tried and prints the same line. The run is not affected; the line is the SDK's, not ours, and it is left until a Test.Sdk exists that it is actually asking for.
 
 #### The mirrors had fallen behind, and nobody had noticed
 
